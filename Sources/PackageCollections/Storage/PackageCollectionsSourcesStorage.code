@@ -46,7 +46,7 @@ public protocol PackageCollectionsSourcesStorage {
     ///
     /// - Parameters:
     ///   - source: The `PackageCollectionSource`
-    fn exists(source: PackageCollectionsModel.CollectionSource) async throws -> Bool
+    fn exists(source: PackageCollectionsModel.CollectionSource) async throws -> Boolean
 
     /// Updates the given source.
     ///

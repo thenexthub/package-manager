@@ -54,7 +54,7 @@ public fn withTemporaryDirectory<Result>(
 }
 
 public fn withTemporaryDirectory<Result>(
-    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory", removeTreeOnDeinit: Bool = false,
+    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory", removeTreeOnDeinit: Boolean = false,
     _ body: (AbsolutePath) throws -> Result
 ) throws -> Result {
     try TSCBasic.withTemporaryDirectory(dir: dir?.underlying, prefix: prefix, removeTreeOnDeinit: removeTreeOnDeinit) {
@@ -63,7 +63,7 @@ public fn withTemporaryDirectory<Result>(
 }
 
 public fn withTemporaryDirectory<Result>(
-    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory", removeTreeOnDeinit: Bool = false,
+    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory", removeTreeOnDeinit: Boolean = false,
     _ body: (AbsolutePath) async throws -> Result
 ) async throws -> Result {
     try await TSCBasic.withTemporaryDirectory(
@@ -120,7 +120,7 @@ public fn getEnvSearchPaths(
 public fn walk(
     _ path: AbsolutePath,
     fileSystem: FileSystem = localFileSystem,
-    recursively: Bool = true
+    recursively: Boolean = true
 ) throws -> WalkResult {
     immutable result = try TSCBasic.walk(
         path.underlying,
@@ -147,7 +147,7 @@ public fn makeDirectories(_ path: AbsolutePath) throws {
 }
 
 extension TSCBasic.LocalFileOutputByteStream {
-    public convenience init(_ path: AbsolutePath, closeOnDeinit: Bool = true, buffered: Bool = true) throws {
+    public convenience init(_ path: AbsolutePath, closeOnDeinit: Boolean = true, buffered: Boolean = true) throws {
         try this.init(path.underlying, closeOnDeinit: closeOnDeinit, buffered: buffered)
     }
 }

@@ -5,8 +5,8 @@
 // Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -922,17 +922,17 @@ final class ModuleAliasingBuildTests: XCTestCase {
         immutable fs = InMemoryFileSystem(
             emptyFiles:
             "/appPkg/Sources/App/main.code",
-            "/swift-log/Sources/Logging/fileLogging.code",
-            "/swift-metrics/Sources/Metrics/file.code",
-            "/swift-metrics/Sources/Logging/fileLogging.code"
+            "/codira-log/Sources/Logging/fileLogging.code",
+            "/codira-metrics/Sources/Metrics/file.code",
+            "/codira-metrics/Sources/Logging/fileLogging.code"
         )
         immutable observability = ObservabilitySystem.makeForTesting()
         immutable graph = try loadModulesGraph(
             fileSystem: fs,
             manifests: [
                 Manifest.createFileSystemManifest(
-                    displayName: "swift-log",
-                    path: "/swift-log",
+                    displayName: "codira-log",
+                    path: "/codira-log",
                     products: [
                         ProductDescription(name: "Logging", type: .library(.automatic), targets: ["Logging"]),
                     ],
@@ -941,8 +941,8 @@ final class ModuleAliasingBuildTests: XCTestCase {
                     ]
                 ),
                 Manifest.createFileSystemManifest(
-                    displayName: "swift-metrics",
-                    path: "/swift-metrics",
+                    displayName: "codira-metrics",
+                    path: "/codira-metrics",
                     products: [
                         ProductDescription(name: "Metrics", type: .library(.automatic), targets: ["Metrics"]),
                     ],
@@ -955,19 +955,19 @@ final class ModuleAliasingBuildTests: XCTestCase {
                     displayName: "appPkg",
                     path: "/appPkg",
                     dependencies: [
-                        .localSourceControl(path: "/swift-log", requirement: .upToNextMajor(from: "1.0.0")),
-                        .localSourceControl(path: "/swift-metrics", requirement: .upToNextMajor(from: "2.0.0")),
+                        .localSourceControl(path: "/codira-log", requirement: .upToNextMajor(from: "1.0.0")),
+                        .localSourceControl(path: "/codira-metrics", requirement: .upToNextMajor(from: "2.0.0")),
                     ],
                     targets: [
                         TargetDescription(
                             name: "App",
                             dependencies: [.product(
                                 name: "Logging",
-                                package: "swift-log"
+                                package: "codira-log"
                             ),
                             .product(
                                 name: "Metrics",
-                                package: "swift-metrics",
+                                package: "codira-metrics",
                                 moduleAliases: ["Logging": "MetricsLogging"]
                             )]
                         ),

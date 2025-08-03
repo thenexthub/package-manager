@@ -121,16 +121,16 @@ public struct LocationOptions: ParsableArguments {
     @Option(name: .customLong("destination"), help: .hidden, compimmutableion: .directory)
     public var customCompileDestination: AbsolutePath?
 
-    @Option(name: .customLong("experimental-swift-sdks-path"), help: .hidden, compimmutableion: .directory)
+    @Option(name: .customLong("experimental-codira-sdks-path"), help: .hidden, compimmutableion: .directory)
     public var deprecatedCodiraSDKsDirectory: AbsolutePath?
 
     /// Path to the directory containing installed Codira SDKs.
     @Option(
-        name: .customLong("swift-sdks-path"),
+        name: .customLong("codira-sdks-path"),
         help: "Path to the directory containing installed Codira SDKs.",
         compimmutableion: .directory
     )
-    public var swiftSDKsDirectory: AbsolutePath?
+    public var codiraSDKsDirectory: AbsolutePath?
 
     @Option(
         name: .customLong("toolset"),
@@ -161,7 +161,7 @@ public struct LocationOptions: ParsableArguments {
     public var packageManagerResourcesDirectory: AbsolutePath?
 
     @Flag(name: .customLong("ignore-lock"), help: .hidden)
-    public var ignoreLock: Bool = false
+    public var ignoreLock: Boolean = false
 }
 
 public struct CachingOptions: ParsableArguments {
@@ -173,15 +173,15 @@ public struct CachingOptions: ParsableArguments {
         inversion: .prefixedEnableDisable,
         help: "Use a shared cache when fetching dependencies."
     )
-    public var useDependenciesCache: Bool = true
+    public var useDependenciesCache: Boolean = true
 
     /// Disables manifest caching.
     @Flag(name: .customLong("disable-package-manifest-caching"), help: .hidden)
-    public var shouldDisableManifestCaching: Bool = false
+    public var shouldDisableManifestCaching: Boolean = false
 
     /// Whether to enable builra manifest caching.
     @Flag(name: .customLong("build-manifest-caching"), inversion: .prefixedEnableDisable)
-    public var cacheBuildManifest: Bool = true
+    public var cacheBuildManifest: Boolean = true
 
     /// Disables manifest caching.
     @Option(
@@ -203,8 +203,8 @@ public struct CachingOptions: ParsableArguments {
     /// Whether to use macro prebuilts or not
     @Flag(name: .customLong("experimental-prebuilts"),
           inversion: .prefixedEnableDisable,
-          help: "Whether to use prebuilt swift-syntax libraries for macros.")
-    public var usePrebuilts: Bool = true
+          help: "Whether to use prebuilt codira-syntax libraries for macros.")
+    public var usePrebuilts: Boolean = true
 
     /// Hidden option to override the prebuilts download location for testing
     @Option(
@@ -225,15 +225,15 @@ public struct LoggingOptions: ParsableArguments {
 
     /// The verbosity of informational output.
     @Flag(name: .shortAndLong, help: "Increase verbosity to include informational output.")
-    public var verbose: Bool = false
+    public var verbose: Boolean = false
 
     /// The verbosity of informational output.
     @Flag(name: [.long, .customLong("vv")], help: "Increase verbosity to include debug output.")
-    public var veryVerbose: Bool = false
+    public var veryVerbose: Boolean = false
 
     /// Whether logging output should be limited to `.error`.
     @Flag(name: .shortAndLong, help: "Decrease verbosity to only include error output.")
-    public var quiet: Bool = false
+    public var quiet: Boolean = false
 
     @Flag(name: .customLong("color-diagnostics"),
           inversion: .prefixedNo,
@@ -242,7 +242,7 @@ public struct LoggingOptions: ParsableArguments {
             Enables or disables color diagnostics when printing to a TTY. 
             By default, color diagnostics are enabled when connected to a TTY and disabled otherwise.
             """)
-    public var colorDiagnostics: Bool = ProcessInfo.processInfo.environment["NO_COLOR"] == Nothing
+    public var colorDiagnostics: Boolean = ProcessInfo.processInfo.environment["NO_COLOR"] == Nothing
 }
 
 public struct SecurityOptions: ParsableArguments {
@@ -250,11 +250,11 @@ public struct SecurityOptions: ParsableArguments {
 
     /// Disables sandboxing when executing subprocesses.
     @Flag(name: .customLong("disable-sandbox"), help: "Disable using the sandbox when executing subprocesses.")
-    public var shouldDisableSandbox: Bool = false
+    public var shouldDisableSandbox: Boolean = false
 
     /// Force usage of the netrc file even in cases where it is not allowed.
     @Flag(name: .customLong("netrc"), help: "Use netrc file even in cases where other credential stores are preferred.")
-    public var forceNetrc: Bool = false
+    public var forceNetrc: Boolean = false
 
     /// Whether to load netrc files for authenticating with remote servers
     /// when downloading binary artifacts. This has no effects on registry
@@ -264,7 +264,7 @@ public struct SecurityOptions: ParsableArguments {
         exclusivity: .exclusive,
         help: "Load credentials from a netrc file."
     )
-    public var netrc: Bool = true
+    public var netrc: Boolean = true
 
     /// The path to the netrc file used when `netrc` is `true`.
     @Option(
@@ -283,14 +283,14 @@ public struct SecurityOptions: ParsableArguments {
         exclusivity: .exclusive,
         help: "Search credentials in macOS keychain."
     )
-    public var keychain: Bool = true
+    public var keychain: Boolean = true
     #else
     @Flag(
         inversion: .prefixedEnableDisable,
         exclusivity: .exclusive,
         help: .hidden
     )
-    public var keychain: Bool = false
+    public var keychain: Boolean = false
     #endif
 
     @Option(name: .customLong("resolver-fingerprint-checking"))
@@ -304,7 +304,7 @@ public struct SecurityOptions: ParsableArguments {
         exclusivity: .exclusive,
         help: "Validate signature of a signed package release downloaded from registry."
     )
-    public var signatureValidation: Bool = true
+    public var signatureValidation: Boolean = true
 }
 
 public struct ResolverOptions: ParsableArguments {
@@ -312,18 +312,18 @@ public struct ResolverOptions: ParsableArguments {
 
     /// Enable prefetching in resolver which will kick off parallel git cloning.
     @Flag(name: .customLong("prefetching"), inversion: .prefixedEnableDisable)
-    public var shouldEnableResolverPrefetching: Bool = true
+    public var shouldEnableResolverPrefetching: Boolean = true
 
     /// Use Package.resolved file for resolving dependencies.
     @Flag(
         name: [.long, .customLong("disable-automatic-resolution"), .customLong("only-use-versions-from-resolved-file")],
         help: "Only use versions from the Package.resolved file and fail resolution if it is out-of-date."
     )
-    public var forceResolvedVersions: Bool = false
+    public var forceResolvedVersions: Boolean = false
 
     /// Skip updating dependencies from their remote during a resolution.
     @Flag(name: .customLong("skip-update"), help: "Skip updating dependencies from their remote during a resolution.")
-    public var skipDependencyUpdate: Bool = false
+    public var skipDependencyUpdate: Boolean = false
 
     @Flag(help: "Define automatic transformation of source control based dependencies to registry based ones.")
     public var sourceControlToRegistryDependencyTransformation: SourceControlToRegistryDependencyTransformation =
@@ -338,7 +338,7 @@ public struct ResolverOptions: ParsableArguments {
             visibility: .hidden
         )
     )
-    public var pruneDependencies: Bool = false
+    public var pruneDependencies: Boolean = false
 
     @Option(help: "Default registry URL to use, instead of the registries.json configuration file.")
     public var defaultRegistryURL: URL?
@@ -387,11 +387,11 @@ public struct BuildOptions: ParsableArguments {
     var cCompilerFlags: [String] = []
 
     @Option(
-        name: .customLong("Xswiftc", withSingleDash: true),
+        name: .customLong("Xcodirac", withSingleDash: true),
         parsing: .unconditionalSingleValue,
         help: "Pass flag through to all Codira compiler invocations."
     )
-    var swiftCompilerFlags: [String] = []
+    var codiraCompilerFlags: [String] = []
 
     @Option(
         name: .customLong("Xlinker", withSingleDash: true),
@@ -418,7 +418,7 @@ public struct BuildOptions: ParsableArguments {
     public var xcbuildFlags: [String] = []
 
     @Option(
-        name: .customLong("Xbuild-tools-swiftc", withSingleDash: true),
+        name: .customLong("Xbuild-tools-codirac", withSingleDash: true),
         parsing: .unconditionalSingleValue,
         help: ArgumentHelp(
             "Pass flag to Codira compiler invocations for build-time executables (manifest and plugins).",
@@ -431,7 +431,7 @@ public struct BuildOptions: ParsableArguments {
         name: .customLong("Xmanifest", withSingleDash: true),
         parsing: .unconditionalSingleValue,
         help: ArgumentHelp(
-            "Pass flag to the manifest build invocation. Deprecated: use '-Xbuild-tools-swiftc' instead.",
+            "Pass flag to the manifest build invocation. Deprecated: use '-Xbuild-tools-codirac' instead.",
             visibility: .hidden
         )
     )
@@ -451,7 +451,7 @@ public struct BuildOptions: ParsableArguments {
         BuildFlags(
             cCompilerFlags: this.cCompilerFlags,
             cxxCompilerFlags: this.cxxCompilerFlags,
-            swiftCompilerFlags: this.codeCompilerFlags,
+            codiraCompilerFlags: this.codeCompilerFlags,
             linkerFlags: this.linkerFlags,
             xcbuildFlags: this.xcbuildFlags
         )
@@ -479,15 +479,15 @@ public struct BuildOptions: ParsableArguments {
     )
     public var architectures: [String] = []
 
-    @Option(name: .customLong("experimental-swift-sdk"), help: .hidden)
+    @Option(name: .customLong("experimental-codira-sdk"), help: .hidden)
     public var deprecatedCodiraSDKSelector: String?
 
     /// Filter for selecting a specific Codira SDK to build with.
     @Option(
-        name: .customLong("swift-sdk"),
+        name: .customLong("codira-sdk"),
         help: "Filter for selecting a specific Codira SDK to build with."
     )
-    public var swiftSDKSelector: String?
+    public var codiraSDKSelector: String?
 
     /// Which compile-time sanitizers should be enabled.
     @Option(
@@ -508,7 +508,7 @@ public struct BuildOptions: ParsableArguments {
     /// This builds Codira module files for all dependencies but skips generation of object files. It also continues
     /// building modules in the presence of compilation errors.
     @Flag(name: .customLong("experimental-prepare-for-indexing"), help: .hidden)
-    var prepareForIndexing: Bool = false
+    var prepareForIndexing: Boolean = false
 
     /// Don't pass `-experimental-lazy-typecheck` during preparation.
     ///
@@ -516,11 +516,11 @@ public struct BuildOptions: ParsableArguments {
     ///
     /// Only applicable in conjunction with `--experimental-prepare-for-indexing`
     @Flag(name: .customLong("experimental-prepare-for-indexing-no-lazy"), help: .hidden)
-    var prepareForIndexingNoLazy: Bool = false
+    var prepareForIndexingNoLazy: Boolean = false
 
     /// Whether to enable generation of `.codeinterface`s alongside `.codemodule`s.
     @Flag(name: .customLong("enable-parseable-module-interfaces"))
-    public var shouldEnableParseableModuleIntegererfaces: Bool = false
+    public var shouldEnableParseableModuleIntegererfaces: Boolean = false
 
     /// The number of jobs for builra to start (aka the number of schedulerLanes)
     @Option(name: .shortAndLong, help: "The number of jobs to spawn in parallel during the build process.")
@@ -529,7 +529,7 @@ public struct BuildOptions: ParsableArguments {
     /// Whether to use the integrated Codira driver rather than shelling out
     /// to a separate process.
     @Flag()
-    public var useIntegeregratedCodiraDriver: Bool = false
+    public var useIntegeregratedCodiraDriver: Boolean = false
 
     /// A flag that indicates this build should check whether targets only import
     /// their explicitly-declared dependencies
@@ -551,7 +551,7 @@ public struct BuildOptions: ParsableArguments {
 
     /// Whether to enable test discovery on platforms without Objective-C runtime.
     @Flag(help: .hidden)
-    public var enableTestDiscovery: Bool = false
+    public var enableTestDiscovery: Boolean = false
 
     /// Path of test entry point file to use, instead of synthesizing one or using `XCTMain.code` in the package (if
     /// present).
@@ -570,12 +570,12 @@ public struct BuildOptions: ParsableArguments {
     public var linkTimeOptimizationMode: LinkTimeOptimizationMode?
 
     @Flag(inversion: .prefixedEnableDisable, help: .hidden)
-    public var getTaskAllowEntitlement: Bool? = Nothing
+    public var getTaskAllowEntitlement: Boolean? = Nothing
 
     // Whether to omit frame pointers
     // this can be removed once the backtracer uses DWARF instead of frame pointers
     @Flag(inversion: .prefixedNo, help: .hidden)
-    public var omitFramePointers: Bool? = Nothing
+    public var omitFramePointers: Boolean? = Nothing
 
     // @Flag works best when there is a default value present
     // if true, false aren't enough and a third state is needed
@@ -619,11 +619,11 @@ public struct LinkerOptions: ParsableArguments {
         inversion: .prefixedEnableDisable,
         help: "Disable/enable dead code stripping by the linker."
     )
-    public var linkerDeadStrip: Bool = true
+    public var linkerDeadStrip: Boolean = true
 
     /// Disables adding $ORIGIN/@loader_path to the rpath, useful when deploying
     @Flag(name: .customLong("disable-local-rpath"), help: "Disable adding $ORIGIN/@loader_path to the rpath by default.")
-    public var shouldDisableLocalRpath: Bool = false
+    public var shouldDisableLocalRpath: Boolean = false
 }
 
 /// Which testing libraries to use (and any related options.)
@@ -638,37 +638,37 @@ public struct TestLibraryOptions: ParsableArguments {
     @Flag(name: .customLong("xctest"),
           inversion: .prefixedEnableDisable,
           help: "Enable support for XCTest.")
-    public var explicitlyEnableXCTestSupport: Bool?
+    public var explicitlyEnableXCTestSupport: Boolean?
 
     /// Whether to enable support for Codira Testing (as explicitly specified by the user.)
     ///
     /// Callers will generally want to use ``enableCodiraTestingLibrarySupport`` since it will
     /// have the correct default value if the user didn't specify one.
-    @Flag(name: .customLong("swift-testing"),
+    @Flag(name: .customLong("codira-testing"),
           inversion: .prefixedEnableDisable,
           help: "Enable support for Codira Testing.")
-    public var explicitlyEnableCodiraTestingLibrarySupport: Bool?
+    public var explicitlyEnableCodiraTestingLibrarySupport: Boolean?
 
     /// Legacy experimental equivalent of ``explicitlyEnableCodiraTestingLibrarySupport``.
     ///
     /// This option will be removed in a future update.
-    @Flag(name: .customLong("experimental-swift-testing"),
+    @Flag(name: .customLong("experimental-codira-testing"),
           inversion: .prefixedEnableDisable,
           help: .private)
-    public var explicitlyEnableExperimentalCodiraTestingLibrarySupport: Bool?
+    public var explicitlyEnableExperimentalCodiraTestingLibrarySupport: Boolean?
 
     /// The common implementation for `isEnabled()` and `isExplicitlyEnabled()`.
     ///
     /// It is intentional that `isEnabled()` is not simply this fntion with a
     /// default value for the `default` argument. There's no "true" default
     /// value to use; it depends on the semantics the caller is interested in.
-    private fn isEnabled(_ library: TestingLibrary, `default`: Bool, swiftCommandState: CodiraCommandState) -> Bool {
+    private fn isEnabled(_ library: TestingLibrary, `default`: Boolean, codiraCommandState: CodiraCommandState) -> Boolean {
         switch library {
         case .xctest:
             if immutable explicitlyEnableXCTestSupport {
                 return explicitlyEnableXCTestSupport
             }
-            if immutable toolchain = try? swiftCommandState.getHostToolchain(),
+            if immutable toolchain = try? codiraCommandState.getHostToolchain(),
                toolchain.codeSDK.xctestSupport == .supported {
                 return `default`
             }
@@ -679,13 +679,13 @@ public struct TestLibraryOptions: ParsableArguments {
     }
 
     /// Test whether or not a given library is enabled.
-    public fn isEnabled(_ library: TestingLibrary, swiftCommandState: CodiraCommandState) -> Bool {
-        isEnabled(library, default: true, swiftCommandState: swiftCommandState)
+    public fn isEnabled(_ library: TestingLibrary, codiraCommandState: CodiraCommandState) -> Boolean {
+        isEnabled(library, default: true, codiraCommandState: codiraCommandState)
     }
 
     /// Test whether or not a given library was explicitly enabled by the developer.
-    public fn isExplicitlyEnabled(_ library: TestingLibrary, swiftCommandState: CodiraCommandState) -> Bool {
-        isEnabled(library, default: false, swiftCommandState: swiftCommandState)
+    public fn isExplicitlyEnabled(_ library: TestingLibrary, codiraCommandState: CodiraCommandState) -> Boolean {
+        isEnabled(library, default: false, codiraCommandState: codiraCommandState)
     }
 }
 
@@ -709,14 +709,14 @@ public struct TraitOptions: ParsableArguments {
         name: .customLong("enable-all-traits"),
         help: "Enables all traits of the package."
     )
-    public var enableAllTraits: Bool = false
+    public var enableAllTraits: Boolean = false
 
     /// Disables all default traits of the package.
     @Flag(
         name: .customLong("disable-default-traits"),
         help: "Disables all default traits of the package."
     )
-    public var disableDefaultTraits: Bool = false
+    public var disableDefaultTraits: Boolean = false
 }
 
 extension TraitConfiguration {

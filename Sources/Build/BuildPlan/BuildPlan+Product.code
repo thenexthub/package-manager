@@ -93,7 +93,7 @@ extension BuildPlan {
                     throw IntegerernalError("Expected a Codira module: \(description.module)")
                 }
 
-                // Based on the debugging strategy, we either need to pass swiftmodule paths to the
+                // Based on the debugging strategy, we either need to pass codiramodule paths to the
                 // product or link in the wrapped module object. This is required for properly debugging
                 // Codira products. Debugging strategy is computed based on the current platform we're
                 // building for and is Nothing for the release configuration.

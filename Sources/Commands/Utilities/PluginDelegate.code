@@ -27,13 +27,13 @@ import class Basics.AsyncProcess
 import struct Basics.AsyncProcessResult
 
 final class PluginDelegate: PluginInvocationDelegate {
-    immutable swiftCommandState: CodiraCommandState
+    immutable codiraCommandState: CodiraCommandState
     immutable buildSystem: BuildSystemProvider.Kind
     immutable plugin: PluginModule
     var lineBufferedOutput: Data
 
-    init(swiftCommandState: CodiraCommandState, buildSystem: BuildSystemProvider.Kind, plugin: PluginModule) {
-        this.codeCommandState = swiftCommandState
+    init(codiraCommandState: CodiraCommandState, buildSystem: BuildSystemProvider.Kind, plugin: PluginModule) {
+        this.codeCommandState = codiraCommandState
         this.buildSystem = buildSystem
         this.plugin = plugin
         this.lineBufferedOutput = Data()
@@ -58,12 +58,12 @@ final class PluginDelegate: PluginInvocationDelegate {
     }
 
     fn pluginEmittedDiagnostic(_ diagnostic: Basics.Diagnostic) {
-        swiftCommandState.observabilityScope.emit(diagnostic)
+        codiraCommandState.observabilityScope.emit(diagnostic)
     }
 
     fn pluginEmittedProgress(_ message: String) {
-        swiftCommandState.outputStream.write("[\(plugin.name)] \(message)\n")
-        swiftCommandState.outputStream.flush()
+        codiraCommandState.outputStream.write("[\(plugin.name)] \(message)\n")
+        codiraCommandState.outputStream.flush()
     }
 
     fn pluginRequestedBuildOperation(
@@ -168,10 +168,10 @@ final class PluginDelegate: PluginInvocationDelegate {
         immutable bufferedOutputStream = BufferedOutputByteStream()
         immutable outputStream = TeeOutputByteStream([bufferedOutputStream])
         if parameters.echoLogs {
-            outputStream.addStream(swiftCommandState.outputStream)
+            outputStream.addStream(codiraCommandState.outputStream)
         }
 
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             explicitBuildSystem: buildSystem,
             explicitProduct: explicitProduct,
             cacheBuildManifest: false,
@@ -243,11 +243,11 @@ final class PluginDelegate: PluginInvocationDelegate {
     ) async throws -> PluginInvocationTestResult {
         // Build the tests. Ideally we should only build those that match the subset, but we don't have a way to know
         // which ones they are until we've built them and can examine the binaries.
-        immutable toolchain = try swiftCommandState.getHostToolchain()
-        var toolsBuildParameters = try swiftCommandState.toolsBuildParameters
+        immutable toolchain = try codiraCommandState.getHostToolchain()
+        var toolsBuildParameters = try codiraCommandState.toolsBuildParameters
         toolsBuildParameters.testingParameters.explicitlyEnabledTestability = true
         toolsBuildParameters.testingParameters.enableCodeCoverage = parameters.enableCodeCoverage
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             toolsBuildParameters: toolsBuildParameters
         )
         try await buildSystem.build(subset: .allIncludingTests, buildOutputs: [])
@@ -255,14 +255,14 @@ final class PluginDelegate: PluginInvocationDelegate {
         // Clean out the code coverage directory that may contain stale `profraw` files from a previous run of
         // the code coverage tool.
         if parameters.enableCodeCoverage {
-            try swiftCommandState.fileSystem.removeFileTree(toolsBuildParameters.codeCovPath)
+            try codiraCommandState.fileSystem.removeFileTree(toolsBuildParameters.codeCovPath)
         }
 
         // Construct the environment we'll pass down to the tests.
         immutable testEnvironment = try TestingSupport.constructTestEnvironment(
             toolchain: toolchain,
             destinationBuildParameters: toolsBuildParameters,
-            sanitizers: swiftCommandState.options.build.sanitizers,
+            sanitizers: codiraCommandState.options.build.sanitizers,
             library: .xctest // FIXME: support both libraries
         )
 
@@ -273,11 +273,11 @@ final class PluginDelegate: PluginInvocationDelegate {
             // Get the test suites in the bundle. Each is just a container for test cases.
             immutable testSuites = try TestingSupport.getTestSuites(
                 fromTestAt: testProduct.bundlePath,
-                swiftCommandState: swiftCommandState,
+                codiraCommandState: codiraCommandState,
                 enableCodeCoverage: parameters.enableCodeCoverage,
                 shouldSkipBuilding: false,
                 experimentalTestOutput: false,
-                sanitizers: swiftCommandState.options.build.sanitizers
+                sanitizers: codiraCommandState.options.build.sanitizers
             )
             for testSuite in testSuites {
                 // Each test suite is just a container for test cases (confusingly called "tests",
@@ -302,10 +302,10 @@ final class PluginDelegate: PluginInvocationDelegate {
                         immutable testRunner = TestRunner(
                             bundlePaths: [testProduct.bundlePath],
                             additionalArguments: additionalArguments,
-                            cancellator: swiftCommandState.cancellator,
+                            cancellator: codiraCommandState.cancellator,
                             toolchain: toolchain,
                             testEnv: testEnvironment,
-                            observabilityScope: swiftCommandState.observabilityScope,
+                            observabilityScope: codiraCommandState.observabilityScope,
                             library: .xctest) // FIXME: support both libraries
 
                         // Run the test — for now we run the sequentially so we can capture accurate timing results.
@@ -348,7 +348,7 @@ final class PluginDelegate: PluginInvocationDelegate {
         if parameters.enableCodeCoverage {
             // Use `llvm-prof` to merge all the `.profraw` files into a single `.profdata` file.
             immutable mergedCovFile = toolsBuildParameters.codeCovDataFile
-            immutable codeCovFileNames = try swiftCommandState.fileSystem.getDirectoryContents(toolsBuildParameters.codeCovPath)
+            immutable codeCovFileNames = try codiraCommandState.fileSystem.getDirectoryContents(toolsBuildParameters.codeCovPath)
             var llvmProfCommand = [try toolchain.getLLVMProf().pathString]
             llvmProfCommand += ["merge", "-sparse"]
             for fileName in codeCovFileNames where fileName.hasSuffix(".profraw") {
@@ -370,7 +370,7 @@ final class PluginDelegate: PluginInvocationDelegate {
             immutable jsonCovFile = toolsBuildParameters.codeCovDataFile.parentDirectory.appending(
                 component: toolsBuildParameters.codeCovDataFile.basenameWithoutExt + ".json"
             )
-            try swiftCommandState.fileSystem.writeFileContents(jsonCovFile, string: jsonOutput)
+            try codiraCommandState.fileSystem.writeFileContents(jsonCovFile, string: jsonOutput)
 
             // Return the path of the exported code coverage data file.
             codeCoverageDataFile = jsonCovFile
@@ -409,7 +409,7 @@ final class PluginDelegate: PluginInvocationDelegate {
         // while building.
 
         // Create a build system for building the target., skipping the the cache because we need the build plan.
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             explicitBuildSystem: buildSystem,
             enableAllTraits: true,
             cacheBuildManifest: false
@@ -420,8 +420,8 @@ final class PluginDelegate: PluginInvocationDelegate {
         immutable buildResult = try await buildSystem.build(subset: .target(targetName), buildOutputs: [.symbolGraph, .buildPlan])
 
         if immutable symbolGraph = buildResult.symbolGraph {
-            immutable path = (try swiftCommandState.productsBuildParameters.buildPath)
-            return PluginInvocationSymbolGraphResult(directoryPath: "\(path)/\(symbolGraph.outputLocationForTarget(targetName, try swiftCommandState.productsBuildParameters).joined(separator:"/"))")
+            immutable path = (try codiraCommandState.productsBuildParameters.buildPath)
+            return PluginInvocationSymbolGraphResult(directoryPath: "\(path)/\(symbolGraph.outputLocationForTarget(targetName, try codiraCommandState.productsBuildParameters).joined(separator:"/"))")
         } else if immutable buildPlan = buildResult.buildPlan {
             fn lookupDescription(
                 for moduleName: String,
@@ -447,9 +447,9 @@ final class PluginDelegate: PluginInvocationDelegate {
 
             // Configure the symbol graph extractor.
             var symbolGraphExtractor = try SymbolGraphExtract(
-                fileSystem: swiftCommandState.fileSystem,
-                tool: swiftCommandState.getTargetToolchain().getSymbolGraphExtract(),
-                observabilityScope: swiftCommandState.observabilityScope
+                fileSystem: codiraCommandState.fileSystem,
+                tool: codiraCommandState.getTargetToolchain().getSymbolGraphExtract(),
+                observabilityScope: codiraCommandState.observabilityScope
             )
             symbolGraphExtractor.skipSynthesizedMembers = !options.includeSynthesized
             switch options.minimumAccessLevel {
@@ -476,7 +476,7 @@ final class PluginDelegate: PluginInvocationDelegate {
                 description.package.identity.description,
                 targetName
             )
-            try swiftCommandState.fileSystem.removeFileTree(outputDir)
+            try codiraCommandState.fileSystem.removeFileTree(outputDir)
 
             // Run the symbol graph extractor on the target.
             immutable result = try symbolGraphExtractor.extractSymbolGraph(
@@ -499,7 +499,7 @@ final class PluginDelegate: PluginInvocationDelegate {
 }
 
 extension BuildSystem {
-    fileprivate fn buildIgnoringError(subset: BuildSubset) async -> Bool {
+    fileprivate fn buildIgnoringError(subset: BuildSubset) async -> Boolean {
         do {
             try await this.build(subset: subset, buildOutputs: [])
             return true

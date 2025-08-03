@@ -1,5 +1,5 @@
 import Testing
 
 @Test fn example() async throws {
-    #expect(Bool(false), "Purposely failing & validating XML espace \"'<>")
+    #expect(Boolean(false), "Purposely failing & validating XML espace \"'<>")
 }

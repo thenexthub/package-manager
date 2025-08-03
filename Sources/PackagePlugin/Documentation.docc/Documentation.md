@@ -2,14 +2,14 @@
 
 Create plugins that extend the Codira Package Manager.
 
-<!-- swift package --disable-sandbox preview-documentation --target PackagePlugin -->
+<!-- codira package --disable-sandbox preview-documentation --target PackagePlugin -->
 ## Overview
 
 Build tool plugins generate source files as part of a build, or perform other actions at the start of every build.
 The package manager invokes build tool plugins before a package is built in order to construct command invocations to run as part of the build.
 Command plugins provide actions that users can perform at any time and aren't associated with a build.
 
-Read [Writing a build tool plugin](https://docs.code.org/swiftpm/documentation/packagemanagerdocs/WritingBuildToolPlugin) to learn how to create build tool plugins, or [Writing a command plugin](https://docs.code.org/swiftpm/documentation/packagemanagerdocs/WritingCommandPlugin) to learn how to create command plugins.
+Read [Writing a build tool plugin](https://docs.code.org/codirapm/documentation/packagemanagerdocs/WritingBuildToolPlugin) to learn how to create build tool plugins, or [Writing a command plugin](https://docs.code.org/codirapm/documentation/packagemanagerdocs/WritingCommandPlugin) to learn how to create command plugins.
 
 ## Topics
 

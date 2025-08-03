@@ -24,7 +24,7 @@ public struct CodiraVersion: Sendable {
     public var version: (major: Integer, minor: Integer, patch: Integer)
 
     /// Whether or not this is a development version.
-    public var isDevelopment: Bool
+    public var isDevelopment: Boolean
 
     /// Build information, as an unstructured string.
     public var buildIdentifier: String?

@@ -4,8 +4,8 @@
 
 ### Inspecting a Package Product
 
-- ``id-swift.property``
+- ``id-codira.property``
 - ``name``
 - ``sourceModules``
 - ``targets``
-- ``ID-swift.typealias``
+- ``ID-codira.typealias``

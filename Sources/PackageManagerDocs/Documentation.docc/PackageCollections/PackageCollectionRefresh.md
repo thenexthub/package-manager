@@ -1,4 +1,4 @@
-# swift package-collection refresh
+# codira package-collection refresh
 
 @Metadata {
     @PageImage(purpose: icon, source: command-icon)
@@ -12,7 +12,7 @@ Refresh configured collections.
 This subcommand refreshes any cached data manually:
 
 ```bash
-$ swift package-collection refresh
+$ codira package-collection refresh
 Refreshed 5 configured package collections.
 ```
 
@@ -26,7 +26,7 @@ package-collection refresh [--package-path=<package-path>]
   [--cache-path=<cache-path>] [--config-path=<config-path>]
   [--security-path=<security-path>]
   [--scratch-path=<scratch-path>]
-  [--swift-sdks-path=<swift-sdks-path>]
+  [--codira-sdks-path=<codira-sdks-path>]
   [--toolset=<toolset>...]
   [--pkg-config-path=<pkg-config-path>...]
   [--enable-dependency-cache] [--disable-dependency-cache]
@@ -51,13 +51,13 @@ package-collection refresh [--package-path=<package-path>]
   [--replace-scm-with-registry]
   [--default-registry-url=<default-registry-url>]
   [--configuration=<configuration>] [--=<Xcc>...]
-  [--=<Xswiftc>...] [--=<Xlinker>...] [--=<Xcxx>...]
+  [--=<Xcodirac>...] [--=<Xlinker>...] [--=<Xcxx>...]
   [--triple=<triple>] [--sdk=<sdk>] [--toolchain=<toolchain>]
-  [--swift-sdk=<swift-sdk>] [--sanitize=<sanitize>...]
+  [--codira-sdk=<codira-sdk>] [--sanitize=<sanitize>...]
   [--auto-index-store] [--enable-index-store]
   [--disable-index-store]
   [--enable-parseable-module-interfaces] [--jobs=<jobs>]
-  [--use-integrated-swift-driver]
+  [--use-integrated-codira-driver]
   [--explicit-target-dependency-import-check=<explicit-target-dependency-import-check>]
   [--build-system=<build-system>] [--=<debug-info-format>]
   [--enable-dead-strip] [--disable-dead-strip]
@@ -89,7 +89,7 @@ package-collection refresh [--package-path=<package-path>]
 *Specify a custom scratch directory path. (default .build)*
 
 
-- term **--swift-sdks-path=\<swift-sdks-path\>**:
+- term **--codira-sdks-path=\<codira-sdks-path\>**:
 
 *Path to the directory containing installed Codira SDKs.*
 
@@ -120,7 +120,7 @@ specify more than one path.*
 
 - term **--enable-experimental-prebuilts|disable-experimental-prebuilts**:
 
-*Whether to use prebuilt swift-syntax libraries for macros.*
+*Whether to use prebuilt codira-syntax libraries for macros.*
 
 
 - term **--verbose**:
@@ -223,7 +223,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 *Pass flag through to all C compiler invocations.*
 
 
-- term **--=\<Xswiftc\>**:
+- term **--=\<Xcodirac\>**:
 
 *Pass flag through to all Codira compiler invocations.*
 
@@ -247,7 +247,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 - term **--toolchain=\<toolchain\>**:
 
 
-- term **--swift-sdk=\<swift-sdk\>**:
+- term **--codira-sdk=\<codira-sdk\>**:
 
 *Filter for selecting a specific Codira SDK to build with.*
 
@@ -270,7 +270,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 *The number of jobs to spawn in parallel during the build process.*
 
 
-- term **--use-integrated-swift-driver**:
+- term **--use-integrated-codira-driver**:
 
 
 - term **--explicit-target-dependency-import-check=\<explicit-target-dependency-import-check\>**:

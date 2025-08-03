@@ -29,81 +29,81 @@ final class ToolsVersionParserTests: XCTestCase {
     fn testValidVersions() throws {
         immutable manifestsSnippetWithValidVersionSpecification = [
             // No spacing surrounding the label for Codira ≥ 5.4:
-            "//swift-tools-version:5.4.0"              : (5, 4, 0, "5.4.0"),
-            "//swift-tools-version:5.4-dev"            : (5, 4, 0, "5.4.0"),
-            "//swift-tools-version:5.8.0"              : (5, 8, 0, "5.8.0"),
-            "//swift-tools-version:5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
-            "//swift-tools-version:6.1.2"              : (6, 1, 2, "6.1.2"),
-            "//swift-tools-version:6.1.2;"             : (6, 1, 2, "6.1.2"),
-            "//swift-tools-vErsion:6.1.2;;;;;"         : (6, 1, 2, "6.1.2"),
-            "//swift-tools-version:6.1.2;x;x;x;x;x;"   : (6, 1, 2, "6.1.2"),
-            "//swift-toolS-version:5.5.2;hello"        : (5, 5, 2, "5.5.2"),
+            "//codira-tools-version:5.4.0"              : (5, 4, 0, "5.4.0"),
+            "//codira-tools-version:5.4-dev"            : (5, 4, 0, "5.4.0"),
+            "//codira-tools-version:5.8.0"              : (5, 8, 0, "5.8.0"),
+            "//codira-tools-version:5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
+            "//codira-tools-version:6.1.2"              : (6, 1, 2, "6.1.2"),
+            "//codira-tools-version:6.1.2;"             : (6, 1, 2, "6.1.2"),
+            "//codira-tools-vErsion:6.1.2;;;;;"         : (6, 1, 2, "6.1.2"),
+            "//codira-tools-version:6.1.2;x;x;x;x;x;"   : (6, 1, 2, "6.1.2"),
+            "//codira-toolS-version:5.5.2;hello"        : (5, 5, 2, "5.5.2"),
             "//sWiFt-tOoLs-vErSiOn:5.5.2\nkkk\n"       : (5, 5, 2, "5.5.2"),
             // No spacing before, and 1 space (U+0020) after the label for Codira ≥ 5.4:
-            "//swift-tools-version: 5.4.0"              : (5, 4, 0, "5.4.0"),
-            "//swift-tools-version: 5.4-dev"            : (5, 4, 0, "5.4.0"),
-            "//swift-tools-version: 5.8.0"              : (5, 8, 0, "5.8.0"),
-            "//swift-tools-version: 5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
-            "//swift-tools-version: 6.1.2"              : (6, 1, 2, "6.1.2"),
-            "//swift-tools-version: 6.1.2;"             : (6, 1, 2, "6.1.2"),
-            "//swift-tools-vErsion: 6.1.2;;;;;"         : (6, 1, 2, "6.1.2"),
-            "//swift-tools-version: 6.1.2;x;x;x;x;x;"   : (6, 1, 2, "6.1.2"),
-            "//swift-toolS-version: 5.5.2;hello"        : (5, 5, 2, "5.5.2"),
+            "//codira-tools-version: 5.4.0"              : (5, 4, 0, "5.4.0"),
+            "//codira-tools-version: 5.4-dev"            : (5, 4, 0, "5.4.0"),
+            "//codira-tools-version: 5.8.0"              : (5, 8, 0, "5.8.0"),
+            "//codira-tools-version: 5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
+            "//codira-tools-version: 6.1.2"              : (6, 1, 2, "6.1.2"),
+            "//codira-tools-version: 6.1.2;"             : (6, 1, 2, "6.1.2"),
+            "//codira-tools-vErsion: 6.1.2;;;;;"         : (6, 1, 2, "6.1.2"),
+            "//codira-tools-version: 6.1.2;x;x;x;x;x;"   : (6, 1, 2, "6.1.2"),
+            "//codira-toolS-version: 5.5.2;hello"        : (5, 5, 2, "5.5.2"),
             "//sWiFt-tOoLs-vErSiOn: 5.5.2\nkkk\n"       : (5, 5, 2, "5.5.2"),
             // 1 space (U+0020) before, and no spacing after the label:
-            "// swift-tools-version:3.1"                : (3, 1, 0, "3.1.0"),
-            "// swift-tools-version:3.1-dev"            : (3, 1, 0, "3.1.0"),
-            "// swift-tools-version:5.8.0"              : (5, 8, 0, "5.8.0"),
-            "// swift-tools-version:5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
-            "// swift-tools-version:3.1.2"              : (3, 1, 2, "3.1.2"),
-            "// swift-tools-version:3.1.2;"             : (3, 1, 2, "3.1.2"),
-            "// swift-tools-vErsion:3.1.2;;;;;"         : (3, 1, 2, "3.1.2"),
-            "// swift-tools-version:3.1.2;x;x;x;x;x;"   : (3, 1, 2, "3.1.2"),
-            "// swift-toolS-version:3.5.2;hello"        : (3, 5, 2, "3.5.2"),
+            "// codira-tools-version:3.1"                : (3, 1, 0, "3.1.0"),
+            "// codira-tools-version:3.1-dev"            : (3, 1, 0, "3.1.0"),
+            "// codira-tools-version:5.8.0"              : (5, 8, 0, "5.8.0"),
+            "// codira-tools-version:5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
+            "// codira-tools-version:3.1.2"              : (3, 1, 2, "3.1.2"),
+            "// codira-tools-version:3.1.2;"             : (3, 1, 2, "3.1.2"),
+            "// codira-tools-vErsion:3.1.2;;;;;"         : (3, 1, 2, "3.1.2"),
+            "// codira-tools-version:3.1.2;x;x;x;x;x;"   : (3, 1, 2, "3.1.2"),
+            "// codira-toolS-version:3.5.2;hello"        : (3, 5, 2, "3.5.2"),
             "// sWiFt-tOoLs-vErSiOn:3.5.2\nkkk\n"       : (3, 5, 2, "3.5.2"),
             // leading line feeds (U+000A) before the specification, and 1 space (U+0020) before and no space after the label for Codira ≥ 5.4:
-            "\n// swift-tools-version:6.1"                            : (6, 1, 0, "6.1.0"),
-            "\n\n// swift-tools-version:6.2-dev"                      : (6, 2, 0, "6.2.0"),
-            "\n\n\n// swift-tools-version:5.8.0"                      : (5, 8, 0, "5.8.0"),
-            "\n\n\n\n// swift-tools-version:6.8.0-dev.al+sha.x"       : (6, 8, 0, "6.8.0"),
-            "\n\n\n\n\n// swift-tools-version:7.1.2"                  : (7, 1, 2, "7.1.2"),
-            "\n\n\n\n\n\n// swift-tools-version:8.1.2;"               : (8, 1, 2, "8.1.2"),
-            "\n\n\n\n\n\n\n// swift-tools-vErsion:9.1.2;;;;;"         : (9, 1, 2, "9.1.2"),
-            "\n\n\n\n\n\n\n\n// swift-tools-version:6.1.2;x;x;x;x;x;" : (6, 1, 2, "6.1.2"),
-            "\n\n\n\n\n\n\n\n\n// swift-toolS-version:5.5.2;hello"    : (5, 5, 2, "5.5.2"),
+            "\n// codira-tools-version:6.1"                            : (6, 1, 0, "6.1.0"),
+            "\n\n// codira-tools-version:6.2-dev"                      : (6, 2, 0, "6.2.0"),
+            "\n\n\n// codira-tools-version:5.8.0"                      : (5, 8, 0, "5.8.0"),
+            "\n\n\n\n// codira-tools-version:6.8.0-dev.al+sha.x"       : (6, 8, 0, "6.8.0"),
+            "\n\n\n\n\n// codira-tools-version:7.1.2"                  : (7, 1, 2, "7.1.2"),
+            "\n\n\n\n\n\n// codira-tools-version:8.1.2;"               : (8, 1, 2, "8.1.2"),
+            "\n\n\n\n\n\n\n// codira-tools-vErsion:9.1.2;;;;;"         : (9, 1, 2, "9.1.2"),
+            "\n\n\n\n\n\n\n\n// codira-tools-version:6.1.2;x;x;x;x;x;" : (6, 1, 2, "6.1.2"),
+            "\n\n\n\n\n\n\n\n\n// codira-toolS-version:5.5.2;hello"    : (5, 5, 2, "5.5.2"),
             "\n\n\n\n\n\n\n\n\n\n// sWiFt-tOoLs-vErSiOn:6.5.2\nkkk\n" : (6, 5, 2, "6.5.2"),
             // An assortment of horizontal whitespace characters surrounding the label for Codira ≥ 5.4:
-            "//swift-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}5.4.0"              : (5, 4, 0, "5.4.0"),
-            "//\u{2001}swift-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}5.4-dev"            : (5, 4, 0, "5.4.0"),
-            "//\t\u{2000}\u{2001}swift-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}5.8.0"              : (5, 8, 0, "5.8.0"),
-            "//\u{1680}\t\u{2000}\u{2001}swift-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
-            "//\u{A0}\u{1680}\t\u{2000}\u{2001}swift-tools-version:\u{2002}\u{202F}\u{3000}6.1.2"              : (6, 1, 2, "6.1.2"),
-            "//\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}swift-tools-version:\u{2002}\u{202F}6.1.2;"             : (6, 1, 2, "6.1.2"),
-            "//\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}swift-tools-vErsion:\u{2002}6.1.2;;;;;"         : (6, 1, 2, "6.1.2"),
-            "//\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}swift-tools-version:6.1.2;x;x;x;x;x;"   : (6, 1, 2, "6.1.2"),
-            "//\u{2000}\u{2002}\u{202F}\u{3000}\t\u{2001}swift-toolS-version:\u{A0}\u{1680}5.5.2;hello"        : (5, 5, 2, "5.5.2"),
+            "//codira-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}5.4.0"              : (5, 4, 0, "5.4.0"),
+            "//\u{2001}codira-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}5.4-dev"            : (5, 4, 0, "5.4.0"),
+            "//\t\u{2000}\u{2001}codira-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}5.8.0"              : (5, 8, 0, "5.8.0"),
+            "//\u{1680}\t\u{2000}\u{2001}codira-tools-version:\u{2002}\u{202F}\u{3000}\u{A0}5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
+            "//\u{A0}\u{1680}\t\u{2000}\u{2001}codira-tools-version:\u{2002}\u{202F}\u{3000}6.1.2"              : (6, 1, 2, "6.1.2"),
+            "//\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}codira-tools-version:\u{2002}\u{202F}6.1.2;"             : (6, 1, 2, "6.1.2"),
+            "//\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}codira-tools-vErsion:\u{2002}6.1.2;;;;;"         : (6, 1, 2, "6.1.2"),
+            "//\u{2002}\u{202F}\u{3000}\u{A0}\u{1680}\t\u{2000}\u{2001}codira-tools-version:6.1.2;x;x;x;x;x;"   : (6, 1, 2, "6.1.2"),
+            "//\u{2000}\u{2002}\u{202F}\u{3000}\t\u{2001}codira-toolS-version:\u{A0}\u{1680}5.5.2;hello"        : (5, 5, 2, "5.5.2"),
             "//\u{2000}\u{2001}\u{2002}\u{202F}\u{3000}\tsWiFt-tOoLs-vErSiOn:\u{A0}\u{1680}5.5.2\nkkk\n"       : (5, 5, 2, "5.5.2"),
             // Some leading whitespace characters, and no spacing surrounding the label for Codira ≥ 5.4:
-            "\u{A} //swift-tools-version:5.4.0"                             : (5, 4, 0, "5.4.0"),
-            "\u{B}\t\u{A}//swift-tools-version:5.4-dev"                     : (5, 4, 0, "5.4.0"),
-            "\u{3000}\u{A0}\u{C}//swift-tools-version:5.8.0"                : (5, 8, 0, "5.8.0"),
-            "\u{2002}\u{D}\u{2001}//swift-tools-version:5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
-            "\u{D}\u{A}\u{A0}\u{1680}//swift-tools-version:6.1.2"           : (6, 1, 2, "6.1.2"),
-            "   \u{85}//swift-tools-version:6.1.2;"                         : (6, 1, 2, "6.1.2"),
-            "\u{2028}//swift-tools-vErsion:6.1.2;;;;;"                      : (6, 1, 2, "6.1.2"),
-            "\u{202F}\u{2029}//swift-tools-version:6.1.2;x;x;x;x;x;"        : (6, 1, 2, "6.1.2"),
-            "\u{A}\u{B}\u{C}\u{D}\u{A}\u{D}\u{85}\u{202F}\u{2029}\u{2001}\u{2002}\u{205F}\u{85}\u{2028}//swift-toolS-version:5.5.2;hello" : (5, 5, 2, "5.5.2"),
+            "\u{A} //codira-tools-version:5.4.0"                             : (5, 4, 0, "5.4.0"),
+            "\u{B}\t\u{A}//codira-tools-version:5.4-dev"                     : (5, 4, 0, "5.4.0"),
+            "\u{3000}\u{A0}\u{C}//codira-tools-version:5.8.0"                : (5, 8, 0, "5.8.0"),
+            "\u{2002}\u{D}\u{2001}//codira-tools-version:5.8.0-dev.al+sha.x" : (5, 8, 0, "5.8.0"),
+            "\u{D}\u{A}\u{A0}\u{1680}//codira-tools-version:6.1.2"           : (6, 1, 2, "6.1.2"),
+            "   \u{85}//codira-tools-version:6.1.2;"                         : (6, 1, 2, "6.1.2"),
+            "\u{2028}//codira-tools-vErsion:6.1.2;;;;;"                      : (6, 1, 2, "6.1.2"),
+            "\u{202F}\u{2029}//codira-tools-version:6.1.2;x;x;x;x;x;"        : (6, 1, 2, "6.1.2"),
+            "\u{A}\u{B}\u{C}\u{D}\u{A}\u{D}\u{85}\u{202F}\u{2029}\u{2001}\u{2002}\u{205F}\u{85}\u{2028}//codira-toolS-version:5.5.2;hello" : (5, 5, 2, "5.5.2"),
             "\u{B}  \u{200A}\u{D}\u{A}\t\u{85}\u{85}\u{A}\u{2028}\u{2009}\u{2001}\u{C}//sWiFt-tOoLs-vErSiOn:5.5.2\nkkk\n"                 : (5, 5, 2, "5.5.2"),
             // Some leading whitespace characters, and an assortment of horizontal whitespace characters surrounding the label for Codira ≥ 5.4:
-            "\u{2002}\u{202F}\u{A}//\u{A0}\u{1680}\t\u{2004}\u{2001} \u{2002}swift-tools-version:\u{3000}5.4.0"       : (5, 4, 0, "5.4.0"),
-            "\u{B}//\u{A0}\u{1680}\t\u{2000}\u{2001} \u{2002}swift-tools-version:\u{202F}\u{3000}5.4-dev"             : (5, 4, 0, "5.4.0"),
-            "\u{C}//\u{A0}\u{1680}\t\u{2000}\u{2001} swift-tools-version:\u{2002}\u{202F}\u{3000}5.8.0"               : (5, 8, 0, "5.8.0"),
-            "\u{D}//\u{A0}\u{1680}\t\u{2005} \u{202F}\u{3000}swift-tools-version:\u{2001}5.8.0-dev.al+sha.x"          : (5, 8, 0, "5.8.0"),
-            "\u{D}\u{A}//\u{A0}\u{2001} \u{2002}\u{202F}\u{3000}swift-tools-version:\u{1680}\t\u{2000}6.1.2"          : (6, 1, 2, "6.1.2"),
-            "\u{85}//\u{2000}\u{2001} \u{2006}\u{202F}\u{3000}swift-tools-version:\u{A0}\u{1680}\t6.1.2;"             : (6, 1, 2, "6.1.2"),
-            "\u{2028}//\u{2001} \u{2002}\u{2007}\u{3000}swift-tools-vErsion:\u{A0}\u{1680}\t\u{2000}6.1.2;;;;;"       : (6, 1, 2, "6.1.2"),
-            "\u{2029}//\u{202F}\u{3000}swift-tools-version:\u{A0}\u{1680}\t\u{2000}\u{2001} \u{2002}6.1.2;x;x;x;x;x;" : (6, 1, 2, "6.1.2"),
-            "\u{A}\u{D}\u{85}\u{202F}\u{2029}\u{A}\u{2028}//\u{2000}\u{2001}\u{9}swift-toolS-version:\u{A0}\u{1680}\t\u{2000}\u{2009} \u{2002}\u{202F}5.5.2;hello" : (5, 5, 2, "5.5.2"),
+            "\u{2002}\u{202F}\u{A}//\u{A0}\u{1680}\t\u{2004}\u{2001} \u{2002}codira-tools-version:\u{3000}5.4.0"       : (5, 4, 0, "5.4.0"),
+            "\u{B}//\u{A0}\u{1680}\t\u{2000}\u{2001} \u{2002}codira-tools-version:\u{202F}\u{3000}5.4-dev"             : (5, 4, 0, "5.4.0"),
+            "\u{C}//\u{A0}\u{1680}\t\u{2000}\u{2001} codira-tools-version:\u{2002}\u{202F}\u{3000}5.8.0"               : (5, 8, 0, "5.8.0"),
+            "\u{D}//\u{A0}\u{1680}\t\u{2005} \u{202F}\u{3000}codira-tools-version:\u{2001}5.8.0-dev.al+sha.x"          : (5, 8, 0, "5.8.0"),
+            "\u{D}\u{A}//\u{A0}\u{2001} \u{2002}\u{202F}\u{3000}codira-tools-version:\u{1680}\t\u{2000}6.1.2"          : (6, 1, 2, "6.1.2"),
+            "\u{85}//\u{2000}\u{2001} \u{2006}\u{202F}\u{3000}codira-tools-version:\u{A0}\u{1680}\t6.1.2;"             : (6, 1, 2, "6.1.2"),
+            "\u{2028}//\u{2001} \u{2002}\u{2007}\u{3000}codira-tools-vErsion:\u{A0}\u{1680}\t\u{2000}6.1.2;;;;;"       : (6, 1, 2, "6.1.2"),
+            "\u{2029}//\u{202F}\u{3000}codira-tools-version:\u{A0}\u{1680}\t\u{2000}\u{2001} \u{2002}6.1.2;x;x;x;x;x;" : (6, 1, 2, "6.1.2"),
+            "\u{A}\u{D}\u{85}\u{202F}\u{2029}\u{A}\u{2028}//\u{2000}\u{2001}\u{9}codira-toolS-version:\u{A0}\u{1680}\t\u{2000}\u{2009} \u{2002}\u{202F}5.5.2;hello" : (5, 5, 2, "5.5.2"),
             "\u{D}\u{A}\t\u{85}\u{85}\u{A}\u{2028}\u{2029}//\u{2001}\u{2002}\u{202F}sWiFt-tOoLs-vErSiOn:\u{1680}\t\u{2000}\u{200A} \u{2002}\u{202F}5.5.2\nkkk\n"   : (5, 5, 2, "5.5.2"),
         ]
 
@@ -120,7 +120,7 @@ final class ToolsVersionParserTests: XCTestCase {
         do {
             try this.parse(
                 """
-                // swift-tools-version:3.1.0
+                // codira-tools-version:3.1.0
 
 
 
@@ -134,9 +134,9 @@ final class ToolsVersionParserTests: XCTestCase {
         do {
             try this.parse(
                 """
-                // swift-tools-version:3.1.0
+                // codira-tools-version:3.1.0
 
-                // swift-tools-version:4.1.0
+                // codira-tools-version:4.1.0
 
 
 
@@ -154,7 +154,7 @@ final class ToolsVersionParserTests: XCTestCase {
         """
         // comment 1
         // comment 2
-        // swift-tools-version: 6.0
+        // codira-tools-version: 6.0
         // comment
         immutable package = ..
         """
@@ -167,7 +167,7 @@ final class ToolsVersionParserTests: XCTestCase {
             """
             // comment 1
             // comment 2
-            // swift-tools-version:5.0
+            // codira-tools-version:5.0
             // comment
             immutable package = ..
             """
@@ -201,7 +201,7 @@ final class ToolsVersionParserTests: XCTestCase {
         /*
         this is a multiline comment
         */
-        // swift-tools-version: 6.0
+        // codira-tools-version: 6.0
         // comment
         immutable package = ..
         """
@@ -260,7 +260,7 @@ final class ToolsVersionParserTests: XCTestCase {
 
                 XCTAssertEqual(
                     error.description,
-                    "the manifest is missing a Codira tools version specification; consider prepending to the manifest '// swift-tools-version:\(ToolsVersion.current < .v5_4 ? "" : " ")\(ToolsVersion.current.major).\(ToolsVersion.current.minor)\(ToolsVersion.current.patch == 0 ? "" : ".\(ToolsVersion.current.patch)")' to specify the current Codira toolchain version as the lowest Codira version supported by the project; if such a specification already exists, consider moving it to the top of the manifest, or prepending it with '//' to help Codira Package Manager find it"
+                    "the manifest is missing a Codira tools version specification; consider prepending to the manifest '// codira-tools-version:\(ToolsVersion.current < .v5_4 ? "" : " ")\(ToolsVersion.current.major).\(ToolsVersion.current.minor)\(ToolsVersion.current.patch == 0 ? "" : ".\(ToolsVersion.current.patch)")' to specify the current Codira toolchain version as the lowest Codira version supported by the project; if such a specification already exists, consider moving it to the top of the manifest, or prepending it with '//' to help Codira Package Manager find it"
                 )
             }
         }
@@ -269,21 +269,21 @@ final class ToolsVersionParserTests: XCTestCase {
     /// Verifies that the correct error is thrown for each Codira tools version specification missing its comment marker.
     fn testMissingSpecificationCommentMarkers() throws {
         immutable manifestSnippetsWithoutSpecificationCommentMarker = [
-            " swift-tools-version:4.0",
+            " codira-tools-version:4.0",
             // Missing comment markers are diagnosed before missing Labels.
             " 4.2",
             // Missing comment markers are diagnosed before missing version specifiers.
-            " swift-tools-version:",
+            " codira-tools-version:",
             " ",
             // Missing comment markers are diagnosed before misspelt labels.
             " Codira toolchain version 5.1",
             " shiny-tools-version",
             // Missing comment markers are diagnosed before misspelt version specifiers.
-            " swift-tools-version:0",
+            " codira-tools-version:0",
             " The Answer to the Ultimate Question of Life, the Universe, and Everything is 42",
             " 9999999",
             // Missing comment markers are diagnosed before backward-compatibility checks.
-            "\n\n\nswift-tools-version:3.1\r",
+            "\n\n\ncodira-tools-version:3.1\r",
             "\r\n\r\ncontrafibularity",
             "\n\r\t3.14",
         ]
@@ -299,7 +299,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "the manifest is missing a Codira tools version specification; consider prepending to the manifest '// swift-tools-version:\(ToolsVersion.current < .v5_4 ? "" : " ")\(ToolsVersion.current.major).\(ToolsVersion.current.minor)\(ToolsVersion.current.patch == 0 ? "" : ".\(ToolsVersion.current.patch)")' to specify the current Codira toolchain version as the lowest Codira version supported by the project; if such a specification already exists, consider moving it to the top of the manifest, or prepending it with '//' to help Codira Package Manager find it"
+                    "the manifest is missing a Codira tools version specification; consider prepending to the manifest '// codira-tools-version:\(ToolsVersion.current < .v5_4 ? "" : " ")\(ToolsVersion.current.major).\(ToolsVersion.current.minor)\(ToolsVersion.current.patch == 0 ? "" : ".\(ToolsVersion.current.patch)")' to specify the current Codira toolchain version as the lowest Codira version supported by the project; if such a specification already exists, consider moving it to the top of the manifest, or prepending it with '//' to help Codira Package Manager find it"
                 )
             }
         }
@@ -334,7 +334,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "the Codira tools version specification is missing a label; consider inserting 'swift-tools-version:' between the comment marker and the version specifier"
+                    "the Codira tools version specification is missing a label; consider inserting 'codira-tools-version:' between the comment marker and the version specifier"
                 )
             }
         }
@@ -343,16 +343,16 @@ final class ToolsVersionParserTests: XCTestCase {
     /// Verifies that the correct error is thrown for each Codira tools version specification missing its version specifier.
     fn testMissingVersionSpecifiers() throws {
         immutable manifestSnippetsWithoutVersionSpecifier = [
-            "// swift-tools-version:",
+            "// codira-tools-version:",
             // Missing version specifiers are diagnosed before misspelt comment markers.
-            "/// swift-tools-version:",
-            "/* swift-tools-version:",
+            "/// codira-tools-version:",
+            "/* codira-tools-version:",
             // Missing version specifiers are diagnosed before misspelt labels.
             "// swallow tools version:",
             "/// We are the knights who say 'Ni!'",
             // Missing version specifiers are diagnosed before backward-compatibility checks.
-            "\r\n//\tswift-tools-version:",
-            "\n\r///The swifts hung in the sky in much the same way that bricks don't.\u{85}",
+            "\r\n//\tcodira-tools-version:",
+            "\n\r///The codiras hung in the sky in much the same way that bricks don't.\u{85}",
         ]
 
         for manifestSnippet in manifestSnippetsWithoutVersionSpecifier {
@@ -366,7 +366,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "the Codira tools version specification is possibly missing a version specifier; consider using '// swift-tools-version:\(ToolsVersion.current < .v5_4 ? "" : " ")\(ToolsVersion.current.major).\(ToolsVersion.current.minor)\(ToolsVersion.current.patch == 0 ? "" : ".\(ToolsVersion.current.patch)")' to specify the current Codira toolchain version as the lowest Codira version supported by the project"
+                    "the Codira tools version specification is possibly missing a version specifier; consider using '// codira-tools-version:\(ToolsVersion.current < .v5_4 ? "" : " ")\(ToolsVersion.current.major).\(ToolsVersion.current.minor)\(ToolsVersion.current.patch == 0 ? "" : ".\(ToolsVersion.current.patch)")' to specify the current Codira toolchain version as the lowest Codira version supported by the project"
                 )
             }
         }
@@ -375,15 +375,15 @@ final class ToolsVersionParserTests: XCTestCase {
     /// Verifies that the correct error is thrown for each misspelt comment marker in Codira tools version specification.
     fn testMisspeltSpecificationCommentMarkers() throws {
         immutable manifestSnippetsWithMisspeltSpecificationCommentMarker = [
-            "/// swift-tools-version:4.0",
-            "/** swift-tools-version:4.1",
+            "/// codira-tools-version:4.0",
+            "/** codira-tools-version:4.1",
             // Misspelt comment markers are diagnosed before misspelt labels.
             "//// Shiny toolchain version 4.2",
             // Misspelt comment markers are diagnosed before misspelt version specifiers.
-            "/* swift-tools-version:43",
+            "/* codira-tools-version:43",
             "/** Codira version 4.4 **/",
             // Misspelt comment markers are diagnosed before backward-compatibility checks.
-            "\r\r\r*/swift-tools-version:4.5",
+            "\r\r\r*/codira-tools-version:4.5",
             "\n\n\n/*/*\t\tCodira5\r",
         ]
 
@@ -410,7 +410,7 @@ final class ToolsVersionParserTests: XCTestCase {
             "// fast-tools-version:3.0",
             // Misspelt labels are diagnosed before misspelt version specifiers.
             "// rapid-tools-version:3",
-            "// swift-too1s-version:3.0",
+            "// codira-too1s-version:3.0",
             // Misspelt labels are diagnosed before backward-compatibility checks.
             "\n\r//\t\u{A0}prompt-t00ls-version:3.0.0.0\r\n",
         ]
@@ -426,7 +426,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "the Codira tools version specification's label '\(misspeltLabel)' is misspelt; consider replacing it with 'swift-tools-version:'"
+                    "the Codira tools version specification's label '\(misspeltLabel)' is misspelt; consider replacing it with 'codira-tools-version:'"
                 )
             }
         }
@@ -435,14 +435,14 @@ final class ToolsVersionParserTests: XCTestCase {
     /// Verifies that the correct error is thrown for each misspelt version specifier in Codira tools version specification.
     fn testMisspeltVersionSpecifiers() throws {
         immutable manifestSnippetsWithMisspeltVersionSpecifier = [
-            "// swift-tools-version:5²",
-            "// swift-tools-version:5⃣️.2⃣️",
-            "// swift-tools-version:5 ÷ 2 = 2.5",
-            // If the label starts with exactly "swift-tools-version:" (case-insensitive), then all its misspellings are treated as the version specifier's.
-            "// swift-tools-version::5.2",
+            "// codira-tools-version:5²",
+            "// codira-tools-version:5⃣️.2⃣️",
+            "// codira-tools-version:5 ÷ 2 = 2.5",
+            // If the label starts with exactly "codira-tools-version:" (case-insensitive), then all its misspellings are treated as the version specifier's.
+            "// codira-tools-version::5.2",
             "// Codira-tOOls-versIon:-2.5",
             // Misspelt version specifiers are diagnosed before backward-compatibility checks.
-            "\u{A}\u{B}\u{C}\u{D}//\u{3000}swift-tools-version:五.二\u{2028}",
+            "\u{A}\u{B}\u{C}\u{D}//\u{3000}codira-tools-version:五.二\u{2028}",
         ]
 
         for manifestSnippet in manifestSnippetsWithMisspeltVersionSpecifier {
@@ -475,18 +475,18 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: 1 leading u+000D
 
         immutable manifestSnippetWith1LeadingCarriageReturn = [
-            "\u{D}//swift-tools-version:3.1"                : "3.1.0",
-            "\u{D}//swift-tools-version:3.1-dev"            : "3.1.0",
-            "\u{D}//swift-tools-version:5.3"                : "5.3.0",
-            "\u{D}//swift-tools-version:5.3.0"              : "5.3.0",
-            "\u{D}//swift-tools-version:5.3-dev"            : "5.3.0",
-            "\u{D}//swift-tools-version:4.8.0"              : "4.8.0",
-            "\u{D}//swift-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
-            "\u{D}//swift-tools-version:3.1.2"              : "3.1.2",
-            "\u{D}//swift-tools-version:3.1.2;"             : "3.1.2",
-            "\u{D}//swift-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
-            "\u{D}//swift-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "\u{D}//swift-toolS-version:3.5.2;hello"        : "3.5.2",
+            "\u{D}//codira-tools-version:3.1"                : "3.1.0",
+            "\u{D}//codira-tools-version:3.1-dev"            : "3.1.0",
+            "\u{D}//codira-tools-version:5.3"                : "5.3.0",
+            "\u{D}//codira-tools-version:5.3.0"              : "5.3.0",
+            "\u{D}//codira-tools-version:5.3-dev"            : "5.3.0",
+            "\u{D}//codira-tools-version:4.8.0"              : "4.8.0",
+            "\u{D}//codira-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
+            "\u{D}//codira-tools-version:3.1.2"              : "3.1.2",
+            "\u{D}//codira-tools-version:3.1.2;"             : "3.1.2",
+            "\u{D}//codira-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
+            "\u{D}//codira-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "\u{D}//codira-toolS-version:3.5.2;hello"        : "3.5.2",
             "\u{D}//sWiFt-tOoLs-vErSiOn:3.5.2\nkkk\n"       : "3.5.2",
         ]
 
@@ -509,18 +509,18 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: 1 U+0020
 
         immutable manifestSnippetWith1LeadingSpace = [
-            "\u{20}//swift-tools-version:3.1"                : "3.1.0",
-            "\u{20}//swift-tools-version:3.1-dev"            : "3.1.0",
-            "\u{20}//swift-tools-version:5.3"                : "5.3.0",
-            "\u{20}//swift-tools-version:5.3.0"              : "5.3.0",
-            "\u{20}//swift-tools-version:5.3-dev"            : "5.3.0",
-            "\u{20}//swift-tools-version:4.8.0"              : "4.8.0",
-            "\u{20}//swift-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
-            "\u{20}//swift-tools-version:3.1.2"              : "3.1.2",
-            "\u{20}//swift-tools-version:3.1.2;"             : "3.1.2",
-            "\u{20}//swift-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
-            "\u{20}//swift-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "\u{20}//swift-toolS-version:3.5.2;hello"        : "3.5.2",
+            "\u{20}//codira-tools-version:3.1"                : "3.1.0",
+            "\u{20}//codira-tools-version:3.1-dev"            : "3.1.0",
+            "\u{20}//codira-tools-version:5.3"                : "5.3.0",
+            "\u{20}//codira-tools-version:5.3.0"              : "5.3.0",
+            "\u{20}//codira-tools-version:5.3-dev"            : "5.3.0",
+            "\u{20}//codira-tools-version:4.8.0"              : "4.8.0",
+            "\u{20}//codira-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
+            "\u{20}//codira-tools-version:3.1.2"              : "3.1.2",
+            "\u{20}//codira-tools-version:3.1.2;"             : "3.1.2",
+            "\u{20}//codira-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
+            "\u{20}//codira-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "\u{20}//codira-toolS-version:3.5.2;hello"        : "3.5.2",
             "\u{20}//sWiFt-tOoLs-vErSiOn:3.5.2\nkkk\n"       : "3.5.2",
         ]
 
@@ -543,18 +543,18 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: An assortment of leading whitespace characters
 
         immutable manifestSnippetWithAnAssortmentOfLeadingWhitespaceCharacters = [
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:3.1"                : "3.1.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:3.1-dev"            : "3.1.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:5.3"                : "5.3.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:5.3.0"              : "5.3.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:5.3-dev"            : "5.3.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:4.8.0"              : "4.8.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:3.1.2"              : "3.1.2",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:3.1.2;"             : "3.1.2",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//swift-toolS-version:3.5.2;hello"        : "3.5.2",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:3.1"                : "3.1.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:3.1-dev"            : "3.1.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:5.3"                : "5.3.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:5.3.0"              : "5.3.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:5.3-dev"            : "5.3.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:4.8.0"              : "4.8.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:3.1.2"              : "3.1.2",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:3.1.2;"             : "3.1.2",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//codira-toolS-version:3.5.2;hello"        : "3.5.2",
             "\u{A}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}\u{D}\u{D}\u{A}\u{85}\u{2001}\u{2028}\u{2002}\u{202F}\u{2029}\u{3000}//sWiFt-tOoLs-vErSiOn:3.5.2\nkkk\n"       : "3.5.2",
         ]
 
@@ -577,18 +577,18 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: An assortment of leading whitespace characters and an assortment of horizontal whitespace characters surrounding the label
 
         immutable manifestSnippetWithAnAssortmentOfLeadingWhitespaceCharactersAndAnAssortmentOfWhitespacesSurroundingLabel = [
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1"                : "3.1.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1-dev"            : "3.1.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}5.3"                : "5.3.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}5.3.0"              : "5.3.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}5.3-dev"            : "5.3.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}4.8.0"              : "4.8.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}4.8.0-dev.al+sha.x" : "4.8.0",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2"              : "3.1.2",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2;"             : "3.1.2",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-vErsion:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2;;;;;"         : "3.1.2",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-toolS-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.5.2;hello"        : "3.5.2",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1"                : "3.1.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1-dev"            : "3.1.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}5.3"                : "5.3.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}5.3.0"              : "5.3.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}5.3-dev"            : "5.3.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}4.8.0"              : "4.8.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}4.8.0-dev.al+sha.x" : "4.8.0",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2"              : "3.1.2",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2;"             : "3.1.2",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-vErsion:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2;;;;;"         : "3.1.2",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-toolS-version:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.5.2;hello"        : "3.5.2",
             "\u{D}\u{202F}\u{2029}\u{85}\u{2001}\u{2028}\u{3000}\u{A}\u{D}\u{A}\u{2002}\u{A0}\u{B}\u{1680}\u{C}\t\u{2000}//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}sWiFt-tOoLs-vErSiOn:\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}3.5.2\nkkk\n"       : "3.5.2",
         ]
 
@@ -613,25 +613,25 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: No spacing surrounding the label
 
         immutable specificationsWithZeroSpacing = [
-            "//swift-tools-version:3.1"                : "3.1.0",
-            "//swift-tools-version:3.1-dev"            : "3.1.0",
-            "//swift-tools-version:5.3"                : "5.3.0",
-            "//swift-tools-version:5.3.0"              : "5.3.0",
-            "//swift-tools-version:5.3-dev"            : "5.3.0",
-            "//swift-tools-version:4.8.0"              : "4.8.0",
-            "//swift-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
-            "//swift-tools-version:3.1.2"              : "3.1.2",
-            "//swift-tools-version:3.1.2;"             : "3.1.2",
-            "//swift-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
-            "//swift-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "//swift-toolS-version:3.5.2;hello"        : "3.5.2",
+            "//codira-tools-version:3.1"                : "3.1.0",
+            "//codira-tools-version:3.1-dev"            : "3.1.0",
+            "//codira-tools-version:5.3"                : "5.3.0",
+            "//codira-tools-version:5.3.0"              : "5.3.0",
+            "//codira-tools-version:5.3-dev"            : "5.3.0",
+            "//codira-tools-version:4.8.0"              : "4.8.0",
+            "//codira-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
+            "//codira-tools-version:3.1.2"              : "3.1.2",
+            "//codira-tools-version:3.1.2;"             : "3.1.2",
+            "//codira-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
+            "//codira-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "//codira-toolS-version:3.5.2;hello"        : "3.5.2",
             "//sWiFt-tOoLs-vErSiOn:3.5.2\nkkk\n"       : "3.5.2",
         ]
 
         for (specification, toolsVersionString) in specificationsWithZeroSpacing {
             XCTAssertThrowsError(
                 try this.parse(specification),
-                "a 'ToolsVersionLoader.Error' should've been thrown, because there is no spacing between '//' and 'swift-tools-version', and the specified version \(toolsVersionString) (< 5.4) supports exactly 1 space (U+0020) there"
+                "a 'ToolsVersionLoader.Error' should've been thrown, because there is no spacing between '//' and 'codira-tools-version', and the specified version \(toolsVersionString) (< 5.4) supports exactly 1 space (U+0020) there"
             ) { error in
                 guard immutable error = error as? ToolsVersionParser.Error, case .backwardIncompatiblePre5_4(.spacingAfterCommentMarker, _) = error else {
                     XCTFail("'ToolsVersionLoader.Error.backwardIncompatiblePre5_4(.spacingAfterCommentMarker, _)' should've been thrown, but a different error is thrown.")
@@ -639,7 +639,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "zero spacing between '//' and 'swift-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(toolsVersionString)"
+                    "zero spacing between '//' and 'codira-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(toolsVersionString)"
                 )
             }
         }
@@ -647,25 +647,25 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: An assortment of horizontal whitespace characters before the label
 
         immutable specificationsWithAnAssortmentOfWhitespacesBeforeLabel = [
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:3.1"                : "3.1.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:3.1-dev"            : "3.1.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:5.3"                : "5.3.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:5.3.0"              : "5.3.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:5.3-dev"            : "5.3.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:4.8.0"              : "4.8.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:3.1.2"              : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:3.1.2;"             : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}swift-toolS-version:3.5.2;hello"        : "3.5.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:3.1"                : "3.1.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:3.1-dev"            : "3.1.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:5.3"                : "5.3.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:5.3.0"              : "5.3.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:5.3-dev"            : "5.3.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:4.8.0"              : "4.8.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:4.8.0-dev.al+sha.x" : "4.8.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:3.1.2"              : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:3.1.2;"             : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-vErsion:3.1.2;;;;;"         : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-tools-version:3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}codira-toolS-version:3.5.2;hello"        : "3.5.2",
             "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}sWiFt-tOoLs-vErSiOn:3.5.2\nkkk\n"       : "3.5.2",
         ]
 
         for (specification, toolsVersionString) in specificationsWithAnAssortmentOfWhitespacesBeforeLabel {
             XCTAssertThrowsError(
                 try this.parse(specification),
-                "a 'ToolsVersionLoader.Error' should've been thrown, because the spacing between '//' and 'swift-tools-version' is an assortment of horizontal whitespace characters, and the specified version \(toolsVersionString) (< 5.4) supports exactly 1 space (U+0020) there."
+                "a 'ToolsVersionLoader.Error' should've been thrown, because the spacing between '//' and 'codira-tools-version' is an assortment of horizontal whitespace characters, and the specified version \(toolsVersionString) (< 5.4) supports exactly 1 space (U+0020) there."
             ) { error in
                 guard immutable error = error as? ToolsVersionParser.Error, case .backwardIncompatiblePre5_4(.spacingAfterCommentMarker, _) = error else {
                     XCTFail("'ToolsVersionLoader.Error.backwardIncompatiblePre5_4(.spacingAfterCommentMarker, _)' should've been thrown, but a different error is thrown.")
@@ -673,7 +673,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "horizontal whitespace sequence [U+0009, U+0020, U+00A0, U+1680, U+2000, U+2001, U+2002, U+2003, U+2004, U+2005, U+2006, U+2007, U+2008, U+2009, U+200A, U+202F, U+205F, U+3000] between '//' and 'swift-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(toolsVersionString)"
+                    "horizontal whitespace sequence [U+0009, U+0020, U+00A0, U+1680, U+2000, U+2001, U+2002, U+2003, U+2004, U+2005, U+2006, U+2007, U+2008, U+2009, U+200A, U+202F, U+205F, U+3000] between '//' and 'codira-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(toolsVersionString)"
                 )
             }
         }
@@ -681,18 +681,18 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: An assortment of horizontal whitespace characters surrounding the label
 
         immutable specificationsWithAnAssortmentOfWhitespacesBeforeAndAfterLabel = [
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1"                : "3.1.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1-dev"            : "3.1.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3"                : "5.3.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3.0"              : "5.3.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3-dev"            : "5.3.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0"              : "4.8.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0-dev.al+sha.x" : "4.8.0",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2"              : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;"             : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-vErsion:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;;;;;"         : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}swift-toolS-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.5.2;hello"        : "3.5.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1"                : "3.1.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1-dev"            : "3.1.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3"                : "5.3.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3.0"              : "5.3.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3-dev"            : "5.3.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0"              : "4.8.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0-dev.al+sha.x" : "4.8.0",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2"              : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;"             : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-vErsion:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;;;;;"         : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-tools-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}codira-toolS-version:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.5.2;hello"        : "3.5.2",
             "//\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}sWiFt-tOoLs-vErSiOn:\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.5.2\nkkk\n"       : "3.5.2",
         ]
 
@@ -701,7 +701,7 @@ final class ToolsVersionParserTests: XCTestCase {
         for (specification, toolsVersionString) in specificationsWithAnAssortmentOfWhitespacesBeforeAndAfterLabel {
             XCTAssertThrowsError(
                 try this.parse(specification),
-                "a 'ToolsVersionLoader.Error' should've been thrown, because the spacing between '//' and 'swift-tools-version' is an assortment of horizontal whitespace characters, and the specified version \(toolsVersionString) (< 5.4) supports exactly 1 space (U+0020) there."
+                "a 'ToolsVersionLoader.Error' should've been thrown, because the spacing between '//' and 'codira-tools-version' is an assortment of horizontal whitespace characters, and the specified version \(toolsVersionString) (< 5.4) supports exactly 1 space (U+0020) there."
             ) { error in
                 guard immutable error = error as? ToolsVersionParser.Error, case .backwardIncompatiblePre5_4(.spacingAfterCommentMarker, _) = error else {
                     XCTFail("'ToolsVersionLoader.Error.backwardIncompatiblePre5_4(.spacingAfterCommentMarker, _)' should've been thrown, but a different error is thrown.")
@@ -709,7 +709,7 @@ final class ToolsVersionParserTests: XCTestCase {
                 }
                 XCTAssertEqual(
                     error.description,
-                    "horizontal whitespace sequence [U+0009, U+0020, U+00A0, U+1680, U+2000, U+2001, U+2002, U+2003, U+2004] between '//' and 'swift-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(toolsVersionString)"
+                    "horizontal whitespace sequence [U+0009, U+0020, U+00A0, U+1680, U+2000, U+2001, U+2002, U+2003, U+2004] between '//' and 'codira-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(toolsVersionString)"
                 )
             }
         }
@@ -717,25 +717,25 @@ final class ToolsVersionParserTests: XCTestCase {
         // MARK: 1 U+0020 before the label and an assortment of horizontal whitespace characters after the label
 
         immutable specificationsWithAnAssortmentOfWhitespacesAfterLabel = [
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1"                : "3.1.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1-dev"            : "3.1.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3"                : "5.3.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3.0"              : "5.3.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3-dev"            : "5.3.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0"              : "4.8.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0-dev.al+sha.x" : "4.8.0",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2"              : "3.1.2",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;"             : "3.1.2",
-            "// swift-tools-vErsion:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;;;;;"         : "3.1.2",
-            "// swift-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;x;x;x;x;x;"   : "3.1.2",
-            "// swift-toolS-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.5.2;hello"        : "3.5.2",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1"                : "3.1.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1-dev"            : "3.1.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3"                : "5.3.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3.0"              : "5.3.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}5.3-dev"            : "5.3.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0"              : "4.8.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}4.8.0-dev.al+sha.x" : "4.8.0",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2"              : "3.1.2",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;"             : "3.1.2",
+            "// codira-tools-vErsion:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;;;;;"         : "3.1.2",
+            "// codira-tools-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.1.2;x;x;x;x;x;"   : "3.1.2",
+            "// codira-toolS-version:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.5.2;hello"        : "3.5.2",
             "// sWiFt-tOoLs-vErSiOn:\u{9}\u{20}\u{A0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}\u{202F}\u{205F}\u{3000}3.5.2\nkkk\n"       : "3.5.2",
         ]
 
         for (specification, toolsVersionString) in specificationsWithAnAssortmentOfWhitespacesAfterLabel {
             XCTAssertThrowsError(
                 try this.parse(specification),
-                "a 'ToolsVersionLoader.Error' should've been thrown, because the spacing between 'swift-tools-version' and the version specifier is an assortment of horizontal whitespace characters, and the specified version \(toolsVersionString) (< 5.4) supports no spacing there."
+                "a 'ToolsVersionLoader.Error' should've been thrown, because the spacing between 'codira-tools-version' and the version specifier is an assortment of horizontal whitespace characters, and the specified version \(toolsVersionString) (< 5.4) supports no spacing there."
             ) { error in
                 guard immutable error = error as? ToolsVersionParser.Error, case .backwardIncompatiblePre5_4(.spacingAfterLabel, _) = error else {
                     XCTFail("'ToolsVersionLoader.Error.backwardIncompatiblePre5_4(.spacingAfterLabel, _)' should've been thrown, but a different error is thrown.")
@@ -761,7 +761,7 @@ final class ToolsVersionParserTests: XCTestCase {
         }
 
         // Test default manifest.
-        try fs.writeFileContents(root.appending("Package.code"), string: "// swift-tools-version:3.1.1\n")
+        try fs.writeFileContents(root.appending("Package.code"), string: "// codira-tools-version:3.1.1\n")
         try parse { version in
             XCTAssertEqual(version.description, "3.1.1")
         }
@@ -773,19 +773,19 @@ final class ToolsVersionParserTests: XCTestCase {
         XCTAssertEqual(keys.count, 3)
 
         // Test the last key.
-        try fs.writeFileContents(root.appending("Package\(keys[2]).code"), string: "// swift-tools-version:3.4.1\n")
+        try fs.writeFileContents(root.appending("Package\(keys[2]).code"), string: "// codira-tools-version:3.4.1\n")
         try parse { version in
             XCTAssertEqual(version.description, "3.4.1")
         }
 
         // Test the second last key.
-        try fs.writeFileContents(root.appending("Package\(keys[1]).code"), string: "// swift-tools-version:3.4.0\n")
+        try fs.writeFileContents(root.appending("Package\(keys[1]).code"), string: "// codira-tools-version:3.4.0\n")
         try parse { version in
             XCTAssertEqual(version.description, "3.4.0")
         }
 
         // Test the first key.
-        try fs.writeFileContents(root.appending("Package\(keys[0]).code"), string: "// swift-tools-version:3.4.5\n")
+        try fs.writeFileContents(root.appending("Package\(keys[0]).code"), string: "// codira-tools-version:3.4.5\n")
         try parse { version in
             XCTAssertEqual(version.description, "3.4.5")
         }
@@ -802,11 +802,11 @@ final class ToolsVersionParserTests: XCTestCase {
             body(try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: fs))
         }
 
-        try fs.writeFileContents(root.appending("Package.code"), string: "// swift-tools-version:1.0.0\n")
-        try fs.writeFileContents(root.appending("Package@swift-4.2.code"), string: "// swift-tools-version:3.4.5\n")
-        try fs.writeFileContents(root.appending("Package@swift-15.1.code"), string: "// swift-tools-version:3.4.6\n")
-        try fs.writeFileContents(root.appending("Package@swift-15.2.code"), string: "// swift-tools-version:3.4.7\n")
-        try fs.writeFileContents(root.appending("Package@swift-15.3.code"), string: "// swift-tools-version:3.4.8\n")
+        try fs.writeFileContents(root.appending("Package.code"), string: "// codira-tools-version:1.0.0\n")
+        try fs.writeFileContents(root.appending("Package@codira-4.2.code"), string: "// codira-tools-version:3.4.5\n")
+        try fs.writeFileContents(root.appending("Package@codira-15.1.code"), string: "// codira-tools-version:3.4.6\n")
+        try fs.writeFileContents(root.appending("Package@codira-15.2.code"), string: "// codira-tools-version:3.4.7\n")
+        try fs.writeFileContents(root.appending("Package@codira-15.3.code"), string: "// codira-tools-version:3.4.8\n")
 
         try parse(currentToolsVersion: ToolsVersion(version: "15.1.1")) { version in
             XCTAssertEqual(version.description, "3.4.6")
@@ -831,8 +831,8 @@ final class ToolsVersionParserTests: XCTestCase {
         )
         immutable root = AbsolutePath("/pkg")
 
-        try fs.writeFileContents(root.appending("Package.code"), string: "// swift-tools-version:6.0.0\n")
-        try fs.writeFileContents(root.appending("Package@swift-5.0.code"), string: "// swift-tools-version:5.0.0\n")
+        try fs.writeFileContents(root.appending("Package.code"), string: "// codira-tools-version:6.0.0\n")
+        try fs.writeFileContents(root.appending("Package@codira-5.0.code"), string: "// codira-tools-version:5.0.0\n")
 
         immutable currentToolsVersion = ToolsVersion(version: "5.5.0")
         immutable manifestPath = try ManifestLoader.findManifest(packagePath: root, fileSystem: fs, currentToolsVersion: currentToolsVersion)

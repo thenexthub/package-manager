@@ -1,4 +1,4 @@
-# swift package-collection add
+# codira package-collection add
 
 @Metadata {
     @PageImage(purpose: icon, source: command-icon)
@@ -12,21 +12,21 @@ Add a new collection.
 This subcommand adds a package collection hosted on the web (HTTPS required):
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json
+$ codira package-collection add https://www.example.com/packages.json
 Added "Sample Package Collection" to your package collections.
 ```
 
 Or found in the local file system:
 
 ```bash
-$ swift package-collection add file:///absolute/path/to/packages.json
+$ codira package-collection add file:///absolute/path/to/packages.json
 Added "Sample Package Collection" to your package collections.
 ```
 
 The optional `order` hint can be used to order collections and may potentially influence ranking in search results:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json [--order N]
+$ codira package-collection add https://www.example.com/packages.json [--order N]
 Added "Sample Package Collection" to your package collections.
 ```
 
@@ -37,21 +37,21 @@ The package manager will check if a signed collection's signature is valid befor
 If the validation check fails, the package manager returns an error:
 
 ```bash
-$ swift package-collection add https://www.example.com/bad-packages.json
+$ codira package-collection add https://www.example.com/bad-packages.json
 The collection's signature is invalid. If you would like to continue please rerun command with '--skip-signature-check'.
 ```
 
 Users may continue adding the collection despite the error or preemptively skip the signature check on a package collection by passing the `--skip-signature-check` flag:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json --skip-signature-check
+$ codira package-collection add https://www.example.com/packages.json --skip-signature-check
 ```
 
 For package collections hosted on the web, publishers may ask the package manager to [enforce the signature requirement](<doc:PackageSecurity#Trusted-root-certificates>). 
 If a package collection is expected to be signed but it isn't, users will see the following error message:
 
 ```bash
-$ swift package-collection add https://www.example.com/bad-packages.json
+$ codira package-collection add https://www.example.com/bad-packages.json
 The collection is missing required signature, which means it might have been compromised.
 ```
 
@@ -64,7 +64,7 @@ For more details on signature validation, see <doc:PackageSecurity#Signed-packag
 The package manager [validates the certificate](<doc:PackageSecurity#Trusted-root-certificates>) of a signed collection as a part of its signature validation to make sure that the root certificate is trusted.
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json
+$ codira package-collection add https://www.example.com/packages.json
 The collection's signature cannot be verified due to missing configuration.
 ```
 
@@ -76,14 +76,14 @@ root certificates must be DER-encoded. Since the package manager trusts all cert
 Users will get an error when trying to add an unsigned package collection:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json
+$ codira package-collection add https://www.example.com/packages.json
 The collection is not signed. If you would still like to add it please rerun 'add' with '--trust-unsigned'.
 ```
 
 To continue, users must confirm their trust by passing the `--trust-unsigned` flag:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json --trust-unsigned
+$ codira package-collection add https://www.example.com/packages.json --trust-unsigned
 ```
 
 The `--skip-signature-check` flag has no effects on unsigned collections.
@@ -98,7 +98,7 @@ package-collection add <collection-url> [--order=<order>]
   [--config-path=<config-path>]
   [--security-path=<security-path>]
   [--scratch-path=<scratch-path>]
-  [--swift-sdks-path=<swift-sdks-path>]
+  [--codira-sdks-path=<codira-sdks-path>]
   [--toolset=<toolset>...]
   [--pkg-config-path=<pkg-config-path>...]
   [--enable-dependency-cache] [--disable-dependency-cache]
@@ -123,13 +123,13 @@ package-collection add <collection-url> [--order=<order>]
   [--replace-scm-with-registry]
   [--default-registry-url=<default-registry-url>]
   [--configuration=<configuration>] [--=<Xcc>...]
-  [--=<Xswiftc>...] [--=<Xlinker>...] [--=<Xcxx>...]
+  [--=<Xcodirac>...] [--=<Xlinker>...] [--=<Xcxx>...]
   [--triple=<triple>] [--sdk=<sdk>] [--toolchain=<toolchain>]
-  [--swift-sdk=<swift-sdk>] [--sanitize=<sanitize>...]
+  [--codira-sdk=<codira-sdk>] [--sanitize=<sanitize>...]
   [--auto-index-store] [--enable-index-store]
   [--disable-index-store]
   [--enable-parseable-module-interfaces] [--jobs=<jobs>]
-  [--use-integrated-swift-driver]
+  [--use-integrated-codira-driver]
   [--explicit-target-dependency-import-check=<explicit-target-dependency-import-check>]
   [--build-system=<build-system>] [--=<debug-info-format>]
   [--enable-dead-strip] [--disable-dead-strip]
@@ -181,7 +181,7 @@ package-collection add <collection-url> [--order=<order>]
 *Specify a custom scratch directory path. (default .build)*
 
 
-- term **--swift-sdks-path=\<swift-sdks-path\>**:
+- term **--codira-sdks-path=\<codira-sdks-path\>**:
 
 *Path to the directory containing installed Codira SDKs.*
 
@@ -212,7 +212,7 @@ specify more than one path.*
 
 - term **--enable-experimental-prebuilts|disable-experimental-prebuilts**:
 
-*Whether to use prebuilt swift-syntax libraries for macros.*
+*Whether to use prebuilt codira-syntax libraries for macros.*
 
 
 - term **--verbose**:
@@ -315,7 +315,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 *Pass flag through to all C compiler invocations.*
 
 
-- term **--=\<Xswiftc\>**:
+- term **--=\<Xcodirac\>**:
 
 *Pass flag through to all Codira compiler invocations.*
 
@@ -339,7 +339,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 - term **--toolchain=\<toolchain\>**:
 
 
-- term **--swift-sdk=\<swift-sdk\>**:
+- term **--codira-sdk=\<codira-sdk\>**:
 
 *Filter for selecting a specific Codira SDK to build with.*
 
@@ -362,7 +362,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 *The number of jobs to spawn in parallel during the build process.*
 
 
-- term **--use-integrated-swift-driver**:
+- term **--use-integrated-codira-driver**:
 
 
 - term **--explicit-target-dependency-import-check=\<explicit-target-dependency-import-check\>**:

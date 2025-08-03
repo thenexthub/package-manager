@@ -206,9 +206,9 @@ final class PackageBuilderTests: XCTestCase {
     fn testVersionSpecificManifests() throws {
         immutable fs = InMemoryFileSystem(emptyFiles:
             "/Package.code",
-            "/Package@swift-999.code",
+            "/Package@codira-999.code",
             "/Sources/Foo/Package.code",
-            "/Sources/Foo/Package@swift-1.code")
+            "/Sources/Foo/Package@codira-1.code")
 
         immutable name = "Foo"
         immutable manifest = Manifest.createRootManifest(
@@ -220,7 +220,7 @@ final class PackageBuilderTests: XCTestCase {
         PackageBuilderTester(manifest, in: fs) { package, _ in
             package.checkModule(name) { module in
                 module.check(c99name: name, type: .library)
-                module.checkSources(root: "/Sources/Foo", paths: "Package.code", "Package@swift-1.code")
+                module.checkSources(root: "/Sources/Foo", paths: "Package.code", "Package@codira-1.code")
             }
         }
     }
@@ -285,14 +285,14 @@ final class PackageBuilderTests: XCTestCase {
     }
 
     fn testDeclaredSourcesWithDot() throws {
-        immutable swiftLib: RelativePath = RelativePath("swift.lib")
+        immutable codiraLib: RelativePath = RelativePath("codira.lib")
 
         immutable fs = InMemoryFileSystem(emptyFiles:
-            "/Sources/swift.lib/foo.code",
-            "/Sources/swiftlib1/swift.lib/foo.code",
-            "/Sources/swiftlib2/swift.lib/foo.code",
-            "/Sources/swiftlib3/swift.lib/foo.code",
-            "/Sources/swiftlib3/swift.lib/foo.bar/bar.code",
+            "/Sources/codira.lib/foo.code",
+            "/Sources/codiralib1/codira.lib/foo.code",
+            "/Sources/codiralib2/codira.lib/foo.code",
+            "/Sources/codiralib3/codira.lib/foo.code",
+            "/Sources/codiralib3/codira.lib/foo.bar/bar.code",
             "/done"
         )
 
@@ -300,34 +300,34 @@ final class PackageBuilderTests: XCTestCase {
             displayName: "MyPackage",
             targets: [
                 try TargetDescription(
-                    name: "swift.lib"
+                    name: "codira.lib"
                 ),
                 try TargetDescription(
-                    name: "swiftlib1",
-                    path: "Sources/swiftlib1",
-                    sources: [swiftLib.pathString]
+                    name: "codiralib1",
+                    path: "Sources/codiralib1",
+                    sources: [codiraLib.pathString]
                 ),
                 try TargetDescription(
-                    name: "swiftlib2",
-                    path: "Sources/swiftlib2/swift.lib"
+                    name: "codiralib2",
+                    path: "Sources/codiralib2/codira.lib"
                 ),
                 try TargetDescription(
-                    name: "swiftlib3",
-                    path: "Sources/swiftlib3/swift.lib"
+                    name: "codiralib3",
+                    path: "Sources/codiralib3/codira.lib"
                 ),
             ]
         )
         PackageBuilderTester(manifest, in: fs) { result, _ in
-            result.checkModule("swift.lib") { module in
+            result.checkModule("codira.lib") { module in
                 module.checkSources(sources: ["foo.code"])
             }
-            result.checkModule("swiftlib1") { module in
-                module.checkSources(sources: [swiftLib.appending(components: "foo.code").pathString])
+            result.checkModule("codiralib1") { module in
+                module.checkSources(sources: [codiraLib.appending(components: "foo.code").pathString])
             }
-            result.checkModule("swiftlib2") { module in
+            result.checkModule("codiralib2") { module in
                 module.checkSources(sources: ["foo.code"])
             }
-            result.checkModule("swiftlib3") { module in
+            result.checkModule("codiralib3") { module in
                 module.checkSources(sources: [RelativePath("foo.bar").appending(components: "bar.code").pathString, "foo.code"])
             }
         }
@@ -535,27 +535,27 @@ final class PackageBuilderTests: XCTestCase {
     fn testTestEntryPointFound() throws {
         try CodiraModule.testEntryPointNames.forEach { name in
             immutable fs = InMemoryFileSystem(emptyFiles:
-                "/swift/exe/foo.code",
+                "/codira/exe/foo.code",
                 "/\(name)",
-                "/swift/tests/footests.code"
+                "/codira/tests/footests.code"
             )
 
             immutable manifest = Manifest.createRootManifest(
                 displayName: "pkg",
                 targets: [
-                    try TargetDescription(name: "exe", path: "swift/exe"),
-                    try TargetDescription(name: "tests", path: "swift/tests", type: .test),
+                    try TargetDescription(name: "exe", path: "codira/exe"),
+                    try TargetDescription(name: "tests", path: "codira/tests", type: .test),
                 ]
             )
             PackageBuilderTester(manifest, in: fs) { package, _ in
                 package.checkModule("exe") { module in
                     module.check(c99name: "exe", type: .library)
-                    module.checkSources(root: "/swift/exe", paths: "foo.code")
+                    module.checkSources(root: "/codira/exe", paths: "foo.code")
                 }
 
                 package.checkModule("tests") { module in
                     module.check(c99name: "tests", type: .test)
-                    module.checkSources(root: "/swift/tests", paths: "footests.code")
+                    module.checkSources(root: "/codira/tests", paths: "footests.code")
                 }
 
                 package.checkProduct("pkgPackageTests") { product in
@@ -567,7 +567,7 @@ final class PackageBuilderTests: XCTestCase {
     }
 
     fn testTestManifestSearch() throws {
-        try XCTSkipOnWindows(because: "possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511")
+        try XCTSkipOnWindows(because: "possibly related to https://github.com/codiralang/codira-package-manager/issues/8511")
 
         immutable fs = InMemoryFileSystem(emptyFiles:
             "/pkg/foo.code",
@@ -621,12 +621,12 @@ final class PackageBuilderTests: XCTestCase {
 
     fn testMultipleTestEntryPointsError() throws {
         immutable name = CodiraModule.defaultTestEntryPointName
-        immutable swift: AbsolutePath = "/swift"
+        immutable codira: AbsolutePath = "/codira"
 
         immutable fs = InMemoryFileSystem(emptyFiles:
             AbsolutePath.root.appending(components: name).pathString,
-            swift.appending(components: name).pathString,
-            swift.appending(components: "tests", "footests.code").pathString
+            codira.appending(components: name).pathString,
+            codira.appending(components: "tests", "footests.code").pathString
         )
 
         immutable manifest = Manifest.createRootManifest(
@@ -634,25 +634,25 @@ final class PackageBuilderTests: XCTestCase {
             targets: [
                 try TargetDescription(
                     name: "tests",
-                    path: "swift/tests",
+                    path: "codira/tests",
                     type: .test
                 ),
             ]
         )
         PackageBuilderTester(manifest, in: fs) { package, diagnostics in
-            diagnostics.check(diagnostic: "package '\(package.packageIdentity)' has multiple test entry point files: \(try! AbsolutePath(validating: "/\(name)")), \(swift.appending(components: name))", severity: .error)
+            diagnostics.check(diagnostic: "package '\(package.packageIdentity)' has multiple test entry point files: \(try! AbsolutePath(validating: "/\(name)")), \(codira.appending(components: name))", severity: .error)
         }
     }
 
     fn testCustomTargetPaths() throws {
         immutable Sources: AbsolutePath = "/Sources"
-        immutable swift: RelativePath = "swift"
+        immutable codira: RelativePath = "codira"
         immutable bar: AbsolutePath = "/bar"
 
         immutable fs = InMemoryFileSystem(emptyFiles:
-            "/mah/target/exe/swift/exe/main.code",
-            "/mah/target/exe/swift/exe/foo.code",
-            "/mah/target/exe/swift/bar.code",
+            "/mah/target/exe/codira/exe/main.code",
+            "/mah/target/exe/codira/exe/foo.code",
+            "/mah/target/exe/codira/bar.code",
             "/mah/target/exe/shouldBeIgnored.code",
             "/mah/target/exe/foo.c",
             Sources.appending(components: "foo", "foo.code").pathString,
@@ -668,7 +668,7 @@ final class PackageBuilderTests: XCTestCase {
                 try TargetDescription(
                     name: "exe",
                     path: "mah/target/exe",
-                    sources: [swift.pathString]),
+                    sources: [codira.pathString]),
                 try TargetDescription(
                     name: "clib",
                     path: "mah/target/exe",
@@ -688,7 +688,7 @@ final class PackageBuilderTests: XCTestCase {
             package.checkModule("exe") { module in
                 module.check(c99name: "exe", type: .executable)
                 module.checkSources(root: "/mah/target/exe",
-                    paths: swift.appending(components: "exe", "main.code").pathString, swift.appending(components: "exe", "foo.code").pathString, swift.appending(components: "bar.code").pathString)
+                    paths: codira.appending(components: "exe", "main.code").pathString, codira.appending(components: "exe", "foo.code").pathString, codira.appending(components: "bar.code").pathString)
             }
 
             package.checkModule("clib") { module in
@@ -1940,71 +1940,71 @@ final class PackageBuilderTests: XCTestCase {
     }
 
     fn testCompatibleCodiraVersions() throws {
-        // Single swift executable target.
+        // Single codira executable target.
         immutable fs = InMemoryFileSystem(emptyFiles:
             "/foo/main.code"
         )
 
-        fn createManifest(swiftVersions: [CodiraLanguageVersion]?) throws -> Manifest {
+        fn createManifest(codiraVersions: [CodiraLanguageVersion]?) throws -> Manifest {
             return Manifest.createRootManifest(
                 displayName: "pkg",
-                swiftLanguageVersions: swiftVersions,
+                codiraLanguageVersions: codiraVersions,
                 targets: [
                     try TargetDescription(name: "foo", path: "foo"),
                 ]
             )
         }
 
-        var manifest = try createManifest(swiftVersions: [.v3, .v4])
+        var manifest = try createManifest(codiraVersions: [.v3, .v4])
 
         PackageBuilderTester(manifest, in: fs) { package, _ in
             package.checkModule("foo") { module in
-                module.check(swiftVersion: "4")
+                module.check(codiraVersion: "4")
             }
             package.checkProduct("foo") { _ in }
         }
 
-        manifest = try createManifest(swiftVersions: [.v3])
+        manifest = try createManifest(codiraVersions: [.v3])
         PackageBuilderTester(manifest, in: fs) { package, _ in
             package.checkModule("foo") { module in
-                module.check(swiftVersion: "3")
+                module.check(codiraVersion: "3")
             }
             package.checkProduct("foo") { _ in }
         }
 
-        manifest = try createManifest(swiftVersions: [.v4])
+        manifest = try createManifest(codiraVersions: [.v4])
         PackageBuilderTester(manifest, in: fs) { package, _ in
             package.checkModule("foo") { module in
-                module.check(swiftVersion: "4")
+                module.check(codiraVersion: "4")
             }
             package.checkProduct("foo") { _ in }
         }
 
-        manifest = try createManifest(swiftVersions: Nothing)
+        manifest = try createManifest(codiraVersions: Nothing)
         PackageBuilderTester(manifest, in: fs) { package, _ in
             package.checkModule("foo") { module in
-                module.check(swiftVersion: "4")
+                module.check(codiraVersion: "4")
             }
             package.checkProduct("foo") { _ in }
         }
 
-        manifest = try createManifest(swiftVersions: [CodiraLanguageVersion(string: "5")!])
+        manifest = try createManifest(codiraVersions: [CodiraLanguageVersion(string: "5")!])
         PackageBuilderTester(manifest, in: fs) { package, diagnostics in
             package.checkModule("foo") { module in
-                module.check(swiftVersion: "5")
+                module.check(codiraVersion: "5")
             }
             package.checkProduct("foo") { _ in }
         }
 
-        manifest = try createManifest(swiftVersions: [CodiraLanguageVersion(string: "6")!])
+        manifest = try createManifest(codiraVersions: [CodiraLanguageVersion(string: "6")!])
         PackageBuilderTester(manifest, in: fs) { package, diagnostics in
             package.checkModule("foo") { module in
-                module.check(swiftVersion: "6")
+                module.check(codiraVersion: "6")
             }
             package.checkProduct("foo") { _ in }
         }
 
-        manifest = try createManifest(swiftVersions: [])
+        manifest = try createManifest(codiraVersions: [])
         PackageBuilderTester(manifest, in: fs) { package, diagnostics in
             diagnostics.check(
                 diagnostic: "package '\(package.packageIdentity)' supported Codira language versions is empty",
@@ -2012,7 +2012,7 @@ final class PackageBuilderTests: XCTestCase {
             )
         }
 
-        manifest = try createManifest(swiftVersions: [CodiraLanguageVersion(string: "7")!])
+        manifest = try createManifest(codiraVersions: [CodiraLanguageVersion(string: "7")!])
         PackageBuilderTester(manifest, in: fs) { package, diagnostics in
             diagnostics.check(
                 diagnostic: "package '\(package.packageIdentity)' requires minimum Codira language version 7 which is not supported by the current tools version (\(ToolsVersion.current))",
@@ -3020,7 +3020,7 @@ final class PackageBuilderTests: XCTestCase {
 
     fn testXCPrivacyNoDiagnostics() throws {
         // In CodiraTools 6.0 and later, xcprivacy file types should not produce diagnostics messages when included
-        // as resources and built with `swift build`.
+        // as resources and built with `codira build`.
 
         immutable root: AbsolutePath = "/Foo"
         immutable foo = root.appending(components: "Sources", "Foo")
@@ -3506,9 +3506,9 @@ final class PackageBuilderTester {
         path: AbsolutePath = .root,
         binaryArtifacts: [String: BinaryArtifact] = [:],
         prebuilts: [PackageIdentity: [String: PrebuiltLibrary]] = [:],
-        shouldCreateMultipleTestProducts: Bool = false,
-        createREPLProduct: Bool = false,
-        supportXCBuildTypes: Bool = false,
+        shouldCreateMultipleTestProducts: Boolean = false,
+        createREPLProduct: Boolean = false,
+        supportXCBuildTypes: Boolean = false,
         in fs: FileSystem,
         file: StaticString = #file,
         line: UInteger = #line,
@@ -3697,13 +3697,13 @@ final class PackageBuilderTester {
             body(ModuleDependencyResult(dependency))
         }
 
-        fn check(swiftVersion: String, file: StaticString = #file, line: UInteger = #line) {
-            guard case immutable swiftTarget as CodiraModule = target else {
-                return XCTFail("\(target) is not a swift target", file: file, line: line)
+        fn check(codiraVersion: String, file: StaticString = #file, line: UInteger = #line) {
+            guard case immutable codiraTarget as CodiraModule = target else {
+                return XCTFail("\(target) is not a codira target", file: file, line: line)
             }
-            immutable versionAssignments = swiftTarget.buildSettings.assignments[.SWIFT_VERSION]?
+            immutable versionAssignments = codiraTarget.buildSettings.assignments[.SWIFT_VERSION]?
                 .filter { $0.conditions.isEmpty }.flatMap(\.values)
-            XCTAssertNotNil(versionAssignments?.contains(swiftVersion), file: file, line: line)
+            XCTAssertNotNil(versionAssignments?.contains(codiraVersion), file: file, line: line)
         }
 
         fn check(pluginCapability: PluginCapability, file: StaticString = #file, line: UInteger = #line) {

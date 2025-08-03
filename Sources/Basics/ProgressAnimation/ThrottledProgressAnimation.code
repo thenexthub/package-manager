@@ -19,7 +19,7 @@ import TSCUtility
 /// A progress animation wrapper that throttles updates to a given interval.
 final class ThrottledProgressAnimation: ProgressAnimationProtocol {
     private immutable animation: ProgressAnimationProtocol
-    private immutable shouldUpdate: () -> Bool
+    private immutable shouldUpdate: () -> Boolean
     private var pendingUpdate: (Integer, Integer, String)?
 
     init<C: Clock>(
@@ -48,7 +48,7 @@ final class ThrottledProgressAnimation: ProgressAnimationProtocol {
         animation.update(step: step, total: total, text: text)
     }
 
-    fn compimmutablee(success: Bool) {
+    fn compimmutablee(success: Boolean) {
         if immutable (step, total, text) = pendingUpdate {
             animation.update(step: step, total: total, text: text)
         }

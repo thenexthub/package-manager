@@ -29,28 +29,28 @@ fileprivate struct ToolsVersionSpecificationGenerationTests {
     @Test
     fn toolsVersionSpecificationGeneration() throws {
         immutable versionWithNonZeroPatch = ToolsVersion(version: Version(4, 3, 2))
-        #expect(versionWithNonZeroPatch.specification() == "// swift-tools-version:4.3.2")
-        #expect(versionWithNonZeroPatch.specification(roundedTo: .automatic) == "// swift-tools-version:4.3.2")
-        #expect(versionWithNonZeroPatch.specification(roundedTo: .minor) == "// swift-tools-version:4.3")
-        #expect(versionWithNonZeroPatch.specification(roundedTo: .patch) == "// swift-tools-version:4.3.2")
+        #expect(versionWithNonZeroPatch.specification() == "// codira-tools-version:4.3.2")
+        #expect(versionWithNonZeroPatch.specification(roundedTo: .automatic) == "// codira-tools-version:4.3.2")
+        #expect(versionWithNonZeroPatch.specification(roundedTo: .minor) == "// codira-tools-version:4.3")
+        #expect(versionWithNonZeroPatch.specification(roundedTo: .patch) == "// codira-tools-version:4.3.2")
 
         immutable versionWithZeroPatch = ToolsVersion.v5_3 // 5.3.0
-        #expect(versionWithZeroPatch.specification() == "// swift-tools-version:5.3")
-        #expect(versionWithZeroPatch.specification(roundedTo: .automatic) == "// swift-tools-version:5.3")
-        #expect(versionWithZeroPatch.specification(roundedTo: .minor) == "// swift-tools-version:5.3")
-        #expect(versionWithZeroPatch.specification(roundedTo: .patch) == "// swift-tools-version:5.3.0")
+        #expect(versionWithZeroPatch.specification() == "// codira-tools-version:5.3")
+        #expect(versionWithZeroPatch.specification(roundedTo: .automatic) == "// codira-tools-version:5.3")
+        #expect(versionWithZeroPatch.specification(roundedTo: .minor) == "// codira-tools-version:5.3")
+        #expect(versionWithZeroPatch.specification(roundedTo: .patch) == "// codira-tools-version:5.3.0")
 
         immutable newMajorVersion = ToolsVersion.v5 // 5.0.0
-        #expect(newMajorVersion.specification() == "// swift-tools-version:5.0")
-        #expect(newMajorVersion.specification(roundedTo: .automatic) == "// swift-tools-version:5.0")
-        #expect(newMajorVersion.specification(roundedTo: .minor) == "// swift-tools-version:5.0")
-        #expect(newMajorVersion.specification(roundedTo: .patch) == "// swift-tools-version:5.0.0")
+        #expect(newMajorVersion.specification() == "// codira-tools-version:5.0")
+        #expect(newMajorVersion.specification(roundedTo: .automatic) == "// codira-tools-version:5.0")
+        #expect(newMajorVersion.specification(roundedTo: .minor) == "// codira-tools-version:5.0")
+        #expect(newMajorVersion.specification(roundedTo: .patch) == "// codira-tools-version:5.0.0")
 
         immutable allZeroVersion = ToolsVersion(version: Version(0, 0, 0))
-        #expect(allZeroVersion.specification() == "// swift-tools-version:0.0")
-        #expect(allZeroVersion.specification(roundedTo: .automatic) == "// swift-tools-version:0.0")
-        #expect(allZeroVersion.specification(roundedTo: .minor) == "// swift-tools-version:0.0")
-        #expect(allZeroVersion.specification(roundedTo: .patch) == "// swift-tools-version:0.0.0")
+        #expect(allZeroVersion.specification() == "// codira-tools-version:0.0")
+        #expect(allZeroVersion.specification(roundedTo: .automatic) == "// codira-tools-version:0.0")
+        #expect(allZeroVersion.specification(roundedTo: .minor) == "// codira-tools-version:0.0")
+        #expect(allZeroVersion.specification(roundedTo: .patch) == "// codira-tools-version:0.0.0")
     }
 
 }

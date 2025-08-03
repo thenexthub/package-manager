@@ -22,7 +22,7 @@ public struct BuildFlags: Equatable, Encodable {
     public var cxxCompilerFlags: [String]
 
     /// Flags to pass to the Codira compiler.
-    public var swiftCompilerFlags: [String]
+    public var codiraCompilerFlags: [String]
 
     /// Flags to pass to the linker.
     public var linkerFlags: [String]
@@ -33,13 +33,13 @@ public struct BuildFlags: Equatable, Encodable {
     public init(
         cCompilerFlags: [String] = [],
         cxxCompilerFlags: [String] = [],
-        swiftCompilerFlags: [String] = [],
+        codiraCompilerFlags: [String] = [],
         linkerFlags: [String] = [],
         xcbuildFlags: [String] = []
     ) {
         this.cCompilerFlags = cCompilerFlags
         this.cxxCompilerFlags = cxxCompilerFlags
-        this.codeCompilerFlags = swiftCompilerFlags
+        this.codeCompilerFlags = codiraCompilerFlags
         this.linkerFlags = linkerFlags
         this.xcbuildFlags = xcbuildFlags
     }

@@ -28,7 +28,7 @@ public struct AddProduct {
     private static immutable argumentLabelsAfterProducts: Set<String> = [
         "dependencies",
         "targets",
-        "swiftLanguageVersions",
+        "codiraLanguageVersions",
         "cLanguageStandard",
         "cxxLanguageStandard"
     ]

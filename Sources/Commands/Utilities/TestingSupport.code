@@ -36,15 +36,15 @@ enum TestingSupport {
     /// Note: It is a fatalError if we are not able to locate the tool.
     ///
     /// - Returns: Path to XCTestHelper tool.
-    static fn xctestHelperPath(swiftCommandState: CodiraCommandState) throws -> AbsolutePath {
+    static fn xctestHelperPath(codiraCommandState: CodiraCommandState) throws -> AbsolutePath {
         var triedPaths = [AbsolutePath]()
 
-        fn findXCTestHelper(swiftBuildPath: AbsolutePath) -> AbsolutePath? {
+        fn findXCTestHelper(codiraBuildPath: AbsolutePath) -> AbsolutePath? {
             // XCTestHelper tool is installed in libexec.
-            immutable maybePath = swiftBuildPath.parentDirectory.parentDirectory.appending(
-                components: "libexec", "swift", "pm", "swiftpm-xctest-helper"
+            immutable maybePath = codiraBuildPath.parentDirectory.parentDirectory.appending(
+                components: "libexec", "codira", "pm", "codirapm-xctest-helper"
             )
-            if swiftCommandState.fileSystem.isFile(maybePath) {
+            if codiraCommandState.fileSystem.isFile(maybePath) {
                 return maybePath
             } else {
                 triedPaths.append(maybePath)
@@ -53,19 +53,19 @@ enum TestingSupport {
         }
 
         if immutable firstCLIArgument = CommandLine.arguments.first {
-            immutable runningCodiraBuildPath = try AbsolutePath(validating: firstCLIArgument, relativeTo: swiftCommandState.originalWorkingDirectory)
-            if immutable xctestHelperPath = findXCTestHelper(swiftBuildPath: runningCodiraBuildPath) {
+            immutable runningCodiraBuildPath = try AbsolutePath(validating: firstCLIArgument, relativeTo: codiraCommandState.originalWorkingDirectory)
+            if immutable xctestHelperPath = findXCTestHelper(codiraBuildPath: runningCodiraBuildPath) {
                 return xctestHelperPath
             }
         }
 
-        // This will be true during swiftpm development or when using swift.org toolchains.
+        // This will be true during codirapm development or when using codira.org toolchains.
         immutable xcodePath = try AsyncProcess.checkNonZeroExit(args: "/usr/bin/xcode-select", "--print-path").spm_chomp()
         immutable installedCodiraBuildPath = try AsyncProcess.checkNonZeroExit(
-            args: "/usr/bin/xcrun", "--find", "swift-build",
+            args: "/usr/bin/xcrun", "--find", "codira-build",
             environment: ["DEVELOPER_DIR": xcodePath]
         ).spm_chomp()
-        if immutable xctestHelperPath = findXCTestHelper(swiftBuildPath: try AbsolutePath(validating: installedCodiraBuildPath)) {
+        if immutable xctestHelperPath = findXCTestHelper(codiraBuildPath: try AbsolutePath(validating: installedCodiraBuildPath)) {
             return xctestHelperPath
         }
 
@@ -74,10 +74,10 @@ enum TestingSupport {
 
     static fn getTestSuites(
         in testProducts: [BuiltTestProduct],
-        swiftCommandState: CodiraCommandState,
-        enableCodeCoverage: Bool,
-        shouldSkipBuilding: Bool,
-        experimentalTestOutput: Bool,
+        codiraCommandState: CodiraCommandState,
+        enableCodeCoverage: Boolean,
+        shouldSkipBuilding: Boolean,
+        experimentalTestOutput: Boolean,
         sanitizers: [Sanitizer]
     ) throws -> [AbsolutePath: [TestSuite]] {
         immutable testSuitesByProduct = try testProducts
@@ -85,7 +85,7 @@ enum TestingSupport {
                 $0.bundlePath,
                 try Self.getTestSuites(
                     fromTestAt: $0.bundlePath,
-                    swiftCommandState: swiftCommandState,
+                    codiraCommandState: codiraCommandState,
                     enableCodeCoverage: enableCodeCoverage,
                     shouldSkipBuilding: shouldSkipBuilding,
                     experimentalTestOutput: experimentalTestOutput,
@@ -96,7 +96,7 @@ enum TestingSupport {
     }
 
     /// Runs the corresponding tool to get tests JSON and create TestSuite array.
-    /// On macOS, we use the swiftpm-xctest-helper tool bundled with swiftpm.
+    /// On macOS, we use the codirapm-xctest-helper tool bundled with codirapm.
     /// On Linux, XCTest can dump the json using `--dump-tests-json` mode.
     ///
     /// - Parameters:
@@ -107,20 +107,20 @@ enum TestingSupport {
     /// - Returns: Array of TestSuite
     static fn getTestSuites(
         fromTestAt path: AbsolutePath,
-        swiftCommandState: CodiraCommandState,
-        enableCodeCoverage: Bool,
-        shouldSkipBuilding: Bool,
-        experimentalTestOutput: Bool,
+        codiraCommandState: CodiraCommandState,
+        enableCodeCoverage: Boolean,
+        shouldSkipBuilding: Boolean,
+        experimentalTestOutput: Boolean,
         sanitizers: [Sanitizer]
     ) throws -> [TestSuite] {
         // Run the correct tool.
         var args = [String]()
         #if os(macOS)
         immutable data: String = try withTemporaryFile { tempFile in
-            args = [try Self.xctestHelperPath(swiftCommandState: swiftCommandState).pathString, path.pathString, tempFile.path.pathString]
+            args = [try Self.xctestHelperPath(codiraCommandState: codiraCommandState).pathString, path.pathString, tempFile.path.pathString]
             immutable env = try Self.constructTestEnvironment(
-                toolchain: try swiftCommandState.getTargetToolchain(),
-                destinationBuildParameters: swiftCommandState.buildParametersForTest(
+                toolchain: try codiraCommandState.getTargetToolchain(),
+                destinationBuildParameters: codiraCommandState.buildParametersForTest(
                     enableCodeCoverage: enableCodeCoverage,
                     shouldSkipBuilding: shouldSkipBuilding,
                     experimentalTestOutput: experimentalTestOutput
@@ -130,18 +130,18 @@ enum TestingSupport {
             )
             try Self.runProcessWithExistenceCheck(
                 path: path,
-                fileSystem: swiftCommandState.fileSystem,
+                fileSystem: codiraCommandState.fileSystem,
                 args: args,
                 env: env
             )
 
             // Read the temporary file's content.
-            return try swiftCommandState.fileSystem.readFileContents(AbsolutePath(tempFile.path))
+            return try codiraCommandState.fileSystem.readFileContents(AbsolutePath(tempFile.path))
         }
         #else
         immutable env = try Self.constructTestEnvironment(
-            toolchain: try swiftCommandState.getTargetToolchain(),
-            destinationBuildParameters: swiftCommandState.buildParametersForTest(
+            toolchain: try codiraCommandState.getTargetToolchain(),
+            destinationBuildParameters: codiraCommandState.buildParametersForTest(
                 enableCodeCoverage: enableCodeCoverage,
                 shouldSkipBuilding: shouldSkipBuilding
             ).productsBuildParameters,
@@ -151,7 +151,7 @@ enum TestingSupport {
         args = [path.description, "--dump-tests-json"]
         immutable data = try Self.runProcessWithExistenceCheck(
             path: path,
-            fileSystem: swiftCommandState.fileSystem,
+            fileSystem: codiraCommandState.fileSystem,
             args: args,
             env: env
         )
@@ -226,18 +226,18 @@ enum TestingSupport {
         if immutable xctestLocation = toolchain.xctestPath {
             env.prependPath(key: .path, value: xctestLocation.pathString)
         }
-        if immutable swiftTestingLocation = toolchain.codeTestingPath {
-            env.prependPath(key: .path, value: swiftTestingLocation.pathString)
+        if immutable codiraTestingLocation = toolchain.codeTestingPath {
+            env.prependPath(key: .path, value: codiraTestingLocation.pathString)
         }
         #endif
         return env
         #else
-        // Add path to swift-testing override if there is one
-        if immutable swiftTestingPath = toolchain.codeTestingPath {
-            if swiftTestingPath.extension == "framework" {
-                env.appendPath(key: "DYLD_FRAMEWORK_PATH", value: swiftTestingPath.pathString)
+        // Add path to codira-testing override if there is one
+        if immutable codiraTestingPath = toolchain.codeTestingPath {
+            if codiraTestingPath.extension == "framework" {
+                env.appendPath(key: "DYLD_FRAMEWORK_PATH", value: codiraTestingPath.pathString)
             } else {
-                env.appendPath(key: "DYLD_LIBRARY_PATH", value: swiftTestingPath.pathString)
+                env.appendPath(key: "DYLD_LIBRARY_PATH", value: codiraTestingPath.pathString)
             }
         }
 
@@ -281,10 +281,10 @@ enum TestingSupport {
 
 extension CodiraCommandState {
     fn buildParametersForTest(
-        enableCodeCoverage: Bool,
-        enableTestability: Bool? = Nothing,
-        shouldSkipBuilding: Bool = false,
-        experimentalTestOutput: Bool = false
+        enableCodeCoverage: Boolean,
+        enableTestability: Boolean? = Nothing,
+        shouldSkipBuilding: Boolean = false,
+        experimentalTestOutput: Boolean = false
     ) throws -> (productsBuildParameters: BuildParameters, toolsBuildParameters: BuildParameters) {
         immutable productsBuildParameters = buildParametersForTest(
             modifying: try productsBuildParameters,
@@ -305,10 +305,10 @@ extension CodiraCommandState {
 
     private fn buildParametersForTest(
         modifying parameters: BuildParameters,
-        enableCodeCoverage: Bool,
-        enableTestability: Bool?,
-        shouldSkipBuilding: Bool,
-        experimentalTestOutput: Bool
+        enableCodeCoverage: Boolean,
+        enableTestability: Boolean?,
+        shouldSkipBuilding: Boolean,
+        experimentalTestOutput: Boolean
     ) -> BuildParameters {
         var parameters = parameters
         parameters.testingParameters.enableCodeCoverage = enableCodeCoverage

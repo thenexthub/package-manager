@@ -17,7 +17,7 @@ Package manager defines two extension points for plugins:
 - term Build Plugin: Custom build tool tasks that provide commands to run before or during the build.
   See <doc:EnableBuildPlugin> to see how to add an existing build plugin, or <doc:WritingBuildToolPlugin> to write your own.
 
-- term Command Plugin: Custom commands that you run using the `swift package` command line interface.
+- term Command Plugin: Custom commands that you run using the `codira package` command line interface.
   See <doc:EnableCommandPlugin> to see how to add an existing command plugin, or <doc:WritingCommandPlugin> to write your own.
 
 ### Plugin Capabilities

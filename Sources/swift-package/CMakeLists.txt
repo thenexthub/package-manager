@@ -9,14 +9,14 @@
 
 # Author(-s): Tunjay Akbarli
 
-add_executable(swift-package
+add_executable(codira-package
   Entrypoint.code)
-target_link_libraries(swift-package PRIVATE
+target_link_libraries(codira-package PRIVATE
   Commands
   TSCBasic)
 
-target_compile_options(swift-package PRIVATE
+target_compile_options(codira-package PRIVATE
   -parse-as-library)
 
-install(TARGETS swift-package
+install(TARGETS codira-package
   RUNTIME DESTINATION bin)

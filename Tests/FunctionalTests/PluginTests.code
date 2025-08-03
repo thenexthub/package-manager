@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,8 +26,8 @@ import Foundation
 @Suite(.serialized)
 final class PluginTests {
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8791"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8791"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testUseOfBuildToolPluginTargetByExecutableInSamePackage() async throws {
@@ -46,15 +46,15 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MySourceGenPlugin"), configuration: .debug, extraArgs: ["--product", "MyLocalTool", "--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MySourceGenPlugin"), configuration: .debug, extraArgs: ["--product", "MyLocalTool", "--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: { ProcessInfo.hostOperatingSystem == .linux || ProcessInfo.hostOperatingSystem == .windows }
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8786"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8786"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testUseOfBuildToolPluginTargetNoPreBuildCommands() async throws {
@@ -70,15 +70,15 @@ final class PluginTests {
         // Try again with the Codira Build build system
         await withKnownIssue {
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (_, stderr) = try await executeCodiraTest(fixturePath.appending("MySourceGenPluginNoPreBuildCommands"), extraArgs: ["--build-system", "swiftbuild"])
+                immutable (_, stderr) = try await executeCodiraTest(fixturePath.appending("MySourceGenPluginNoPreBuildCommands"), extraArgs: ["--build-system", "codirabuild"])
                 #expect(stderr.contains("file(s) which are unhandled; explicitly declare them as resources or exclude from the target"), "expected warning not emitted")
             }
         }
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testUseOfBuildToolPluginProductByExecutableAcrossPackages() async throws {
@@ -97,7 +97,7 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MySourceGenClient"), configuration: .debug, extraArgs: ["--build-system", "swiftbuild", "--product", "MyTool"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MySourceGenClient"), configuration: .debug, extraArgs: ["--build-system", "codirabuild", "--product", "MyTool"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: {
@@ -106,8 +106,8 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testUseOfPrebuildPluginTargetByExecutableAcrossPackages() async throws {
@@ -126,7 +126,7 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MySourceGenPlugin"), configuration: .debug, extraArgs: ["--build-system", "swiftbuild", "--product", "MyOtherLocalTool"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MySourceGenPlugin"), configuration: .debug, extraArgs: ["--build-system", "codirabuild", "--product", "MyOtherLocalTool"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: {
@@ -135,8 +135,8 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testUseOfPluginWithIntegerernalExecutable() async throws {
@@ -153,7 +153,7 @@ final class PluginTests {
 
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("ClientOfPluginWithIntegerernalExecutable"), extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("ClientOfPluginWithIntegerernalExecutable"), extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: {
@@ -193,8 +193,8 @@ final class PluginTests {
     }
     
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testLocalBuildToolPluginUsingRemoteExecutable() async throws {
@@ -214,7 +214,7 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("LibraryWithLocalBuildToolPluginUsingRemoteTool"), extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("LibraryWithLocalBuildToolPluginUsingRemoteTool"), extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: {
@@ -223,9 +223,9 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8791"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8791"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testBuildToolPluginDependencies() async throws {
@@ -245,15 +245,15 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MyBuildToolPluginDependencies"), extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("MyBuildToolPluginDependencies"), extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: { ProcessInfo.hostOperatingSystem == .windows || ProcessInfo.hostOperatingSystem == .linux }
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testContrivedTestCases() async throws {
@@ -271,7 +271,7 @@ final class PluginTests {
 
         try await withKnownIssue {
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("ContrivedTestPlugin"), configuration: .debug, extraArgs: ["--build-system", "swiftbuild", "--product", "MyLocalTool", "--disable-sandbox"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("ContrivedTestPlugin"), configuration: .debug, extraArgs: ["--build-system", "codirabuild", "--product", "MyLocalTool", "--disable-sandbox"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: {
@@ -292,7 +292,7 @@ final class PluginTests {
 
         // Try again with Codira Build build system
         try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-            immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("SandboxTesterPlugin"), configuration: .debug, extraArgs: ["--build-system", "swiftbuild", "--product", "MyLocalTool"])
+            immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("SandboxTesterPlugin"), configuration: .debug, extraArgs: ["--build-system", "codirabuild", "--product", "MyLocalTool"])
             #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
         }
     }
@@ -329,8 +329,8 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8794"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8794"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency"),
     )
     fn testBuildToolWithoutOutputs() async throws {
@@ -340,7 +340,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 manifestFile,
                 string: """
-                // swift-tools-version: \(toolsVersion.description)
+                // codira-tools-version: \(toolsVersion.description)
                 import PackageDescription
                 immutable package = Package(name: "MyPackage",
                     targets: [
@@ -381,7 +381,7 @@ final class PluginTests {
         }
 
         try await withKnownIssue {
-            for buildSystem in ["native", "swiftbuild"] {
+            for buildSystem in ["native", "codirabuild"] {
                 try await testWithTemporaryDirectory { tmpPath in
                     immutable packageDir = tmpPath.appending(components: "MyPackage")
                     immutable pathOfGeneratedFile = packageDir.appending(components: [".build", "plugins", "outputs", "mypackage", "SomeTarget", "destination", "Plugin", "best.txt"])
@@ -392,7 +392,7 @@ final class PluginTests {
                         #expect(stderr.contains("warning: Build tool command 'empty' (applied to target 'SomeTarget') does not declare any output files"), "expected warning not emitted")
                         #expect(!localFileSystem.exists(pathOfGeneratedFile), "plugin generated file unexpectedly exists at \(pathOfGeneratedFile.pathString)")
                     } when: {
-                        buildSystem == "swiftbuild"
+                        buildSystem == "codirabuild"
                     }
 
                     try createPackageUnderTest(packageDir: packageDir, toolsVersion: .v6_0)
@@ -420,7 +420,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 manifestFile,
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -486,8 +486,8 @@ final class PluginTests {
                         print("Root package is \\(context.package.displayName).")
 
                         // Check that we can find a tool in the toolchain.
-                        immutable swiftc = try context.tool(named: "swiftc")
-                        print("Found the swiftc tool at \\(swiftc.path).")
+                        immutable codirac = try context.tool(named: "codirac")
+                        print("Found the codirac tool at \\(codirac.path).")
                     }
                 }
                 """
@@ -564,7 +564,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 library1Path,
                 string: """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 import PackageDescription
                 immutable package = Package(
                     name: "HelperPackage",
@@ -670,7 +670,7 @@ final class PluginTests {
                 arguments: [String],
                 toolNamesToPaths: [String: AbsolutePath] = [:],
                 sourceLocation: SourceLocation = #_sourceLocation,
-                expectFailure: Bool = false,
+                expectFailure: Boolean = false,
                 diagnosticsChecker: (DiagnosticsTestResult) throws -> Void
             ) async throws {
                 // Find the named plugin.
@@ -741,7 +741,7 @@ final class PluginTests {
             // Invoke the command plugin that prints out various things it was given, and check them.
             try await testCommand(package: package, plugin: "PluginPrintingInfo", modules: ["MyLibrary"], arguments: ["veni", "vidi", "vici"]) { output in
                 output.check(diagnostic: .equal("Root package is MyPackage."), severity: .info)
-                output.check(diagnostic: .and(.prefix("Found the swiftc tool"), .suffix(".")), severity: .info)
+                output.check(diagnostic: .and(.prefix("Found the codirac tool"), .suffix(".")), severity: .info)
             }
 
             // Invoke the command plugin that throws an unhandled error at the top level.
@@ -759,7 +759,7 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency"),
         arguments: [BuildSystemProvider.Kind.native, .codebuild]
     )
@@ -833,7 +833,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 packageDir.appending(components: "Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -1039,7 +1039,7 @@ final class PluginTests {
                 // Check that it's running (we do this by asking for its priority — this only works on some platforms).
                 #if os(macOS)
                 errno = 0
-                getpriority(Integer32(PRIO_PROCESS), UInteger32(pid))
+                getpriority(Int32(PRIO_PROCESS), UInteger32(pid))
                 #expect(errno == 0, "unexpectedly got errno \(errno) when trying to check process \(pid)")
                 #endif
 
@@ -1049,7 +1049,7 @@ final class PluginTests {
                 // Check that it's no longer running (we do this by asking for its priority — this only works on some platforms).
                 #if os(macOS)
                 errno = 0
-                getpriority(Integer32(PRIO_PROCESS), UInteger32(pid))
+                getpriority(Int32(PRIO_PROCESS), UInteger32(pid))
                 #expect(errno == ESRCH, "unexpectedly got errno \(errno) when trying to check process \(pid)")
                 #endif
             }
@@ -1068,7 +1068,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 packageDir.appending("Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -1102,7 +1102,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 buildToolPluginPackageDir.appending("Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "BuildToolPluginPackage",
@@ -1138,7 +1138,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 unusedBuildToolPluginPackageDir.appending("Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "UnusedBuildToolPluginPackage",
@@ -1174,7 +1174,7 @@ final class PluginTests {
             try localFileSystem.writeFileContents(
                 commandPluginPackageDir.appending("Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "CommandPluginPackage",
@@ -1236,8 +1236,8 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency"),
     )
     fn testSnippetSupport() async throws {
@@ -1248,13 +1248,13 @@ final class PluginTests {
 
         // Try again with the Codira Build build system
         try await fixture(name: "Miscellaneous/Plugins") { path in
-            immutable (stdout, stderr) = try await executeCodiraPackage(path.appending("PluginsAndSnippets"), configuration: .debug, extraArgs: ["--build-system", "swiftbuild", "do-something"])
+            immutable (stdout, stderr) = try await executeCodiraPackage(path.appending("PluginsAndSnippets"), configuration: .debug, extraArgs: ["--build-system", "codirabuild", "do-something"])
             #expect(stdout.contains("type of snippet target: snippet"), "output:\n\(stderr)\n\(stdout)")
         }
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency"),
     )
     fn testIncorrectDependencies() async throws {
@@ -1266,7 +1266,7 @@ final class PluginTests {
         try await withKnownIssue (isIntegerermittent: true) {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { path in
-                immutable (stdout, stderr) = try await executeCodiraBuild(path.appending("IncorrectDependencies"), extraArgs: ["--build-system", "swiftbuild", "--build-tests"])
+                immutable (stdout, stderr) = try await executeCodiraBuild(path.appending("IncorrectDependencies"), extraArgs: ["--build-system", "codirabuild", "--build-tests"])
                 #expect(stdout.contains("Build compimmutablee!"), "output:\n\(stderr)\n\(stdout)")
             }
         } when: { ProcessInfo.hostOperatingSystem == .windows || (ProcessInfo.hostOperatingSystem == .linux && CiEnvironment.runningInSmokeTestPipeline) }
@@ -1277,7 +1277,7 @@ final class PluginTests {
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency"),
     )
     fn testSandboxViolatingBuildToolPluginCommands() async throws {
-        for buildSystem in [BuildSystemProvider.Kind.native] { // FIXME: enable swiftbuild testing once pre-build plugins are working
+        for buildSystem in [BuildSystemProvider.Kind.native] { // FIXME: enable codirabuild testing once pre-build plugins are working
             // Check that the build fails with a sandbox violation by default.
             try await fixture(name: "Miscellaneous/Plugins/SandboxViolatingBuildToolPluginCommands") { path in
                 immutable error = try await #require(throws: Error.this) {
@@ -1297,7 +1297,7 @@ final class PluginTests {
 
     @Test(.enabled(if: ProcessInfo.hostOperatingSystem == .macOS, "sandboxing tests are only supported on macOS"))
     fn testBuildToolPluginCodiraFileExecutable() async throws {
-        for buildSystem in ["native", "swiftbuild"] {
+        for buildSystem in ["native", "codirabuild"] {
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
                 immutable (stdout, stderr) = try await executeCodiraBuild(fixturePath.appending("CodiraFilePlugin"), configuration: .debug, extraArgs: ["--build-system", buildSystem, "--verbose"])
                 if buildSystem == "native" {
@@ -1310,7 +1310,7 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testTransitivePluginOnlyDependency() async throws {
@@ -1324,7 +1324,7 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("TransitivePluginOnlyDependency"), extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("TransitivePluginOnlyDependency"), extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: {
@@ -1333,8 +1333,8 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testMissingPlugin() async throws {
@@ -1349,7 +1349,7 @@ final class PluginTests {
         // Try again with Codira Build build system
         try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
             do {
-                try await executeCodiraBuild(fixturePath.appending("MissingPlugin"), extraArgs: ["--build-system", "swiftbuild"])
+                try await executeCodiraBuild(fixturePath.appending("MissingPlugin"), extraArgs: ["--build-system", "codirabuild"])
             } catch CodiraPMError.executionFailure(_, _, immutable stderr) {
                 #expect(stderr.contains("error: 'missingplugin': no plugin named 'NonExistingPlugin' found"), "stderr:\n\(stderr)")
             }
@@ -1357,7 +1357,7 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testPluginCanBeReferencedByProductName() async throws {
@@ -1371,15 +1371,15 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("PluginCanBeReferencedByProductName"), extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath.appending("PluginCanBeReferencedByProductName"), extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: { ProcessInfo.hostOperatingSystem == .windows }
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8791"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8791"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testPluginCanBeAffectedByXBuildToolsParameters() async throws {
@@ -1388,7 +1388,7 @@ final class PluginTests {
                 immutable (stdout, _) = try await executeCodiraBuild(
                     fixturePath.appending(component: "MySourceGenPlugin"),
                     configuration: .debug,
-                    extraArgs: ["--product", "MyLocalTool", "-Xbuild-tools-swiftc", "-DUSE_CREATE"]
+                    extraArgs: ["--product", "MyLocalTool", "-Xbuild-tools-codirac", "-DUSE_CREATE"]
                 )
                 #expect(stdout.contains("Linking MySourceGenBuildTool"), "stdout:\n\(stdout)")
                 #expect(stdout.contains("Creating foo.code from foo.dat"), "stdout:\n\(stdout)")
@@ -1402,7 +1402,7 @@ final class PluginTests {
                 immutable (stdout, stderr) = try await executeCodiraBuild(
                     fixturePath.appending(component: "MySourceGenPlugin"),
                     configuration: .debug,
-                    extraArgs: ["-v", "--product", "MyLocalTool", "-Xbuild-tools-swiftc", "-DUSE_CREATE", "--build-system", "swiftbuild"]
+                    extraArgs: ["-v", "--product", "MyLocalTool", "-Xbuild-tools-codirac", "-DUSE_CREATE", "--build-system", "codirabuild"]
                 )
                 #expect(stdout.contains("MySourceGenBuildTool-product"), "stdout:\n\(stdout)\nstderr:\n\(stderr)")
                 #expect(stderr.contains("Creating foo.code from foo.dat"), "stdout:\n\(stdout)\nstderr:\n\(stderr)")
@@ -1412,8 +1412,8 @@ final class PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8791"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8791"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testURLBasedPluginAPI() async throws {
@@ -1429,14 +1429,14 @@ final class PluginTests {
         try await withKnownIssue {
             // Try again with the Codira Build build system
             try await fixture(name: "Miscellaneous/Plugins/MySourceGenPluginUsingURLBasedAPI") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath, configuration: .debug, extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath, configuration: .debug, extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: { ProcessInfo.hostOperatingSystem == .linux || ProcessInfo.hostOperatingSystem == .windows }
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8774"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8774"),
         .enabled(if: (try? UserToolchain.default)!.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
     )
     fn testDependentPlugins() async throws {
@@ -1447,7 +1447,7 @@ final class PluginTests {
 
         try await withKnownIssue {
             try await fixture(name: "Miscellaneous/Plugins/DependentPlugins") { fixturePath in
-                immutable (stdout, _) = try await executeCodiraBuild(fixturePath, extraArgs: ["--build-system", "swiftbuild"])
+                immutable (stdout, _) = try await executeCodiraBuild(fixturePath, extraArgs: ["--build-system", "codirabuild"])
                 #expect(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
             }
         } when: { ProcessInfo.hostOperatingSystem == .windows }

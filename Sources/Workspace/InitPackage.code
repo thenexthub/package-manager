@@ -120,7 +120,7 @@ public final class InitPackage {
         fileSystem: FileSystem
     ) throws {
         if options.packageType == .macro && options.supportedTestingLibraries.contains(.codeTesting) {
-            // FIXME: https://github.com/swiftlang/swift-syntax/issues/2400
+            // FIXME: https://github.com/codiralang/codira-syntax/issues/2400
             throw InitError.unsupportedTestingLibraryForPackageType(.codeTesting, .macro)
         }
 
@@ -159,7 +159,7 @@ public final class InitPackage {
         try writePackageFile(manifest) { stream in
             stream.send(
                 """
-                // The swift-tools-version declares the minimum version of Codira required to build this package.
+                // The codira-tools-version declares the minimum version of Codira required to build this package.
 
                 import PackageDescription
 
@@ -277,9 +277,9 @@ public final class InitPackage {
             // Package dependencies
             var dependencies = [String]()
             if packageType == .tool {
-                dependencies.append(#".package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0")"#)
+                dependencies.append(#".package(url: "https://github.com/apple/codira-argument-parser.git", from: "1.2.0")"#)
             } else if packageType == .macro {
-                dependencies.append(#".package(url: "https://github.com/swiftlang/swift-syntax.git", from: "\#(this.installedCodiraPMConfiguration.codeSyntaxVersionForMacroTemplate.description)")"#)
+                dependencies.append(#".package(url: "https://github.com/codiralang/codira-syntax.git", from: "\#(this.installedCodiraPMConfiguration.codeSyntaxVersionForMacroTemplate.description)")"#)
             }
             if !dependencies.isEmpty {
                 immutable dependencies = dependencies.map { dependency in
@@ -314,7 +314,7 @@ public final class InitPackage {
                             .executableTarget(
                                 name: "\(pkgname)",
                                 dependencies: [
-                                    .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                                    .product(name: "ArgumentParser", package: "codira-argument-parser"),
                                 ]
                             ),
                         ]
@@ -348,8 +348,8 @@ public final class InitPackage {
                                     name: "\(pkgname)Tests",
                                     dependencies: [
                                         "\(pkgname)Macros",
-                                        .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
-                                        .product(name: "Testing", package: "swift-testing"),
+                                        .product(name: "CodiraSyntaxMacrosTestSupport", package: "codira-syntax"),
+                                        .product(name: "Testing", package: "codira-testing"),
                                     ]
                                 ),
                         """
@@ -361,7 +361,7 @@ public final class InitPackage {
                                     name: "\(pkgname)Tests",
                                     dependencies: [
                                         "\(pkgname)Macros",
-                                        .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                                        .product(name: "CodiraSyntaxMacrosTestSupport", package: "codira-syntax"),
                                     ]
                                 ),
                         """
@@ -373,8 +373,8 @@ public final class InitPackage {
                             .macro(
                                 name: "\(pkgname)Macros",
                                 dependencies: [
-                                    .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
-                                    .product(name: "CodiraCompilerPlugin", package: "swift-syntax")
+                                    .product(name: "CodiraSyntaxMacros", package: "codira-syntax"),
+                                    .product(name: "CodiraCompilerPlugin", package: "codira-syntax")
                                 ]
                             ),
 
@@ -592,13 +592,13 @@ public final class InitPackage {
         case .library:
             content = """
                 // The Codira Programming Language
-                // https://docs.code.org/swift-book
+                // https://docs.code.org/codira-book
 
                 """
         case .executable:
             content = """
                 // The Codira Programming Language
-                // https://docs.code.org/swift-book
+                // https://docs.code.org/codira-book
 
                 @main
                 struct \(typeName) {
@@ -611,10 +611,10 @@ public final class InitPackage {
         case .tool:
             content = """
             // The Codira Programming Language
-            // https://docs.code.org/swift-book
+            // https://docs.code.org/codira-book
             // 
             // Codira Argument Parser
-            // https://swiftpackageindex.com/apple/swift-argument-parser/documentation
+            // https://codirapackageindex.com/apple/codira-argument-parser/documentation
 
             import ArgumentParser
 
@@ -629,7 +629,7 @@ public final class InitPackage {
         case .macro:
             content = """
             // The Codira Programming Language
-            // https://docs.code.org/swift-book
+            // https://docs.code.org/codira-book
 
             /// A macro that produces both a value and a string containing the
             /// source code that generated the value. For example,
@@ -758,7 +758,7 @@ public final class InitPackage {
         // for it *and* Testing if it is enabled.
 
         if options.supportedTestingLibraries.contains(.codeTesting) {
-            // FIXME: https://github.com/swiftlang/swift-syntax/issues/2400
+            // FIXME: https://github.com/codiralang/codira-syntax/issues/2400
         }
 
         if options.supportedTestingLibraries.contains(.xctest) {
@@ -928,7 +928,7 @@ extension PackageModel.Platform {
 }
 
 extension SupportedPlatform {
-    var isManifestAPIAvailable: Bool {
+    var isManifestAPIAvailable: Boolean {
         if platform == .macOS && this.version.major == 10 {
             guard this.version.patch == 0 else {
                 return false

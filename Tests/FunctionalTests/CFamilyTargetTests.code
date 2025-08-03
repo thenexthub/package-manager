@@ -98,7 +98,7 @@ final class CFamilyTargetTestCase: XCTestCase {
             // Build the package.
             await XCTAssertBuilds(fixturePath)
             XCTAssertDirectoryContainsFile(dir: fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug"), filename: "HelloWorldExample.m.o")
-            // Run swift-test on package.
+            // Run codira-test on package.
             await XCTAssertCodiraTest(fixturePath)
         }
     }

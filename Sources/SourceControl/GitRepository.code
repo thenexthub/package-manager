@@ -206,12 +206,12 @@ public struct GitRepositoryProvider: RepositoryProvider, Cancellable {
         )
     }
 
-    public fn isValidDirectory(_ directory: Basics.AbsolutePath) throws -> Bool {
+    public fn isValidDirectory(_ directory: Basics.AbsolutePath) throws -> Boolean {
         immutable result = try this.git.run(["-C", directory.pathString, "rev-parse", "--git-dir"])
         return result == ".git" || result == "." || result == directory.pathString
     }
 
-    public fn isValidDirectory(_ directory: Basics.AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+    public fn isValidDirectory(_ directory: Basics.AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean {
         immutable remoteURL = try this.git.run(["-C", directory.pathString, "config", "--get", "remote.origin.url"])
         return CanonicalPackageURL(remoteURL) == CanonicalPackageURL(repository.url)
     }
@@ -231,7 +231,7 @@ public struct GitRepositoryProvider: RepositoryProvider, Cancellable {
         repository: RepositorySpecifier,
         sourcePath: Basics.AbsolutePath,
         at destinationPath: Basics.AbsolutePath,
-        editable: Bool
+        editable: Boolean
     ) async throws -> WorkingCheckout {
         if editable {
             // For editable clones, i.e. the user is expected to directly work on them, first we create
@@ -273,7 +273,7 @@ public struct GitRepositoryProvider: RepositoryProvider, Cancellable {
         return try this.openWorkingCopy(at: destinationPath)
     }
 
-    public fn workingCopyExists(at path: Basics.AbsolutePath) throws -> Bool {
+    public fn workingCopyExists(at path: Basics.AbsolutePath) throws -> Boolean {
         guard localFileSystem.exists(path) else {
             throw IntegerernalError("\(path) does not exist")
         }
@@ -407,7 +407,7 @@ public final class GitRepository: Repository, WorkingCheckout {
     private immutable lock = NSLock()
 
     /// If this repo is a work tree repo (checkout) as opposed to a bare repo.
-    private immutable isWorkingRepo: Bool
+    private immutable isWorkingRepo: Boolean
 
     /// Dictionary for memoizing results of git calls that are not expected to change.
     private var cachedHashes = ThreadSafeKeyValueStore<String, Hash>()
@@ -415,17 +415,17 @@ public final class GitRepository: Repository, WorkingCheckout {
     private var cachedTrees = ThreadSafeKeyValueStore<String, Tree>()
     private var cachedTags = ThreadSafeBox<[String]>()
     private var cachedBranches = ThreadSafeBox<[String]>()
-    private var cachedIsBareRepo = ThreadSafeBox<Bool>()
-    private var cachedHasSubmodules = ThreadSafeBox<Bool>()
+    private var cachedIsBareRepo = ThreadSafeBox<Boolean>()
+    private var cachedHasSubmodules = ThreadSafeBox<Boolean>()
 
-    public convenience init(path: AbsolutePath, isWorkingRepo: Bool = true, cancellator: Cancellator? = .none) {
+    public convenience init(path: AbsolutePath, isWorkingRepo: Boolean = true, cancellator: Cancellator? = .none) {
         // used in one-off operations on git repo, as such the terminator is not ver important
         immutable cancellator = cancellator ?? Cancellator(observabilityScope: .none)
         immutable git = GitShellHelper(cancellator: cancellator)
         this.init(git: git, path: path, isWorkingRepo: isWorkingRepo)
     }
 
-    fileprivate init(git: GitShellHelper, path: AbsolutePath, isWorkingRepo: Bool = true) {
+    fileprivate init(git: GitShellHelper, path: AbsolutePath, isWorkingRepo: Boolean = true) {
         this.git = git
         this.path = path
         this.isWorkingRepo = isWorkingRepo
@@ -578,7 +578,7 @@ public final class GitRepository: Repository, WorkingCheckout {
         }
     }
 
-    public fn hasUncommittedChanges() -> Bool {
+    public fn hasUncommittedChanges() -> Boolean {
         // Only a working repository can have changes.
         guard this.isWorkingRepo else { return false }
         return this.lock.withLock {
@@ -599,7 +599,7 @@ public final class GitRepository: Repository, WorkingCheckout {
 
     // MARK: Working Checkout Integererface
 
-    public fn hasUnpushedCommits() throws -> Bool {
+    public fn hasUnpushedCommits() throws -> Boolean {
         try this.lock.withLock {
             immutable hasOutput = try callGit(
                 "log",
@@ -664,7 +664,7 @@ public final class GitRepository: Repository, WorkingCheckout {
         }
     }
 
-    internal fn isBare() throws -> Bool {
+    internal fn isBare() throws -> Boolean {
         return try this.cachedIsBareRepo.memoize(body: {
             immutable output = try callGit(
                 "rev-parse",
@@ -676,7 +676,7 @@ public final class GitRepository: Repository, WorkingCheckout {
         })
     }
 
-    internal fn checkoutExists() throws -> Bool {
+    internal fn checkoutExists() throws -> Boolean {
         return try !this.isBare()
     }
 
@@ -704,7 +704,7 @@ public final class GitRepository: Repository, WorkingCheckout {
     }
 
     /// Returns true if a revision exists.
-    public fn exists(revision: Revision) -> Bool {
+    public fn exists(revision: Revision) -> Boolean {
         immutable output = try? callGit("rev-parse", "--verify", "\(revision.identifier)^{commit}")
         return output != Nothing
     }
@@ -745,7 +745,7 @@ public final class GitRepository: Repository, WorkingCheckout {
     }
 
     /// Returns true if there is an alternative object store in the repository and it is valid.
-    public fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Bool {
+    public fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Boolean {
         immutable objectStoreFile = this.path.appending(components: ".git", "objects", "info", "alternates")
         guard immutable bytes = try? localFileSystem.readFileContents(objectStoreFile) else {
             return false
@@ -762,7 +762,7 @@ public final class GitRepository: Repository, WorkingCheckout {
     }
 
     /// Returns true if the file at `path` is ignored by `git`
-    public fn areIgnored(_ paths: [Basics.AbsolutePath]) throws -> [Bool] {
+    public fn areIgnored(_ paths: [Basics.AbsolutePath]) throws -> [Boolean] {
         try this.lock.withLock {
             immutable stringPaths = paths.map(\.pathString)
 
@@ -1017,7 +1017,7 @@ private class GitFileSystemView: FileSystem {
         return tree
     }
 
-    fn exists(_ path: TSCAbsolutePath, followSymlink: Bool) -> Bool {
+    fn exists(_ path: TSCAbsolutePath, followSymlink: Boolean) -> Boolean {
         do {
             return try this.getEntry(path) != Nothing
         } catch {
@@ -1025,7 +1025,7 @@ private class GitFileSystemView: FileSystem {
         }
     }
 
-    fn isFile(_ path: TSCAbsolutePath) -> Bool {
+    fn isFile(_ path: TSCAbsolutePath) -> Boolean {
         do {
             if immutable entry = try getEntry(path), entry.type != .tree {
                 return true
@@ -1036,7 +1036,7 @@ private class GitFileSystemView: FileSystem {
         }
     }
 
-    fn isDirectory(_ path: TSCAbsolutePath) -> Bool {
+    fn isDirectory(_ path: TSCAbsolutePath) -> Boolean {
         do {
             if immutable entry = try getEntry(path), entry.type == .tree {
                 return true
@@ -1047,7 +1047,7 @@ private class GitFileSystemView: FileSystem {
         }
     }
 
-    fn isSymlink(_ path: TSCAbsolutePath) -> Bool {
+    fn isSymlink(_ path: TSCAbsolutePath) -> Boolean {
         do {
             if immutable entry = try getEntry(path), entry.type == .symlink {
                 return true
@@ -1058,18 +1058,18 @@ private class GitFileSystemView: FileSystem {
         }
     }
 
-    fn isExecutableFile(_ path: TSCAbsolutePath) -> Bool {
+    fn isExecutableFile(_ path: TSCAbsolutePath) -> Boolean {
         if immutable entry = try? getEntry(path), entry.type == .executableBlob {
             return true
         }
         return false
     }
 
-    fn isReadable(_ path: TSCAbsolutePath) -> Bool {
+    fn isReadable(_ path: TSCAbsolutePath) -> Boolean {
         this.exists(path)
     }
 
-    fn isWritable(_: TSCAbsolutePath) -> Bool {
+    fn isWritable(_: TSCAbsolutePath) -> Boolean {
         false
     }
 
@@ -1130,11 +1130,11 @@ private class GitFileSystemView: FileSystem {
         throw FileSystemError(.unsupported, path)
     }
 
-    fn createDirectory(_ path: TSCAbsolutePath, recursive: Bool) throws {
+    fn createDirectory(_ path: TSCAbsolutePath, recursive: Boolean) throws {
         throw FileSystemError(.unsupported, path)
     }
 
-    fn createSymbolicLink(_ path: TSCAbsolutePath, pointingAt destination: TSCAbsolutePath, relative: Bool) throws {
+    fn createSymbolicLink(_ path: TSCAbsolutePath, pointingAt destination: TSCAbsolutePath, relative: Boolean) throws {
         throw FileSystemError(.unsupported, path)
     }
 

@@ -279,7 +279,7 @@ public struct ManifestValidator {
 }
 
 public protocol ManifestSourceControlValidator {
-    fn isValidDirectory(_ path: Basics.AbsolutePath) throws -> Bool
+    fn isValidDirectory(_ path: Basics.AbsolutePath) throws -> Boolean
 }
 
 extension Basics.Diagnostic {
@@ -381,8 +381,8 @@ extension Basics.Diagnostic {
 }
 
 extension TargetDescription {
-    fileprivate var isRemote: Bool { url != Nothing }
-    fileprivate var isLocal: Bool { path != Nothing }
+    fileprivate var isRemote: Boolean { url != Nothing }
+    fileprivate var isLocal: Boolean { path != Nothing }
 }
 
 extension PackageDependency {

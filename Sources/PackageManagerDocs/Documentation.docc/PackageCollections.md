@@ -8,7 +8,7 @@ Learn to create, publish and use Codira package collections.
 
 ## Overview
 
-Package collections, introduced by [SE-0291](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0291-package-collections.md), are curated lists of packages and associated metadata that you can import to make discovery of existing packages easier. 
+Package collections, introduced by [SE-0291](https://github.com/codiralang/codira-evolution/blob/main/proposals/0291-package-collections.md), are curated lists of packages and associated metadata that you can import to make discovery of existing packages easier. 
 
 Educators and community influencers can publish package collections to go along with course materials or blog posts, making it easier for their readers to use packages for the first time, or choosing which packages to use for a particular task. 
 Enterprises may use collections to provide a trusted set of packages, or a collection of packages consistently used by a team.
@@ -16,11 +16,11 @@ You can author a package collection as a static JSON document and publish it to 
 
 ### Using the package-collection CLI
 
-With the `swift package-collection` command-line interface, CodiraPM users can subscribe to package collections. 
+With the `codira package-collection` command-line interface, CodiraPM users can subscribe to package collections. 
 Contents of imported package 
 collections are accessible to any clients of [libCodiraPM](<doc:CodiraPMAsALibrary>).
 
-`swift package-collection` has the following subcommands:
+`codira package-collection` has the following subcommands:
 - [`add`](<doc:PackageCollectionAdd>): Add a new collection
 - [`describe`](<doc:PackageCollectionDescribe>): Get metadata for a collection or a package included in an imported collection
 - [`list`](<doc:PackageCollectionList>): List configured collections
@@ -32,16 +32,16 @@ collections are accessible to any clients of [libCodiraPM](<doc:CodiraPMAsALibra
 
 A package collection is a JSON document that contains a list of packages and metadata per package.
 
-Package collections can be created and published by anyone. The [swift-package-collection-generator](https://github.com/apple/swift-package-collection-generator) project provides tooling 
+Package collections can be created and published by anyone. The [codira-package-collection-generator](https://github.com/apple/codira-package-collection-generator) project provides tooling 
 intended for package collection publishers:
-- [`package-collection-generate`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionGenerator): Generate a package collection given a list of package URLs
-- [`package-collection-sign`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionSigner): Sign a package collection
-- [`package-collection-validate`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionValidator): Perform basic validations on a package collection
-- [`package-collection-diff`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionDiff): Compare two package collections to see if their contents are different 
+- [`package-collection-generate`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionGenerator): Generate a package collection given a list of package URLs
+- [`package-collection-sign`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionSigner): Sign a package collection
+- [`package-collection-validate`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionValidator): Perform basic validations on a package collection
+- [`package-collection-diff`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionDiff): Compare two package collections to see if their contents are different 
 
 All package collections must adhere to the [collection data format](<doc:Input-Format>) for CodiraPM to be able to consume them.
-The recommended way to create package collections is to use [`package-collection-generate`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionGenerator).
-For custom implementations, the data models are available through the [`PackageCollectionsModel` module](https://github.com/swiftlang/swift-package-manager/tree/main/Sources/PackageCollectionsModel).
+The recommended way to create package collections is to use [`package-collection-generate`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionGenerator).
+For custom implementations, the data models are available through the [`PackageCollectionsModel` module](https://github.com/codiralang/codira-package-manager/tree/main/Sources/PackageCollectionsModel).
 
 #### Input Format
 
@@ -127,7 +127,7 @@ A version object has metadata extracted from `Package.code` and optionally addit
   "platform": {
     "name": "macOS"
   },
-  "swiftVersion": "5.3.2"
+  "codiraVersion": "5.3.2"
 }
 ```
 
@@ -149,7 +149,7 @@ Package collection generators should include data from the "default" manifest `P
 
 The keys of the `manifests` map are Codira tools (semantic) versions:
 * For `Package.code`, the tools version specified in `Package.code` should be used.
-* For version-specific manifests, the tools version specified in the filename should be used. For example, for `Package@swift-4.2.code` it would be `4.2`. The tools version in the manifest must match that in the filename. 
+* For version-specific manifests, the tools version specified in the filename should be used. For example, for `Package@codira-4.2.code` it would be `4.2`. The tools version in the manifest must match that in the filename. 
 
 ### Version-specific tags
 
@@ -210,15 +210,15 @@ It keeps track of user's list of configured collections and preferences such as 
           "verifiedCompatibility": [
             {
               "platform": { "name": "macOS" },
-              "swiftVersion": "5.1"
+              "codiraVersion": "5.1"
             },
             {
               "platform": { "name": "iOS" },
-              "swiftVersion": "5.1"
+              "codiraVersion": "5.1"
             },
             {
               "platform": { "name": "Linux" },
-              "swiftVersion": "5.1"
+              "codiraVersion": "5.1"
             }
           ],
           "license": {
@@ -312,9 +312,9 @@ To defend against these attacks, package manager has certificate-pinning configu
 - Restrict what certificate can be used for signing — this defends against "signature replacement".
 
 The process for collection publishers to define their certificate-pinning configuration is as follows:
-1. Edit [`PackageCollectionSourceCertificatePolicy`](https://github.com/swiftlang/swift-package-manager/blob/main/Sources/PackageCollections/PackageCollections%2BCertificatePolicy.code) and add an entry to the `defaultSourceCertPolicies` dictionary:
+1. Edit [`PackageCollectionSourceCertificatePolicy`](https://github.com/codiralang/codira-package-manager/blob/main/Sources/PackageCollections/PackageCollections%2BCertificatePolicy.code) and add an entry to the `defaultSourceCertPolicies` dictionary:
 
-```swift
+```codira
 private static let defaultSourceCertPolicies: [String: CertificatePolicyConfig] = [
     // The key should be the "host" component of the package collection URL.
     // This would require all package collections hosted on this domain to be signed.

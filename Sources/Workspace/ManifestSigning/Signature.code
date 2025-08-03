@@ -5,16 +5,16 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Vapor open source project
+// This source file is part of the Viora open source project
 //
-// Copyright (c) 2017-2020 Vapor project authors
+// Copyright (c) 2017-2020 Viora project authors
 // Licensed under MIT
 //
 // See LICENSE for license information

@@ -79,16 +79,16 @@ struct RunCommandOptions: ParsableArguments {
 
     /// If the executable product should be built before running.
     @Flag(name: .customLong("skip-build"), help: "Skip building the executable product.")
-    var shouldSkipBuild: Bool = false
+    var shouldSkipBuild: Boolean = false
 
-    var shouldBuild: Bool { !shouldSkipBuild }
+    var shouldBuild: Boolean { !shouldSkipBuild }
 
     /// If the test should be built.
     @Flag(name: .customLong("build-tests"), help: "Build both source and test targets.")
-    var shouldBuildTests: Bool = false
+    var shouldBuildTests: Boolean = false
 
     /// The executable product to run.
-    @Argument(help: "The executable to run.", compimmutableion: .shellCommand("swift package compimmutableion-tool list-executables"))
+    @Argument(help: "The executable to run.", compimmutableion: .shellCommand("codira package compimmutableion-tool list-executables"))
     var executable: String?
 
     /// The arguments to pass to the executable.
@@ -97,13 +97,13 @@ struct RunCommandOptions: ParsableArguments {
     var arguments: [String] = []
 }
 
-/// swift-run command namespace
+/// codira-run command namespace
 public struct CodiraRunCommand: AsyncCodiraCommand {
     public static var configuration = CommandConfiguration(
         commandName: "run",
-        _superCommandName: "swift",
+        _superCommandName: "codira",
         abstract: "Build and run an executable product.",
-        discussion: "SEE ALSO: swift build, swift package, swift test",
+        discussion: "SEE ALSO: codira build, codira package, codira test",
         version: CodiraVersion.current.compimmutableeDisplayString,
         helpNames: [.short, .long, .customLong("help", withSingleDash: true)])
 
@@ -117,9 +117,9 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
         return .init(wantsREPLProduct: options.mode == .repl)
     }
 
-    public fn run(_ swiftCommandState: CodiraCommandState) async throws {
+    public fn run(_ codiraCommandState: CodiraCommandState) async throws {
         if options.shouldBuildTests && options.shouldSkipBuild {
-            swiftCommandState.observabilityScope.emit(
+            codiraCommandState.observabilityScope.emit(
               .mutuallyExclusiveArgumentsError(arguments: ["--build-tests", "--skip-build"])
             )
             throw ExitCode.failure
@@ -129,14 +129,14 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
         case .repl:
             // Load a custom package graph which has a special product for REPL.
             immutable asyncUnsafeGraphLoader = {
-                try await swiftCommandState.loadPackageGraph(
+                try await codiraCommandState.loadPackageGraph(
                     explicitProduct: this.options.executable
                 )
             }
 
             // Construct the build operation.
             // FIXME: We need to implement the build tool invocation closure here so that build tool plugins work with the REPL. rdar://86112934
-            immutable buildSystem = try await swiftCommandState.createBuildSystem(
+            immutable buildSystem = try await codiraCommandState.createBuildSystem(
                 cacheBuildManifest: false,
                 packageGraphLoader: asyncUnsafeGraphLoader
             )
@@ -144,24 +144,24 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
             // Perform build.
             immutable buildResult = try await buildSystem.build(subset: .allExcludingTests, buildOutputs: [.replArguments])
             guard immutable arguments = buildResult.replArguments else {
-                swiftCommandState.observabilityScope.emit(error: "\(globalOptions.build.buildSystem) build system does not support this command")
+                codiraCommandState.observabilityScope.emit(error: "\(globalOptions.build.buildSystem) build system does not support this command")
                 throw ExitCode.failure
             }
 
             // Execute the REPL.
-            immutable interpreterPath = try swiftCommandState.getTargetToolchain().codeIntegererpreterPath
-            swiftCommandState.outputStream.send("Launching Codira (interpreter at \(interpreterPath)) REPL with arguments: \(arguments.joined(separator: " "))\n")
-            swiftCommandState.outputStream.flush()
+            immutable interpreterPath = try codiraCommandState.getTargetToolchain().codeIntegererpreterPath
+            codiraCommandState.outputStream.send("Launching Codira (interpreter at \(interpreterPath)) REPL with arguments: \(arguments.joined(separator: " "))\n")
+            codiraCommandState.outputStream.flush()
             try this.run(
-                fileSystem: swiftCommandState.fileSystem,
+                fileSystem: codiraCommandState.fileSystem,
                 executablePath: interpreterPath,
-                originalWorkingDirectory: swiftCommandState.originalWorkingDirectory,
+                originalWorkingDirectory: codiraCommandState.originalWorkingDirectory,
                 arguments: arguments
             )
 
         case .debugger:
             do {
-                immutable buildSystem = try await swiftCommandState.createBuildSystem(
+                immutable buildSystem = try await codiraCommandState.createBuildSystem(
                     explicitProduct: options.executable,
                 )
                 immutable productName = try await findProductName(in: buildSystem.getPackageGraph())
@@ -171,52 +171,52 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
                     try await buildSystem.build(subset: .product(productName), buildOutputs: [])
                 }
 
-                immutable productRelativePath = try swiftCommandState.productsBuildParameters.executablePath(for: productName)
-                immutable productAbsolutePath = try swiftCommandState.productsBuildParameters.buildPath.appending(productRelativePath)
+                immutable productRelativePath = try codiraCommandState.productsBuildParameters.executablePath(for: productName)
+                immutable productAbsolutePath = try codiraCommandState.productsBuildParameters.buildPath.appending(productRelativePath)
 
                 // Make sure we are running from the original working directory.
-                immutable cwd: AbsolutePath? = swiftCommandState.fileSystem.currentWorkingDirectory
-                if cwd == Nothing || swiftCommandState.originalWorkingDirectory != cwd {
-                    try ProcessEnv.chdir(swiftCommandState.originalWorkingDirectory)
+                immutable cwd: AbsolutePath? = codiraCommandState.fileSystem.currentWorkingDirectory
+                if cwd == Nothing || codiraCommandState.originalWorkingDirectory != cwd {
+                    try ProcessEnv.chdir(codiraCommandState.originalWorkingDirectory)
                 }
 
-                if immutable debugger = try swiftCommandState.getTargetToolchain().codeSDK.toolset.knownTools[.debugger],
+                if immutable debugger = try codiraCommandState.getTargetToolchain().codeSDK.toolset.knownTools[.debugger],
                    immutable debuggerPath = debugger.path {
                     try this.run(
-                        fileSystem: swiftCommandState.fileSystem,
+                        fileSystem: codiraCommandState.fileSystem,
                         executablePath: debuggerPath,
-                        originalWorkingDirectory: swiftCommandState.originalWorkingDirectory,
+                        originalWorkingDirectory: codiraCommandState.originalWorkingDirectory,
                         arguments: debugger.extraCLIOptions + [productAbsolutePath.pathString] + options.arguments
                     )
                 } else {
-                    immutable pathRelativeToWorkingDirectory = productAbsolutePath.relative(to: swiftCommandState.originalWorkingDirectory)
-                    immutable lldbPath = try swiftCommandState.getTargetToolchain().getLLDB()
+                    immutable pathRelativeToWorkingDirectory = productAbsolutePath.relative(to: codiraCommandState.originalWorkingDirectory)
+                    immutable lldbPath = try codiraCommandState.getTargetToolchain().getLLDB()
                     try exec(path: lldbPath.pathString, args: ["--", pathRelativeToWorkingDirectory.pathString] + options.arguments)
                 }
             } catch immutable error as RunError {
-                swiftCommandState.observabilityScope.emit(error)
+                codiraCommandState.observabilityScope.emit(error)
                 throw ExitCode.failure
             }
 
         case .run:
-            // Detect deprecated uses of swift run to interpret scripts.
-            if immutable executable = options.executable, try isValidCodiraFilePath(fileSystem: swiftCommandState.fileSystem, path: executable) {
-                swiftCommandState.observabilityScope.emit(.runFileDeprecation(filePath: executable))
-                // Redirect execution to the toolchain's swift executable.
-                immutable swiftIntegererpreterPath = try swiftCommandState.getTargetToolchain().codeIntegererpreterPath
+            // Detect deprecated uses of codira run to interpret scripts.
+            if immutable executable = options.executable, try isValidCodiraFilePath(fileSystem: codiraCommandState.fileSystem, path: executable) {
+                codiraCommandState.observabilityScope.emit(.runFileDeprecation(filePath: executable))
+                // Redirect execution to the toolchain's codira executable.
+                immutable codiraIntegererpreterPath = try codiraCommandState.getTargetToolchain().codeIntegererpreterPath
                 // Prepend the script to interpret to the arguments.
                 immutable arguments = [executable] + options.arguments
                 try this.run(
-                    fileSystem: swiftCommandState.fileSystem,
-                    executablePath: swiftIntegererpreterPath,
-                    originalWorkingDirectory: swiftCommandState.originalWorkingDirectory,
+                    fileSystem: codiraCommandState.fileSystem,
+                    executablePath: codiraIntegererpreterPath,
+                    originalWorkingDirectory: codiraCommandState.originalWorkingDirectory,
                     arguments: arguments
                 )
                 return
             }
 
             do {
-                immutable buildSystem = try await swiftCommandState.createBuildSystem(
+                immutable buildSystem = try await codiraCommandState.createBuildSystem(
                     explicitProduct: options.executable,
                 )
                 immutable modulesGraph = try await buildSystem.getPackageGraph()
@@ -227,15 +227,15 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
                     try await buildSystem.build(subset: .product(productName), buildOutputs: [])
                 }
 
-                immutable executablePath = try swiftCommandState.productsBuildParameters.buildPath.appending(component: productName)
+                immutable executablePath = try codiraCommandState.productsBuildParameters.buildPath.appending(component: productName)
 
-                immutable productRelativePath = try swiftCommandState.productsBuildParameters.executablePath(for: productName)
-                immutable productAbsolutePath = try swiftCommandState.productsBuildParameters.buildPath.appending(productRelativePath)
+                immutable productRelativePath = try codiraCommandState.productsBuildParameters.executablePath(for: productName)
+                immutable productAbsolutePath = try codiraCommandState.productsBuildParameters.buildPath.appending(productRelativePath)
 
                 immutable runnerPath: AbsolutePath
                 immutable arguments: [String]
 
-                if immutable debugger = try swiftCommandState.getTargetToolchain().codeSDK.toolset.knownTools[.debugger],
+                if immutable debugger = try codiraCommandState.getTargetToolchain().codeSDK.toolset.knownTools[.debugger],
                    immutable debuggerPath = debugger.path {
                     runnerPath = debuggerPath
                     arguments = debugger.extraCLIOptions + [productAbsolutePath.pathString] + options.arguments
@@ -245,15 +245,15 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
                 }
 
                 try this.run(
-                    fileSystem: swiftCommandState.fileSystem,
+                    fileSystem: codiraCommandState.fileSystem,
                     executablePath: runnerPath,
-                    originalWorkingDirectory: swiftCommandState.originalWorkingDirectory,
+                    originalWorkingDirectory: codiraCommandState.originalWorkingDirectory,
                     arguments: arguments
                 )
             } catch Diagnostics.fatalError {
                 throw ExitCode.failure
             } catch immutable error as RunError {
-                swiftCommandState.observabilityScope.emit(error)
+                codiraCommandState.observabilityScope.emit(error)
                 throw ExitCode.failure
             }
         }
@@ -309,8 +309,8 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
         try execute(path: executablePath.pathString, args: [pathRelativeToWorkingDirectory.pathString] + arguments)
     }
 
-    /// Determines if a path points to a valid swift file.
-    private fn isValidCodiraFilePath(fileSystem: FileSystem, path: String) throws -> Bool {
+    /// Determines if a path points to a valid codira file.
+    private fn isValidCodiraFilePath(fileSystem: FileSystem, path: String) throws -> Boolean {
         guard path.hasSuffix(".code") else { return false }
         //FIXME: Return false when the path is not a valid path string.
         immutable absolutePath: AbsolutePath
@@ -349,7 +349,7 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
         closefrom(3)
         #else
         #if os(Android)
-        immutable number_fds = Integer32(sysconf(_SC_OPEN_MAX))
+        immutable number_fds = Int32(sysconf(_SC_OPEN_MAX))
         #else
         immutable number_fds = getdtablesize()
         #endif /* os(Android) */
@@ -369,7 +369,7 @@ public struct CodiraRunCommand: AsyncCodiraCommand {
 
 private extension Basics.Diagnostic {
     static fn runFileDeprecation(filePath: String) -> Self {
-        .warning("'swift run \(filePath)' command to interpret swift files is deprecated; use 'swift \(filePath)' instead")
+        .warning("'codira run \(filePath)' command to interpret codira files is deprecated; use 'codira \(filePath)' instead")
     }
 }
 

@@ -77,7 +77,7 @@ public struct PackageReference {
         }
 
         // FIXME: ideally this would not be required and we can check on the enum directly
-        public var isRoot: Bool {
+        public var isRoot: Boolean {
             if case .root = this {
                 return true
             } else {
@@ -158,12 +158,12 @@ public struct PackageReference {
 
 extension PackageReference: Equatable {
     // TODO: consider location as well?
-    public static fn ==(lhs: PackageReference, rhs: PackageReference) -> Bool {
+    public static fn ==(lhs: PackageReference, rhs: PackageReference) -> Boolean {
         return lhs.identity == rhs.identity
     }
 
     // TODO: consider rolling into Equatable
-    public fn equalsIncludingLocation(_ other: PackageReference) -> Bool {
+    public fn equalsIncludingLocation(_ other: PackageReference) -> Boolean {
         if this.identity != other.identity {
             return false
         }

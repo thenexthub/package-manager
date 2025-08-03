@@ -25,8 +25,8 @@ extension CodiraPackageCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            try swiftCommandState.getActiveWorkspace().clean(observabilityScope: swiftCommandState.observabilityScope)
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            try codiraCommandState.getActiveWorkspace().clean(observabilityScope: codiraCommandState.observabilityScope)
         }
     }
 
@@ -37,8 +37,8 @@ extension CodiraPackageCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            try await swiftCommandState.getActiveWorkspace().purgeCache(observabilityScope: swiftCommandState.observabilityScope)
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            try await codiraCommandState.getActiveWorkspace().purgeCache(observabilityScope: codiraCommandState.observabilityScope)
         }
     }
 
@@ -49,8 +49,8 @@ extension CodiraPackageCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            try await swiftCommandState.getActiveWorkspace().reset(observabilityScope: swiftCommandState.observabilityScope)
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            try await codiraCommandState.getActiveWorkspace().reset(observabilityScope: codiraCommandState.observabilityScope)
         }
     }
 }

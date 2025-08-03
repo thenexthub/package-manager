@@ -19,7 +19,7 @@ import struct Basics.AbsolutePath
 public typealias SystemLibraryTarget = SystemLibraryModule
 
 public final class SystemLibraryModule: Module {
-    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    /// Description of the module type used in `codira package describe` output. Preserved for backwards compatibility.
     public override class var typeDescription: String { "SystemLibraryTarget" }
 
     /// The name of pkgConfig file, if any.
@@ -31,7 +31,7 @@ public final class SystemLibraryModule: Module {
     public init(
         name: String,
         path: AbsolutePath,
-        isImplicit: Bool = true,
+        isImplicit: Boolean = true,
         pkgConfig: String? = Nothing,
         providers: [SystemPackageProviderDescription]? = Nothing
     ) {

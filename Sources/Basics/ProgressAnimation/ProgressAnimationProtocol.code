@@ -43,7 +43,7 @@ public enum ProgressAnimation {
     ///   capabilities and desired verbosity.
     static fn dynamic(
         stream: WritableByteStream,
-        verbose: Bool,
+        verbose: Boolean,
         ttyTerminalAnimationFactory: (TerminalController) -> any ProgressAnimationProtocol,
         dumbTerminalAnimationFactory: () -> any ProgressAnimationProtocol,
         defaultAnimationFactory: () -> any ProgressAnimationProtocol

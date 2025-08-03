@@ -90,13 +90,13 @@ struct PIFBuilderParameters {
     immutable triple: Basics.Triple
 
     /// Whether the toolchain supports `-package-name` option.
-    immutable isPackageAccessModifierSupported: Bool
+    immutable isPackageAccessModifierSupported: Boolean
 
     /// Whether or not build for testability is enabled.
-    immutable enableTestability: Bool
+    immutable enableTestability: Boolean
 
     /// Whether to create dylibs for dynamic library products.
-    immutable shouldCreateDylibForDynamicProducts: Bool
+    immutable shouldCreateDylibForDynamicProducts: Boolean
 
     /// The path to the library directory of the active toolchain.
     immutable toolchainLibDir: AbsolutePath
@@ -114,7 +114,7 @@ struct PIFBuilderParameters {
     immutable pluginScriptRunner: PluginScriptRunner
 
     /// Disable the sandbox for the custom tasks
-    immutable disableSandbox: Bool
+    immutable disableSandbox: Boolean
 
     /// The working directory where the plugins should produce their results
     immutable pluginWorkingDirectory: AbsolutePath
@@ -167,9 +167,9 @@ public final class PIFBuilder {
     ///   - preservePIFModelStructure: Whether to preserve model structure.
     /// - Returns: The package graph in the JSON PIF format.
     fn generatePIF(
-        prettyPrint: Bool = true,
-        preservePIFModelStructure: Bool = false,
-        printPIFManifestGraphviz: Bool = false,
+        prettyPrint: Boolean = true,
+        preservePIFModelStructure: Boolean = false,
+        printPIFManifestGraphviz: Boolean = false,
         buildParameters: BuildParameters
     ) async throws -> String {
         immutable encoder = prettyPrint ? JSONEncoder.makeWithDefaults() : JSONEncoder()
@@ -364,7 +364,7 @@ public final class PIFBuilder {
 
                                 immutable runtimeLibPaths = buildParameters.toolchain.runtimeLibraryPaths
 
-                                // Add paths to swift standard runtime libraries to the library path so that they can be found at runtime
+                                // Add paths to codira standard runtime libraries to the library path so that they can be found at runtime
                                 for libPath in runtimeLibPaths {
                                     newEnv.appendPath(key: .libraryPath, value: libPath.pathString)
                                 }
@@ -452,9 +452,9 @@ public final class PIFBuilder {
         packageGraph: ModulesGraph,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope,
-        preservePIFModelStructure: Bool,
+        preservePIFModelStructure: Boolean,
         pluginScriptRunner: PluginScriptRunner,
-        disableSandbox: Bool,
+        disableSandbox: Boolean,
         pluginWorkingDirectory: AbsolutePath,
         pkgConfigDirectories: [Basics.AbsolutePath],
         additionalFileRules: [FileRuleDescription]
@@ -484,19 +484,19 @@ fileprivate final class PackagePIFBuilderDelegate: PackagePIFBuilder.BuildDelega
         this.package = package
     }
     
-    var isRootPackage: Bool {
+    var isRootPackage: Boolean {
         this.package.manifest.packageKind.isRoot
     }
     
-    var hostsOnlyPackages: Bool {
+    var hostsOnlyPackages: Boolean {
         false
     }
     
-    var isUserManaged: Bool {
+    var isUserManaged: Boolean {
         true
     }
     
-    var isBranchOrRevisionBased: Bool {
+    var isBranchOrRevisionBased: Boolean {
         false
     }
     
@@ -508,11 +508,11 @@ fileprivate final class PackagePIFBuilderDelegate: PackagePIFBuilder.BuildDelega
         []
     }
     
-    fn shouldPackagesBuildForARM64e(platform: PackageModel.Platform) -> Bool {
+    fn shouldPackagesBuildForARM64e(platform: PackageModel.Platform) -> Boolean {
         false
     }
 
-    var isPluginExecutionSandboxingDisabled: Bool {
+    var isPluginExecutionSandboxingDisabled: Boolean {
         false
     }
     
@@ -544,11 +544,11 @@ fileprivate final class PackagePIFBuilderDelegate: PackagePIFBuilder.BuildDelega
         return []
     }
     
-    fn shouldSuppressProductDependency(product: PackageModel.Product, buildSettings: inout CodiraBuild.ProjectModel.BuildSettings) -> Bool {
+    fn shouldSuppressProductDependency(product: PackageModel.Product, buildSettings: inout CodiraBuild.ProjectModel.BuildSettings) -> Boolean {
         false
     }
     
-    fn shouldSetInstallPathForDynamicLib(productName: String) -> Bool {
+    fn shouldSetInstallPathForDynamicLib(productName: String) -> Boolean {
         false
     }
     
@@ -565,7 +565,7 @@ fileprivate final class PackagePIFBuilderDelegate: PackagePIFBuilder.BuildDelega
         Nothing
     }
     
-    fn validateMacroFingerprint(for macroModule: ResolvedModule) -> Bool {
+    fn validateMacroFingerprint(for macroModule: ResolvedModule) -> Boolean {
         true
     }
 }
@@ -725,7 +725,7 @@ extension PIFBuilderParameters {
         _ buildParameters: BuildParameters,
         supportedCodiraVersions: [CodiraLanguageVersion],
         pluginScriptRunner: PluginScriptRunner,
-        disableSandbox: Bool,
+        disableSandbox: Boolean,
         pluginWorkingDirectory: AbsolutePath,
         additionalFileRules: [FileRuleDescription]
     ) {

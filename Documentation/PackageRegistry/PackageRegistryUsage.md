@@ -22,18 +22,18 @@
         * [Source archive](#source-archive)
         * [Package release metadata](#package-release-metadata-1)
         * [Package manifest(s)](#package-manifest-s-)
-  * [CodiraPM Registry Configuration](#swiftpm-registry-configuration)
+  * [CodiraPM Registry Configuration](#codirapm-registry-configuration)
     + [Registry-to-scope mappings](#registry-to-scope-mappings)
-      - [`swift package-registry set` subcommand](#-swift-package-registry-set--subcommand)
+      - [`codira package-registry set` subcommand](#-codira-package-registry-set--subcommand)
     + [Security configuration](#security-configuration)
 
 ## Getting Started
 
 CodiraPM supports downloading dependencies from any package registry that implements 
-[SE-0292](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0292-package-registry-service.md)
+[SE-0292](https://github.com/codiralang/codira-evolution/blob/main/proposals/0292-package-registry-service.md)
 and the corresponding [service specification](Registry.md). 
 
-In a registry, packages are identified by [package identifier](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0292-package-registry-service.md#package-identity)
+In a registry, packages are identified by [package identifier](https://github.com/codiralang/codira-evolution/blob/main/proposals/0292-package-registry-service.md#package-identity)
 in the form of `scope.package-name`.
 
 ### Configuring a registry
@@ -42,18 +42,18 @@ A registry can be configured in CodiraPM at two levels:
  - Project: the registry will be used for packages within the project. Settings are stored in `.codepm/configuration/registries.json`.
  - User: the registry will be used for all projects for the user. Settings are stored in `~/.codepm/configuration/registries.json`.
 
-One could use the [`swift package-registry set` subcommand](#swift-package-registry-set-subcommand) 
+One could use the [`codira package-registry set` subcommand](#codira-package-registry-set-subcommand) 
 to assign a registry URL:
 
 ```bash
-$ swift package-registry set https://packages.example.com 
+$ codira package-registry set https://packages.example.com 
 ```
 
 The above sets registry to `https://packages.example.com` at project level. Pass 
 the `--global` option to set registry at user level:
 
 ```bash
-$ swift package-registry set --global https://packages.example.com 
+$ codira package-registry set --global https://packages.example.com 
 ```
 
 The resulting `registries.json` would look something like:
@@ -80,7 +80,7 @@ In this example, `https://packages.example.com` will be applied to all scopes.
 A registry package dependency is declared in `Package.code` using the
 package identifier. For example: 
 
-```swift
+```codira
 dependencies: [
     .package(id: "mona.LinkedList", .upToNextMajor(from: "1.0.0")),
 ],
@@ -92,14 +92,14 @@ resolve and download the appropriate release version.
 ### Registry authentication
 
 If a registry requires authentication, it can be set up by using the 
-[`swift package-registry login` subcommand](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0378-package-registry-auth.md#new-login-subcommand)
+[`codira package-registry login` subcommand](https://github.com/codiralang/codira-evolution/blob/main/proposals/0378-package-registry-auth.md#new-login-subcommand)
 introduced by SE-0378:
 
 ```bash
-$ swift package-registry login
+$ codira package-registry login
 OVERVIEW: Log in to a registry
 
-USAGE: swift package-registry login [<url>] [--username <username>] [--password <password>] [--token <token>] [--no-confirm]
+USAGE: codira package-registry login [<url>] [--username <username>] [--password <password>] [--token <token>] [--no-confirm]
 
 ARGUMENTS:
   <url>                   The registry URL
@@ -117,7 +117,7 @@ Provide the credentials either by setting the corresponding options
 (i.e., one of username/password or access token) or when prompted:
 
 ```bash
-$ swift package-registry login https://packages.example.com
+$ codira package-registry login https://packages.example.com
 ```
 
 CodiraPM will save the credentials to the operating system's credential store
@@ -135,7 +135,7 @@ Resolving a registry dependency involves these steps:
 
 Here is an example of a source control dependency:
 
-```swift
+```codira
 dependencies: [
     .package(url: "https://github.com/mona/LinkedList", .upToNextMajor(from: "1.0.0")),
 ],
@@ -187,7 +187,7 @@ Checksum TOFU is also done for manifests downloaded from registry.
 
 ### Validating signed packages
 
-[SE-0391](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signing)
+[SE-0391](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signing)
 adds package signing support to CodiraPM. CodiraPM determines if
 a downloaded archive is signed by checking for presence of the
 `X-Codira-Package-Signature-Format` and `X-Codira-Package-Signature`
@@ -218,7 +218,7 @@ CodiraPM requires all certificates used for package signing to have
 the "code signing" extended key usage extension. They must also 
 satisfy the core policies from 
 [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280), as implemented
-by [swift-certificates](https://github.com/apple/swift-certificates). 
+by [codira-certificates](https://github.com/apple/codira-certificates). 
 
 User can configure certificate expiry and revocation check 
 through the `signing.validationChecks.certificateExpiration` 
@@ -242,13 +242,13 @@ Data used by publisher TOFU is saved to `~/.codepm/security/signing-entities/`.
 
 ## Publishing to Registry
 
-[`swift package-registry publish`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#new-package-registry-publish-subcommand)
+[`codira package-registry publish`](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#new-package-registry-publish-subcommand)
 is an all-in-one command for publishing a package release to registry:
 
 ```bash
 OVERVIEW: Publish to a registry
 
-USAGE: swift package-registry publish <package-id> <package-version> [--url <url>] [--scratch-directory <scratch-directory>] [--metadata-path <metadata-path>] [--signing-identity <signing-identity>] [--private-key-path <private-key-path>] [--cert-chain-paths <cert-chain-paths> ...] [--dry-run]
+USAGE: codira package-registry publish <package-id> <package-version> [--url <url>] [--scratch-directory <scratch-directory>] [--metadata-path <metadata-path>] [--signing-identity <signing-identity>] [--private-key-path <private-key-path>] [--cert-chain-paths <cert-chain-paths> ...] [--dry-run]
 
 ARGUMENTS:
   <package-id>            The package identifier.
@@ -289,7 +289,7 @@ looks for a file named `package-metadata.json` in the
 package directory.
 
 Contents of the metadata file must conform to the 
-[JSON schema](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#package-release-metadata-standards)
+[JSON schema](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#package-release-metadata-standards)
 defined in SE-0391. Also refer to registry documentation 
 for any additional requirements.
  
@@ -327,7 +327,7 @@ Refer to registry documentation for its certificate policy.
 
 | Signature Format | Specification |
 | ---------------- | ------------- |
-| `cms-1.0.0`      | [SE-391](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signature-format-cms-100) |
+| `cms-1.0.0`      | [SE-391](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signature-format-cms-100) |
 
 Since there is only one supported signature format, all
 signatures produced by CodiraPM are in `cms-1.0.0`.
@@ -352,8 +352,8 @@ for fetching this metadata in its original form.
 The signature is embedded in the corresponding manifest file. The source
 archive is generated and signed **after** manifest signing. 
 
-```swift
-// swift-tools-version: 5.7
+```codira
+// codira-tools-version: 5.7
 
 import PackageDescription
 let package = Package(
@@ -420,13 +420,13 @@ For example, given the following configuration files:
 - For package `foo.LinkedList`, the registry at `https://local.example.com` is used. (Local configuration has higher precedence than user-level configuration.)
 - For package `bar.LinkedList`, the registry at `https://global.example.com` is used. (No mapping for scope `bar` is found, so `[default]` is used.)
 
-#### `swift package-registry set` subcommand
+#### `codira package-registry set` subcommand
 
 ```bash
-$ swift package-registry set 
+$ codira package-registry set 
 OVERVIEW: Set a custom registry
 
-USAGE: swift package-registry set [--global] [--scope <scope>] <url>
+USAGE: codira package-registry set [--global] [--scope <scope>] <url>
 
 ARGUMENTS:
   <url>                   The registry URL
@@ -440,23 +440,23 @@ This subcommand is used to assign registry at project or user-level:
 
 ```bash
 # project-level
-$ swift package-registry set https://packages.example.com 
+$ codira package-registry set https://packages.example.com 
 
 # user-level
-$ swift package-registry set --global https://global.example.com 
+$ codira package-registry set --global https://global.example.com 
 ```
 
 For a specific scope:
 
 ```bash
 # project-level
-$ swift package-registry set --scope foo https://local.example.com
+$ codira package-registry set --scope foo https://local.example.com
 
 # user-level
-$ swift package-registry set --scope foo --global https://global.example.com  
+$ codira package-registry set --scope foo --global https://global.example.com  
 ```
 
-To remove a registry assignment, use the `swift package-registry unset` subcommand.
+To remove a registry assignment, use the `codira package-registry unset` subcommand.
   
 ### Security configuration
 

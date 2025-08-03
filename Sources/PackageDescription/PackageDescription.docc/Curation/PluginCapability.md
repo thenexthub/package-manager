@@ -1,4 +1,4 @@
-# ``PackageDescription/Target/PluginCapability-swift.enum``
+# ``PackageDescription/Target/PluginCapability-codira.enum``
 
 ## Topics
 

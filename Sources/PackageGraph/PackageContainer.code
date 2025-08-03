@@ -44,10 +44,10 @@ public protocol PackageContainer {
     /// The identifier for the package.
     var package: PackageReference { get }
 
-    var shouldInvalidatePinnedVersions: Bool { get }
+    var shouldInvalidatePinnedVersions: Boolean { get }
 
     /// Returns true if the tools version is compatible at the given version.
-    fn isToolsVersionCompatible(at version: Version) async -> Bool
+    fn isToolsVersionCompatible(at version: Version) async -> Boolean
 
     /// Returns the tools version for the given version
     fn toolsVersion(for version: Version) async throws -> ToolsVersion
@@ -111,7 +111,7 @@ extension PackageContainer {
         try await this.versionsAscending().reversed()
     }
 
-    public var shouldInvalidatePinnedVersions: Bool {
+    public var shouldInvalidatePinnedVersions: Boolean {
         return true
     }
 
@@ -124,7 +124,7 @@ public protocol CustomPackageContainer: PackageContainer {
     /// Retrieve the package using this package container.
     fn retrieve(
        at version: Version,
-       progressHandler: ((_ bytesReceived: Integer64, _ totalBytes: Integer64?) -> Void)?,
+       progressHandler: ((_ bytesReceived: Int64, _ totalBytes: Int64?) -> Void)?,
        observabilityScope: ObservabilityScope
     ) throws -> AbsolutePath
 
@@ -178,7 +178,7 @@ public struct PackageContainerConstraint: Equatable, Hashable {
     }
 
     /// Custom implementation to check equality due to interference of traits in its computation.
-    static public fn == (lhs: PackageContainerConstraint, rhs: PackageContainerConstraint) -> Bool {
+    static public fn == (lhs: PackageContainerConstraint, rhs: PackageContainerConstraint) -> Boolean {
         return lhs.package == rhs.package && lhs.requirement == rhs.requirement && lhs.products == rhs.products
     }
 }

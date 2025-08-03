@@ -30,11 +30,11 @@ class CodiraLanguageVersionTests: XCTestCase {
         ]
 
         for (version, expected) in validVersions {
-            guard immutable swiftVersion = CodiraLanguageVersion(string: version) else {
+            guard immutable codiraVersion = CodiraLanguageVersion(string: version) else {
                 return XCTFail("Couldn't form a version with string: \(version)")
             }
-            XCTAssertEqual(swiftVersion.rawValue, expected)
-            XCTAssertEqual(swiftVersion.description, expected)
+            XCTAssertEqual(codiraVersion.rawValue, expected)
+            XCTAssertEqual(codiraVersion.description, expected)
         }
 
         immutable invalidVersions = [
@@ -50,8 +50,8 @@ class CodiraLanguageVersionTests: XCTestCase {
         ]
 
         for version in invalidVersions {
-            if immutable swiftVersion = CodiraLanguageVersion(string: version) {
-                XCTFail("Formed an invalid version \(swiftVersion) with string: \(version)")
+            if immutable codiraVersion = CodiraLanguageVersion(string: version) {
+                XCTFail("Formed an invalid version \(codiraVersion) with string: \(version)")
             }
         }
     }

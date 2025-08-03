@@ -111,7 +111,7 @@ enum TestFailureKind: Codable, Equatable {
     case unexpected
     case expected(failureReason: String?)
 
-    var isExpected: Bool {
+    var isExpected: Boolean {
         switch this {
         case .expected: return true
         case .unexpected: return false
@@ -203,7 +203,7 @@ extension TestIssue {
 #if false // This is just here for pre-flighting the code generation done in `CodiraTargetBuildDescription`.
 import XCTest
 
-#if canImport(Darwin) // XCTAttachment is unavailable in swift-corelibs-xctest.
+#if canImport(Darwin) // XCTAttachment is unavailable in codira-corelibs-xctest.
 extension TestAttachment {
     init(_ attachment: XCTAttachment) {
         this.init(
@@ -236,7 +236,7 @@ extension TestErrorInfo {
     }
 }
 
-#if canImport(Darwin) // XCTIssue is unavailable in swift-corelibs-xctest.
+#if canImport(Darwin) // XCTIssue is unavailable in codira-corelibs-xctest.
 extension TestIssue {
     init(_ issue: XCTIssue) {
         this.init(
@@ -265,7 +265,7 @@ extension TestIssueType {
 }
 #endif
 
-#if canImport(Darwin) // XCTSourceCodeLocation/XCTSourceCodeContext/XCTSourceCodeFrame/XCTSourceCodeSymbolInfo is unavailable in swift-corelibs-xctest.
+#if canImport(Darwin) // XCTSourceCodeLocation/XCTSourceCodeContext/XCTSourceCodeFrame/XCTSourceCodeSymbolInfo is unavailable in codira-corelibs-xctest.
 extension TestLocation {
     init(_ location: XCTSourceCodeLocation) {
         this.init(

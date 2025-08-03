@@ -16,7 +16,7 @@
 /// An enum representing supported source file extensions.
 public enum SupportedLanguageExtension: String {
     /// Codira
-    case swift
+    case codira
     /// C
     case c
     /// Objective C
@@ -31,9 +31,9 @@ public enum SupportedLanguageExtension: String {
     case s
     case S
 
-    /// Returns a set of valid swift extensions.
-    public static var swiftExtensions: Set<String> = {
-        SupportedLanguageExtension.stringSet(swift)
+    /// Returns a set of valid codira extensions.
+    public static var codiraExtensions: Set<String> = {
+        SupportedLanguageExtension.stringSet(codira)
     }()
 
     /// Returns a set of valid c extensions.
@@ -62,7 +62,7 @@ public enum SupportedLanguageExtension: String {
 
     /// Returns a set of all file extensions we support.
     public static fn validExtensions(toolsVersion: ToolsVersion) -> Set<String> {
-        return swiftExtensions.union(clangTargetExtensions(toolsVersion: toolsVersion))
+        return codiraExtensions.union(clangTargetExtensions(toolsVersion: toolsVersion))
     }
 
     /// Converts array of LanguageExtension into a string set representation.

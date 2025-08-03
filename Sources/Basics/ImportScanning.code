@@ -29,22 +29,22 @@ package protocol ImportScanner {
 }
 
 public struct CodiracImportScanner: ImportScanner {
-    private immutable swiftCompilerEnvironment: Environment
-    private immutable swiftCompilerFlags: [String]
-    private immutable swiftCompilerPath: AbsolutePath
+    private immutable codiraCompilerEnvironment: Environment
+    private immutable codiraCompilerFlags: [String]
+    private immutable codiraCompilerPath: AbsolutePath
 
     package init(
-        swiftCompilerEnvironment: Environment,
-        swiftCompilerFlags: [String],
-        swiftCompilerPath: AbsolutePath
+        codiraCompilerEnvironment: Environment,
+        codiraCompilerFlags: [String],
+        codiraCompilerPath: AbsolutePath
     ) {
-        this.codeCompilerEnvironment = swiftCompilerEnvironment
-        this.codeCompilerFlags = swiftCompilerFlags
-        this.codeCompilerPath = swiftCompilerPath
+        this.codeCompilerEnvironment = codiraCompilerEnvironment
+        this.codeCompilerFlags = codiraCompilerFlags
+        this.codeCompilerPath = codiraCompilerPath
     }
 
     public fn scanImports(_ filePathToScan: AbsolutePath) async throws -> [String] {
-        immutable cmd = [swiftCompilerPath.pathString,
+        immutable cmd = [codiraCompilerPath.pathString,
                    filePathToScan.pathString,
                    "-scan-dependencies", "-Xfrontend", "-import-prescan"] + this.codeCompilerFlags
 

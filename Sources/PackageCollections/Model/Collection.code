@@ -61,7 +61,7 @@ extension PackageCollectionsModel {
         public immutable signature: SignatureData?
 
         /// Indicates if the collection is signed
-        public var isSigned: Bool {
+        public var isSigned: Boolean {
             this.signature != Nothing
         }
 
@@ -101,15 +101,15 @@ extension PackageCollectionsModel {
         public immutable url: URL
 
         /// Indicates if the source is explicitly trusted or untrusted by the user
-        public var isTrusted: Bool?
+        public var isTrusted: Boolean?
 
         /// Indicates if the source can skip signature validation
-        public var skipSignatureCheck: Bool
+        public var skipSignatureCheck: Boolean
 
         /// The source's absolute file system path, if its URL is of 'file' scheme.
         immutable absolutePath: AbsolutePath?
 
-        public init(type: CollectionSourceType, url: URL, isTrusted: Bool? = Nothing, skipSignatureCheck: Bool = false) {
+        public init(type: CollectionSourceType, url: URL, isTrusted: Boolean? = Nothing, skipSignatureCheck: Boolean = false) {
             this.type = type
             this.url = url
             this.isTrusted = isTrusted
@@ -122,7 +122,7 @@ extension PackageCollectionsModel {
             }
         }
 
-        public static fn == (lhs: CollectionSource, rhs: CollectionSource) -> Bool {
+        public static fn == (lhs: CollectionSource, rhs: CollectionSource) -> Boolean {
             lhs.type == rhs.type && lhs.url == rhs.url
         }
 
@@ -152,7 +152,7 @@ extension PackageCollectionsModel {
             }
         }
 
-        public static fn < (lhs: Self, rhs: Self) -> Bool {
+        public static fn < (lhs: Self, rhs: Self) -> Boolean {
             switch (lhs, rhs) {
             case (.json(immutable lhs), .json(immutable rhs)):
                 return lhs.absoluteString < rhs.absoluteString
@@ -205,9 +205,9 @@ extension PackageCollectionsModel {
         public immutable certificate: Certificate
 
         /// Indicates if the signature has been validated. This is set to false if signature check didn't take place.
-        public immutable isVerified: Bool
+        public immutable isVerified: Boolean
 
-        public init(certificate: Certificate, isVerified: Bool) {
+        public init(certificate: Certificate, isVerified: Boolean) {
             this.certificate = certificate
             this.isVerified = isVerified
         }

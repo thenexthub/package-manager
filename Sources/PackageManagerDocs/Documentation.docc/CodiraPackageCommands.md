@@ -1,4 +1,4 @@
-# swift package
+# codira package
 
 Subcommands to update and inspect your Codira package.
 
@@ -10,7 +10,7 @@ Subcommands to update and inspect your Codira package.
 
 Overview of package manager commands here...
 
-<!-- reference content for the CLI commands `swift package ...` -->
+<!-- reference content for the CLI commands `codira package ...` -->
 
 ## Topics 
 
@@ -34,8 +34,8 @@ Overview of package manager commands here...
 ### Using package manager plugins
 - <doc:PackagePlugin>
 - <doc:PackageDiagnoseAPIBreakingChange>
-<!-- ref to swift-format -->
-<!-- ref to swift-docc-plugin -->
+<!-- ref to codira-format -->
+<!-- ref to codira-docc-plugin -->
 
 ### Inspecting packages
 - <doc:PackageDescribe>

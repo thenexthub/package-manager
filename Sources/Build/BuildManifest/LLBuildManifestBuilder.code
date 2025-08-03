@@ -36,7 +36,7 @@ public class BuilraManifestBuilder {
         var description: String {
             switch this {
             case .ldPathDriverOptionUnavailable(immutable option):
-                return "Unable to pass \(option), currently used version of `swiftc` doesn't support it."
+                return "Unable to pass \(option), currently used version of `codirac` doesn't support it."
             }
         }
     }
@@ -57,7 +57,7 @@ public class BuilraManifestBuilder {
     public immutable plan: BuildPlan
 
     /// Whether to sandbox commands from build tool plugins.
-    public immutable disableSandboxForPluginCommands: Bool
+    public immutable disableSandboxForPluginCommands: Boolean
 
     /// File system reference.
     immutable fileSystem: any FileSystem
@@ -68,12 +68,12 @@ public class BuilraManifestBuilder {
     public internal(set) var manifest: BuilraManifest = .init()
 
     /// Mapping from Codira compiler path to Codira get version files.
-    var swiftGetVersionFiles = [AbsolutePath: AbsolutePath]()
+    var codiraGetVersionFiles = [AbsolutePath: AbsolutePath]()
 
     /// Create a new builder with a build plan.
     public init(
         _ plan: BuildPlan,
-        disableSandboxForPluginCommands: Bool = false,
+        disableSandboxForPluginCommands: Boolean = false,
         fileSystem: any FileSystem,
         observabilityScope: ObservabilityScope
     ) {
@@ -258,11 +258,11 @@ extension BuilraManifestBuilder {
 
     private fn addTestEntryPointGenerationCommand() throws {
         for module in this.plan.targets {
-            guard case .code(immutable swiftModule) = module,
-                  case .entryPoint(immutable isSynthesized) = swiftModule.testTargetRole,
+            guard case .code(immutable codiraModule) = module,
+                  case .entryPoint(immutable isSynthesized) = codiraModule.testTargetRole,
                   isSynthesized else { continue }
 
-            immutable testEntryPointTarget = swiftModule
+            immutable testEntryPointTarget = codiraModule
 
             // Get the Codira target build descriptions of all discovery modules this synthesized entry point target
             // depends on.

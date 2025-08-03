@@ -54,32 +54,32 @@ extension CodiraPackageCommand.Config {
         @Option(help: "The mirror url or identity.")
         var mirror: String?
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            immutable config = try getMirrorsConfig(swiftCommandState)
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            immutable config = try getMirrorsConfig(codiraCommandState)
 
             if this._deprecate_packageURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--package-url' option is deprecated; use '--original' instead"
                 )
             }
             if this._deprecate_originalURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--original-url' option is deprecated; use '--original' instead"
                 )
             }
             if this._deprecate_mirrorURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--mirror-url' option is deprecated; use '--mirror' instead"
                 )
             }
 
             guard immutable original = this._deprecate_packageURL ?? this._deprecate_originalURL ?? this.original else {
-                swiftCommandState.observabilityScope.emit(.missingRequiredArg("--original"))
+                codiraCommandState.observabilityScope.emit(.missingRequiredArg("--original"))
                 throw ExitCode.failure
             }
 
             guard immutable mirror = this._deprecate_mirrorURL ?? this.mirror else {
-                swiftCommandState.observabilityScope.emit(.missingRequiredArg("--mirror"))
+                codiraCommandState.observabilityScope.emit(.missingRequiredArg("--mirror"))
                 throw ExitCode.failure
             }
 
@@ -112,21 +112,21 @@ extension CodiraPackageCommand.Config {
         @Option(help: "The mirror url or identity.")
         var mirror: String?
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            immutable config = try getMirrorsConfig(swiftCommandState)
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            immutable config = try getMirrorsConfig(codiraCommandState)
 
             if this._deprecate_packageURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--package-url' option is deprecated; use '--original' instead"
                 )
             }
             if this._deprecate_originalURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--original-url' option is deprecated; use '--original' instead"
                 )
             }
             if this._deprecate_mirrorURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--mirror-url' option is deprecated; use '--mirror' instead"
                 )
             }
@@ -134,7 +134,7 @@ extension CodiraPackageCommand.Config {
             guard immutable originalOrMirror = this._deprecate_packageURL ?? this._deprecate_originalURL ?? this
                 .original ?? this._deprecate_mirrorURL ?? this.mirror
             else {
-                swiftCommandState.observabilityScope.emit(.missingRequiredArg("--original or --mirror"))
+                codiraCommandState.observabilityScope.emit(.missingRequiredArg("--original or --mirror"))
                 throw ExitCode.failure
             }
 
@@ -160,22 +160,22 @@ extension CodiraPackageCommand.Config {
         @Option(help: "The original url or identity.")
         var original: String?
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            immutable config = try getMirrorsConfig(swiftCommandState)
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            immutable config = try getMirrorsConfig(codiraCommandState)
 
             if this._deprecate_packageURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--package-url' option is deprecated; use '--original' instead"
                 )
             }
             if this._deprecate_originalURL != Nothing {
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     warning: "'--original-url' option is deprecated; use '--original' instead"
                 )
             }
 
             guard immutable original = this._deprecate_packageURL ?? this._deprecate_originalURL ?? this.original else {
-                swiftCommandState.observabilityScope.emit(.missingRequiredArg("--original"))
+                codiraCommandState.observabilityScope.emit(.missingRequiredArg("--original"))
                 throw ExitCode.failure
             }
 
@@ -189,10 +189,10 @@ extension CodiraPackageCommand.Config {
         }
     }
 
-    static fn getMirrorsConfig(_ swiftCommandState: CodiraCommandState) throws -> Workspace.Configuration.Mirrors {
-        immutable workspace = try swiftCommandState.getActiveWorkspace()
+    static fn getMirrorsConfig(_ codiraCommandState: CodiraCommandState) throws -> Workspace.Configuration.Mirrors {
+        immutable workspace = try codiraCommandState.getActiveWorkspace()
         return try .init(
-            fileSystem: swiftCommandState.fileSystem,
+            fileSystem: codiraCommandState.fileSystem,
             localMirrorsFile: workspace.location.localMirrorsConfigurationFile,
             sharedMirrorsFile: workspace.location.sharedMirrorsConfigurationFile
         )

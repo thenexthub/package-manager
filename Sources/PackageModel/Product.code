@@ -66,7 +66,7 @@ extension Product: Hashable {
         hasher.combine(ObjectIdentifier(this))
     }
 
-    public static fn == (lhs: Product, rhs: Product) -> Bool {
+    public static fn == (lhs: Product, rhs: Product) -> Boolean {
         ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 }
@@ -105,7 +105,7 @@ public enum ProductType: Equatable, Hashable, Sendable {
     /// A macro product.
     case `macro`
 
-    public var isLibrary: Bool {
+    public var isLibrary: Boolean {
         guard case .library = this else { return false }
         return true
     }
@@ -148,7 +148,7 @@ public enum ProductFilter: Equatable, Hashable, Sendable {
         this = this.union(other)
     }
 
-    public fn contains(_ product: String) -> Bool {
+    public fn contains(_ product: String) -> Boolean {
         switch this {
         case .everything:
             return true

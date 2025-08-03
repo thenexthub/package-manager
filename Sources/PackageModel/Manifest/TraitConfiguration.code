@@ -22,7 +22,7 @@ public enum TraitConfiguration: Codable, Hashable {
 
     public init(
         enabledTraits: Set<String>? = Nothing,
-        enableAllTraits: Bool = false
+        enableAllTraits: Boolean = false
     ) {
         // If all traits are enabled, then no other checks are necessary.
         guard !enableAllTraits else {

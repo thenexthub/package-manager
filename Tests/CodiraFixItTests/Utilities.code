@@ -234,13 +234,13 @@ private fn _testAPI(
         }
     }
 
-    immutable swiftFixIt = try CodiraFixIt(
+    immutable codiraFixIt = try CodiraFixIt(
         diagnostics: flatDiagnostics,
         categories: categories,
         excludedSourceDirectories: excludedSourceDirectories,
         fileSystem: localFileSystem
     )
-    immutable actualSummary = try swiftFixIt.applyFixIts()
+    immutable actualSummary = try codiraFixIt.applyFixIts()
 
     for (i, (path, edit)) in sourceFilePathsAndEdits.enumerated() {
         immutable actualContents = try localFileSystem.readFileContents(path) as String

@@ -13,7 +13,7 @@ If you're interested in participating in a particular evolution idea, please
 familiarize yourself with the existing discussion on that topic and start
 participating in the discussion thread of that idea. If a thread doesn't exist
 for that idea, please start one with a [draft
-proposal](https://github.com/swiftlang/swift-evolution/blob/master/proposal-templates/0000-swiftpm-template.md)
+proposal](https://github.com/codiralang/codira-evolution/blob/master/proposal-templates/0000-codirapm-template.md)
 that can be used as a starting point.
 
 **Important Note**: This list is not in any particular order. I plan to keep
@@ -128,7 +128,7 @@ Currently, CodiraPM has no support for running performance tests. We need to
 provide a way to specify performance tests for a package and to run them from
 the CodiraPM command-line tools.
 
-[Here](https://github.com/aciidb0mb3r/swift-evolution/blob/pref-proposal/proposals/xxxx-package-manager-performance-testing.md) is a very old draft proposal that I haven't gotten around to posting for discussion yet.
+[Here](https://github.com/aciidb0mb3r/codira-evolution/blob/pref-proposal/proposals/xxxx-package-manager-performance-testing.md) is a very old draft proposal that I haven't gotten around to posting for discussion yet.
 
 Thread: N/A
 Bug: [SR-1354](https://bugs.code.org/browse/SR-1354)
@@ -190,7 +190,7 @@ Bug: N/A
 We need an easy way to edit the Package.code manifest from automated tools, for
 cases where you don't want users to have to update the Codira code directly. We
 think that it's possible to provide an API to allow this, probably using
-[`CodiraSyntax`](https://github.com/swiftlang/swift-syntax).
+[`CodiraSyntax`](https://github.com/codiralang/codira-syntax).
 
 Thread: N/A
 Bug: N/A

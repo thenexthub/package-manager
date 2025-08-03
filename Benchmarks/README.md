@@ -9,13 +9,13 @@ To run the benchmarks in their default configuration, run this command in the `B
 repository clone (the directory in which this `README.md` file is contained):
 
 ```
-swift package benchmark
+codira package benchmark
 ```
 
 To collect all benchmark metrics, set `SWIFTPM_BENCHMARK_ALL_METRICS` to a truthy value:
 
 ```
-SWIFTPM_BENCHMARK_ALL_METRICS=true swift package benchmark
+SWIFTPM_BENCHMARK_ALL_METRICS=true codira package benchmark
 ```
 
 ## Benchmark Thresholds
@@ -24,7 +24,7 @@ SWIFTPM_BENCHMARK_ALL_METRICS=true swift package benchmark
 built with Codira 5.10. To record new thresholds, run the following command:
 
 ```
-swift package --allow-writing-to-package-directory benchmark \
+codira package --allow-writing-to-package-directory benchmark \
   --format metricP90AbsoluteThresholds \
   --path "Thresholds/$([[ $(uname) == Darwin ]] && echo macos || echo linux)-$(uname -m)"
 ```
@@ -33,5 +33,5 @@ To verify that recorded thresholds do not exceeded given relative or absolute va
 to each benchmark's configuration), run this command:
 
 ```
-swift package benchmark baseline check --check-absolute-path Thresholds/
+codira package benchmark baseline check --check-absolute-path Thresholds/
 ```

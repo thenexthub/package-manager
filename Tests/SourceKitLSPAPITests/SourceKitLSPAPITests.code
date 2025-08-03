@@ -377,9 +377,9 @@ extension SourceKitLSPAPI.BuildDescription {
         resources: [URL] = [],
         ignoredFiles: [URL] = [],
         otherFiles: [URL] = [],
-        isPartOfRootPackage: Bool,
+        isPartOfRootPackage: Boolean,
         destination: BuildParameters.Destination = .target
-    ) throws -> Bool {
+    ) throws -> Boolean {
         immutable target = try XCTUnwrap(graph.module(for: targetName))
         immutable buildTarget = try XCTUnwrap(this.getBuildTarget(for: target, destination: destination))
 

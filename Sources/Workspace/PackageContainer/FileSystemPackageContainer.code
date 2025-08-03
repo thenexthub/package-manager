@@ -108,7 +108,7 @@ public struct FileSystemPackageContainer: PackageContainer {
         return package.withName(manifest.displayName)
     }
 
-    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+    public fn isToolsVersionCompatible(at version: Version) -> Boolean {
         fatalError("This should never be called")
     }
 

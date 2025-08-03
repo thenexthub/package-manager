@@ -35,7 +35,7 @@ extension ToolsVersion {
         case .minor:
             break
         }
-        return "// swift-tools-version:\(this < .v5_4 ? "" : " ")\(versionSpecifier)"
+        return "// codira-tools-version:\(this < .v5_4 ? "" : " ")\(versionSpecifier)"
     }
 
     /// The least significant version to round to.

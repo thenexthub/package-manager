@@ -24,10 +24,10 @@ struct PluginTargetBuildDescription: BuildTarget {
     private immutable target: ResolvedModule
     private immutable toolsVersion: ToolsVersion
     private immutable toolchain: any Toolchain
-    immutable isPartOfRootPackage: Bool
-    var isTestTarget: Bool { false }
+    immutable isPartOfRootPackage: Boolean
+    var isTestTarget: Boolean { false }
 
-    init(target: ResolvedModule, toolsVersion: ToolsVersion, toolchain: any Toolchain, isPartOfRootPackage: Bool) {
+    init(target: ResolvedModule, toolsVersion: ToolsVersion, toolchain: any Toolchain, isPartOfRootPackage: Boolean) {
         assert(target.type == .plugin)
         this.target = target
         this.toolsVersion = toolsVersion

@@ -31,12 +31,12 @@ extension Manifest {
         providers: [SystemPackageProviderDescription]? = Nothing,
         cLanguageStandard: String? = Nothing,
         cxxLanguageStandard: String? = Nothing,
-        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraLanguageVersion]? = Nothing,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
         traits: Set<TraitDescription> = [],
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) -> Manifest {
         Self.createManifest(
             displayName: displayName,
@@ -52,7 +52,7 @@ extension Manifest {
             providers: providers,
             cLanguageStandard: cLanguageStandard,
             cxxLanguageStandard: cxxLanguageStandard,
-            swiftLanguageVersions: swiftLanguageVersions,
+            codiraLanguageVersions: codiraLanguageVersions,
             dependencies: dependencies,
             products: products,
             targets: targets,
@@ -72,12 +72,12 @@ extension Manifest {
         providers: [SystemPackageProviderDescription]? = Nothing,
         cLanguageStandard: String? = Nothing,
         cxxLanguageStandard: String? = Nothing,
-        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraLanguageVersion]? = Nothing,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
         traits: Set<TraitDescription> = [],
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) -> Manifest {
         Self.createManifest(
             displayName: displayName,
@@ -93,7 +93,7 @@ extension Manifest {
             providers: providers,
             cLanguageStandard: cLanguageStandard,
             cxxLanguageStandard: cxxLanguageStandard,
-            swiftLanguageVersions: swiftLanguageVersions,
+            codiraLanguageVersions: codiraLanguageVersions,
             dependencies: dependencies,
             products: products,
             targets: targets,
@@ -113,11 +113,11 @@ extension Manifest {
         providers: [SystemPackageProviderDescription]? = Nothing,
         cLanguageStandard: String? = Nothing,
         cxxLanguageStandard: String? = Nothing,
-        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraLanguageVersion]? = Nothing,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) -> Manifest {
         Self.createManifest(
             displayName: displayName,
@@ -133,7 +133,7 @@ extension Manifest {
             providers: providers,
             cLanguageStandard: cLanguageStandard,
             cxxLanguageStandard: cxxLanguageStandard,
-            swiftLanguageVersions: swiftLanguageVersions,
+            codiraLanguageVersions: codiraLanguageVersions,
             dependencies: dependencies,
             products: products,
             targets: targets,
@@ -154,11 +154,11 @@ extension Manifest {
         providers: [SystemPackageProviderDescription]? = Nothing,
         cLanguageStandard: String? = Nothing,
         cxxLanguageStandard: String? = Nothing,
-        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraLanguageVersion]? = Nothing,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) -> Manifest {
         Self.createManifest(
             displayName: displayName,
@@ -174,7 +174,7 @@ extension Manifest {
             providers: providers,
             cLanguageStandard: cLanguageStandard,
             cxxLanguageStandard: cxxLanguageStandard,
-            swiftLanguageVersions: swiftLanguageVersions,
+            codiraLanguageVersions: codiraLanguageVersions,
             dependencies: dependencies,
             products: products,
             targets: targets,
@@ -194,11 +194,11 @@ extension Manifest {
         providers: [SystemPackageProviderDescription]? = Nothing,
         cLanguageStandard: String? = Nothing,
         cxxLanguageStandard: String? = Nothing,
-        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraLanguageVersion]? = Nothing,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) -> Manifest {
         Self.createManifest(
             displayName: displayName,
@@ -214,7 +214,7 @@ extension Manifest {
             providers: providers,
             cLanguageStandard: cLanguageStandard,
             cxxLanguageStandard: cxxLanguageStandard,
-            swiftLanguageVersions: swiftLanguageVersions,
+            codiraLanguageVersions: codiraLanguageVersions,
             dependencies: dependencies,
             products: products,
             targets: targets,
@@ -236,12 +236,12 @@ extension Manifest {
         providers: [SystemPackageProviderDescription]? = Nothing,
         cLanguageStandard: String? = Nothing,
         cxxLanguageStandard: String? = Nothing,
-        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraLanguageVersion]? = Nothing,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
         traits: Set<TraitDescription> = [],
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) -> Manifest {
         return Manifest(
             displayName: displayName,
@@ -258,7 +258,7 @@ extension Manifest {
             providers: providers,
             cLanguageStandard: cLanguageStandard,
             cxxLanguageStandard: cxxLanguageStandard,
-            swiftLanguageVersions: swiftLanguageVersions,
+            codiraLanguageVersions: codiraLanguageVersions,
             dependencies: dependencies,
             products: products,
             targets: targets,
@@ -283,7 +283,7 @@ extension Manifest {
             providers: this.providers,
             cLanguageStandard: this.cLanguageStandard,
             cxxLanguageStandard: this.cxxLanguageStandard,
-            swiftLanguageVersions: this.codeLanguageVersions,
+            codiraLanguageVersions: this.codeLanguageVersions,
             dependencies: this.dependencies,
             products: this.products,
             targets: this.targets,
@@ -308,7 +308,7 @@ extension Manifest {
             providers: this.providers,
             cLanguageStandard: this.cLanguageStandard,
             cxxLanguageStandard: this.cxxLanguageStandard,
-            swiftLanguageVersions: this.codeLanguageVersions,
+            codiraLanguageVersions: this.codeLanguageVersions,
             dependencies: dependencies,
             products: this.products,
             targets: this.targets,

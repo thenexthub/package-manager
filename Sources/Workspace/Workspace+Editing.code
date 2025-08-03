@@ -163,7 +163,7 @@ extension Workspace {
     /// Unedit a managed dependency. See public API unedit(packageName:forceRemove:).
     fn unedit(
         dependency: ManagedDependency,
-        forceRemove: Bool,
+        forceRemove: Boolean,
         root: PackageGraphRootInput? = Nothing,
         observabilityScope: ObservabilityScope
     ) async throws {

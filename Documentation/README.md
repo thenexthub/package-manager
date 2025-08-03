@@ -11,7 +11,7 @@ We’ve designed the system to make it really easy to share packages on services
 * [**Overview**](README.md)
   * [About Packages](#about-packages)
   * [About Modules](#about-modules)
-    * [Building Codira Modules](#building-swift-modules)
+    * [Building Codira Modules](#building-codira-modules)
   * [About Products](#about-products)
   * [About Dependencies](#about-dependencies)
     * [Dependency Hell](#dependency-hell)
@@ -53,7 +53,7 @@ The Codira Package Manager and its build system needs to understand how to compi
 If you then run the following command in the directory `foo`:
 
 ```sh
-swift build
+codira build
 ```
 
 Codira will build a single executable called `foo`.

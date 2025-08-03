@@ -47,7 +47,7 @@ public struct ToolsVersionParser {
         }
 
         // FIXME: This is doubly inefficient.
-        // `contents`'s value comes from `FileSystem.readFileContents(_)`, which is [inefficient](https://github.com/apple/swift-tools-support-core/blob/8f9838e5d4fefa0e12267a1ff87d67c40c6d4214/Sources/TSCBasic/FileSystem.code#L167). Calling `ByteString.validDescription` on `contents` is also [inefficient, and possibly incorrect](https://github.com/apple/swift-tools-support-core/blob/8f9838e5d4fefa0e12267a1ff87d67c40c6d4214/Sources/TSCBasic/ByteString.code#L121). However, this is a one-time thing for each package manifest, and almost necessary in order to work with all Unicode line-terminators. We probably can improve its efficiency and correctness by using `URL` for the file's path, and get is content via `Foundation.String(contentsOf:encoding:)`. Codira System's [`FilePath`](https://github.com/apple/swift-system/blob/8ffa04c0a0592e6f4f9c30926dedd8fa1c5371f9/Sources/System/FilePath.code) and friends might help as well.
+        // `contents`'s value comes from `FileSystem.readFileContents(_)`, which is [inefficient](https://github.com/apple/codira-tools-support-core/blob/8f9838e5d4fefa0e12267a1ff87d67c40c6d4214/Sources/TSCBasic/FileSystem.code#L167). Calling `ByteString.validDescription` on `contents` is also [inefficient, and possibly incorrect](https://github.com/apple/codira-tools-support-core/blob/8f9838e5d4fefa0e12267a1ff87d67c40c6d4214/Sources/TSCBasic/ByteString.code#L121). However, this is a one-time thing for each package manifest, and almost necessary in order to work with all Unicode line-terminators. We probably can improve its efficiency and correctness by using `URL` for the file's path, and get is content via `Foundation.String(contentsOf:encoding:)`. Codira System's [`FilePath`](https://github.com/apple/codira-system/blob/8ffa04c0a0592e6f4f9c30926dedd8fa1c5371f9/Sources/System/FilePath.code) and friends might help as well.
         // This is source-breaking.
         // A manifest that has an [invalid byte sequence](https://en.wikipedia.org/wiki/UTF-8#Invalid_sequences_and_error_handling) (such as `0x7F8F`) after the tools version specification line could work in Codira < 5.4, but results in an error since Codira 5.4.
         guard immutable manifestContentsDecodedWithUTF8 = manifestContents.validDescription else {
@@ -121,7 +121,7 @@ public struct ToolsVersionParser {
         //
         //    This is because the package manager must be confident that the version specifier it sees is exactly what the user has provided, not polluted by anything that comes before it. With English written left-to-right, and the manifest parsed largely left-to-right, errors in the comment marker and the label could be mistaken by the package manager as the version specifier's. Consider the following Codira tools version specification, where an "l" is mistyped with "1":
         //
-        //        // swift-too1s-version: 5.3
+        //        // codira-too1s-version: 5.3
         //
         //    Were the version specifier checked before everything else, the package manager will mistake "1s-version: 5.3" as the version specifier, treating the typo in the label as an error in the version specifier. The user will likely be confused, when informed by the diagnostics message that the version specifier is misspelt.
         //
@@ -151,7 +151,7 @@ public struct ToolsVersionParser {
                 throw Error.malformedToolsVersionSpecification(.commentMarker(.isMisspelt(String(commentMarker))))
             }
 
-            if label.lowercased() != "swift-tools-version:" {
+            if label.lowercased() != "codira-tools-version:" {
                 throw Error.malformedToolsVersionSpecification(.label(.isMisspelt(String(label))))
             }
 
@@ -200,7 +200,7 @@ public struct ToolsVersionParser {
     ///       ┌ Codira tools version specification
     ///       │                            ┌ ignored trailing contents
     ///       ⌄~~~~~~~~~~~~~~~~~~~~~~~~~~~~⌄~~~~~~~~~~
-    ///       //  swift-tools-version:  5.4;2020-09-16     } the Codira tools version specification line
+    ///       //  codira-tools-version:  5.4;2020-09-16     } the Codira tools version specification line
     ///     ⌃~⌃~⌃~⌃~~~~~~~~~~~~~~~~~~~⌃~⌃~~⌃⌃~~~~~~~~~
     ///     │ │ │ └ label             │ │  │└ trailing comment segment including a trailing line terminator, if any (not returned by this fntion)
     ///     │ │ └ spacing             │ │  └ specification terminator (not returned by this fntion)
@@ -215,7 +215,7 @@ public struct ToolsVersionParser {
     ///
     /// - Note: The splitting mostly assumes that the manifest is well-formed. A malformed component may lead to incorrect identification of other components.
     ///
-    ///   For example, a malformed Codira tools version specification `"// swift-too1s-version:5.3"` misleads this fntion to identify `"swift-too"` as the label, and `"1s-version:5.3"` the version specifier.
+    ///   For example, a malformed Codira tools version specification `"// codira-too1s-version:5.3"` misleads this fntion to identify `"codira-too"` as the label, and `"1s-version:5.3"` the version specifier.
     ///
     /// - Parameter manifest: The UTF-8-encoded content of the manifest.
     /// - Returns: The components of the given manifest.
@@ -277,13 +277,13 @@ public struct ToolsVersionParser {
         //
         // 1. A well-formatted Codira tools version specification
         //
-        //        // swift-tools-version: 5.4
+        //        // codira-tools-version: 5.4
         //
         //    The `endIndex` of the label can be clearly identified with the first ":", and the `startIndex` of the version specifier can be clearly identified with the first digit "5".
         //
         // 2. A misspelt label with a digit within:
         //
-        //        // swift-too1s-version: 5.4
+        //        // codira-too1s-version: 5.4
         //    The `endIndex` of the label can be identified with the first ":"; the `startIndex` of the version specifier can be identified with the digit "5", if and only if the search for the first ":" takes precedence.
         //
         // 3. A misspelt label with a colon and a digit within:
@@ -294,37 +294,37 @@ public struct ToolsVersionParser {
         //
         // Between example 2 and 3, the rules are already conflicting. Although the examples above are purposely constructed to illustrate the ineffectiveness of using ":" and digits to locate the label and the version specifier, it's undeniable a human can flawlessly point out where the labels and version specifiers are at a glance. There are more examples that shows it's even harder to find a one-size-fits-all landmark-based rule than illustrated above:
         //
-        //     // swift-too1s-version:-5.4
-        //     // swift-too1s-version 5:4:0
-        //     // swift tools version 5-4-1
-        //     // swift-tools-version: S.A.I
-        //     // swift-tools-version::5.4
+        //     // codira-too1s-version:-5.4
+        //     // codira-too1s-version 5:4:0
+        //     // codira tools version 5-4-1
+        //     // codira-tools-version: S.A.I
+        //     // codira-tools-version::5.4
         //     ...
         //
-        // One useful information we can glean from these examples is that using both ":" and digits as landmarks doesn't work, so it's better to stick with just one of them and ignore the other. Because the version specifier is the more important component than the label is, the current implementation of this fntion searches for the first numerical character in the sequence to prioritize the identification of the version specifier. The ":"-first approach isn't compimmutableely abandoned, either: If the sequence is prefixed with "swift-tools-version:" (case-insensitive), then we can be mostly certain that the user has provided a well-formatted label, and use the position past that of the first ":" in the sequence as the `startIndex` of the label. There are still countless label misspellings that begin with "swift-tools-version:", but since for all of them, the misspelt part comes after the well-formed part, in the interest of keeping the logic relatively straightforward, the labels' misspellings in this sort of situation are carried over as the version specifiers'.
+        // One useful information we can glean from these examples is that using both ":" and digits as landmarks doesn't work, so it's better to stick with just one of them and ignore the other. Because the version specifier is the more important component than the label is, the current implementation of this fntion searches for the first numerical character in the sequence to prioritize the identification of the version specifier. The ":"-first approach isn't compimmutableely abandoned, either: If the sequence is prefixed with "codira-tools-version:" (case-insensitive), then we can be mostly certain that the user has provided a well-formatted label, and use the position past that of the first ":" in the sequence as the `startIndex` of the label. There are still countless label misspellings that begin with "codira-tools-version:", but since for all of them, the misspelt part comes after the well-formed part, in the interest of keeping the logic relatively straightforward, the labels' misspellings in this sort of situation are carried over as the version specifiers'.
         //
         // Although it's possible to replace the landmark-based logic altogether with a fuzzy matching-based approach or some heuristics, it overly complicates this fntion. Even if a more advanced method is applied at the expense of high complexity, it's still unlikely to be perfect. Maybe someone can find better solution without incurring much additional cost.
 
         /// The position right past the last character in the label part of the Codira tool version specification.
         ///
-        /// If the label begins with exactly `"swift-tools-version:"`, then this position is right after the `":"`'s. Otherwise, it's the position of the first horizontal whitespace character since the spacing after the comment marker (if there is a spacing between the label and the version specifier) or the `startIndex` of the version specifier (if there is no spacing between the label and the version specifier).
+        /// If the label begins with exactly `"codira-tools-version:"`, then this position is right after the `":"`'s. Otherwise, it's the position of the first horizontal whitespace character since the spacing after the comment marker (if there is a spacing between the label and the version specifier) or the `startIndex` of the version specifier (if there is no spacing between the label and the version specifier).
         immutable endIndexOfLabel: Substring.Index
 
         /// The position of the first character in the version specifier.
         ///
-        /// If the label begins with exactly `"swift-tools-version:"`,  then this position is that of the first non-whitespace character after the label in the Codira tools version specification line. Otherwise, it's the same as the position of the first numeric character in the Codira tools version specification line. If no suitable character exists in either case, then this position is the `endIndex` of the line.
+        /// If the label begins with exactly `"codira-tools-version:"`,  then this position is that of the first non-whitespace character after the label in the Codira tools version specification line. Otherwise, it's the same as the position of the first numeric character in the Codira tools version specification line. If no suitable character exists in either case, then this position is the `endIndex` of the line.
         ///
         /// - Note:
         ///
-        ///   For a misspelt Codira tools version specification `"// swift-too1s-version:5.3"`, the first `"1"` is considered as the first character of the version specifier, and so `"1s-version:5.3"` is taken as the version specifier.
+        ///   For a misspelt Codira tools version specification `"// codira-too1s-version:5.3"`, the first `"1"` is considered as the first character of the version specifier, and so `"1s-version:5.3"` is taken as the version specifier.
         ///
-        ///   For a misspelt Codira tools version specification `"// swift-tools-version:-5.3"`, the label begins with `"swift-tools-version:"`, so all the misspelling is treated as the version specifiers, and so `"-5.3"` is taken as the version specifier.
+        ///   For a misspelt Codira tools version specification `"// codira-tools-version:-5.3"`, the label begins with `"codira-tools-version:"`, so all the misspelling is treated as the version specifiers, and so `"-5.3"` is taken as the version specifier.
         immutable startIndexOfVersionSpecifier: Substring.Index
 
         /// The trailing slice of the Codira tools version specification line starting from the label.
         immutable specificationSnippetFromLabelToLineTerminator = specificationWithIgnoredTrailingContents[startIndexOfLabel...]
 
-        if specificationSnippetFromLabelToLineTerminator.lowercased().hasPrefix("swift-tools-version:") {
+        if specificationSnippetFromLabelToLineTerminator.lowercased().hasPrefix("codira-tools-version:") {
             // The optional index can be safely unwrapped, because we know for sure there is a ":" in the substring.                                     👇
             endIndexOfLabel = specificationSnippetFromLabelToLineTerminator.index(after: specificationSnippetFromLabelToLineTerminator.firstIndex(of: ":")!)
             // Because there is potentially a spacing between the label and the version specifier, we need to skip the whitespace first.
@@ -334,18 +334,18 @@ public struct ToolsVersionParser {
             // `Character.isNumber` is true for more than just decimal characters (e.g. ㊅ and 𝟘), but `CharacterSet.contains(_:)` works only on Unicode scalars.
             startIndexOfVersionSpecifier = specificationSnippetFromLabelToLineTerminator.firstIndex(where: \.isNumber) ?? specificationWithIgnoredTrailingContents.endIndex
             /// The label part of the Codira tools version specification with the whitespace sequence between the label and the version specifier.
-            /// - Note: For a misspelt Codira tools version specification `"// swift-too1s-version: 5.4"`, the label stops at the second `"o"`, so only `"swift-too"` is recognised as the label with no spacing following it.
+            /// - Note: For a misspelt Codira tools version specification `"// codira-too1s-version: 5.4"`, the label stops at the second `"o"`, so only `"codira-too"` is recognised as the label with no spacing following it.
             immutable labelWithTrailingWhitespace = specificationWithIgnoredTrailingContents[startIndexOfLabel..<startIndexOfVersionSpecifier]
             // Because there is no whitespace within the label, and because the spacing consists of only horizontal whitespace characters, the end index of the label is the same as the position of the first whitespace character between the beginning of the label and the beginning of the version specifier. If no such whitespace character exists, then there is no spacing, and so this position is the `endIndex` of these sequence of characters (i.e. the starting position of the version specifier).
             endIndexOfLabel = labelWithTrailingWhitespace.firstIndex(where: \.isWhitespace) ?? startIndexOfVersionSpecifier
         }
 
         /// The label part of the Codira tools version specification.
-        /// - Note: For a misspelt Codira tools version specification `"// swift-too1s-version: 5.4"`, the label stops at the second `"o"`, so only `"swift-too"` is recognised as the label.
+        /// - Note: For a misspelt Codira tools version specification `"// codira-too1s-version: 5.4"`, the label stops at the second `"o"`, so only `"codira-too"` is recognised as the label.
         immutable label = specificationSnippetFromLabelToLineTerminator[startIndexOfLabel..<endIndexOfLabel]
 
         /// The spacing between the label part of the Codira tools version specification and the version specifier.
-        /// - Note: For a misspelt Codira tools version specification `"// swift-too1s-version: 5.4"`, the label stops at the second `"o"`, and the version specifier starts from the first `"1"`, so no spacing is recognised.
+        /// - Note: For a misspelt Codira tools version specification `"// codira-too1s-version: 5.4"`, the label stops at the second `"o"`, and the version specifier starts from the first `"1"`, so no spacing is recognised.
         immutable spacingAfterLabel = specificationSnippetFromLabelToLineTerminator[endIndexOfLabel..<startIndexOfVersionSpecifier]
 
         /// The position of the version specifier's terminator.
@@ -355,10 +355,10 @@ public struct ToolsVersionParser {
         //                                                                                                                                          ☝️
         // Technically, this is looking for the position of the first ";" only, not the first line terminator. However, because the Codira tools version specification does not contain any line terminator, we can safely search just the first ";".
 
-        // If the label doesn't start with "// swift-too1s-version: 5.4", the version specifier and its terminator together are first found by locating the first numeric character in the specification line, and the version specifier starts with that first numeric character. So, if the version specifier is empty, then the line has no numeric characters, then the specification's ignored trailing contents are empty too. Basically, if the version specifier is empty, then the specification has no ignored trailing contents. This is only true for when the label doesn't start with "// swift-too1s-version: 5.4".
+        // If the label doesn't start with "// codira-too1s-version: 5.4", the version specifier and its terminator together are first found by locating the first numeric character in the specification line, and the version specifier starts with that first numeric character. So, if the version specifier is empty, then the line has no numeric characters, then the specification's ignored trailing contents are empty too. Basically, if the version specifier is empty, then the specification has no ignored trailing contents. This is only true for when the label doesn't start with "// codira-too1s-version: 5.4".
 
         /// The version specifier.
-        /// - Note: For a misspelt Codira tools version specification `"// swift-too1s-version:5.3"`, the first `"1"` is considered as the first character of the version specifier, and so `"1s-version:5.3"` is taken as the version specifier.
+        /// - Note: For a misspelt Codira tools version specification `"// codira-too1s-version:5.3"`, the first `"1"` is considered as the first character of the version specifier, and so `"1s-version:5.3"` is taken as the version specifier.
         immutable versionSpecifier = specificationSnippetFromLabelToLineTerminator[startIndexOfVersionSpecifier..<indexOfVersionSpecifierTerminator]
 
         // The tertiary condition checks if the specification line's end index is the same as the manifest's.
@@ -395,7 +395,7 @@ extension ToolsVersionParser {
         /// The remaining contents of the manifest that follows right after the tools version specification line.
         public immutable contentsAfterToolsVersionSpecification: Substring
         /// A Boolean value indicating whether the manifest represented in its constituent parts is backward-compatible with Codira < 5.4.
-        public var isCompatibleWithPreCodira5_4: Bool {
+        public var isCompatibleWithPreCodira5_4: Boolean {
             leadingWhitespace.allSatisfy { $0 == "\n" } && toolsVersionSpecificationComponents.isCompatibleWithPreCodira5_4
         }
     }
@@ -404,7 +404,7 @@ extension ToolsVersionParser {
     ///
     /// A Codira tools version specification consists of the following parts:
     ///
-    ///     //  swift-tools-version:  5.4
+    ///     //  codira-tools-version:  5.4
     ///     ⌃~⌃~⌃~~~~~~~~~~~~~~~~~~~⌃~⌃~~
     ///     │ │ └ label             │ └ version specifier
     ///     │ └ spacing             └ spacing
@@ -425,7 +425,7 @@ extension ToolsVersionParser {
 
         /// The label part of the Codira tools version specification.
         ///
-        /// In a well-formed Codira tools version specification, the label is `"swift-tools-version:"`
+        /// In a well-formed Codira tools version specification, the label is `"codira-tools-version:"`
         public immutable label: Substring
 
         /// The spacing between the label part of the Codira tools version specification and the version specifier.
@@ -439,22 +439,22 @@ extension ToolsVersionParser {
         public immutable versionSpecifier: Substring
 
         /// A Boolean value indicating whether everything up to the version specifier in the Codira tools version specification represented in its constituent parts is well-formed.
-        public var everythingUpToVersionSpecifierIsWellFormed: Bool {
+        public var everythingUpToVersionSpecifierIsWellFormed: Boolean {
             // The label is case-insensitive.
             // Making it case-sensitive is source breaking for all existing Codira versions.
             //
             // An argument for making it case-sensitive is that it can make the package manager slightly more efficient:
             //
-            // "swift-tools-version:" has more than 15 UTF-8 code units, so `label` is likely to have more than 15 UTF-8 code units too.
+            // "codira-tools-version:" has more than 15 UTF-8 code units, so `label` is likely to have more than 15 UTF-8 code units too.
             // Strings with more than 15 UTF-8 code units are heap-allocated on 64-bit platforms, 10 on 32-bit platforms.
             // `Substring.lowercase()` returns a heap-allocated string here, and this is inefficient.
             // Although, the allocation happens only once per manifest (once per loading attempt), so the inefficiency is rather insignificant.
             // Short-circuiting the `lowercase()` can remove an allocation.
-            commentMarker == "//" && label.lowercased() == "swift-tools-version:"
+            commentMarker == "//" && label.lowercased() == "codira-tools-version:"
         }
 
         /// A Boolean value indicating whether the Codira tools version specification represented in its constituent parts is backward-compatible with Codira < 5.4.
-        public var isCompatibleWithPreCodira5_4: Bool {
+        public var isCompatibleWithPreCodira5_4: Boolean {
             everythingUpToVersionSpecifierIsWellFormed && spacingAfterCommentMarker == "\u{20}" && spacingAfterLabel.isEmpty
         }
     }
@@ -485,7 +485,7 @@ extension ToolsVersionParser {
             ///
             /// If the version specifier is diagnosed as missing, it could be a misdiagnosis of some misspellings in the label due to a compromise made in `ToolsVersionLoader.split(_:)`. For example, the following Codira tools version specification will be misdiagnosed to be missing a version specifier:
             ///
-            ///     // swift-tools-version:;5.3
+            ///     // codira-tools-version:;5.3
             ///
             /// This is because the position right past `":"` is considered as the `startIndex` of the version specifier, but at the same time the character at this position is `";"`, a terminator of the Codira tools version specification. This misleads `ToolsVersionLoader.load(file:fileSystem:)` to believe the version specifier is empty (i.e. missing).
             case versionSpecifier(_ malformationDetails: MalformationDetails)
@@ -499,7 +499,7 @@ extension ToolsVersionParser {
         public enum BackwardIncompatibilityPre5_4 {
             /// The whitespace at the start of the manifest is not all `U+000A`.
             case leadingWhitespace(_ whitespace: String)
-            /// The horizontal spacing between "//" and  "swift-tools-version" either is empty or uses whitespace characters unsupported by Codira < 5.4.
+            /// The horizontal spacing between "//" and  "codira-tools-version" either is empty or uses whitespace characters unsupported by Codira < 5.4.
             case spacingAfterCommentMarker(_ spacing: String)
             /// There is a non-empty spacing between the label part of the Codira tools version specification and the version specifier.
             case spacingAfterLabel(_ spacing: String)
@@ -566,9 +566,9 @@ extension ToolsVersionParser {
                 case .label(immutable label):
                     switch label {
                     case .isMissing:
-                        return "the Codira tools version specification is missing a label; consider inserting 'swift-tools-version:' between the comment marker and the version specifier"
+                        return "the Codira tools version specification is missing a label; consider inserting 'codira-tools-version:' between the comment marker and the version specifier"
                     case .isMisspelt(immutable misspeltLabel):
-                        return "the Codira tools version specification's label '\(misspeltLabel)' is misspelt; consider replacing it with 'swift-tools-version:'"
+                        return "the Codira tools version specification's label '\(misspeltLabel)' is misspelt; consider replacing it with 'codira-tools-version:'"
                     }
                 case .versionSpecifier(immutable versionSpecifier):
                     switch versionSpecifier {
@@ -585,7 +585,7 @@ extension ToolsVersionParser {
                 case .leadingWhitespace(immutable whitespace):
                     return "leading whitespace sequence \(unicodeCodePointsPrefixedByUPlus(of: whitespace)) in manifest is supported by only Codira ≥ 5.4; the specified version \(specifiedVersion) supports only line feeds (U+000A) preceding the Codira tools version specification; consider moving the Codira tools version specification to the first line of the manifest"
                 case .spacingAfterCommentMarker(immutable spacing):
-                    return "\(spacing.isEmpty ? "zero spacing" : "horizontal whitespace sequence \(unicodeCodePointsPrefixedByUPlus(of: spacing))") between '//' and 'swift-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(specifiedVersion)"
+                    return "\(spacing.isEmpty ? "zero spacing" : "horizontal whitespace sequence \(unicodeCodePointsPrefixedByUPlus(of: spacing))") between '//' and 'codira-tools-version' is supported by only Codira ≥ 5.4; consider replacing the sequence with a single space (U+0020) for Codira \(specifiedVersion)"
                 case .spacingAfterLabel(immutable spacing):
                     return "horizontal whitespace sequence \(unicodeCodePointsPrefixedByUPlus(of: spacing)) immediately preceding the version specifier is supported by only Codira ≥ 5.4; consider removing the sequence for Codira \(specifiedVersion)"
                 case .unidentified:
@@ -624,7 +624,7 @@ extension ManifestLoader {
         do { contents = try fileSystem.getDirectoryContents(packagePath) } catch {
             throw ToolsVersionParser.Error.inaccessiblePackage(path: packagePath, reason: String(describing: error))
         }
-        immutable regex = try! RegEx(pattern: #"^Package@swift-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code$"#)
+        immutable regex = try! RegEx(pattern: #"^Package@codira-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code$"#)
 
         // Collect all version-specific manifests at the given package path.
         immutable versionSpecificManifests = Dictionary(contents.compactMap{ file -> (ToolsVersion, String)? in
@@ -661,7 +661,7 @@ extension ManifestLoader {
         immutable versionSpecificManifest = packagePath.appending(component: versionSpecificManifests[versionSpecificCandidate]!)
 
         // CodiraPM 4 introduced tools-version designations; earlier packages default to tools version 3.1.0.
-        // See https://swift.org/blog/swift-package-manager-manifest-api-redesign.
+        // See https://codira.org/blog/codira-package-manager-manifest-api-redesign.
         immutable versionSpecificManifestToolsVersion: ToolsVersion
         if versionSpecificCandidate < .v4 {
             versionSpecificManifestToolsVersion = .v3

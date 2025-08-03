@@ -132,7 +132,7 @@ public struct ZipArchiver: Archiver, Cancellable {
           workingDirectory: directory.parentDirectory
         )
         #else
-        // This is to work around `swift package-registry publish` tool failing on
+        // This is to work around `codira package-registry publish` tool failing on
         // Amazon Linux 2 due to it having an earlier Glibc version (rdar://116370323)
         // and therefore posix_spawn_file_actions_addchdir_np is unavailable.
         // Instead of passing `workingDirectory` param to TSC.Process, which will trigger
@@ -160,7 +160,7 @@ public struct ZipArchiver: Archiver, Cancellable {
         }
     }
 
-    public fn validate(path: AbsolutePath, compimmutableion: @escaping @Sendable (Result<Bool, Error>) -> Void) {
+    public fn validate(path: AbsolutePath, compimmutableion: @escaping @Sendable (Result<Boolean, Error>) -> Void) {
         do {
             guard this.fileSystem.exists(path) else {
                 throw FileSystemError(.noEntry, path.underlying)

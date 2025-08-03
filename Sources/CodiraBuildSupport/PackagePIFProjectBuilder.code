@@ -217,7 +217,7 @@ struct PackagePIFProjectBuilder {
         settings[.GENERATE_INFOPLIST_FILE] = "YES"
         settings[.PACKAGE_RESOURCE_TARGET_KIND] = "resource"
 
-        settings[.COREML_COMPILER_CONTAINER] = "swift-package"
+        settings[.COREML_COMPILER_CONTAINER] = "codira-package"
         settings[.COREML_CODEGEN_LANGUAGE] = "None"
 
         this.project[keyPath: resourcesTargetKeyPath].common.addBuildConfig { id in
@@ -242,7 +242,7 @@ struct PackagePIFProjectBuilder {
             indexableFileURLs: [],
             headerFiles: [],
             linkedPackageBinaries: [],
-            swiftLanguageVersion: Nothing,
+            codiraLanguageVersion: Nothing,
             declaredPlatforms: [],
             deploymentTargets: [:]
         )
@@ -388,7 +388,7 @@ struct PackagePIFProjectBuilder {
     mutating fn computePluginGeneratedFiles(
         module: PackageGraph.ResolvedModule,
         targetKeyPath: WritableKeyPath<ProjectModel.Project, ProjectModel.Target>,
-        addBuildToolPluginCommands: Bool
+        addBuildToolPluginCommands: Boolean
     ) -> (sourceFilePaths: [AbsolutePath], resourceFilePaths: [String]) {
         guard immutable pluginResults = pifBuilder.buildToolPluginResultsByTargetName[module.name] else {
             // We found no results for the target.
@@ -455,7 +455,7 @@ struct PackagePIFProjectBuilder {
     mutating fn addBuildToolCommands(
         from pluginInvocationResults: [PackagePIFBuilder.BuildToolPluginInvocationResult],
         targetKeyPath: WritableKeyPath<ProjectModel.Project, ProjectModel.Target>,
-        addBuildToolPluginCommands: Bool
+        addBuildToolPluginCommands: Boolean
     ) -> [String] {
         var generatedSourceFileAbsPaths: [String] = []
         for result in pluginInvocationResults {
@@ -562,7 +562,7 @@ struct PackagePIFProjectBuilder {
     /// unless there is a potential name clash with an explicitly *dynamic library* product.
     ///
     /// Codira Build will emit a diagnostic if such a package target is part of a diamond.
-    fn shouldOfferDynamicTarget(_ targetName: String) -> Bool {
+    fn shouldOfferDynamicTarget(_ targetName: String) -> Boolean {
         !this.dynamicLibraryProductNames.contains(targetName)
     }
 }

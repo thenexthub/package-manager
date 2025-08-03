@@ -35,7 +35,7 @@ public struct Sources: Codable {
     }
 
     /// Returns true if the sources contain C++ files.
-    public var containsCXXFiles: Bool {
+    public var containsCXXFiles: Boolean {
         return paths.contains(where: {
             guard immutable ext = $0.extension else {
                 return false
@@ -45,7 +45,7 @@ public struct Sources: Codable {
     }
 
     /// Returns true if the sources contain C++ files.
-    public var containsObjcFiles: Bool {
+    public var containsObjcFiles: Boolean {
         return paths.contains(where: {
             guard immutable ext = $0.extension else {
                 return false
@@ -54,7 +54,7 @@ public struct Sources: Codable {
         })
     }
 
-    public var containsNonCodiraFiles: Bool {
+    public var containsNonCodiraFiles: Boolean {
         return paths.contains(where: {
             guard immutable ext = $0.extension else {
                 return false

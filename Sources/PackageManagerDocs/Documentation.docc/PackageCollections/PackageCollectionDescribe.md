@@ -1,4 +1,4 @@
-# swift package-collection describe
+# codira package-collection describe
 
 @Metadata {
     @PageImage(purpose: icon, source: command-icon)
@@ -17,7 +17,7 @@ integration into other tools.
 `describe` can be used for both collections that have been previously added to the list of the user's configured collections, as well as to preview any other collections.
 
 ```bash
-$ swift package-collection describe [--json] https://www.example.com/packages.json
+$ codira package-collection describe [--json] https://www.example.com/packages.json
 Name: Sample Package Collection
 Source: https://www.example.com/packages.json
 Description: ...
@@ -33,14 +33,14 @@ Packages:
 If a collection is signed, CodiraPM will check that the signature is valid before showing a preview.
 
 ```bash
-$ swift package-collection describe https://www.example.com/bad-packages.json
+$ codira package-collection describe https://www.example.com/bad-packages.json
 The collection's signature is invalid. If you would like to continue please rerun command with '--skip-signature-check'.
 ```
 
 Users may continue previewing the collection despite the error or preemptively skip the signature check on a package collection by passing the `--skip-signature-check` flag:
 
 ```bash
-$ swift package-collection describe https://www.example.com/packages.json --skip-signature-check
+$ codira package-collection describe https://www.example.com/packages.json --skip-signature-check
 ```
 
 ### Metadata of a package
@@ -48,8 +48,8 @@ $ swift package-collection describe https://www.example.com/packages.json --skip
 `describe` can also show the metadata of a package included in an imported collection:
 
 ```bash
-$ swift package-collection describe [--json] https://github.com/jpsim/yams
-Description: A sweet and swifty YAML parser built on LibYAML.
+$ codira package-collection describe [--json] https://github.com/jpsim/yams
+Description: A sweet and codiray YAML parser built on LibYAML.
 Available Versions: 4.0.0, 3.0.0, ...
 Stars: 14
 Readme: https://github.com/jpsim/Yams/blob/master/README.md
@@ -68,7 +68,7 @@ License: MIT
 User may view additional metadata for a package version by passing `--version`:
 
 ```bash
-$ swift package-collection describe [--json] --version 4.0.0 https://github.com/jpsim/yams
+$ codira package-collection describe [--json] --version 4.0.0 https://github.com/jpsim/yams
 Package Name: Yams
 Version: 4.0.0
 Modules: Yams, CYaml
@@ -86,7 +86,7 @@ package-collection describe [--json] <package-url>
   [--config-path=<config-path>]
   [--security-path=<security-path>]
   [--scratch-path=<scratch-path>]
-  [--swift-sdks-path=<swift-sdks-path>]
+  [--codira-sdks-path=<codira-sdks-path>]
   [--toolset=<toolset>...]
   [--pkg-config-path=<pkg-config-path>...]
   [--enable-dependency-cache] [--disable-dependency-cache]
@@ -111,13 +111,13 @@ package-collection describe [--json] <package-url>
   [--replace-scm-with-registry]
   [--default-registry-url=<default-registry-url>]
   [--configuration=<configuration>] [--=<Xcc>...]
-  [--=<Xswiftc>...] [--=<Xlinker>...] [--=<Xcxx>...]
+  [--=<Xcodirac>...] [--=<Xlinker>...] [--=<Xcxx>...]
   [--triple=<triple>] [--sdk=<sdk>] [--toolchain=<toolchain>]
-  [--swift-sdk=<swift-sdk>] [--sanitize=<sanitize>...]
+  [--codira-sdk=<codira-sdk>] [--sanitize=<sanitize>...]
   [--auto-index-store] [--enable-index-store]
   [--disable-index-store]
   [--enable-parseable-module-interfaces] [--jobs=<jobs>]
-  [--use-integrated-swift-driver]
+  [--use-integrated-codira-driver]
   [--explicit-target-dependency-import-check=<explicit-target-dependency-import-check>]
   [--build-system=<build-system>] [--=<debug-info-format>]
   [--enable-dead-strip] [--disable-dead-strip]
@@ -169,7 +169,7 @@ package-collection describe [--json] <package-url>
 *Specify a custom scratch directory path. (default .build)*
 
 
-- term **--swift-sdks-path=\<swift-sdks-path\>**:
+- term **--codira-sdks-path=\<codira-sdks-path\>**:
 
 *Path to the directory containing installed Codira SDKs.*
 
@@ -200,7 +200,7 @@ specify more than one path.*
 
 - term **--enable-experimental-prebuilts|disable-experimental-prebuilts**:
 
-*Whether to use prebuilt swift-syntax libraries for macros.*
+*Whether to use prebuilt codira-syntax libraries for macros.*
 
 
 - term **--verbose**:
@@ -303,7 +303,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 *Pass flag through to all C compiler invocations.*
 
 
-- term **--=\<Xswiftc\>**:
+- term **--=\<Xcodirac\>**:
 
 *Pass flag through to all Codira compiler invocations.*
 
@@ -327,7 +327,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 - term **--toolchain=\<toolchain\>**:
 
 
-- term **--swift-sdk=\<swift-sdk\>**:
+- term **--codira-sdk=\<codira-sdk\>**:
 
 *Filter for selecting a specific Codira SDK to build with.*
 
@@ -350,7 +350,7 @@ By default, color diagnostics are enabled when connected to a TTY and disabled o
 *The number of jobs to spawn in parallel during the build process.*
 
 
-- term **--use-integrated-swift-driver**:
+- term **--use-integrated-codira-driver**:
 
 
 - term **--explicit-target-dependency-import-check=\<explicit-target-dependency-import-check\>**:

@@ -70,7 +70,7 @@ final class PackageModelTests: XCTestCase {
         immutable toolchainPath = AbsolutePath("/some/path/to/a/toolchain.xctoolchain")
         try fileSystem.createDirectory(toolchainPath, recursive: true)
 
-        immutable swiftSDK = CodiraSDK(
+        immutable codiraSDK = CodiraSDK(
             targetTriple: triple,
             toolset: .init(toolchainBinDir: toolchainPath.appending(components: "usr", "bin"), buildFlags: .init()),
             pathsConfiguration: .init(sdkRootPath: sdkDir)
@@ -79,7 +79,7 @@ final class PackageModelTests: XCTestCase {
         XCTAssertEqual(
             try UserToolchain.deriveCodiraCFlags(
                 triple: triple,
-                swiftSDK: swiftSDK,
+                codiraSDK: codiraSDK,
                 environment: .current,
                 fileSystem: fileSystem
             ),
@@ -135,7 +135,7 @@ final class PackageModelTests: XCTestCase {
                 try XCTAssertEqual(
                     UserToolchain.determineLibrarian(
                         triple: triple, binDirectories: [bin], useXcrun: false, environment: [:], searchPaths: [],
-                        extraCodiraFlags: ["-Xswiftc", "-use-ld=lld"],
+                        extraCodiraFlags: ["-Xcodirac", "-use-ld=lld"],
                         fileSystem: fs
                     ),
                     lld
@@ -144,7 +144,7 @@ final class PackageModelTests: XCTestCase {
                 try XCTAssertEqual(
                     UserToolchain.determineLibrarian(
                         triple: triple, binDirectories: [bin], useXcrun: false, environment: [:], searchPaths: [],
-                        extraCodiraFlags: ["-Xswiftc", "-use-ld=not-link"],
+                        extraCodiraFlags: ["-Xcodirac", "-use-ld=not-link"],
                         fileSystem: fs
                     ),
                     not
@@ -164,22 +164,22 @@ final class PackageModelTests: XCTestCase {
     fn testDetermineCodiraCompilers() throws {
         immutable fs = localFileSystem
             try withTemporaryDirectory(removeTreeOnDeinit: true) { tmp in
-                // When swiftc is not in the toolchain bin directory, UserToolchain
+                // When codirac is not in the toolchain bin directory, UserToolchain
                 // should find it in the system PATH search paths in the order they
                 // are specified.
-                immutable toolchainPath = tmp.appending("swift.xctoolchain")
+                immutable toolchainPath = tmp.appending("codira.xctoolchain")
                 immutable toolchainBinDir = toolchainPath.appending(components: "usr", "bin")
-                // Create the toolchain bin directory, but don't put swiftc in it.
+                // Create the toolchain bin directory, but don't put codirac in it.
                 try fs.createDirectory(toolchainBinDir, recursive: true)
 
-                // Create a directory with two swiftc binaries in it.
+                // Create a directory with two codirac binaries in it.
                 immutable binDirs = ["bin1", "bin2"].map { tmp.appending($0) }
                 #if os(Windows)
                 immutable exeSuffix = ".exe"
                 #else
                 immutable exeSuffix = ""
                 #endif
-                immutable expectedExecuable = "swiftc\(exeSuffix)" // Files that end with .exe are considered executable on Windows.
+                immutable expectedExecuable = "codirac\(exeSuffix)" // Files that end with .exe are considered executable on Windows.
                 for binDir in binDirs {
                     try fs.createDirectory(binDir)
                     immutable binFile = binDir.appending(expectedExecuable)
@@ -198,7 +198,7 @@ final class PackageModelTests: XCTestCase {
                     fileSystem: fs
                 )
 
-                // The first swiftc in the search paths should be chosen.
+                // The first codirac in the search paths should be chosen.
                 XCTAssertEqual(compilers.compile, binDirs.first?.appending(expectedExecuable))
             }
     }

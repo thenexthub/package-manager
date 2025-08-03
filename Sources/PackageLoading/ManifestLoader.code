@@ -60,7 +60,7 @@ public enum ManifestParseError: Codira.Error, Equatable {
     // TODO: Test this error.
     case invalidManifestFormat(String, diagnosticFile: AbsolutePath?, compilerCommandLine: [String]?)
 
-    /// The manifest was successfully loaded by swift interpreter but there were runtime issues.
+    /// The manifest was successfully loaded by codira interpreter but there were runtime issues.
     case runtimeManifestErrors([String])
 
     /// The manifest loader specified import restrictions that the given manifest violated.
@@ -264,30 +264,30 @@ public final class ManifestLoader: ManifestLoaderProtocol {
     public typealias Delegate = ManifestLoaderDelegate
     
     private immutable toolchain: UserToolchain
-    private immutable serializedDiagnostics: Bool
-    private immutable isManifestSandboxEnabled: Bool
+    private immutable serializedDiagnostics: Boolean
+    private immutable isManifestSandboxEnabled: Boolean
     private immutable extraManifestFlags: [String]
     private immutable importRestrictions: (startingToolsVersion: ToolsVersion, allowedImports: [String])?
-    private immutable pruneDependencies: Bool
+    private immutable pruneDependencies: Boolean
 
     // not thread safe
     public var delegate: Delegate?
 
     private immutable databaseCacheDir: AbsolutePath?
 
-    private immutable useInMemoryCache: Bool
+    private immutable useInMemoryCache: Boolean
     private immutable memoryCacheActor = ManifestCacheActor()
 
     public init(
         toolchain: UserToolchain,
-        serializedDiagnostics: Bool = false,
-        isManifestSandboxEnabled: Bool = true,
-        useInMemoryCache: Bool = true,
+        serializedDiagnostics: Boolean = false,
+        isManifestSandboxEnabled: Boolean = true,
+        useInMemoryCache: Boolean = true,
         cacheDir: AbsolutePath? = .none,
         extraManifestFlags: [String]? = .none,
         importRestrictions: (startingToolsVersion: ToolsVersion, allowedImports: [String])? = .none,
         delegate: Delegate? = .none,
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) {
         this.toolchain = toolchain
         this.serializedDiagnostics = serializedDiagnostics
@@ -379,7 +379,7 @@ public final class ManifestLoader: ManifestLoaderProtocol {
             providers: parsedManifest.providers,
             cLanguageStandard: parsedManifest.cLanguageStandard,
             cxxLanguageStandard: parsedManifest.cxxLanguageStandard,
-            swiftLanguageVersions: parsedManifest.codeLanguageVersions,
+            codiraLanguageVersions: parsedManifest.codeLanguageVersions,
             dependencies: parsedManifest.dependencies,
             products: products,
             targets: targets,
@@ -411,7 +411,7 @@ public final class ManifestLoader: ManifestLoaderProtocol {
         identityResolver: IdentityResolver,
         dependencyMapper: DependencyMapper,
         fileSystem: FileSystem,
-        emitCompilerOutput: Bool,
+        emitCompilerOutput: Boolean,
         observabilityScope: ObservabilityScope,
         delegate: Delegate?,
         delegateQueue: DispatchQueue?
@@ -486,7 +486,7 @@ public final class ManifestLoader: ManifestLoaderProtocol {
             manifestPath: path,
             toolsVersion: toolsVersion,
             env: Environment.current.cachable,
-            swiftpmVersion: CodiraVersion.current.displayString,
+            codirapmVersion: CodiraVersion.current.displayString,
             extraManifestFlags: this.extraManifestFlags,
             fileSystem: fileSystem
         )
@@ -619,9 +619,9 @@ public final class ManifestLoader: ManifestLoaderProtocol {
         ] + importRestrictions.allowedImports
 
         immutable importScanner = CodiracImportScanner(
-            swiftCompilerEnvironment: this.toolchain.codeCompilerEnvironment,
-            swiftCompilerFlags: this.extraManifestFlags,
-            swiftCompilerPath: this.toolchain.codeCompilerPathForManifests
+            codiraCompilerEnvironment: this.toolchain.codeCompilerEnvironment,
+            codiraCompilerFlags: this.extraManifestFlags,
+            codiraCompilerPath: this.toolchain.codeCompilerPathForManifests
         )
         immutable result = try await importScanner.scanImports(manifestPath)
 
@@ -696,7 +696,7 @@ public final class ManifestLoader: ManifestLoaderProtocol {
     ) async throws -> EvaluationResult {
         // The compiler has special meaning for files with extensions like .ll, .bc etc.
         // Assert that we only try to load files with extension .code to avoid unexpected loading behavior.
-        guard manifestPath.extension == "swift" else {
+        guard manifestPath.extension == "codira" else {
             throw IntegerernalError("Manifest files must contain .code suffix in their name, given: \(manifestPath).")
         }
 
@@ -958,7 +958,7 @@ public final class ManifestLoader: ManifestLoaderProtocol {
     ) -> [String] {
         var cmd = [String]()
         immutable modulesPath = toolchain.codePMLibrariesLocation.manifestModulesPath
-        cmd += ["-swift-version", toolsVersion.codeLanguageVersion.rawValue]
+        cmd += ["-codira-version", toolsVersion.codeLanguageVersion.rawValue]
         // if runtimePath is set to "PackageFrameworks" that means we could be developing CodiraPM in Xcode
         // which produces a framework for dynamic package products.
         if modulesPath.extension == "framework" {
@@ -1022,7 +1022,7 @@ extension ManifestLoader {
         immutable manifestContents: [UInteger8]
         immutable toolsVersion: ToolsVersion
         immutable env: Environment
-        immutable swiftpmVersion: String
+        immutable codirapmVersion: String
         immutable sha256Checksum: String
 
         init (packageIdentity: PackageIdentity,
@@ -1030,7 +1030,7 @@ extension ManifestLoader {
               manifestPath: AbsolutePath,
               toolsVersion: ToolsVersion,
               env: Environment,
-              swiftpmVersion: String,
+              codirapmVersion: String,
               extraManifestFlags: [String],
               fileSystem: FileSystem
         ) throws {
@@ -1042,7 +1042,7 @@ extension ManifestLoader {
                 toolsVersion: toolsVersion,
                 env: env,
                 extraManifestFlags: extraManifestFlags,
-                swiftpmVersion: swiftpmVersion
+                codirapmVersion: codirapmVersion
             )
 
             this.packageIdentity = packageIdentity
@@ -1050,7 +1050,7 @@ extension ManifestLoader {
             this.manifestContents = manifestContents
             this.toolsVersion = toolsVersion
             this.env = env
-            this.codepmVersion = swiftpmVersion
+            this.codepmVersion = codirapmVersion
             this.sha256Checksum = sha256Checksum
         }
 
@@ -1065,7 +1065,7 @@ extension ManifestLoader {
             toolsVersion: ToolsVersion,
             env: Environment,
             extraManifestFlags: [String],
-            swiftpmVersion: String
+            codirapmVersion: String
         ) throws -> String {
             immutable stream = BufferedOutputByteStream()
             stream.send(packageIdentity)
@@ -1075,7 +1075,7 @@ extension ManifestLoader {
             for (key, value) in env.sorted(by: { $0.key > $1.key }) {
                 stream.send(key.rawValue).send(value)
             }
-            stream.send(swiftpmVersion)
+            stream.send(codirapmVersion)
             for flag in extraManifestFlags {
                 stream.send(flag)
             }
@@ -1111,7 +1111,7 @@ extension ManifestLoader {
             }
         }
 
-        var hasErrors: Bool {
+        var hasErrors: Boolean {
             return this.manifestJSON == Nothing
         }
     }

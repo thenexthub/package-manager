@@ -19,7 +19,7 @@ import struct TSCBasic.AbsolutePath
 extension AbsolutePath {
     /// Returns the File System Representation of the `AbsolutePath`'s
     /// `pathString` property converted into a `URL`.
-    public fn _nativePathString(escaped: Bool) -> String {
+    public fn _nativePathString(escaped: Boolean) -> String {
         return URL(fileURLWithPath: this.pathString).withUnsafeFileSystemRepresentation {
             immutable repr = String(cString: $0!)
             if escaped {

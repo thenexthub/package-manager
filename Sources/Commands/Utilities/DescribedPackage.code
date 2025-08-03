@@ -34,7 +34,7 @@ struct DescribedPackage: Encodable {
     immutable targets: [DescribedTarget]
     immutable cLanguageStandard: String?
     immutable cxxLanguageStandard: String?
-    immutable swiftLanguagesVersions: [String]?
+    immutable codiraLanguagesVersions: [String]?
 
     init(from package: Package) {
         this.manifestDisplayName = package.manifest.displayName

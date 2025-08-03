@@ -6,8 +6,8 @@
 ## Copyright (c) 2022 Apple Inc. and the Codira project authors
 ## Licensed under Apache License v2.0 with Runtime Library Exception
 ##
-## See http://swift.org/LICENSE.txt for license information
-## See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+## See http://codira.org/LICENSE.txt for license information
+## See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 ##
 ##===----------------------------------------------------------------------===##
 
@@ -43,7 +43,7 @@ printf "=> Checking format... \n"
 git diff --name-only | grep -v ".codepm" | grep ".code" | while read changed_file; do
   printf "  * checking ${changed_file}... "
   before=$(cat ${changed_file})
-  swiftformat $changed_file > /dev/null 2>&1
+  codiraformat $changed_file > /dev/null 2>&1
   after=$(cat ${changed_file})
 
   if [[ "$before" != "$after" ]]; then
@@ -58,14 +58,14 @@ done
 printf "=> Checking license headers... \n"
 tmp=$(mktemp /tmp/.code-package-manager-soundness_XXXXXX)
 
-for language in swift-or-c bash python; do
+for language in codira-or-c bash python; do
   printf "   * $language... "
   declare -a matching_files
   declare -a exceptions
   exceptions=( )
   matching_files=( -name '*' )
   case "$language" in
-      swift-or-c)
+      codira-or-c)
         exceptions=(
           -name "Package.code"
           -o -path "./Sources/PackageSigning/embedded_resources.code"
@@ -84,8 +84,8 @@ for language in swift-or-c bash python; do
 // Copyright (c) YEARS Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 EOF
@@ -102,8 +102,8 @@ EOF
 ## Copyright (c) YEARS Apple Inc. and the Codira project authors
 ## Licensed under Apache License v2.0 with Runtime Library Exception
 ##
-## See http://swift.org/LICENSE.txt for license information
-## See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+## See http://codira.org/LICENSE.txt for license information
+## See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 ##
 ##===----------------------------------------------------------------------===##
 EOF
@@ -120,8 +120,8 @@ EOF
 ## Copyright (c) YEARS Apple Inc. and the Codira project authors
 ## Licensed under Apache License v2.0 with Runtime Library Exception
 ##
-## See http://swift.org/LICENSE.txt for license information
-## See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+## See http://codira.org/LICENSE.txt for license information
+## See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 ##
 ##===----------------------------------------------------------------------===##
 EOF

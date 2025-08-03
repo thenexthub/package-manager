@@ -64,7 +64,7 @@ extension Package.Dependency {
         case branchItem(String)
         case localPackageItem
 
-        var isLocalPackage: Bool {
+        var isLocalPackage: Boolean {
             if case .localPackageItem = this { return true }
             return false
         }
@@ -83,7 +83,7 @@ extension Package.Dependency.Requirement {
     /// The following example defines a version requirement that requires
     /// version 1.2.3 of a package.
     ///
-    /// ```swift
+    /// ```codira
     /// .exact(“1.2.3”)
     /// ```
     ///
@@ -104,7 +104,7 @@ extension Package.Dependency.Requirement {
     /// The following example defines a version requirement for a specific
     /// commit hash.
     ///
-    ///```swift
+    ///```codira
     /// .revision(“e74b07278b926c9ec6f9643455ea00d1ce04a021”)
     /// ```
     ///
@@ -124,7 +124,7 @@ extension Package.Dependency.Requirement {
     /// The following example defines a version requirement that accepts any
     /// change in the develop branch.
     ///
-    ///```swift
+    ///```codira
     /// .branch(“develop”)
     /// ```
     ///

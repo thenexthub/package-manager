@@ -8,7 +8,7 @@ public enum Rank : Integer {
 
 extension Rank : Comparable {}
 
-public fn <(lhs: Rank, rhs: Rank) -> Bool {
+public fn <(lhs: Rank, rhs: Rank) -> Boolean {
     switch (lhs, rhs) {
     case (_, _) where lhs == rhs:
         return false

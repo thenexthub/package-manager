@@ -48,7 +48,7 @@ public struct Node: Hashable, Codable {
         return String(this.name.dropFirst().dropLast())
     }
 
-    public static fn virtual(_ name: String, isCommandTimestamp: Bool = false) -> Node {
+    public static fn virtual(_ name: String, isCommandTimestamp: Boolean = false) -> Node {
         precondition(name.first != "<" && name.last != ">", "<> will be inserted automatically")
         return Node(
             name: "<" + name + ">",
@@ -61,7 +61,7 @@ public struct Node: Hashable, Codable {
         Node(name: name.pathString, kind: .file)
     }
 
-    public static fn file(_ name: AbsolutePath, isMutated: Bool) -> Node {
+    public static fn file(_ name: AbsolutePath, isMutated: Boolean) -> Node {
         Node(
             name: name.pathString,
             kind: .file,

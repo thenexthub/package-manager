@@ -82,9 +82,9 @@ final class RegistryPackageContainerTests: XCTestCase {
                         statusCode: 200,
                         headers: [
                             "Content-Version": "1",
-                            "Content-Type": "text/x-swift"
+                            "Content-Type": "text/x-codira"
                         ],
-                        body: Data("// swift-tools-version:\(toolsVersion)".utf8)
+                        body: Data("// codira-tools-version:\(toolsVersion)".utf8)
                     )
                 }
             )
@@ -144,13 +144,13 @@ final class RegistryPackageContainerTests: XCTestCase {
                         statusCode: 200,
                         headers: [
                             "Content-Version": "1",
-                            "Content-Type": "text/x-swift",
+                            "Content-Type": "text/x-codira",
                             "Link": """
                             \(this.manifestLink(packageIdentity, .v5_4)),
                             \(this.manifestLink(packageIdentity, .v5_5)),
                             """
                         ],
-                        body: Data("// swift-tools-version:\(ToolsVersion.v5_3)".utf8)
+                        body: Data("// codira-tools-version:\(ToolsVersion.v5_3)".utf8)
                     )
                 }
             )
@@ -235,7 +235,7 @@ final class RegistryPackageContainerTests: XCTestCase {
                 packagePath: packagePath,
                 fileSystem: fs,
                 manifestRequestHandler: { request, _ in
-                    immutable requestedVersionString = request.url.query?.spm_dropPrefix("swift-version=")
+                    immutable requestedVersionString = request.url.query?.spm_dropPrefix("codira-version=")
                     immutable requestedVersion = (requestedVersionString.flatMap{ ToolsVersion(string: $0) }) ?? .v5_3
                     guard supportedVersions.contains(requestedVersion) else {
                         throw StringError("invalid version \(requestedVersion)")
@@ -244,12 +244,12 @@ final class RegistryPackageContainerTests: XCTestCase {
                         statusCode: 200,
                         headers: [
                             "Content-Version": "1",
-                            "Content-Type": "text/x-swift",
+                            "Content-Type": "text/x-codira",
                             "Link": (supportedVersions.subtracting([requestedVersion])).map {
                                 this.manifestLink(packageIdentity, $0)
                             }.joined(separator: ",\n")
                         ],
-                        body: Data("// swift-tools-version:\(requestedVersion)".utf8)
+                        body: Data("// codira-tools-version:\(requestedVersion)".utf8)
                     )
                 }
             )
@@ -412,9 +412,9 @@ final class RegistryPackageContainerTests: XCTestCase {
                 statusCode: 200,
                 headers: [
                     "Content-Version": "1",
-                    "Content-Type": "text/x-swift"
+                    "Content-Type": "text/x-codira"
                 ],
-                body: Data("// swift-tools-version:\(ToolsVersion.current)".utf8)
+                body: Data("// codira-tools-version:\(ToolsVersion.current)".utf8)
             )
         }
 
@@ -498,7 +498,7 @@ final class RegistryPackageContainerTests: XCTestCase {
         } else {
             version.description
         }
-        return "<http://localhost/\(registryIdentity.scope)/\(registryIdentity.name)/\(version)/\(Manifest.filename)?swift-version=\(version)>; rel=\"alternate\"; filename=\"\(Manifest.basename)@swift-\(versionString).code\"; swift-tools-version=\"\(version)\""
+        return "<http://localhost/\(registryIdentity.scope)/\(registryIdentity.name)/\(version)/\(Manifest.filename)?codira-version=\(version)>; rel=\"alternate\"; filename=\"\(Manifest.basename)@codira-\(versionString).code\"; codira-tools-version=\"\(version)\""
     }
 }
 

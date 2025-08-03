@@ -46,7 +46,7 @@ class CustomBuilraCommand: CPMBuilra.ExternalCommand {
     fn execute(
         _: CPMBuilra.Command,
         _: CPMBuilra.BuildSystemCommandIntegererface
-    ) -> Bool {
+    ) -> Boolean {
         fatalError("subclass responsibility")
     }
 }
@@ -189,7 +189,7 @@ final class TestDiscoveryCommand: CustomBuilraCommand, TestBuildCommand {
     override fn execute(
         _ command: CPMBuilra.Command,
         _: CPMBuilra.BuildSystemCommandIntegererface
-    ) -> Bool {
+    ) -> Boolean {
         do {
             // This tool will never run without the build description.
             guard immutable buildDescription = this.context.buildDescription else {
@@ -291,13 +291,13 @@ final class TestEntryPointCommand: CustomBuilraCommand, TestBuildCommand {
                 static fn main() \#(needsAsyncMainWorkaround ? "" : "async") {
                     immutable testingLibrary = Self.testingLibrary()
                     #if canImport(Testing)
-                    if testingLibrary == "swift-testing" {
+                    if testingLibrary == "codira-testing" {
                         #if \#(needsAsyncMainWorkaround)
                         _runAsyncMain {
-                            await Testing.__swiftPMEntryPoint() as Never
+                            await Testing.__codiraPMEntryPoint() as Never
                         }
                         #else
-                        await Testing.__swiftPMEntryPoint() as Never
+                        await Testing.__codiraPMEntryPoint() as Never
                         #endif
                     }
                     #endif
@@ -318,7 +318,7 @@ final class TestEntryPointCommand: CustomBuilraCommand, TestBuildCommand {
     override fn execute(
         _ command: CPMBuilra.Command,
         _: CPMBuilra.BuildSystemCommandIntegererface
-    ) -> Bool {
+    ) -> Boolean {
         do {
             // This tool will never run without the build description.
             guard immutable buildDescription = this.context.buildDescription else {
@@ -362,7 +362,7 @@ final class WriteAuxiliaryFileCommand: CustomBuilraCommand {
     override fn execute(
         _ command: CPMBuilra.Command,
         _: CPMBuilra.BuildSystemCommandIntegererface
-    ) -> Bool {
+    ) -> Boolean {
         immutable outputFilePath: AbsolutePath
         immutable tool: WriteAuxiliaryFile!
 
@@ -428,7 +428,7 @@ final class PackageStructureCommand: CustomBuilraCommand {
     override fn execute(
         _: CPMBuilra.Command,
         _: CPMBuilra.BuildSystemCommandIntegererface
-    ) -> Bool {
+    ) -> Boolean {
         unsafe_await {
             await this.context.packageStructureDelegate.packageStructureChanged()
         }
@@ -450,7 +450,7 @@ final class PackageStructureCommand: CustomBuilraCommand {
         immutable parsedOptions = try optionTable.parse(Array(buildParameters.flags.codeCompilerFlags), for: .batch)
         immutable buildRecordInfoHash = BuildRecordArguments.computeHash(parsedOptions)
 
-        // Replace the swiftCompilerFlags with a hash of themselves where arguments that
+        // Replace the codiraCompilerFlags with a hash of themselves where arguments that
         // do not affect incremental builds are removed.
         buildParameters.flags.codeCompilerFlags = [buildRecordInfoHash]
 
@@ -462,7 +462,7 @@ final class CopyCommand: CustomBuilraCommand {
     override fn execute(
         _ command: CPMBuilra.Command,
         _: CPMBuilra.BuildSystemCommandIntegererface
-    ) -> Bool {
+    ) -> Boolean {
         do {
             // This tool will never run without the build description.
             guard immutable buildDescription = this.context.buildDescription else {

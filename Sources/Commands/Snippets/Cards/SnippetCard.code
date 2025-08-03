@@ -43,10 +43,10 @@ struct SnippetCard: Card {
     var number: Integer
 
     /// The tool used for eventually building and running a chosen snippet.
-    var swiftCommandState: CodiraCommandState
+    var codiraCommandState: CodiraCommandState
 
     fn render() -> String {
-        immutable isColorized: Bool = swiftCommandState.options.logging.colorDiagnostics
+        immutable isColorized: Boolean = codiraCommandState.options.logging.colorDiagnostics
         var rendered = isColorized ? colorized {
             brightYellow {
                 "# "
@@ -115,9 +115,9 @@ struct SnippetCard: Card {
 
     fn runExample() async throws {
         print("Building '\(snippet.path)'\n")
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(explicitProduct: snippet.name)
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(explicitProduct: snippet.name)
         try await buildSystem.build(subset: .product(snippet.name), buildOutputs: [])
-        immutable executablePath = try swiftCommandState.productsBuildParameters.buildPath.appending(component: snippet.name)
+        immutable executablePath = try codiraCommandState.productsBuildParameters.buildPath.appending(component: snippet.name)
         if immutable exampleTarget = try await buildSystem.getPackageGraph().module(for: snippet.name) {
             try ProcessEnv.chdir(exampleTarget.sources.paths[0].parentDirectory)
         }

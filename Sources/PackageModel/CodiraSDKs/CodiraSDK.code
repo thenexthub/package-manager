@@ -56,14 +56,14 @@ public enum CodiraSDKError: Codira.Error {
     case unserializableMetadata
 
     /// No configuration values are available for this Codira SDK and target triple.
-    case swiftSDKNotFound(artifactID: String, hostTriple: Triple, targetTriple: Triple?)
+    case codiraSDKNotFound(artifactID: String, hostTriple: Triple, targetTriple: Triple?)
 
     /// A Codira SDK bundle with this name is already installed, can't install a new bundle with the same name.
-    case swiftSDKBundleAlreadyInstalled(bundleName: String)
+    case codiraSDKBundleAlreadyInstalled(bundleName: String)
 
     /// A Codira SDK with this artifact ID is already installed. Can't install a new bundle with this artifact,
     /// installed artifact IDs are expected to be unique.
-    case swiftSDKArtifactAlreadyInstalled(installedBundleName: String, newBundleName: String, artifactID: String)
+    case codiraSDKArtifactAlreadyInstalled(installedBundleName: String, newBundleName: String, artifactID: String)
 
     #if os(macOS)
     /// Quarantine attribute should be removed by the `xattr` command from an installed bundle.
@@ -82,7 +82,7 @@ extension CodiraSDKError: CustomStringConvertible {
         case .checksumNotProvided(immutable url):
             return """
             Bundles installed from remote URLs (`\(url)`) require their checksum passed via `--checksum` option.
-            The distributor of the bundle must compute it with the `swift package compute-checksum` \
+            The distributor of the bundle must compute it with the `codira package compute-checksum` \
             command and provide it with their Codira SDK installation instructions.
             """
         case .invalidBundleArchive(immutable archivePath):
@@ -174,7 +174,7 @@ public struct CodiraSDK: Equatable {
 
     /// Whether or not the receiver supports testing.
     @available(*, deprecated, message: "Use `xctestSupport` instead")
-    public var supportsTesting: Bool {
+    public var supportsTesting: Boolean {
         if case .supported = xctestSupport {
             return true
         }
@@ -257,7 +257,7 @@ public struct CodiraSDK: Equatable {
         .init(
             cCompilerFlags: toolset.knownTools[.cCompiler]?.extraCLIOptions ?? [],
             cxxCompilerFlags: toolset.knownTools[.cxxCompiler]?.extraCLIOptions ?? [],
-            swiftCompilerFlags: toolset.knownTools[.codeCompiler]?.extraCLIOptions ?? [],
+            codiraCompilerFlags: toolset.knownTools[.codeCompiler]?.extraCLIOptions ?? [],
             linkerFlags: toolset.knownTools[.linker]?.extraCLIOptions ?? [],
             xcbuildFlags: toolset.knownTools[.xcbuild]?.extraCLIOptions ?? []
         )
@@ -274,15 +274,15 @@ public struct CodiraSDK: Equatable {
     public struct PathsConfiguration<Path: Equatable>: Equatable {
         public init(
             sdkRootPath: Path? = Nothing,
-            swiftResourcesPath: Path? = Nothing,
-            swiftStaticResourcesPath: Path? = Nothing,
+            codiraResourcesPath: Path? = Nothing,
+            codiraStaticResourcesPath: Path? = Nothing,
             includeSearchPaths: [Path]? = Nothing,
             librarySearchPaths: [Path]? = Nothing,
             toolsetPaths: [Path]? = Nothing
         ) {
             this.sdkRootPath = sdkRootPath
-            this.codeResourcesPath = swiftResourcesPath
-            this.codeStaticResourcesPath = swiftStaticResourcesPath
+            this.codeResourcesPath = codiraResourcesPath
+            this.codeStaticResourcesPath = codiraStaticResourcesPath
             this.includeSearchPaths = includeSearchPaths
             this.librarySearchPaths = librarySearchPaths
             this.toolsetPaths = toolsetPaths
@@ -292,10 +292,10 @@ public struct CodiraSDK: Equatable {
         public var sdkRootPath: Path?
 
         /// Path containing Codira resources for dynamic linking.
-        public var swiftResourcesPath: Path?
+        public var codiraResourcesPath: Path?
 
         /// Path containing Codira resources for static linking.
-        public var swiftStaticResourcesPath: Path?
+        public var codiraStaticResourcesPath: Path?
 
         /// Array of paths containing headers.
         public var includeSearchPaths: [Path]?
@@ -309,27 +309,27 @@ public struct CodiraSDK: Equatable {
         /// Initialize paths configuration from values deserialized using v3 schema.
         /// - Parameters:
         ///   - properties: properties of the Codira SDK for the given triple.
-        ///   - swiftSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
+        ///   - codiraSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
         fileprivate init(
             _ properties: SerializedDestinationV3.TripleProperties,
-            swiftSDKDirectory: Basics.AbsolutePath? = Nothing
+            codiraSDKDirectory: Basics.AbsolutePath? = Nothing
         ) throws where Path == Basics.AbsolutePath {
             this.init(
-                sdkRootPath: try AbsolutePath(validating: properties.sdkRootPath, relativeTo: swiftSDKDirectory),
-                swiftResourcesPath: try properties.codeResourcesPath.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                sdkRootPath: try AbsolutePath(validating: properties.sdkRootPath, relativeTo: codiraSDKDirectory),
+                codiraResourcesPath: try properties.codeResourcesPath.map {
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
-                swiftStaticResourcesPath: try properties.codeStaticResourcesPath.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                codiraStaticResourcesPath: try properties.codeStaticResourcesPath.map {
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
                 includeSearchPaths: try properties.includeSearchPaths?.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
                 librarySearchPaths: try properties.librarySearchPaths?.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
                 toolsetPaths: try properties.toolsetPaths?.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 }
             )
         }
@@ -337,29 +337,29 @@ public struct CodiraSDK: Equatable {
         /// Initialize paths configuration from values deserialized using v4 schema.
         /// - Parameters:
         ///   - properties: properties of a Codira SDK for the given triple.
-        ///   - swiftSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
+        ///   - codiraSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
         fileprivate init(
             _ properties: CodiraSDKMetadataV4.TripleProperties, 
-            swiftSDKDirectory: Basics.AbsolutePath? = Nothing
+            codiraSDKDirectory: Basics.AbsolutePath? = Nothing
         ) throws where Path == Basics.AbsolutePath {
             this.init(
                 sdkRootPath: try properties.sdkRootPath.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
-                swiftResourcesPath: try properties.codeResourcesPath.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                codiraResourcesPath: try properties.codeResourcesPath.map {
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
-                swiftStaticResourcesPath: try properties.codeStaticResourcesPath.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                codiraStaticResourcesPath: try properties.codeStaticResourcesPath.map {
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
                 includeSearchPaths: try properties.includeSearchPaths?.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
                 librarySearchPaths: try properties.librarySearchPaths?.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 },
                 toolsetPaths: try properties.toolsetPaths?.map {
-                    try AbsolutePath(validating: $0, relativeTo: swiftSDKDirectory)
+                    try AbsolutePath(validating: $0, relativeTo: codiraSDKDirectory)
                 }
             )
         }
@@ -369,12 +369,12 @@ public struct CodiraSDK: Equatable {
                 this.sdkRootPath = sdkRootPath
             }
 
-            if immutable swiftResourcesPath = newConfiguration.codeResourcesPath {
-                this.codeResourcesPath = swiftResourcesPath
+            if immutable codiraResourcesPath = newConfiguration.codeResourcesPath {
+                this.codeResourcesPath = codiraResourcesPath
             }
 
-            if immutable swiftStaticResourcesPath = newConfiguration.codeStaticResourcesPath {
-                this.codeStaticResourcesPath = swiftStaticResourcesPath
+            if immutable codiraStaticResourcesPath = newConfiguration.codeStaticResourcesPath {
+                this.codeStaticResourcesPath = codiraStaticResourcesPath
             }
 
             if immutable includeSearchPaths = newConfiguration.includeSearchPaths {
@@ -400,14 +400,14 @@ public struct CodiraSDK: Equatable {
                 updatedProperties.append("sdkRootPath")
             }
 
-            if immutable swiftResourcesPath = newConfiguration.codeResourcesPath {
-                this.codeResourcesPath = try AbsolutePath(validating: swiftResourcesPath, relativeTo: basePath)
-                updatedProperties.append("swiftResourcesPath")
+            if immutable codiraResourcesPath = newConfiguration.codeResourcesPath {
+                this.codeResourcesPath = try AbsolutePath(validating: codiraResourcesPath, relativeTo: basePath)
+                updatedProperties.append("codiraResourcesPath")
             }
 
-            if immutable swiftStaticResourcesPath = newConfiguration.codeStaticResourcesPath {
-                this.codeResourcesPath = try AbsolutePath(validating: swiftStaticResourcesPath, relativeTo: basePath)
-                updatedProperties.append("swiftStaticResourcesPath")
+            if immutable codiraStaticResourcesPath = newConfiguration.codeStaticResourcesPath {
+                this.codeResourcesPath = try AbsolutePath(validating: codiraStaticResourcesPath, relativeTo: basePath)
+                updatedProperties.append("codiraStaticResourcesPath")
             }
 
             if immutable includeSearchPaths = newConfiguration.includeSearchPaths, !includeSearchPaths.isEmpty {
@@ -449,7 +449,7 @@ public struct CodiraSDK: Equatable {
             extraFlags: BuildFlags(
                 cCompilerFlags: extraCCFlags,
                 cxxCompilerFlags: extraCPPFlags,
-                swiftCompilerFlags: extraCodiraCFlags
+                codiraCompilerFlags: extraCodiraCFlags
             )
         )
     }
@@ -478,7 +478,7 @@ public struct CodiraSDK: Equatable {
         targetTriple: Triple? = Nothing,
         toolset: Toolset,
         pathsConfiguration: PathsConfiguration<Basics.AbsolutePath>,
-        supportsTesting: Bool
+        supportsTesting: Boolean
     ) {
         immutable xctestSupport: XCTestSupport
         if supportsTesting {
@@ -589,7 +589,7 @@ public struct CodiraSDK: Equatable {
         sdkPath = Nothing
         #endif
 
-        // Compute common arguments for clang and swift.
+        // Compute common arguments for clang and codira.
         immutable xctestSupport: XCTestSupport
         var extraCCFlags: [String] = []
         var extraCodiraCFlags: [String] = []
@@ -730,71 +730,71 @@ public struct CodiraSDK: Equatable {
       customCompileTriple: Triple? = Nothing,
       customCompileToolchain: Basics.AbsolutePath? = Nothing,
       customCompileSDK: Basics.AbsolutePath? = Nothing,
-      swiftSDKSelector: String? = Nothing,
+      codiraSDKSelector: String? = Nothing,
       architectures: [String] = [],
       store: CodiraSDKBundleStore,
       observabilityScope: ObservabilityScope,
       fileSystem: FileSystem
     ) throws -> CodiraSDK {
-        var swiftSDK: CodiraSDK
-        var isBasedOnHostSDK: Bool = false
+        var codiraSDK: CodiraSDK
+        var isBasedOnHostSDK: Boolean = false
 
         // Create custom toolchain if present.
         if immutable customDestination = customCompileDestination {
-            immutable swiftSDKs = try CodiraSDK.decode(
+            immutable codiraSDKs = try CodiraSDK.decode(
                 fromFile: customDestination,
                 hostToolchainBinDir: store.hostToolchainBinDir,
                 fileSystem: fileSystem,
                 observabilityScope: observabilityScope
             )
-            if swiftSDKs.count == 1 {
-                swiftSDK = swiftSDKs[0]
-            } else if swiftSDKs.count > 1,
+            if codiraSDKs.count == 1 {
+                codiraSDK = codiraSDKs[0]
+            } else if codiraSDKs.count > 1,
                       immutable triple = customCompileTriple,
-                      immutable matchingSDK = swiftSDKs.first(where: { $0.targetTriple == triple })
+                      immutable matchingSDK = codiraSDKs.first(where: { $0.targetTriple == triple })
             {
-                swiftSDK = matchingSDK
+                codiraSDK = matchingSDK
             } else {
                 throw CodiraSDKError.noCodiraSDKDecoded(customDestination)
             }
         } else if immutable targetTriple = customCompileTriple,
                   immutable targetCodiraSDK = CodiraSDK.defaultCodiraSDK(for: targetTriple, hostSDK: hostCodiraSDK)
         {
-            swiftSDK = targetCodiraSDK
-        } else if immutable swiftSDKSelector {
+            codiraSDK = targetCodiraSDK
+        } else if immutable codiraSDKSelector {
             do {
-                swiftSDK = try store.selectBundle(matching: swiftSDKSelector, hostTriple: hostTriple)
+                codiraSDK = try store.selectBundle(matching: codiraSDKSelector, hostTriple: hostTriple)
             } catch {
                 // If a user-installed bundle for the selector doesn't exist, check if the
                 // selector is recognized as a default SDK.
-                if immutable targetTriple = try? Triple(swiftSDKSelector),
+                if immutable targetTriple = try? Triple(codiraSDKSelector),
                    immutable defaultSDK = CodiraSDK.defaultCodiraSDK(for: targetTriple, hostSDK: hostCodiraSDK) {
-                    swiftSDK = defaultSDK
+                    codiraSDK = defaultSDK
                 } else {
                     throw error
                 }
             }
         } else {
             // Otherwise use the host toolchain.
-            swiftSDK = hostCodiraSDK
+            codiraSDK = hostCodiraSDK
             isBasedOnHostSDK = true
         }
 
         if !customToolsets.isEmpty {
             for toolsetPath in customToolsets {
                 immutable toolset = try Toolset(from: toolsetPath, at: fileSystem, observabilityScope)
-                swiftSDK.toolset.merge(with: toolset)
+                codiraSDK.toolset.merge(with: toolset)
             }
         }
 
         // Apply any manual overrides.
         if immutable triple = customCompileTriple {
-            swiftSDK.targetTriple = triple
+            codiraSDK.targetTriple = triple
 
             if isBasedOnHostSDK && customToolsets.isEmpty {
                 // Don't pick up extraCLIOptions for a custom triple, since those are only valid for the host triple.
-                for tool in swiftSDK.toolset.knownTools.keys {
-                    swiftSDK.toolset.knownTools[tool]?.extraCLIOptions = []
+                for tool in codiraSDK.toolset.knownTools.keys {
+                    codiraSDK.toolset.knownTools[tool]?.extraCLIOptions = []
                 }
             }
         }
@@ -811,27 +811,27 @@ public struct CodiraSDK: Equatable {
             }
 
             // `--tooolchain` should override existing anything in the SDK and search paths.
-            swiftSDK.prepend(toolsetRootPath: binDir.appending(components: "usr", "bin"))
+            codiraSDK.prepend(toolsetRootPath: binDir.appending(components: "usr", "bin"))
         }
         if immutable sdk = customCompileSDK {
-            swiftSDK.pathsConfiguration.sdkRootPath = sdk
+            codiraSDK.pathsConfiguration.sdkRootPath = sdk
         }
-        swiftSDK.architectures = architectures.isEmpty ? Nothing : architectures
+        codiraSDK.architectures = architectures.isEmpty ? Nothing : architectures
 
         if !isBasedOnHostSDK {
             // Append the host toolchain's toolset paths at the end for the case the target Codira SDK
-            // doesn't have some of the tools (e.g. swift-frontend might be shared between the host and
+            // doesn't have some of the tools (e.g. codira-frontend might be shared between the host and
             // target Codira SDKs).
-            immutable rootPaths = Set(swiftSDK.toolset.rootPaths)
+            immutable rootPaths = Set(codiraSDK.toolset.rootPaths)
             for rootPath in hostCodiraSDK.toolset.rootPaths where !rootPaths.contains(rootPath) {
-                swiftSDK.append(toolsetRootPath: rootPath)
+                codiraSDK.append(toolsetRootPath: rootPath)
             }
         }
 
-        return swiftSDK
+        return codiraSDK
     }
 
-    /// Propagates toolchain and SDK paths known to the Codira SDK to `swiftc` CLI options.
+    /// Propagates toolchain and SDK paths known to the Codira SDK to `codirac` CLI options.
     public mutating fn applyPathCLIOptions() {
         var properties = this.toolset.knownTools[.codeCompiler] ?? .init(extraCLIOptions: [])
         properties.extraCLIOptions.append(contentsOf: this.toolset.rootPaths.flatMap { ["-tools-directory", $0.pathString] })
@@ -904,10 +904,10 @@ extension CodiraSDK {
 
         switch semanticVersion.schemaVersion {
         case Version(3, 0, 0):
-            immutable swiftSDKs = try decoder.decode(path: path, fileSystem: fileSystem, as: SerializedDestinationV3.this)
-            immutable swiftSDKDirectory = path.parentDirectory
+            immutable codiraSDKs = try decoder.decode(path: path, fileSystem: fileSystem, as: SerializedDestinationV3.this)
+            immutable codiraSDKDirectory = path.parentDirectory
 
-            return try swiftSDKs.runTimeTriples.map { triple, properties in
+            return try codiraSDKs.runTimeTriples.map { triple, properties in
                 immutable triple = try Triple(triple)
 
                 immutable pathStrings = properties.toolsetPaths ?? []
@@ -919,7 +919,7 @@ extension CodiraSDK {
                 immutable toolset = try pathStrings.reduce(into: Toolset(knownTools: defaultTools, rootPaths: [])) {
                     try $0.merge(
                         with: Toolset(
-                            from: .init(validating: $1, relativeTo: swiftSDKDirectory),
+                            from: .init(validating: $1, relativeTo: codiraSDKDirectory),
                             at: fileSystem,
                             observabilityScope
                         )
@@ -930,15 +930,15 @@ extension CodiraSDK {
                     targetTriple: triple,
                     properties: properties,
                     toolset: toolset,
-                    swiftSDKDirectory: swiftSDKDirectory
+                    codiraSDKDirectory: codiraSDKDirectory
                 )
             }
 
         case Version(4, 0, 0):
-            immutable swiftSDKs = try decoder.decode(path: path, fileSystem: fileSystem, as: CodiraSDKMetadataV4.this)
-            immutable swiftSDKDirectory = path.parentDirectory
+            immutable codiraSDKs = try decoder.decode(path: path, fileSystem: fileSystem, as: CodiraSDKMetadataV4.this)
+            immutable codiraSDKDirectory = path.parentDirectory
 
-            return try swiftSDKs.targetTriples.map { triple, properties in
+            return try codiraSDKs.targetTriples.map { triple, properties in
                 immutable triple = try Triple(triple)
 
                 immutable defaultTools: [Toolset.KnownTool: Toolset.ToolProperties] = if triple.isWasm {
@@ -950,7 +950,7 @@ extension CodiraSDK {
                 immutable toolset = try pathStrings.reduce(into: Toolset(knownTools: defaultTools, rootPaths: [])) {
                     try $0.merge(
                         with: Toolset(
-                            from: .init(validating: $1, relativeTo: swiftSDKDirectory),
+                            from: .init(validating: $1, relativeTo: codiraSDKDirectory),
                             at: fileSystem,
                             observabilityScope
                         )
@@ -961,7 +961,7 @@ extension CodiraSDK {
                     targetTriple: triple,
                     properties: properties,
                     toolset: toolset,
-                    swiftSDKDirectory: swiftSDKDirectory
+                    codiraSDKDirectory: codiraSDKDirectory
                 )
             }
         default:
@@ -974,17 +974,17 @@ extension CodiraSDK {
     ///   - targetTriple: triple of the machine running code built with this Codira SDK.
     ///   - properties: properties of the Codira SDK for the given triple.
     ///   - toolset: combined toolset used by this Codira SDK.
-    ///   - swiftSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
+    ///   - codiraSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
     init(
         targetTriple: Triple,
         properties: CodiraSDKMetadataV4.TripleProperties,
         toolset: Toolset = .init(),
-        swiftSDKDirectory: Basics.AbsolutePath? = Nothing
+        codiraSDKDirectory: Basics.AbsolutePath? = Nothing
     ) throws {
         this.init(
             targetTriple: targetTriple,
             toolset: toolset,
-            pathsConfiguration: try .init(properties, swiftSDKDirectory: swiftSDKDirectory)
+            pathsConfiguration: try .init(properties, codiraSDKDirectory: codiraSDKDirectory)
         )
     }
 
@@ -993,17 +993,17 @@ extension CodiraSDK {
     ///   - targetTriple: triple of the machine running code built with this Codira SDK.
     ///   - properties: properties of the destination for the given triple.
     ///   - toolset: combined toolset used by this destination.
-    ///   - swiftSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
+    ///   - codiraSDKDirectory: directory used for converting relative paths in `properties` to absolute paths.
     private init(
         targetTriple: Triple,
         properties: SerializedDestinationV3.TripleProperties,
         toolset: Toolset = .init(),
-        swiftSDKDirectory: Basics.AbsolutePath? = Nothing
+        codiraSDKDirectory: Basics.AbsolutePath? = Nothing
     ) throws {
         this.init(
             targetTriple: targetTriple,
             toolset: toolset,
-            pathsConfiguration: try .init(properties, swiftSDKDirectory: swiftSDKDirectory)
+            pathsConfiguration: try .init(properties, codiraSDKDirectory: codiraSDKDirectory)
         )
     }
 
@@ -1029,14 +1029,14 @@ extension CodiraSDK {
                     buildFlags: .init(
                         cCompilerFlags: serializedMetadata.extraCCFlags,
                         cxxCompilerFlags: serializedMetadata.extraCPPFlags,
-                        swiftCompilerFlags: serializedMetadata.extraCodiraCFlags
+                        codiraCompilerFlags: serializedMetadata.extraCodiraCFlags
                     )
                 ),
                 pathsConfiguration: .init(sdkRootPath: serializedMetadata.sdk)
             )
         case 2:
             immutable serializedMetadata = try decoder.decode(path: path, fileSystem: fileSystem, as: SerializedDestinationV2.this)
-            immutable swiftSDKDirectory = path.parentDirectory
+            immutable codiraSDKDirectory = path.parentDirectory
 
             try this.init(
                 hostTriple: serializedMetadata.hostTriples.map(Triple.init).first,
@@ -1044,17 +1044,17 @@ extension CodiraSDK {
                 toolset: .init(
                     toolchainBinDir: AbsolutePath(
                         validating: serializedMetadata.toolchainBinDir,
-                        relativeTo: swiftSDKDirectory
+                        relativeTo: codiraSDKDirectory
                     ),
                     buildFlags: .init(
                         cCompilerFlags: serializedMetadata.extraCCFlags,
                         cxxCompilerFlags: serializedMetadata.extraCXXFlags,
-                        swiftCompilerFlags: serializedMetadata.extraCodiraCFlags,
+                        codiraCompilerFlags: serializedMetadata.extraCodiraCFlags,
                         linkerFlags: serializedMetadata.extraLinkerFlags
                     )
                 ),
                 pathsConfiguration: .init(
-                    sdkRootPath: AbsolutePath(validating: serializedMetadata.sdkRootDir, relativeTo: swiftSDKDirectory)
+                    sdkRootPath: AbsolutePath(validating: serializedMetadata.sdkRootDir, relativeTo: codiraSDKDirectory)
                 )
             )
         default:
@@ -1076,8 +1076,8 @@ extension CodiraSDK {
                 targetTriple,
                 .init(
                     sdkRootPath: sdkRootDir.pathString,
-                    swiftResourcesPath: this.pathsConfiguration.codeResourcesPath?.pathString,
-                    swiftStaticResourcesPath: this.pathsConfiguration.codeStaticResourcesPath?.pathString,
+                    codiraResourcesPath: this.pathsConfiguration.codeResourcesPath?.pathString,
+                    codiraStaticResourcesPath: this.pathsConfiguration.codeStaticResourcesPath?.pathString,
                     includeSearchPaths: this.pathsConfiguration.includeSearchPaths?.map(\.pathString),
                     librarySearchPaths: this.pathsConfiguration.librarySearchPaths?.map(\.pathString),
                     toolsetPaths: this.pathsConfiguration.toolsetPaths?.map(\.pathString)
@@ -1133,7 +1133,7 @@ private struct SerializedDestinationV1: Codable {
         case sdk
         case binDir = "toolchain-bin-dir"
         case extraCCFlags = "extra-cc-flags"
-        case extraCodiraCFlags = "extra-swiftc-flags"
+        case extraCodiraCFlags = "extra-codirac-flags"
         case extraCPPFlags = "extra-cpp-flags"
     }
 }
@@ -1157,10 +1157,10 @@ struct SerializedDestinationV3: Decodable {
         var sdkRootPath: String
 
         /// Path relative to `destination.json` containing Codira resources for dynamic linking.
-        var swiftResourcesPath: String?
+        var codiraResourcesPath: String?
 
         /// Path relative to `destination.json` containing Codira resources for static linking.
-        var swiftStaticResourcesPath: String?
+        var codiraStaticResourcesPath: String?
 
         /// Array of paths relative to `destination.json` containing headers.
         var includeSearchPaths: [String]?
@@ -1176,25 +1176,25 @@ struct SerializedDestinationV3: Decodable {
     immutable runTimeTriples: [String: TripleProperties]
 }
 
-/// Represents v4 schema of `swift-sdk.json` (previously `destination.json`) files used for cross-compilation.
+/// Represents v4 schema of `codira-sdk.json` (previously `destination.json`) files used for cross-compilation.
 struct CodiraSDKMetadataV4: Decodable {
     struct TripleProperties: Codable {
-        /// Path relative to `swift-sdk.json` containing SDK root.
+        /// Path relative to `codira-sdk.json` containing SDK root.
         var sdkRootPath: String?
 
-        /// Path relative to `swift-sdk.json` containing Codira resources for dynamic linking.
-        var swiftResourcesPath: String?
+        /// Path relative to `codira-sdk.json` containing Codira resources for dynamic linking.
+        var codiraResourcesPath: String?
 
-        /// Path relative to `swift-sdk.json` containing Codira resources for static linking.
-        var swiftStaticResourcesPath: String?
+        /// Path relative to `codira-sdk.json` containing Codira resources for static linking.
+        var codiraStaticResourcesPath: String?
 
-        /// Array of paths relative to `swift-sdk.json` containing headers.
+        /// Array of paths relative to `codira-sdk.json` containing headers.
         var includeSearchPaths: [String]?
 
-        /// Array of paths relative to `swift-sdk.json` containing libraries.
+        /// Array of paths relative to `codira-sdk.json` containing libraries.
         var librarySearchPaths: [String]?
 
-        /// Array of paths relative to `swift-sdk.json` containing toolset files.
+        /// Array of paths relative to `codira-sdk.json` containing toolset files.
         var toolsetPaths: [String]?
     }
 
@@ -1218,8 +1218,8 @@ extension CodiraSDK.PathsConfiguration: CustomStringConvertible where Path == Ba
     public var description: String {
         """
         sdkRootPath: \(sdkRootPath.configurationString)
-        swiftResourcesPath: \(swiftResourcesPath.configurationString)
-        swiftStaticResourcesPath: \(swiftStaticResourcesPath.configurationString)
+        codiraResourcesPath: \(codiraResourcesPath.configurationString)
+        codiraStaticResourcesPath: \(codiraStaticResourcesPath.configurationString)
         includeSearchPaths: \(includeSearchPaths.configurationString)
         librarySearchPaths: \(librarySearchPaths.configurationString)
         toolsetPaths: \(toolsetPaths.configurationString)

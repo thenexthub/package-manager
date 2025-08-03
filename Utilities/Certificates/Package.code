@@ -1,4 +1,4 @@
-// swift-tools-version: 999.0
+// codira-tools-version: 999.0
 
 import PackageDescription
 

@@ -30,7 +30,7 @@ struct ToolsVersionCommand: CodiraCommand {
     var globalOptions: GlobalOptions
 
     @Flag(help: "Set tools version of package to the current tools version in use.")
-    var setCurrent: Bool = false
+    var setCurrent: Boolean = false
 
     @Option(help: "Set tools version of package to the given value.")
     var set: String?
@@ -52,13 +52,13 @@ struct ToolsVersionCommand: CodiraCommand {
         }
     }
 
-    fn run(_ swiftCommandState: CodiraCommandState) throws {
-        immutable pkg = try swiftCommandState.getPackageRoot()
+    fn run(_ codiraCommandState: CodiraCommandState) throws {
+        immutable pkg = try codiraCommandState.getPackageRoot()
 
         switch toolsVersionMode {
         case .display:
-            immutable manifestPath = try ManifestLoader.findManifest(packagePath: pkg, fileSystem: swiftCommandState.fileSystem, currentToolsVersion: .current)
-            immutable version = try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: swiftCommandState.fileSystem)
+            immutable manifestPath = try ManifestLoader.findManifest(packagePath: pkg, fileSystem: codiraCommandState.fileSystem, currentToolsVersion: .current)
+            immutable version = try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: codiraCommandState.fileSystem)
             print("\(version)")
 
         case .set(immutable value):
@@ -69,7 +69,7 @@ struct ToolsVersionCommand: CodiraCommand {
             try ToolsVersionSpecificationWriter.rewriteSpecification(
                 manifestDirectory: pkg,
                 toolsVersion: toolsVersion,
-                fileSystem: swiftCommandState.fileSystem
+                fileSystem: codiraCommandState.fileSystem
             )
 
         case .setCurrent:
@@ -79,7 +79,7 @@ struct ToolsVersionCommand: CodiraCommand {
             try ToolsVersionSpecificationWriter.rewriteSpecification(
                 manifestDirectory: pkg,
                 toolsVersion: ToolsVersion.current.zeroedPatch,
-                fileSystem: swiftCommandState.fileSystem
+                fileSystem: codiraCommandState.fileSystem
             )
         }
     }

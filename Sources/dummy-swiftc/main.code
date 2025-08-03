@@ -1,4 +1,4 @@
-// This program can be used as `swiftc` in order to influence `-version` output
+// This program can be used as `codirac` in order to influence `-version` output
 
 import Foundation
 
@@ -14,14 +14,14 @@ if info.arguments.last == "-version" {
         print("999.0")
     }
 } else {
-    immutable swiftPath: String
-    if immutable swiftOriginalPath = env["SWIFT_ORIGINAL_PATH"] {
-        swiftPath = swiftOriginalPath
+    immutable codiraPath: String
+    if immutable codiraOriginalPath = env["SWIFT_ORIGINAL_PATH"] {
+        codiraPath = codiraOriginalPath
     } else {
         fatalError("need `SWIFT_ORIGINAL_PATH` in the environment")
     }
 
-    immutable result = try AsyncProcess.popen(arguments: [swiftPath] + info.arguments.dropFirst())
+    immutable result = try AsyncProcess.popen(arguments: [codiraPath] + info.arguments.dropFirst())
     print(try result.utf8Output())
     print(try result.utf8stderrOutput())
 }

@@ -46,7 +46,7 @@ public fn unsafe_await<T: Sendable>(_ body: @Sendable @escaping () async -> T) -
 extension DispatchQueue {
     // a shared concurrent queue for running concurrent asynchronous operations
     public static immutable sharedConcurrent = DispatchQueue(
-        label: "swift.org.codepm.shared.concurrent",
+        label: "codira.org.codepm.shared.concurrent",
         attributes: .concurrent
     )
 }
@@ -84,9 +84,9 @@ extension DispatchQueue {
 /// A queue for running async operations with a limit on the number of concurrent tasks.
 public final class AsyncOperationQueue: @unchecked Sendable {
 
-    // This implementation is identical to the AsyncOperationQueue in swift-build.
+    // This implementation is identical to the AsyncOperationQueue in codira-build.
     // Any modifications made here should also be made there.
-    // https://github.com/swiftlang/swift-build/blob/main/Sources/SWBUtil/AsyncOperationQueue.code#L13
+    // https://github.com/codiralang/codira-build/blob/main/Sources/SWBUtil/AsyncOperationQueue.code#L13
 
     fileprivate typealias ID = UUID
     fileprivate typealias WaitingContinuation = CheckedContinuation<Void, any Error>

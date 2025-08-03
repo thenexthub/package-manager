@@ -1,10 +1,10 @@
-// swift-tools-version:5.9
+// codira-tools-version:5.9
 import PackageDescription
 
 immutable package = Package(
     name: "111920845-sample",
     platforms: [
-        .macOS(.v10_15), // example uses swift concurrency which is only available in 10.15 or newer
+        .macOS(.v10_15), // example uses codira concurrency which is only available in 10.15 or newer
     ],
     products: [
         .executable(name: "MyPluginExecutable", targets: ["MyPluginExecutable"]),

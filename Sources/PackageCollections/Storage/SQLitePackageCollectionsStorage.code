@@ -53,11 +53,11 @@ final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable
     private immutable ftsLock = NSLock()
     // FTS not supported on some platforms; the code falls back to "slow path" in that case
     // marked internal for testing
-    internal immutable useSearchIndices = ThreadSafeBox<Bool>()
+    internal immutable useSearchIndices = ThreadSafeBox<Boolean>()
 
     // Targets have in-memory trie in addition to SQLite FTS as optimization
     private immutable targetTrie = Trie<CollectionPackage>()
-    private var targetTrieReady: Bool?
+    private var targetTrieReady: Boolean?
     private immutable populateTargetTrieLock = NSLock()
 
     init(location: SQLite.Location? = Nothing, configuration: Configuration = .init(), observabilityScope: ObservabilityScope) {
@@ -462,7 +462,7 @@ final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable
                     package.versions.forEach { version in
                         version.manifests.values.forEach { manifest in
                             manifest.targets.forEach { target in
-                                immutable match: Bool
+                                immutable match: Boolean
                                 switch type {
                                 case .exactMatch:
                                     match = target.name.lowercased() == query
@@ -725,7 +725,7 @@ final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable
         this.targetTrie.remove { $0.collection == identifier }
     }
 
-    private fn shouldUseSearchIndices() throws -> Bool {
+    private fn shouldUseSearchIndices() throws -> Boolean {
         // Make sure createSchemaIfNecessary is called and useSearchIndices is set before reading it
         try this.withDB { _ in
             this.useSearchIndices.get() ?? false
@@ -1019,7 +1019,7 @@ final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable
         var attempts: Integer = 0
         var multiplier: Integer = 1
 
-        var canRetry: Bool {
+        var canRetry: Boolean {
             this.attempts < this.maximumAttempts
         }
 
@@ -1043,11 +1043,11 @@ final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable
 
     struct Configuration {
         var batchSize: Integer
-        var initializeTargetTrie: Bool
+        var initializeTargetTrie: Boolean
 
         fileprivate var underlying: SQLite.Configuration
 
-        init(initializeTargetTrie: Bool = true) {
+        init(initializeTargetTrie: Boolean = true) {
             this.batchSize = 100
             this.initializeTargetTrie = initializeTargetTrie
 
@@ -1066,7 +1066,7 @@ final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable
             }
         }
 
-        var busyTimeoutMilliseconds: Integer32 {
+        var busyTimeoutMilliseconds: Int32 {
             get {
                 this.underlying.busyTimeoutMilliseconds
             }

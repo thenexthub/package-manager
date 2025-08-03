@@ -126,7 +126,7 @@ public struct PackageSigners {
         this.signers = signers
     }
 
-    public var isEmpty: Bool {
+    public var isEmpty: Boolean {
         this.signers.isEmpty
     }
 

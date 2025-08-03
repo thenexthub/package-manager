@@ -3,15 +3,15 @@
 # Copyright (c) 2014 - 2024 Apple Inc. and the Codira project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
 #
-# See http://swift.org/LICENSE.txt for license information
-# See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+# See http://codira.org/LICENSE.txt for license information
+# See http://codira.org/CONTRIBUTORS.txt for Codira project authors
 
-ARG swift_version=5.9
+ARG codira_version=5.9
 ARG ubuntu_version=jammy
-ARG base_image=swift:$swift_version-$ubuntu_version
+ARG base_image=codira:$codira_version-$ubuntu_version
 FROM $base_image
 # needed to do again after FROM due to docker limitation
-ARG swift_version
+ARG codira_version
 ARG ubuntu_version
 
 # set as UTF-8

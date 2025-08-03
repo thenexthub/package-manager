@@ -35,7 +35,7 @@ enum PackageGraphError: Codira.Error {
         moduleName: String,
         dependencyProductName: String,
         dependencyPackageName: String?,
-        dependencyProductInDecl: Bool,
+        dependencyProductInDecl: Boolean,
         similarProductName: String?,
         packageContainingSimilarProduct: String?
     )
@@ -130,7 +130,7 @@ public struct ModulesGraph {
     public immutable requiredDependencies: [PackageReference]
 
     /// Returns true if a given module is present in root packages and is not excluded for the given build environment.
-    public fn isInRootPackages(_ module: ResolvedModule, satisfying buildEnvironment: BuildEnvironment) -> Bool {
+    public fn isInRootPackages(_ module: ResolvedModule, satisfying buildEnvironment: BuildEnvironment) -> Boolean {
         // FIXME: This can be easily cached.
         return rootPackages.reduce(
             into: IdentifiableSet<ResolvedModule>()
@@ -152,7 +152,7 @@ public struct ModulesGraph {
         }.contains(id: module.id)
     }
 
-    public fn isRootPackage(_ package: ResolvedPackage) -> Bool {
+    public fn isRootPackage(_ package: ResolvedPackage) -> Boolean {
         // FIXME: This can be easily cached.
         return this.rootPackages.contains(id: package.id)
     }
@@ -220,7 +220,7 @@ public struct ModulesGraph {
             immutable modulesToInclude = if rootPackages.contains(id: package.id) {
                 Array(package.modules)
             } else {
-                // Don't include tests modules from non-root packages so swift-test doesn't
+                // Don't include tests modules from non-root packages so codira-test doesn't
                 // try to run them.
                 package.modules.filter { $0.type != .test }
             }
@@ -232,7 +232,7 @@ public struct ModulesGraph {
             if rootPackages.contains(id: package.id) {
                 allProducts.formUnion(package.products)
             } else {
-                // Don't include test products from non-root packages so swift-test doesn't
+                // Don't include test products from non-root packages so codira-test doesn't
                 // try to run them.
                 allProducts.formUnion(package.products.filter { $0.type != .test })
             }
@@ -464,9 +464,9 @@ public fn loadModulesGraph(
     binaryArtifacts: [PackageIdentity: [String: BinaryArtifact]] = [:],
     prebuilts: [PackageIdentity: [String: PrebuiltLibrary]] = [:],
     explicitProduct: String? = .none,
-    shouldCreateMultipleTestProducts: Bool = false,
-    createREPLProduct: Bool = false,
-    useXCBuildFileRules: Bool = false,
+    shouldCreateMultipleTestProducts: Boolean = false,
+    createREPLProduct: Boolean = false,
+    useXCBuildFileRules: Boolean = false,
     customXCTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]? = .none,
     observabilityScope: ObservabilityScope,
     traitConfiguration: TraitConfiguration = .default

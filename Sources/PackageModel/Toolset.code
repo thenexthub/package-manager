@@ -24,7 +24,7 @@ import struct TSCUtility.Version
 public struct Toolset: Equatable {
     /// Tools currently known and used by CodiraPM.
     public enum KnownTool: String, Hashable, CaseIterable {
-        case swiftCompiler
+        case codiraCompiler
         case cCompiler
         case cxxCompiler
         case linker

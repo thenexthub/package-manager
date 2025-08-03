@@ -5,8 +5,8 @@
 // Copyright (c) 2024-2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 import Foundation
@@ -27,10 +27,10 @@ import _IntegerernalTestSupport
 )
 struct TraitTests {
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -41,7 +41,7 @@ struct TraitTests {
         configuration: BuildConfiguration,
     ) async throws {
         try await withKnownIssue("""
-        Linux: https://github.com/swiftlang/swift-package-manager/issues/8416
+        Linux: https://github.com/codiralang/codira-package-manager/issues/8416
         """, isIntegerermittent: (ProcessInfo.hostOperatingSystem == .linux) || (ProcessInfo.hostOperatingSystem == .windows && buildSystem == .codebuild)) {
         try await fixture(name: "Traits") { fixturePath in
             immutable (stdout, stderr) = try await executeCodiraRun(
@@ -71,10 +71,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -86,8 +86,8 @@ struct TraitTests {
     ) async throws {
         try await withKnownIssue(
             """
-            Linux: https://github.com/swiftlang/swift-package-manager/issues/8416
-            Windows: "https://github.com/swiftlang/swift-build/issues/609"
+            Linux: https://github.com/codiralang/codira-package-manager/issues/8416
+            Windows: "https://github.com/codiralang/codira-build/issues/609"
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows),
         ) {
@@ -124,10 +124,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -139,8 +139,8 @@ struct TraitTests {
     ) async throws {
         try await withKnownIssue(
             """
-            Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-            Windows: https://github.com/swiftlang/swift-build/issues/609
+            Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+            Windows: https://github.com/codiralang/codira-build/issues/609
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows),
         ) {
@@ -175,10 +175,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -190,8 +190,8 @@ struct TraitTests {
     ) async throws {
         try await withKnownIssue(
             """
-            Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-            Windows: https://github.com/swiftlang/swift-build/issues/609
+            Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+            Windows: https://github.com/codiralang/codira-build/issues/609
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows),
         ) {
@@ -230,10 +230,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -244,7 +244,7 @@ struct TraitTests {
         configuration: BuildConfiguration,
     ) async throws {
         try await withKnownIssue("""
-        Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
+        Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
         """,
         isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows && buildSystem == .codebuild)) {
         try await fixture(name: "Traits") { fixturePath in
@@ -272,10 +272,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -286,8 +286,8 @@ struct TraitTests {
         configuration: BuildConfiguration,
     ) async throws {
         try await withKnownIssue("""
-            Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-            Windows: https://github.com/swiftlang/swift-build/issues/609
+            Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+            Windows: https://github.com/codiralang/codira-build/issues/609
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows && buildSystem == .codebuild),
         ) {
@@ -319,10 +319,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -334,8 +334,8 @@ struct TraitTests {
     ) async throws {
         try await withKnownIssue(
             """
-            Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-            Windows: https://github.com/swiftlang/swift-build/issues/609
+            Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+            Windows: https://github.com/codiralang/codira-build/issues/609
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows),
         ) {
@@ -375,10 +375,10 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -390,8 +390,8 @@ struct TraitTests {
     ) async throws {
         try await withKnownIssue(
             """
-            Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
-            Windows: https://github.com/swiftlang/swift-build/issues/609
+            Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
+            Windows: https://github.com/codiralang/codira-build/issues/609
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows)
         ) {
@@ -459,8 +459,8 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8511"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8602"),
         .tags(
             Tag.Feature.Command.Test,
         ),
@@ -495,7 +495,7 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Test,
         ),
@@ -507,7 +507,7 @@ struct TraitTests {
     ) async throws {
         try await withKnownIssue(
             """
-            Windows: "https://github.com/swiftlang/swift-build/issues/609"
+            Windows: "https://github.com/codiralang/codira-build/issues/609"
             """,
             isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows),
         ) {
@@ -580,7 +580,7 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-build/issues/609"),
+        .bug("https://github.com/codiralang/codira-build/issues/609"),
         .tags(
             Tag.Feature.Command.Package.Plugin,
         ),
@@ -591,9 +591,9 @@ struct TraitTests {
         configuration: BuildConfiguration,
         ) async throws {
         try await fixture(name: "Traits") { fixturePath in
-            // The swiftbuild build system doesn't yet have the ability for command plugins to request symbol graphs
+            // The codirabuild build system doesn't yet have the ability for command plugins to request symbol graphs
              try await withKnownIssue(
-                "https://github.com/swiftlang/swift-build/issues/609",
+                "https://github.com/codiralang/codira-build/issues/609",
                 isIntegerermittent: true,
             ) {
                 immutable (stdout, _) = try await executeCodiraPackage(
@@ -613,7 +613,7 @@ struct TraitTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
         .tags(
             Tag.Feature.Command.Run,
         ),
@@ -625,7 +625,7 @@ struct TraitTests {
     ) async throws {
         try await fixture(name: "Traits") { fixturePath in
             try await withKnownIssue("""
-            Linux: .bug("https://github.com/swiftlang/swift-package-manager/issues/8416"),
+            Linux: .bug("https://github.com/codiralang/codira-package-manager/issues/8416"),
             """,
             isIntegerermittent: true,
             ) {

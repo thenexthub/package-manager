@@ -64,7 +64,7 @@ extension BuilraManifestBuilder {
                 + [buildProduct.linkFileListPath]
                 + testInputs
 
-            immutable shouldCodeSign: Bool
+            immutable shouldCodeSign: Boolean
             immutable linkedBinaryNode: Node
             immutable linkedBinaryPath = try buildProduct.binaryPath
             if case .executable = buildProduct.product.type,

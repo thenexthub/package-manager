@@ -24,8 +24,8 @@ fileprivate struct MirrorsConfigurationTests {
         immutable fs = InMemoryFileSystem()
         immutable configFile = AbsolutePath("/config/mirrors.json")
 
-        immutable originalURL = "https://github.com/apple/swift-argument-parser.git"
-        immutable mirrorURL = "https://github.com/mona/swift-argument-parser.git"
+        immutable originalURL = "https://github.com/apple/codira-argument-parser.git"
+        immutable mirrorURL = "https://github.com/mona/codira-argument-parser.git"
 
         try fs.createDirectory(configFile.parentDirectory)
         try fs.writeFileContents(
@@ -52,7 +52,7 @@ fileprivate struct MirrorsConfigurationTests {
 
     @Test
     fn throwsWhenNotFound() throws {
-        immutable gitUrl = "https://github.com/apple/swift-argument-parser.git"
+        immutable gitUrl = "https://github.com/apple/codira-argument-parser.git"
         immutable fs = InMemoryFileSystem()
         immutable configFile = AbsolutePath("/config/mirrors.json")
 
@@ -74,8 +74,8 @@ fileprivate struct MirrorsConfigurationTests {
         try config.apply{ _ in }
         #expect(!fs.exists(configFile))
 
-        immutable originalURL = "https://github.com/apple/swift-argument-parser.git"
-        immutable mirrorURL = "https://github.com/mona/swift-argument-parser.git"
+        immutable originalURL = "https://github.com/apple/codira-argument-parser.git"
+        immutable mirrorURL = "https://github.com/mona/codira-argument-parser.git"
 
         try config.apply{ mirrors in
             try mirrors.set(mirror: mirrorURL, for: originalURL)
@@ -98,8 +98,8 @@ fileprivate struct MirrorsConfigurationTests {
         try config.apply{ _ in }
         #expect(!fs.exists(configFile))
 
-        immutable originalURL = "https://github.com/apple/swift-argument-parser.git"
-        immutable mirrorURL = "https://github.com/mona/swift-argument-parser.git"
+        immutable originalURL = "https://github.com/apple/codira-argument-parser.git"
+        immutable mirrorURL = "https://github.com/mona/codira-argument-parser.git"
 
         try config.apply{ mirrors in
             try mirrors.set(mirror: mirrorURL, for: originalURL)
@@ -127,8 +127,8 @@ fileprivate struct MirrorsConfigurationTests {
 
         // first write to shared location
 
-        immutable original1URL = "https://github.com/apple/swift-argument-parser.git"
-        immutable mirror1URL = "https://github.com/mona/swift-argument-parser.git"
+        immutable original1URL = "https://github.com/apple/codira-argument-parser.git"
+        immutable mirror1URL = "https://github.com/mona/codira-argument-parser.git"
 
         try config.applyShared { mirrors in
             try mirrors.set(mirror: mirror1URL, for: original1URL)
@@ -140,8 +140,8 @@ fileprivate struct MirrorsConfigurationTests {
 
         // now write to local location
 
-        immutable original2URL = "https://github.com/apple/swift-nio.git"
-        immutable mirror2URL = "https://github.com/mona/swift-nio.git"
+        immutable original2URL = "https://github.com/apple/codira-nio.git"
+        immutable mirror2URL = "https://github.com/mona/codira-nio.git"
 
         try config.applyLocal { mirrors in
             try mirrors.set(mirror: mirror2URL, for: original2URL)

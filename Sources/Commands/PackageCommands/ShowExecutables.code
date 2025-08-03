@@ -31,8 +31,8 @@ struct ShowExecutables: AsyncCodiraCommand {
     @Option(help: "Set the output format.")
     var format: ShowExecutablesMode = .flatlist
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
-        immutable packageGraph = try await swiftCommandState.loadPackageGraph()
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
+        immutable packageGraph = try await codiraCommandState.loadPackageGraph()
         immutable rootPackages = packageGraph.rootPackages.map { $0.identity }
 
         immutable executables = packageGraph.allProducts.filter({

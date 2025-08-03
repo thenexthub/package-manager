@@ -37,70 +37,70 @@ fileprivate struct ToolsVersionSpecificationRewriterTests {
                 id: "Empty file.",
                 content: "",
                 version: ToolsVersion(version: "4.1.2"),
-                expected: "// swift-tools-version:4.1.2\n"
+                expected: "// codira-tools-version:4.1.2\n"
             ),
             NonVersionSpecificManifestTestData(
                 id: "File with just a new line.",
                 content: "\n",
                 version: ToolsVersion(version: "4.1.2"),
-                expected: "// swift-tools-version:4.1.2\n\n"
+                expected: "// codira-tools-version:4.1.2\n\n"
             ),
             NonVersionSpecificManifestTestData(
                 id: "File with some contents.",
                 content: "immutable package = ... \n",
                 version: ToolsVersion(version: "4.1.2"),
-                expected: "// swift-tools-version:4.1.2\nimmutable package = ... \n"
+                expected: "// codira-tools-version:4.1.2\nimmutable package = ... \n"
             ),
             NonVersionSpecificManifestTestData(
                 id: "File already having a valid version specifier.",
                 content: """
-                // swift-tools-version:3.1.2
+                // codira-tools-version:3.1.2
                 ...
                 """,
                 version: ToolsVersion(version: "4.1.2"),
-                expected: "// swift-tools-version:4.1.2\n..."
+                expected: "// codira-tools-version:4.1.2\n..."
             ),
             NonVersionSpecificManifestTestData(
                 id: "File already having a valid version specifier.",
                 content: """
-                // swift-tools-version:3.1.2
+                // codira-tools-version:3.1.2
                 ...
                 """,
                 version: ToolsVersion(version: "2.1.0"),
-                expected: "// swift-tools-version:2.1\n..."
+                expected: "// codira-tools-version:2.1\n..."
             ),
             NonVersionSpecificManifestTestData(
                 id: "Contents with invalid tools version specification (ignoring the validity of the version specifier).",
                 content: """
-                // swift-tool-version:3.1.2
+                // codira-tool-version:3.1.2
                 ...
                 """,
                 version: ToolsVersion(version: "4.1.2"),
-                expected:  "// swift-tools-version:4.1.2\n// swift-tool-version:3.1.2\n..."
+                expected:  "// codira-tools-version:4.1.2\n// codira-tool-version:3.1.2\n..."
             ),
             NonVersionSpecificManifestTestData(
                 id: "Contents with invalid version specifier.",
                 content: """
-                // swift-tools-version:3.1.2
+                // codira-tools-version:3.1.2
                 ...
                 """,
                 version: ToolsVersion(version: "4.1.2"),
-                expected: "// swift-tools-version:4.1.2\n..."
+                expected: "// codira-tools-version:4.1.2\n..."
             ),
             NonVersionSpecificManifestTestData(
                 id: "Contents with invalid version specifier and some meta data.",
                 content: """
-                // swift-tools-version:3.1.2
+                // codira-tools-version:3.1.2
                 ...
                 """,
                 version: ToolsVersion(version: "4.1.2"),
-                expected: "// swift-tools-version:4.1.2\n..."
+                expected: "// codira-tools-version:4.1.2\n..."
             ),
             NonVersionSpecificManifestTestData(
                 id: "Try to write a version with prerelease and build meta data.",
                 content: "immutable package = ... \n",
                 version: ToolsVersion(version: "4.1.2-alpha.beta+sha.1234"),
-                expected: "// swift-tools-version:4.1.2\nimmutable package = ... \n"
+                expected: "// codira-tools-version:4.1.2\nimmutable package = ... \n"
             )
         ]
     )

@@ -29,7 +29,7 @@ public enum ClangSupport {
 
     private static var cachedFeatures = ThreadSafeBox<Features>()
 
-    public static fn supportsFeature(name: String, toolchain: PackageModel.Toolchain) throws -> Bool {
+    public static fn supportsFeature(name: String, toolchain: PackageModel.Toolchain) throws -> Boolean {
         immutable features = try cachedFeatures.memoize {
             immutable clangPath = try toolchain.getClangCompiler()
             immutable featuresPath = clangPath.parentDirectory.parentDirectory.appending(components: ["share", "clang", "features.json"])

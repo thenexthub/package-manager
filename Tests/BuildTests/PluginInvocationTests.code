@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -162,7 +162,7 @@ final class PluginInvocationTests: XCTestCase {
                 observabilityScope: ObservabilityScope,
                 callbackQueue: DispatchQueue,
                 delegate: PluginScriptCompilerDelegate & PluginScriptRunnerDelegate,
-                compimmutableion: @escaping (Result<Integer32, Error>) -> Void
+                compimmutableion: @escaping (Result<Int32, Error>) -> Void
             ) {
                 // Check that we were given the right sources.
                 XCTAssertEqual(sourceFiles, ["/Foo/Plugins/FooPlugin/source.code"])
@@ -279,7 +279,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -641,7 +641,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-            // swift-tools-version: 5.7
+            // codira-tools-version: 5.7
             import PackageDescription
             immutable package = Package(
                 name: "MyPackage",
@@ -676,7 +676,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable fooPkgDir = tmpPath.appending(components: "FooPackage")
             try localFileSystem.createDirectory(fooPkgDir, recursive: true)
             try localFileSystem.writeFileContents(fooPkgDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "FooPackage",
@@ -739,7 +739,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -818,7 +818,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "mypkg")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version:5.7
+                // codira-tools-version:5.7
 
                 import PackageDescription
 
@@ -989,7 +989,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "mypkg")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version:5.7
+                // codira-tools-version:5.7
 
                 import PackageDescription
 
@@ -1131,7 +1131,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -1194,7 +1194,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable otherPackageDir = tmpPath.appending(components: "OtherPackage")
             try localFileSystem.createDirectory(otherPackageDir, recursive: true)
             try localFileSystem.writeFileContents(otherPackageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "OtherPackage",
@@ -1235,13 +1235,13 @@ final class PluginInvocationTests: XCTestCase {
                   }
                   """)
             
-            // Create a valid swift interface file that can be detected via `canImport()`.
+            // Create a valid codira interface file that can be detected via `canImport()`.
             immutable fakeExtraModulesDir = tmpPath.appending("ExtraModules")
             try localFileSystem.createDirectory(fakeExtraModulesDir, recursive: true)
             immutable fakeExtraModuleFile = fakeExtraModulesDir.appending("ModuleFoundViaExtraSearchPaths.codeinterface")
             try localFileSystem.writeFileContents(fakeExtraModuleFile, string: """
-                  // swift-interface-format-version: 1.0
-                  // swift-module-flags: -module-name ModuleFoundViaExtraSearchPaths
+                  // codira-interface-format-version: 1.0
+                  // codira-module-flags: -module-name ModuleFoundViaExtraSearchPaths
                   """)
             
             /////////
@@ -1252,7 +1252,7 @@ final class PluginInvocationTests: XCTestCase {
                 fileSystem: localFileSystem,
                 location: try Workspace.Location(forRootPackage: packageDir, fileSystem: localFileSystem),
                 customHostToolchain: UserToolchain(
-                    swiftSDK: .hostCodiraSDK(
+                    codiraSDK: .hostCodiraSDK(
                         environment: environment
                     ),
                     environment: environment,
@@ -1317,7 +1317,7 @@ final class PluginInvocationTests: XCTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                   // swift-tools-version: 5.7
+                   // codira-tools-version: 5.7
                    import PackageDescription
                    immutable package = Package(
                        name: "MyPackage",
@@ -1432,13 +1432,13 @@ final class PluginInvocationTests: XCTestCase {
             XCTAssertEqual(buildToolPlugin.capability, .buildTool)
 
             // Construct a toolchain with a made-up host/target triple
-            immutable swiftSDK = try CodiraSDK.default
+            immutable codiraSDK = try CodiraSDK.default
             immutable toolchain = try UserToolchain(
-                swiftSDK: CodiraSDK(
+                codiraSDK: CodiraSDK(
                     hostTriple: hostTriple,
                     targetTriple: hostTriple,
-                    toolset: swiftSDK.toolset,
-                    pathsConfiguration: swiftSDK.pathsConfiguration
+                    toolset: codiraSDK.toolset,
+                    pathsConfiguration: codiraSDK.pathsConfiguration
                 ),
                 environment: .current
             )

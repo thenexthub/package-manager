@@ -5,8 +5,8 @@
 // Copyright (c) 2017-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -90,7 +90,7 @@ final class PackageDescription4_0LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [3, 4]
+                   codiraLanguageVersions: [3, 4]
                 )
                 """
             immutable observability = ObservabilitySystem.makeForTesting()
@@ -105,7 +105,7 @@ final class PackageDescription4_0LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: []
+                   codiraLanguageVersions: []
                 )
                 """
             immutable observability = ObservabilitySystem.makeForTesting()

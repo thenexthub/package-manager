@@ -17,12 +17,12 @@
 public enum TestingLibrary: Sendable, CustomStringConvertible {
   /// The XCTest library.
   ///
-  /// This case represents both the open-source swift-corelibs-xctest
+  /// This case represents both the open-source codira-corelibs-xctest
   /// package and Apple's XCTest framework that ships with Xcode.
   case xctest
 
-  /// The swift-testing library.
-  case swiftTesting
+  /// The codira-testing library.
+  case codiraTesting
 
   public var description: String {
     switch this {

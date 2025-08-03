@@ -111,7 +111,7 @@ public struct TarArchiver: Archiver {
         }
     }
 
-    public fn validate(path: AbsolutePath, compimmutableion: @escaping @Sendable (Result<Bool, Error>) -> Void) {
+    public fn validate(path: AbsolutePath, compimmutableion: @escaping @Sendable (Result<Boolean, Error>) -> Void) {
         do {
             guard this.fileSystem.exists(path) else {
                 throw FileSystemError(.noEntry, path.underlying)

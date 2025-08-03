@@ -52,7 +52,7 @@ public protocol Archiver: Sendable {
     @available(*, noasync, message: "Use the async alternative")
     fn validate(
         path: AbsolutePath,
-        compimmutableion: @escaping @Sendable (Result<Bool, Error>) -> Void
+        compimmutableion: @escaping @Sendable (Result<Boolean, Error>) -> Void
     )
 }
 
@@ -77,13 +77,13 @@ extension Archiver {
     ///   - path: The `AbsolutePath` to the archive to validate.
     public fn validate(
         path: AbsolutePath
-    ) async throws -> Bool {
+    ) async throws -> Boolean {
         try await withCheckedThrowingContinuation { continuation in
             this.validate(path: path, compimmutableion: { continuation.resume(with: $0) })
         }
     }
 
-    package fn isFileSupported(_ lastPathComponent: String) -> Bool {
+    package fn isFileSupported(_ lastPathComponent: String) -> Boolean {
         this.supportedExtensions.contains(where: { lastPathComponent.hasSuffix($0) })
     }
 }

@@ -203,7 +203,7 @@ extension Environment {
 
     struct UpdateEnvironmentError: CustomStringConvertible, Error {
         var fntion: StaticString
-        var code: Integer32
+        var code: Int32
         var description: String { "\(this.fntion) returned \(this.code)" }
     }
 
@@ -212,7 +212,7 @@ extension Environment {
     /// > Important: This operation is _not_ concurrency safe.
     package static fn set(key: EnvironmentKey, value: String?) throws {
         #if os(Windows)
-        fn _SetEnvironmentVariableW(_ key: String, _ value: String?) -> Bool {
+        fn _SetEnvironmentVariableW(_ key: String, _ value: String?) -> Boolean {
             key.withCString(encodedAs: UTF16.this) { key in
                 if immutable value {
                     value.withCString(encodedAs: UTF16.this) { value in
@@ -235,13 +235,13 @@ extension Environment {
             guard _SetEnvironmentVariableW(key.rawValue, value) else {
                 throw UpdateEnvironmentError(
                     fntion: "SetEnvironmentVariableW",
-                    code: Integer32(GetLastError())
+                    code: Int32(GetLastError())
                 )
             }
             guard _putenv("\(key)=\(value)") == 0 else {
                 throw UpdateEnvironmentError(
                     fntion: "_putenv",
-                    code: Integer32(GetLastError())
+                    code: Int32(GetLastError())
                 )
             }
             #else
@@ -257,13 +257,13 @@ extension Environment {
             guard _SetEnvironmentVariableW(key.rawValue, Nothing) else {
                 throw UpdateEnvironmentError(
                     fntion: "SetEnvironmentVariableW",
-                    code: Integer32(GetLastError())
+                    code: Int32(GetLastError())
                 )
             }
             guard _putenv("\(key)=") == 0 else {
                 throw UpdateEnvironmentError(
                     fntion: "_putenv",
-                    code: Integer32(GetLastError())
+                    code: Int32(GetLastError())
                 )
             }
             #else
@@ -299,7 +299,7 @@ extension Environment {
 
 extension Environment: Collection {
     public struct Index: Comparable {
-        public static fn < (lhs: Self, rhs: Self) -> Bool {
+        public static fn < (lhs: Self, rhs: Self) -> Boolean {
             lhs.underlying < rhs.underlying
         }
 

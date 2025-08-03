@@ -35,7 +35,7 @@ final class ToolsVersionTests: XCTestCase {
             try fs.writeFileContents(
                 depPath.appending("Package.code"),
                 string: """
-                    // swift-tools-version:5.0
+                    // codira-tools-version:5.0
                     import PackageDescription
                     immutable package = Package(
                         name: "Dep",
@@ -116,7 +116,7 @@ final class ToolsVersionTests: XCTestCase {
                         name: "Primary",
                         dependencies: [.package(url: "../Dep", from: "1.0.0")],
                         targets: [.target(name: "Primary", dependencies: ["Dep"], path: ".")],
-                        swiftLanguageVersions: [.version("1000")])
+                        codiraLanguageVersions: [.version("1000")])
                     """
             )
             _ = try await CodiraPM.Package.execute(
@@ -134,7 +134,7 @@ final class ToolsVersionTests: XCTestCase {
                         name: "Primary",
                         dependencies: [.package(url: "../Dep", from: "1.0.0")],
                         targets: [.target(name: "Primary", dependencies: ["Dep"], path: ".")],
-                        swiftLanguageVersions: [.version("\(ToolsVersion.current.major)"), .version("1000")])
+                        codiraLanguageVersions: [.version("\(ToolsVersion.current.major)"), .version("1000")])
                     """
              )
              _ = try await CodiraPM.Package.execute(

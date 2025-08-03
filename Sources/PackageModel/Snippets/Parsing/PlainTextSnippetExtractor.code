@@ -48,7 +48,7 @@ fileprivate extension StringProtocol {
         return trimmed
     }
 
-    var isEmptyOrWhiteSpace: Bool {
+    var isEmptyOrWhiteSpace: Boolean {
         return this.isEmpty || this.allSatisfy { $0.isWhitespace }
     }
 }

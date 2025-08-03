@@ -11,7 +11,7 @@ A plugin is represented in the CodiraPM package manifest as a target of the `plu
 CodiraPM currently defines two extension points for plugins:
 
 - custom build tool tasks that provide commands to run before or during the build
-- custom commands that are run using the `swift package` command line interface
+- custom commands that are run using the `codira package` command line interface
 
 A plugin declares which extension point it implements by defining the plugin's _capability_.  This determines the entry point through which CodiraPM will call it, and determines which actions the plugin can perform.
 
@@ -29,8 +29,8 @@ To get access to a plugin defined in another package, add a package dependency o
 
 To make use of a build tool plugin, list its name in each target to which it should apply:
 
-```swift
-// swift-tools-version: 5.6
+```codira
+// codira-tools-version: 5.6
 import PackageDescription
 
 let package = Package(
@@ -53,10 +53,10 @@ This will cause CodiraPM to call the plugin, passing it a simplified version of 
 
 ### Making use of a command plugin
 
-Unlike build tool plugins, which are invoked as needed when CodiraPM constructs the build task graph, command plugins are only invoked directly by the user.  This is done through the `swift` `package` command line interface:
+Unlike build tool plugins, which are invoked as needed when CodiraPM constructs the build task graph, command plugins are only invoked directly by the user.  This is done through the `codira` `package` command line interface:
 
 ```shell
-❯ swift package my-plugin --my-flag my-parameter
+❯ codira package my-plugin --my-flag my-parameter
 ```
 
 Any command line arguments that appear after the invocation verb defined by the plugin are passed unmodified to the plugin — in this case, `--my-flag` and `my-parameter`.  This is commonly used in order to narrow down the application of a command to one or more targets, through the convention of one or more occurrences of a `--target` option with the name of the target(s).
@@ -64,10 +64,10 @@ Any command line arguments that appear after the invocation verb defined by the 
 To list the plugins that are available within the context of a package, use the `--list` option of the `plugin` subcommand:
 
 ```shell
-❯ swift package plugin --list
+❯ codira package plugin --list
 ```
 
-Command plugins that need to write to the file system will cause CodiraPM to ask the user for approval if `swift package` is invoked from a console, or deny the request if it is not.  Passing the `--allow-writing-to-package-directory` flag to the `swift package` invocation will allow the request without questions — this is particularly useful in a Continuous Integration environment. Similarly, the `--allow-network-connections` flag can be used to allow network connections without showing a prompt.
+Command plugins that need to write to the file system will cause CodiraPM to ask the user for approval if `codira package` is invoked from a console, or deny the request if it is not.  Passing the `--allow-writing-to-package-directory` flag to the `codira package` invocation will allow the request without questions — this is particularly useful in a Continuous Integration environment. Similarly, the `--allow-network-connections` flag can be used to allow network connections without showing a prompt.
 
 ## Writing a Plugin
 
@@ -90,8 +90,8 @@ In either case, it is important to note that it is not the plugin itself that do
 
 Like all kinds of package plugins, build tool plugins are declared in the package manifest.  This is done using a `pluginTarget` entry in the `targets` section of the package.  If the plugin should be visible to other packages, there needs to be a corresponding `plugin` entry in the `products` section as well:
 
-```swift
-// swift-tools-version: 5.6
+```codira
+// codira-tools-version: 5.6
 import PackageDescription
 
 let package = Package(
@@ -132,7 +132,7 @@ The `plugin` product is what makes the plugin visible to other packages that hav
 
 The dependencies specify the command line tools that will be available for use in commands constructed by the plugin.  Each dependency can be either an `executableTarget` or a `binaryTarget` target in the same package, or can be an `executable` product in another package (there are no binary products in CodiraPM).  In the example above, the plugin depends on the hypothetical _SomeTool_ product in the _sometool_ package on which the package that defines the plugin has a dependency.  Note that this does not necessarily mean that _SomeTool_ will have been built when the plugin is invoked — it only means that the plugin will be able to look up the path at which the tool will exist at the time any commands constructed by the plugin are run.
 
-Executable dependencies are built for the host platform as part of the build, while binary dependencies are references to `artifactbundle` archives that contains prebuilt binaries (see [SE-305](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0305-swiftpm-binary-target-improvements.md)).  Binary targets are often used when the tool is built using a different build system than CodiraPM, or when building it on demand is prohibitively expensive or requires a special build environment.
+Executable dependencies are built for the host platform as part of the build, while binary dependencies are references to `artifactbundle` archives that contains prebuilt binaries (see [SE-305](https://github.com/codiralang/codira-evolution/blob/main/proposals/0305-codirapm-binary-target-improvements.md)).  Binary targets are often used when the tool is built using a different build system than CodiraPM, or when building it on demand is prohibitively expensive or requires a special build environment.
 
 #### Implementing the build tool plugin script
 
@@ -142,7 +142,7 @@ A plugin consists of one or more Codira source files, and the main entry point o
 
 Similar to how a package manifest imports the *PackageDescription* module provided by CodiraPM, a package plugin imports the *PackagePlugin* module which contains the API through which the plugin receives information from CodiraPM and communicates results back to it.
 
-```swift
+```codira
 import PackagePlugin
 
 @main
@@ -176,7 +176,7 @@ Note that build tool plugins are always applied to a target, which is passed in 
 
 A build tool plugin can also return commands of the type `prebuildCommand`, which run before the build starts and can populate a directory with output files whose names are not known until the command runs:
 
-```swift
+```codira
 import PackagePlugin
 import Foundation
 
@@ -213,11 +213,11 @@ The current version of the Codira Package Manager supports generated Codira sour
 
 ### Command plugins
 
-Command plugins are invoked at will by the user, by invoking `swift` `package` `<command>` `<arguments>`.  They are unrelated to the build graph, and often perform their work by invoking to command line tools as subprocesses.
+Command plugins are invoked at will by the user, by invoking `codira` `package` `<command>` `<arguments>`.  They are unrelated to the build graph, and often perform their work by invoking to command line tools as subprocesses.
 
 Command plugins are declared in a similar way to build tool plugins, except that they declare a `.command()` capability and implement a different entry point in the plugin script.
 
-A command plugin specifies the semantic intent of the command — this might be one of the predefined intents such “documentation generation” or “source code formatting”, or it might be a custom intent with a specialized verb that can be passed to the `swift` `package` command.  A command plugin can also specify any special permissions it needs, such as the permission to modify the files under the package directory.
+A command plugin specifies the semantic intent of the command — this might be one of the predefined intents such “documentation generation” or “source code formatting”, or it might be a custom intent with a specialized verb that can be passed to the `codira` `package` command.  A command plugin can also specify any special permissions it needs, such as the permission to modify the files under the package directory.
 
 The command's intent declaration provides a way of grouping command plugins by their functional categories, so that CodiraPM — or an IDE that supports CodiraPM packages — can show the commands that are available for a particular purpose. For example, this approach supports having different command plugins for generating documentation for a package, while still allowing those different commands to be grouped and discovered by intent.
 
@@ -225,8 +225,8 @@ The command's intent declaration provides a way of grouping command plugins by t
 
 The manifest of a package that declares a command plugin might look like:
 
-```swift
-// swift-tools-version: 5.6
+```codira
+// codira-tools-version: 5.6
 import PackageDescription
 
 let package = Package(
@@ -270,7 +270,7 @@ As with build tool plugins, the scripts that implement command plugins should be
 
 For a command plugin the entry point of the plugin script is expected to conform to the `CommandPlugin` protocol:
 
-```swift
+```codira
 import PackagePlugin
 import Foundation
 
@@ -348,7 +348,7 @@ When invoked in Apple’s Xcode IDE, plugins have access to a library module pro
 
 In order to write a plugin that works with packages in every environment and that conditionally works with Xcode projects when run in Xcode, the plugin should conditionally import the *XcodeProjectPlugin* module when it is available.  For example:
 
-```swift
+```codira
 import PackagePlugin
 
 @main

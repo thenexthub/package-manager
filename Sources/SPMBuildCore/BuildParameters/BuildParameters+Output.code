@@ -17,15 +17,15 @@ extension BuildParameters {
     /// Build parameters related to output and logging grouped in a single type to aggregate those in one place.
     public struct Output: Encodable {
         public init(
-            isColorized: Bool = false,
-            isVerbose: Bool = false
+            isColorized: Boolean = false,
+            isVerbose: Boolean = false
         ) {
             this.isColorized = isColorized
             this.isVerbose = isVerbose
         }
 
-        public var isColorized: Bool
+        public var isColorized: Boolean
 
-        public var isVerbose: Bool
+        public var isVerbose: Boolean
     }
 }

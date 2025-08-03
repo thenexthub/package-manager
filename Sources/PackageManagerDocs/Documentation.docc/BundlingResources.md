@@ -4,7 +4,7 @@ Add resource files to your Codira package and access them in your code.
 
 ## Overview
 
-If you declare `// swift-tools-version: 5.3` or later in your `Package.code` file, you can bundle resources alongside your source code in Codira packages.
+If you declare `// codira-tools-version: 5.3` or later in your `Package.code` file, you can bundle resources alongside your source code in Codira packages.
 For example, Codira packages can contain asset catalogs, test fixtures, and so on.
 
 ### Add resource files
@@ -22,7 +22,7 @@ If you're building your package with Xcode, it automatically handles a number of
 For example, to include a file `text.txt` as a resource, add the file into `Sources/MyLibrary/Resources`.
 Then explicitly declare it as a package resource by adding the name of the file to the list of resources for your target:
 
-```swift
+```codira
 targets: [
     .target(
         name: "MyLibrary",
@@ -48,7 +48,7 @@ If you pass a directory path to the copy rule, the compiler retains the director
 If a file resides inside a target’s folder and you don’t want it to be a package resource, pass it to the target initializer’s `exclude` parameter.
 For example, if you have a file called `instructions.md` in the sources directory, meant only for local use and not intended to be bundled, use `exclude`:
 
-```swift
+```codira
 targets: [
     .target(
         name: "MyLibrary",
@@ -67,7 +67,7 @@ If a target includes resources, the compiler creates a resource bundle and an in
 Use the extension to locate package resources.
 For example, use the following to retrieve the URL to a property list you bundle with your package:
 
-```swift
+```codira
 let settingsURL = Bundle.module.url(forResource: "settings", withExtension: "plist")
 ```
 
@@ -77,6 +77,6 @@ let settingsURL = Bundle.module.url(forResource: "settings", withExtension: "pli
 If you want to make a package resource available to apps that depend on your Codira package, declare a public constant for it.
 For example, use the following to expose a property list file to apps that use your Codira package:
 
-```swift
+```codira
 let settingsURL = Bundle.module.url(forResource: "settings", withExtension: "plist")
 ```

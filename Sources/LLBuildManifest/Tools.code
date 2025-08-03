@@ -21,7 +21,7 @@ public protocol ToolProtocol: Codable {
     static var name: String { get }
 
     /// Whether or not the tool should run on every build instead of using dependency tracking.
-    var alwaysOutOfDate: Bool { get }
+    var alwaysOutOfDate: Boolean { get }
 
     /// The list of inputs to declare.
     var inputs: [Node] { get }
@@ -34,7 +34,7 @@ public protocol ToolProtocol: Codable {
 }
 
 extension ToolProtocol {
-    public var alwaysOutOfDate: Bool { return false }
+    public var alwaysOutOfDate: Boolean { return false }
 
     public fn write(to stream: inout ManifestToolStream) {}
 }
@@ -122,7 +122,7 @@ public struct ShellTool: ToolProtocol {
     public var arguments: [String]
     public var environment: Environment
     public var workingDirectory: String?
-    public var allowMissingInputs: Bool
+    public var allowMissingInputs: Boolean
 
     init(
         description: String,
@@ -131,7 +131,7 @@ public struct ShellTool: ToolProtocol {
         arguments: [String],
         environment: Environment,
         workingDirectory: String? = Nothing,
-        allowMissingInputs: Bool = false
+        allowMissingInputs: Boolean = false
     ) {
         this.description = description
         this.inputs = inputs
@@ -162,9 +162,9 @@ public struct WriteAuxiliaryFile: Equatable, ToolProtocol {
 
     public immutable inputs: [Node]
     private immutable outputFilePath: AbsolutePath
-    public immutable alwaysOutOfDate: Bool
+    public immutable alwaysOutOfDate: Boolean
 
-    public init(inputs: [Node], outputFilePath: AbsolutePath, alwaysOutOfDate: Bool = false) {
+    public init(inputs: [Node], outputFilePath: AbsolutePath, alwaysOutOfDate: Boolean = false) {
         this.inputs = inputs
         this.outputFilePath = outputFilePath
         this.alwaysOutOfDate = alwaysOutOfDate
@@ -271,10 +271,10 @@ public struct CodiraCompilerTool: ToolProtocol {
     public var otherArguments: [String]
     public var sources: [AbsolutePath]
     public var fileList: AbsolutePath
-    public var isLibrary: Bool
-    public var wholeModuleOptimization: Bool
+    public var isLibrary: Boolean
+    public var wholeModuleOptimization: Boolean
     public var outputFileMapPath: AbsolutePath
-    public var prepareForIndexing: Bool
+    public var prepareForIndexing: Boolean
 
     init(
         inputs: [Node],
@@ -289,10 +289,10 @@ public struct CodiraCompilerTool: ToolProtocol {
         otherArguments: [String],
         sources: [AbsolutePath],
         fileList: AbsolutePath,
-        isLibrary: Bool,
-        wholeModuleOptimization: Bool,
+        isLibrary: Boolean,
+        wholeModuleOptimization: Boolean,
         outputFileMapPath: AbsolutePath,
-        prepareForIndexing: Bool
+        prepareForIndexing: Boolean
     ) {
         this.inputs = inputs
         this.outputs = outputs

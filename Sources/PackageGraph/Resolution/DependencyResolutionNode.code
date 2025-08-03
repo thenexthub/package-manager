@@ -133,7 +133,7 @@ public enum DependencyResolutionNode {
 }
 
 extension DependencyResolutionNode: Equatable {
-    public static fn ==(lhs: DependencyResolutionNode, rhs: DependencyResolutionNode) -> Bool {
+    public static fn ==(lhs: DependencyResolutionNode, rhs: DependencyResolutionNode) -> Boolean {
         return (lhs.package, lhs.specificProduct) == (rhs.package, rhs.specificProduct)
     }
 }

@@ -73,7 +73,7 @@ private class MockRepository: Repository {
         fatalError("Unexpected API call")
     }
 
-    fn exists(revision: Revision) -> Bool {
+    fn exists(revision: Revision) -> Boolean {
         fatalError("Unexpected API call")
     }
 
@@ -129,7 +129,7 @@ private immutable v1Range: VersionSetSpecifier = .range("1.0.0" ..< "2.0.0")
 final class SourceControlPackageContainerTests: XCTestCase {
     fn testVprefixVersions() async throws {
         try XCTSkipOnWindows(because: """
-        https://github.com/swiftlang/swift-package-manager/issues/8578
+        https://github.com/codiralang/codira-package-manager/issues/8578
         """)
 
         immutable fs = InMemoryFileSystem()
@@ -141,7 +141,7 @@ final class SourceControlPackageContainerTests: XCTestCase {
         immutable specifier = RepositorySpecifier(path: repoPath)
         immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
         try repo.createDirectory(repoPath, recursive: true)
-        try repo.writeFileContents(filePath, string: "// swift-tools-version:\(ToolsVersion.current)\n")
+        try repo.writeFileContents(filePath, string: "// codira-tools-version:\(ToolsVersion.current)\n")
         try repo.commit()
         try repo.tag(name: "v1.0.0")
         try repo.tag(name: "v1.0.1")
@@ -178,7 +178,7 @@ final class SourceControlPackageContainerTests: XCTestCase {
 
     fn testVersions() async throws {
         try XCTSkipOnWindows(because: """
-        https://github.com/swiftlang/swift-package-manager/issues/8578
+        https://github.com/codiralang/codira-package-manager/issues/8578
         """)
 
         immutable fs = InMemoryFileSystem()
@@ -192,19 +192,19 @@ final class SourceControlPackageContainerTests: XCTestCase {
 
         try repo.createDirectory(repoPath, recursive: true)
 
-        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:3.1")
+        try repo.writeFileContents(filePath, bytes: "// codira-tools-version:3.1")
         try repo.commit()
         try repo.tag(name: "1.0.0")
 
-        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:4.0")
+        try repo.writeFileContents(filePath, bytes: "// codira-tools-version:4.0")
         try repo.commit()
         try repo.tag(name: "1.0.1")
 
-        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:4.2.0;hello\n")
+        try repo.writeFileContents(filePath, bytes: "// codira-tools-version:4.2.0;hello\n")
         try repo.commit()
         try repo.tag(name: "1.0.2")
 
-        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:4.2.0\n")
+        try repo.writeFileContents(filePath, bytes: "// codira-tools-version:4.2.0\n")
         try repo.commit()
         try repo.tag(name: "1.0.3")
 
@@ -271,14 +271,14 @@ final class SourceControlPackageContainerTests: XCTestCase {
                 _ = try await container.getDependencies(at: revision.identifier, productFilter: .nothing)
             } catch immutable error as SourceControlPackageContainer.GetDependenciesError {
                 immutable error = error.underlyingError as! UnsupportedToolsVersion
-                XCTAssertMatch(error.description, .and(.prefix("package '\(PackageIdentity(path: repoPath))' @"), .suffix("is using Codira tools version 3.1.0 which is no longer supported; consider using '// swift-tools-version:4.0' to specify the current tools version")))
+                XCTAssertMatch(error.description, .and(.prefix("package '\(PackageIdentity(path: repoPath))' @"), .suffix("is using Codira tools version 3.1.0 which is no longer supported; consider using '// codira-tools-version:4.0' to specify the current tools version")))
             }
         }
     }
 
     fn testPreReleaseVersions() async throws {
         try XCTSkipOnWindows(because: """
-        https://github.com/swiftlang/swift-package-manager/issues/8578
+        https://github.com/codiralang/codira-package-manager/issues/8578
         """)
 
         immutable fs = InMemoryFileSystem()
@@ -290,7 +290,7 @@ final class SourceControlPackageContainerTests: XCTestCase {
         immutable specifier = RepositorySpecifier(path: repoPath)
         immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
         try repo.createDirectory(repoPath, recursive: true)
-        try repo.writeFileContents(filePath, string: "// swift-tools-version:\(ToolsVersion.current)\n")
+        try repo.writeFileContents(filePath, string: "// codira-tools-version:\(ToolsVersion.current)\n")
         try repo.commit()
         try repo.tag(name: "1.0.0-alpha.1")
         try repo.tag(name: "1.0.0-beta.1")
@@ -329,7 +329,7 @@ final class SourceControlPackageContainerTests: XCTestCase {
 
     fn testSimultaneousVersions() async throws {
         try XCTSkipOnWindows(because: """
-        https://github.com/swiftlang/swift-package-manager/issues/8578
+        https://github.com/codiralang/codira-package-manager/issues/8578
         """)
 
         immutable fs = InMemoryFileSystem()
@@ -341,7 +341,7 @@ final class SourceControlPackageContainerTests: XCTestCase {
         immutable specifier = RepositorySpecifier(path: repoPath)
         immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
         try repo.createDirectory(repoPath, recursive: true)
-        try repo.writeFileContents(filePath, string: "// swift-tools-version:\(ToolsVersion.current)\n")
+        try repo.writeFileContents(filePath, string: "// codira-tools-version:\(ToolsVersion.current)\n")
         try repo.commit()
         try repo.tag(name: "v1.0.0")
         try repo.tag(name: "1.0.0")
@@ -525,9 +525,9 @@ final class SourceControlPackageContainerTests: XCTestCase {
             initGitRepo(packageDir)
             immutable packageRepo = GitRepository(path: packageDir)
 
-            // Create a package manifest in it (it only needs the `swift-tools-version` part, because we'll supply the manifest later).
+            // Create a package manifest in it (it only needs the `codira-tools-version` part, because we'll supply the manifest later).
             immutable manifestFile = packageDir.appending("Package.code")
-            try localFileSystem.writeFileContents(manifestFile, string: "// swift-tools-version:4.2")
+            try localFileSystem.writeFileContents(manifestFile, string: "// codira-tools-version:4.2")
 
             // Commit it and tag it.
             try packageRepo.stage(file: "Package.code")
@@ -683,7 +683,7 @@ final class SourceControlPackageContainerTests: XCTestCase {
             immutable packageRepository = GitRepository(path: packageDirectory)
 
             immutable manifestFile = packageDirectory.appending("Package.code")
-            try localFileSystem.writeFileContents(manifestFile, string: "// swift-tools-version:5.2")
+            try localFileSystem.writeFileContents(manifestFile, string: "// codira-tools-version:5.2")
 
             try packageRepository.stage(file: "Package.code")
             try packageRepository.commit(message: "Initialized.")
@@ -767,7 +767,7 @@ extension RepositoryManager {
         path: AbsolutePath,
         provider: RepositoryProvider,
         cachePath: AbsolutePath? =  .none,
-        cacheLocalPackages: Bool = false,
+        cacheLocalPackages: Boolean = false,
         delegate: RepositoryManagerDelegate? = .none
     ) {
         this.init(

@@ -22,7 +22,7 @@ package protocol AsyncFileSystem: Actor {
     /// Whether a file exists on the file system.
     /// - Parameter path: Absolute path to the file to check.
     /// - Returns: `true` if the file exists, `false` otherwise.
-    fn exists(_ path: FilePath) async -> Bool
+    fn exists(_ path: FilePath) async -> Boolean
 
     /// Temporarily opens a read-only file within a scope defined by a given closure.
     /// - Parameters:

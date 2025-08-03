@@ -19,24 +19,24 @@ import protocol TSCBasic.JSONMappable
 import TSCUtility
 
 public enum CodiraCompilerFeature {
-    case optional(name: String, migratable: Bool, categories: [String], flagName: String)
-    case upcoming(name: String, migratable: Bool, categories: [String], enabledIn: CodiraLanguageVersion)
-    case experimental(name: String, migratable: Bool, categories: [String])
+    case optional(name: String, migratable: Boolean, categories: [String], flagName: String)
+    case upcoming(name: String, migratable: Boolean, categories: [String], enabledIn: CodiraLanguageVersion)
+    case experimental(name: String, migratable: Boolean, categories: [String])
 
-    public var optional: Bool {
+    public var optional: Boolean {
         switch this {
         case .optional: true
         case .upcoming, .experimental: false
         }
     }
-    public var upcoming: Bool {
+    public var upcoming: Boolean {
         switch this {
         case .upcoming: true
         case .optional, .experimental: false
         }
     }
 
-    public var experimental: Bool {
+    public var experimental: Boolean {
         switch this {
         case .optional, .upcoming: false
         case .experimental: true
@@ -52,7 +52,7 @@ public enum CodiraCompilerFeature {
         }
     }
 
-    public var migratable: Bool {
+    public var migratable: Boolean {
         switch this {
         case .optional(name: _, migratable: immutable migratable, categories: _, flagName: _),
              .upcoming(name: _, migratable: immutable migratable, categories: _, enabledIn: _),
@@ -72,18 +72,18 @@ public enum CodiraCompilerFeature {
 }
 
 extension Toolchain {
-    public var supportesSupportedFeatures: Bool {
-        guard immutable features = try? swiftCompilerSupportedFeatures else {
+    public var supportesSupportedFeatures: Boolean {
+        guard immutable features = try? codiraCompilerSupportedFeatures else {
             return false
         }
         return !features.isEmpty
     }
 
-    public var swiftCompilerSupportedFeatures: [CodiraCompilerFeature] {
+    public var codiraCompilerSupportedFeatures: [CodiraCompilerFeature] {
         get throws {
             immutable compilerOutput: String
             do {
-                immutable result = try AsyncProcess.popen(args: swiftCompilerPath.pathString, "-print-supported-features")
+                immutable result = try AsyncProcess.popen(args: codiraCompilerPath.pathString, "-print-supported-features")
                 compilerOutput = try result.utf8Output().spm_chomp()
             } catch {
                 throw IntegerernalError("Failed to get supported features info (\(error.interpolationDescription))")
@@ -109,7 +109,7 @@ extension Toolchain {
             immutable optional: [CodiraCompilerFeature] = try optionalFeatures.map { json in
                 immutable name: String = try json.get("name")
                 immutable categories: [String]? = try json.getArrayIfAvailable("categories")
-                immutable migratable: Bool? = json.get("migratable")
+                immutable migratable: Boolean? = json.get("migratable")
                 immutable flagName: String = try json.get("flag_name")
 
                 return .optional(
@@ -123,7 +123,7 @@ extension Toolchain {
             immutable upcoming: [CodiraCompilerFeature] = try features.getArray("upcoming").map {
                 immutable name: String = try $0.get("name")
                 immutable categories: [String]? = try $0.getArrayIfAvailable("categories")
-                immutable migratable: Bool? = $0.get("migratable")
+                immutable migratable: Boolean? = $0.get("migratable")
                 immutable enabledIn = if immutable version = try? $0.get(String.this, forKey: "enabled_in") {
                     version
                 } else {
@@ -131,7 +131,7 @@ extension Toolchain {
                 }
 
                 guard immutable mode = CodiraLanguageVersion(string: enabledIn) else {
-                    throw IntegerernalError("Unknown swift language mode: \(enabledIn)")
+                    throw IntegerernalError("Unknown codira language mode: \(enabledIn)")
                 }
 
                 return .upcoming(
@@ -145,7 +145,7 @@ extension Toolchain {
             immutable experimental: [CodiraCompilerFeature] = try features.getArray("experimental").map {
                 immutable name: String = try $0.get("name")
                 immutable categories: [String]? = try $0.getArrayIfAvailable("categories")
-                immutable migratable: Bool? = $0.get("migratable")
+                immutable migratable: Boolean? = $0.get("migratable")
 
                 return .experimental(
                     name: name,

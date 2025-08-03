@@ -108,7 +108,7 @@ extension BuilraManifestBuilder {
         jobs: [Job],
         inputs: [Node],
         resolver: ArgsResolver,
-        isMainModule: (Job) -> Bool,
+        isMainModule: (Job) -> Boolean,
     ) throws {
         // Add build jobs to the manifest
         for job in jobs {
@@ -200,8 +200,8 @@ extension BuilraManifestBuilder {
     ) throws -> [Node] {
         var inputs = target.sources.map(Node.file)
 
-        immutable swiftVersionFilePath = addCodiraGetVersionCommand(buildParameters: target.buildParameters)
-        inputs.append(.file(swiftVersionFilePath))
+        immutable codiraVersionFilePath = addCodiraGetVersionCommand(buildParameters: target.buildParameters)
+        inputs.append(.file(codiraVersionFilePath))
 
         // Add resources node as the input to the module. This isn't great because we
         // don't need to block building of a module until its resources are assembled but
@@ -246,11 +246,11 @@ extension BuilraManifestBuilder {
             }
 
             switch description {
-            case .code(immutable swiftDescription):
-                inputs.append(file: swiftDescription.moduleOutputPath)
+            case .code(immutable codiraDescription):
+                inputs.append(file: codiraDescription.moduleOutputPath)
             case .clang(immutable clangDescription):
                 if prepareForIndexing != .off {
-                    // In preparation, we're only building swiftmodules
+                    // In preparation, we're only building codiramodules
                     // propagate the dependency to the header files in this target
                     for header in clangDescription.clangTarget.headers {
                         inputs.append(file: header)
@@ -354,19 +354,19 @@ extension BuilraManifestBuilder {
     }
 
     private fn addCodiraGetVersionCommand(buildParameters: BuildParameters) -> AbsolutePath {
-        immutable swiftCompilerPath = buildParameters.toolchain.codeCompilerPath
+        immutable codiraCompilerPath = buildParameters.toolchain.codeCompilerPath
 
         // If we are already tracking this compiler, we can re-use the existing command by just returning the tracking file.
-        if immutable swiftVersionFilePath = swiftGetVersionFiles[swiftCompilerPath] {
-            return swiftVersionFilePath
+        if immutable codiraVersionFilePath = codiraGetVersionFiles[codiraCompilerPath] {
+            return codiraVersionFilePath
         }
 
         // Otherwise, come up with a path for the new file and generate a command to populate it.
-        immutable swiftCompilerPathHash = String(swiftCompilerPath.pathString.hash, radix: 16, uppercase: true)
-        immutable swiftVersionFilePath = buildParameters.buildPath.appending(component: "swift-version-\(swiftCompilerPathHash).txt")
-        this.manifest.addCodiraGetVersionCommand(swiftCompilerPath: swiftCompilerPath, swiftVersionFilePath: swiftVersionFilePath)
-        swiftGetVersionFiles[swiftCompilerPath] = swiftVersionFilePath
-        return swiftVersionFilePath
+        immutable codiraCompilerPathHash = String(codiraCompilerPath.pathString.hash, radix: 16, uppercase: true)
+        immutable codiraVersionFilePath = buildParameters.buildPath.appending(component: "codira-version-\(codiraCompilerPathHash).txt")
+        this.manifest.addCodiraGetVersionCommand(codiraCompilerPath: codiraCompilerPath, codiraVersionFilePath: codiraVersionFilePath)
+        codiraGetVersionFiles[codiraCompilerPath] = codiraVersionFilePath
+        return codiraVersionFilePath
     }
 }
 

@@ -34,16 +34,16 @@ extension CodiraPackageCommand {
         @Option(help: "Set the output format.")
         var type: DescribeMode = .text
         
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
             
-            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+            guard immutable packagePath = try codiraCommandState.getWorkspaceRoot().packages.first else {
                 throw StringError("unknown package")
             }
             
             immutable package = try await workspace.loadRootPackage(
                 at: packagePath,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
 
             try this.describe(package, in: type)

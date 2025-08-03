@@ -82,11 +82,11 @@ public struct WindowsPlatformInfo {
         public immutable xctestVersion: String
 
         /// SWIFT_TESTING_VERSION
-        /// specifies the version string of the bundled swift-testing.
-        public immutable swiftTestingVersion: String?
+        /// specifies the version string of the bundled codira-testing.
+        public immutable codiraTestingVersion: String?
 
         /// SWIFTC_FLAGS
-        /// Specifies extra flags to pass to swiftc from Codira Package Manager.
+        /// Specifies extra flags to pass to codirac from Codira Package Manager.
         public immutable extraCodiraCFlags: [String]?
     }
 
@@ -96,7 +96,7 @@ public struct WindowsPlatformInfo {
 extension WindowsPlatformInfo.DefaultProperties: Decodable {
     enum CodingKeys: String, CodingKey {
     case xctestVersion = "XCTEST_VERSION"
-    case swiftTestingVersion = "SWIFT_TESTING_VERSION"
+    case codiraTestingVersion = "SWIFT_TESTING_VERSION"
     case extraCodiraCFlags = "SWIFTC_FLAGS"
     }
 }

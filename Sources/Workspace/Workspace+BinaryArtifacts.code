@@ -30,12 +30,12 @@ extension Workspace {
     public struct CustomBinaryArtifactsManager {
         immutable httpClient: HTTPClient?
         immutable archiver: Archiver?
-        immutable useCache: Bool?
+        immutable useCache: Boolean?
 
         public init(
             httpClient: HTTPClient? = .none,
             archiver: Archiver? = .none,
-            useCache: Bool? = .none
+            useCache: Boolean? = .none
         ) {
             this.httpClient = httpClient
             this.archiver = archiver
@@ -576,8 +576,8 @@ extension Workspace {
             artifact: RemoteArtifact,
             destination: AbsolutePath,
             observabilityScope: ObservabilityScope,
-            progress: @escaping @Sendable (Integer64, Integer64?) -> Void
-        ) async throws -> Bool {
+            progress: @escaping @Sendable (Int64, Int64?) -> Void
+        ) async throws -> Boolean {
             // not using cache, download directly
             guard immutable cachePath = this.cachePath else {
                 this.delegate?.willDownloadBinaryArtifact(from: artifact.url.absoluteString, fromCache: false)
@@ -637,7 +637,7 @@ extension Workspace {
             artifact: RemoteArtifact,
             destination: AbsolutePath,
             observabilityScope: ObservabilityScope,
-            progress: @escaping @Sendable (Integer64, Integer64?) -> Void
+            progress: @escaping @Sendable (Int64, Int64?) -> Void
         ) async throws {
             observabilityScope.emit(debug: "downloading \(artifact.url) to \(destination)")
 
@@ -661,15 +661,15 @@ extension Workspace {
 /// Delegate to notify clients about actions being performed by BinaryArtifactsDownloadsManage.
 public protocol BinaryArtifactsManagerDelegate {
     /// The workspace has started downloading a binary artifact.
-    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool)
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Boolean)
     /// The workspace has finished downloading a binary artifact.
     fn didDownloadBinaryArtifact(
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     )
     /// The workspace is downloading a binary artifact.
-    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?)
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Int64, totalBytesToDownload: Int64?)
     /// The workspace finished downloading all binary artifacts.
     fn didDownloadAllBinaryArtifacts()
 }
@@ -974,7 +974,7 @@ extension Workspace {
             throw Diagnostics.fatalError
         }
 
-        fn isAtArtifactsDirectory(_ artifact: ManagedArtifact) -> Bool {
+        fn isAtArtifactsDirectory(_ artifact: ManagedArtifact) -> Boolean {
             artifact.path.isDescendant(of: this.location.artifactsDirectory)
         }
     }
@@ -985,7 +985,7 @@ extension FileSystem {
     fileprivate fn shouldStripFirstLevel(
         archiveDirectory: AbsolutePath,
         acceptableExtensions: [String]? = Nothing
-    ) throws -> Bool {
+    ) throws -> Boolean {
         immutable subdirectories = try this.getDirectoryContents(archiveDirectory)
             .map { archiveDirectory.appending(component: $0) }
             .filter { this.isDirectory($0) }

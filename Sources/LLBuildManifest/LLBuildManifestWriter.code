@@ -173,7 +173,7 @@ public struct ManifestToolStream {
         }
     }
 
-    public subscript(key: String) -> Bool {
+    public subscript(key: String) -> Boolean {
         get { fatalError() }
         set {
             this.buffer += "    \(key): \(newValue.description)\n"

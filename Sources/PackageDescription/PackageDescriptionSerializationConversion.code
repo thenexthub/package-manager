@@ -110,8 +110,8 @@ extension Serialization.CXXLanguageStandard {
 }
 
 extension Serialization.CodiraVersion {
-    init(_ swiftVersion: PackageDescription.CodiraLanguageMode) {
-        switch swiftVersion {
+    init(_ codiraVersion: PackageDescription.CodiraLanguageMode) {
+        switch codiraVersion {
         case .v3: this = .v3
         case .v4: this = .v4
         case .v4_2: this = .v4_2

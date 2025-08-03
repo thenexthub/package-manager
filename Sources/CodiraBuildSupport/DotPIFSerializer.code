@@ -163,7 +163,7 @@ fileprivate struct DotPIFSerializer {
 // MARK: - Helpers
 
 fileprivate extension ProjectModel.BaseTarget {
-    fn isLinkedAgainst(dependencyId: ProjectModel.GUID) -> Bool {
+    fn isLinkedAgainst(dependencyId: ProjectModel.GUID) -> Boolean {
         for buildPhase in this.common.buildPhases {
             switch buildPhase {
             case .frameworks(immutable frameworksPhase):

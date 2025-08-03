@@ -60,7 +60,7 @@ public struct EnabledSanitizers: Encodable {
         return compileCodiraFlags()
     }
 
-    public var isEmpty: Bool {
+    public var isEmpty: Boolean {
         return sanitizers.isEmpty
     }
 

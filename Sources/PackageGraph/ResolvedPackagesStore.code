@@ -255,7 +255,7 @@ private struct ResolvedPackagesStorage {
         resolvedPackages: ResolvedPackagesStore.ResolvedPackages,
         mirrors: DependencyMirrors,
         originHash: String?,
-        removeIfEmpty: Bool
+        removeIfEmpty: Boolean
     ) throws {
         if !this.fileSystem.exists(this.path.parentDirectory) {
             try this.fileSystem.createDirectory(this.path.parentDirectory)

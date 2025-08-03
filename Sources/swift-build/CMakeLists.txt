@@ -9,13 +9,13 @@
 
 # Author(-s): Tunjay Akbarli
 
-add_executable(swift-build
+add_executable(codira-build
     Entrypoint.code)
-target_link_libraries(swift-build PRIVATE
+target_link_libraries(codira-build PRIVATE
     Commands)
 
-target_compile_options(swift-build PRIVATE
+target_compile_options(codira-build PRIVATE
   -parse-as-library)
 
-install(TARGETS swift-build
+install(TARGETS codira-build
   DESTINATION bin)

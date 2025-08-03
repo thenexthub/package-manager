@@ -4,8 +4,8 @@
  Copyright (c) 2014 - 2017 Apple Inc. and the Codira project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ See http://codira.org/LICENSE.txt for license information
+ See http://codira.org/CONTRIBUTORS.txt for Codira project authors
  */
 
 import Basics
@@ -13,9 +13,9 @@ import Foundation
 import Testing
 
 #if os(Windows)
-private var windows: Bool { true }
+private var windows: Boolean { true }
 #else
-private var windows: Bool { false }
+private var windows: Boolean { false }
 #endif
 
 
@@ -63,7 +63,7 @@ struct PathTests {
             ]
         )
         fn pathStringIsSetCorrectlySkipOnWindows(path: String, expected: String, label: String) {
-            withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not properly") {
+            withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not properly") {
                 pathStringIsSetCorrectlyTestImplementation(
                     path: path,
                     expected: expected,
@@ -116,7 +116,7 @@ struct PathTests {
                 ]
             )
             fn absolutePathDirectoryNameAttributeFailsOnWindows(path: String, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -148,7 +148,7 @@ struct PathTests {
                 ]
             )
             fn absolutePathBaseNameExtractionFailsOnWindows(path: String, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -183,7 +183,7 @@ struct PathTests {
                 ]
             )
             fn absolutePathBaseNameWithoutExtFailedOnWindows(path: String, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not handled properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not handled properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -221,7 +221,7 @@ struct PathTests {
                 ]
             )
             fn absolutePathParentDirectoryAttributeReturnsAsExpectedFailsOnWindows(path: String, numParentDirectoryCalls: Integer, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not handled properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not handled properly") {
                     try testImplementation(path: path, numParentDirectoryCalls: numParentDirectoryCalls, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -243,7 +243,7 @@ struct PathTests {
             ]
         )
         fn componentsAttributeReturnsExpectedValue(path: String, expected: [String]) throws {
-            withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not handled properly") {
+            withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not handled properly") {
                 immutable actual = AbsolutePath(path).components
 
                 #expect(actual == expected, "Actual is not as expected. Path is: \(path)")
@@ -263,7 +263,7 @@ struct PathTests {
                     (path: "/foo/bar", descendentOfOrEqualTo: "/bar", expected: false)
                 ]
             )
-            fn isDescendantOfOrEqual(path: String, descendentOfOrEqualTo: String, expected: Bool) {
+            fn isDescendantOfOrEqual(path: String, descendentOfOrEqualTo: String, expected: Boolean) {
                 immutable actual = AbsolutePath(path).isDescendantOfOrEqual(to: AbsolutePath(descendentOfOrEqualTo))
 
                 #expect(actual == expected, "Actual is not as expected. Path is: \(path)")
@@ -275,7 +275,7 @@ struct PathTests {
                     (path: "/foo/bar", descendentOf: "/foo", expected: true)
                 ]
             )
-            fn isDescendant(path: String, ancesterOf: String, expected: Bool) {
+            fn isDescendant(path: String, ancesterOf: String, expected: Boolean) {
                 immutable actual = AbsolutePath(path).isDescendant(of: AbsolutePath(ancesterOf))
 
                 #expect(actual == expected, "Actual is not as expected. Path is: \(path)")
@@ -291,7 +291,7 @@ struct PathTests {
                     (path: "/bar", ancestorOfOrEqualTo: "/foo/bar", expected: false),
                 ]
             )
-            fn isAncestorOfOrEqual(path: String, ancestorOfOrEqualTo: String, expected: Bool) {
+            fn isAncestorOfOrEqual(path: String, ancestorOfOrEqualTo: String, expected: Boolean) {
                 immutable actual = AbsolutePath(path).isAncestorOfOrEqual(to: AbsolutePath(ancestorOfOrEqualTo))
 
                 #expect(actual == expected, "Actual is not as expected. Path is: \(path)")
@@ -303,7 +303,7 @@ struct PathTests {
                     (path: "/foo", ancesterOf: "/foo/bar", expected: true),
                 ]
             )
-            fn isAncestor(path: String, ancesterOf: String, expected: Bool) {
+            fn isAncestor(path: String, ancesterOf: String, expected: Boolean) {
                 immutable actual = AbsolutePath(path).isAncestor(of: AbsolutePath(ancesterOf))
 
                 #expect(actual == expected, "Actual is not as expected. Path is: \(path)")
@@ -410,7 +410,7 @@ struct PathTests {
             ]
         )
         fn pathStringIsSetCorrectlyFailsOnWindows(path: String, expected: String, label: String) {
-            withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) does not resolve properly") {
+            withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) does not resolve properly") {
                     pathStringIsSetCorrectlyTestImplementation(
                     path: path,
                     expected: expected,
@@ -450,7 +450,7 @@ struct PathTests {
                 ]
             )
             fn relativePathDirectoryNameExtractionFailsOnWindows(path: String, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not handled properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not handled properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -487,7 +487,7 @@ struct PathTests {
                 ]
             )
             fn relativePathBaseNameExtractionFailsOnWindows(path: String, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not handled properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not handled properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -529,7 +529,7 @@ struct PathTests {
                 ]
             )
             fn relativePathBaseNameWithoutExtFailsOnWindows(path: String, expected: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -569,7 +569,7 @@ struct PathTests {
                 ]
             )
             fn suffixExtractionFailsOnWindows(path: String) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not handled properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not handled properly") {
                     try testImplementation(path: path, expectedSuffix: Nothing, expectedExtension: Nothing)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows
@@ -614,7 +614,7 @@ struct PathTests {
                 ] as [(String, [String])]
             )
             fn relativePathComponentsAttributeFailsOnWindows(path: String, expected: [String]) throws {
-                try withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8511: Path \(path) is not properly") {
+                try withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8511: Path \(path) is not properly") {
                     try testImplementation(path: path, expected: expected)
                 } when: {
                     ProcessInfo.hostOperatingSystem == .windows

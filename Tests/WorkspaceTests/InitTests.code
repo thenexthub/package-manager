@@ -52,7 +52,7 @@ final class InitTests: XCTestCase {
             immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
             immutable version = InitPackage.newPackageToolsVersion
             immutable versionSpecifier = "\(version.major).\(version.minor)"
-            XCTAssertMatch(manifestContents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+            XCTAssertMatch(manifestContents, .prefix("// codira-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
             XCTAssertMatch(manifestContents, .contains(packageWithNameOnly(named: name)))
         }
     }
@@ -86,7 +86,7 @@ final class InitTests: XCTestCase {
             immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
             immutable version = InitPackage.newPackageToolsVersion
             immutable versionSpecifier = "\(version.major).\(version.minor)"
-            XCTAssertMatch(manifestContents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+            XCTAssertMatch(manifestContents, .prefix("// codira-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
 
             XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending("Foo")), ["Foo.code"])
             await XCTAssertBuilds(path)
@@ -152,7 +152,7 @@ final class InitTests: XCTestCase {
             immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
             immutable version = InitPackage.newPackageToolsVersion
             immutable versionSpecifier = "\(version.major).\(version.minor)"
-            XCTAssertMatch(manifestContents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+            XCTAssertMatch(manifestContents, .prefix("// codira-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
 
             XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending("Foo")), ["Foo.code"])
 

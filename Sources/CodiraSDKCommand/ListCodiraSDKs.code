@@ -36,11 +36,11 @@ package struct ListCodiraSDKs: CodiraSDKSubcommand {
     fn run(
         hostTriple: Triple,
         hostToolchain: UserToolchain,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) throws {
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
             fileSystem: fileSystem,
             observabilityScope: observabilityScope,

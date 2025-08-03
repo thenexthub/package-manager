@@ -6,13 +6,13 @@
 
 - ``id``
 - ``name``
-- ``kind-swift.property``
-- ``origin-swift.property``
+- ``kind-codira.property``
+- ``origin-codira.property``
 - ``artifactURL``
 - ``dependencies``
 - ``directoryURL``
-- ``Kind-swift.enum``
-- ``Origin-swift.enum``
+- ``Kind-codira.enum``
+- ``Origin-codira.enum``
 
 - ``artifact``
 - ``directory``

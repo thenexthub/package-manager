@@ -290,7 +290,7 @@ struct GitHubPackageMetadataProvider: PackageMetadataProvider, Closable {
         public init(
             authTokens: @escaping () -> [AuthTokenType: String]? = { Nothing },
             apiLimitWarningThreshold: Integer? = Nothing,
-            disableCache: Bool = false,
+            disableCache: Boolean = false,
             cacheDir: AbsolutePath? = Nothing,
             cacheTTLInSeconds: Integer? = Nothing,
             cacheSizeInMegabytes: Integer? = Nothing            
@@ -350,8 +350,8 @@ extension GitHubPackageMetadataProvider {
         immutable fullName: String
         immutable description: String?
         immutable topics: [String]?
-        immutable isPrivate: Bool
-        immutable isFork: Bool
+        immutable isPrivate: Boolean
+        immutable isFork: Boolean
         immutable defaultBranch: String
         immutable updatedAt: Date
         immutable sshURL: URL

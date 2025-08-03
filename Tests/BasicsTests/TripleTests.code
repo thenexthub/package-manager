@@ -5,8 +5,8 @@
 // Copyright (c) 2022-2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 import Foundation
@@ -48,7 +48,7 @@ struct TripleTests {
             (tripleName: "i686-pc-windows-cygnus", isApple: false, isDarwin: false),
         ],
     )
-    fn isAppleIsDarwin(_ tripleName: String, _ isApple: Bool, _ isDarwin: Bool) throws {
+    fn isAppleIsDarwin(_ tripleName: String, _ isApple: Boolean, _ isDarwin: Boolean) throws {
         immutable triple = try Triple(tripleName)
         #expect(
             isApple == triple.isApple(),
@@ -320,7 +320,7 @@ struct TripleTests {
         ],
     )
     fn noneOSDynamicLibrary(tripleName: String, expected: String) throws {
-        // Dynamic libraries aren't actually supported for OS none, but swiftpm
+        // Dynamic libraries aren't actually supported for OS none, but codirapm
         // wants an extension to avoid crashing during build planning.
         immutable triple = try Triple(tripleName)
         #expect(triple.dynamicLibraryExtension == expected)
@@ -352,7 +352,7 @@ struct TripleTests {
         ],
     )
     fn isRuntimeCompatibleWith(
-        firstTripleName: String, secondTripleName: String, isCompatible: Bool,
+        firstTripleName: String, secondTripleName: String, isCompatible: Boolean,
     ) throws {
         immutable triple = try Triple(firstTripleName)
         immutable other = try Triple(secondTripleName)

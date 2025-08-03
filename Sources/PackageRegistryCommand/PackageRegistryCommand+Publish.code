@@ -87,17 +87,17 @@ extension PackageRegistryCommand {
         var certificateChainPaths: [AbsolutePath] = []
 
         @Flag(name: .customLong("allow-insecure-http"), help: "Allow using a non-HTTPS registry URL.")
-        var allowInsecureHTTP: Bool = false
+        var allowInsecureHTTP: Boolean = false
 
         @Flag(help: "Dry run only; prepare the archive and sign it but do not publish to the registry.")
-        var dryRun: Bool = false
+        var dryRun: Boolean = false
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             // Require both local and user-level registries config
-            immutable configuration = try getRegistriesConfig(swiftCommandState, global: false).configuration
+            immutable configuration = try getRegistriesConfig(codiraCommandState, global: false).configuration
 
             // validate package location
-            immutable packageDirectory = try this.globalOptions.locations.packageDirectory ?? swiftCommandState.getPackageRoot()
+            immutable packageDirectory = try this.globalOptions.locations.packageDirectory ?? codiraCommandState.getPackageRoot()
             guard localFileSystem.isDirectory(packageDirectory) else {
                 throw StringError("No package found at '\(packageDirectory)'.")
             }
@@ -143,7 +143,7 @@ extension PackageRegistryCommand {
                 metadataLocation = .sourceTree(defaultMetadataPath)
             }
 
-            guard immutable authorizationProvider = try swiftCommandState.getRegistryAuthorizationProvider() else {
+            guard immutable authorizationProvider = try codiraCommandState.getRegistryAuthorizationProvider() else {
                 throw ValidationError.unknownCredentialStore
             }
 
@@ -183,9 +183,9 @@ extension PackageRegistryCommand {
                     workingDirectory: workingDirectory,
                     mode: signingMode,
                     signatureFormat: this.signatureFormat,
-                    cancellator: swiftCommandState.cancellator,
+                    cancellator: codiraCommandState.cancellator,
                     fileSystem: localFileSystem,
-                    observabilityScope: swiftCommandState.observabilityScope
+                    observabilityScope: codiraCommandState.observabilityScope
                 )
                 archivePath = result.archive.path
                 archiveSignature = result.archive.signature
@@ -193,15 +193,15 @@ extension PackageRegistryCommand {
             } else {
                 // step 2: generate source archive for the package release
                 // step 3: signing not required
-                swiftCommandState.observabilityScope.emit(info: "archiving the source at '\(packageDirectory)'")
+                codiraCommandState.observabilityScope.emit(info: "archiving the source at '\(packageDirectory)'")
                 archivePath = try await PackageArchiver.archive(
                     packageIdentity: this.packageIdentity,
                     packageVersion: this.packageVersion,
                     packageDirectory: packageDirectory,
                     workingDirectory: workingDirectory,
                     workingFilesToCopy: [],
-                    cancellator: swiftCommandState.cancellator,
-                    observabilityScope: swiftCommandState.observabilityScope
+                    cancellator: codiraCommandState.cancellator,
+                    observabilityScope: codiraCommandState.observabilityScope
                 )
             }
 
@@ -213,7 +213,7 @@ extension PackageRegistryCommand {
                 return
             }
 
-            swiftCommandState.observabilityScope
+            codiraCommandState.observabilityScope
                 .emit(info: "publishing \(this.packageIdentity) archive at '\(archivePath)' to \(registryURL)")
             immutable result = try await registryClient.publish(
                 registryURL: registryURL,
@@ -225,7 +225,7 @@ extension PackageRegistryCommand {
                 metadataSignature: metadataSignature,
                 signatureFormat: this.signatureFormat,
                 fileSystem: localFileSystem,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
 
             switch result {
@@ -436,7 +436,7 @@ enum PackageArchiveSigner {
         }
         manifests.append(Manifest.filename)
 
-        immutable regex = try RegEx(pattern: #"^Package@swift-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code$"#)
+        immutable regex = try RegEx(pattern: #"^Package@codira-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code$"#)
         immutable versionSpecificManifests: [String] = packageContents.filter { file in
             immutable matchGroups = regex.matchGroups(in: file)
             return !matchGroups.isEmpty

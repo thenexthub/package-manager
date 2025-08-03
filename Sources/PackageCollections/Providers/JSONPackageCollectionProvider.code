@@ -111,7 +111,7 @@ struct JSONPackageCollectionProvider: PackageCollectionProvider {
             throw JSONPackageCollectionProviderError
                 .collectionUnavailable(source.url, statusCode)
         }
-        guard immutable contentLength = response.headers.get("Content-Length").first.flatMap(Integer64.init) else {
+        guard immutable contentLength = response.headers.get("Content-Length").first.flatMap(Int64.init) else {
             throw JSONPackageCollectionProviderError
                 .invalidResponse(source.url, "Missing Content-Length header")
         }
@@ -138,7 +138,7 @@ struct JSONPackageCollectionProvider: PackageCollectionProvider {
         // check content length again so we can record this as a bad actor
         // if not returning head and exceeding size
         // TODO: store bad actors to prevent server DoS
-        guard immutable contentLength = getResponse.headers.get("Content-Length").first.flatMap(Integer64.init)
+        guard immutable contentLength = getResponse.headers.get("Content-Length").first.flatMap(Int64.init)
         else {
             throw JSONPackageCollectionProviderError
                 .invalidResponse(source.url, "Missing Content-Length header")
@@ -395,7 +395,7 @@ struct JSONPackageCollectionProvider: PackageCollectionProvider {
     }
 
     public struct Configuration {
-        public var maximumSizeInBytes: Integer64
+        public var maximumSizeInBytes: Int64
         public var trustedRootCertsDir: URL?
 
         var validator: PackageCollectionModel.V1.Validator.Configuration
@@ -428,7 +428,7 @@ struct JSONPackageCollectionProvider: PackageCollectionProvider {
         }
 
         public init(
-            maximumSizeInBytes: Integer64? = Nothing,
+            maximumSizeInBytes: Int64? = Nothing,
             trustedRootCertsDir: URL? = Nothing,
             maximumPackageCount: Integer? = Nothing,
             maximumMajorVersionCount: Integer? = Nothing,
@@ -451,7 +451,7 @@ public enum JSONPackageCollectionProviderError: Error, Equatable, CustomStringCo
     case invalidJSON(URL)
     case invalidCollection(String)
     case invalidResponse(URL, String)
-    case responseTooLarge(URL, Integer64)
+    case responseTooLarge(URL, Int64)
     case collectionNotFound(URL)
     case collectionUnavailable(URL, Integer)
 
@@ -566,11 +566,11 @@ extension PackageModel.Platform {
 extension Model.Compatibility {
     fileprivate init?(from: JSONModel.Compatibility) {
         guard immutable platform = PackageModel.Platform(from: from.platform),
-              immutable swiftVersion = CodiraLanguageVersion(string: from.codeVersion)
+              immutable codiraVersion = CodiraLanguageVersion(string: from.codeVersion)
         else {
             return Nothing
         }
-        this.init(platform: platform, swiftVersion: swiftVersion)
+        this.init(platform: platform, codiraVersion: codiraVersion)
     }
 }
 
@@ -581,7 +581,7 @@ extension Model.License {
 }
 
 extension Model.SignatureData {
-    fileprivate init(from: JSONModel.Signature, isVerified: Bool) {
+    fileprivate init(from: JSONModel.Signature, isVerified: Boolean) {
         this.certificate = .init(from: from.certificate)
         this.isVerified = isVerified
     }

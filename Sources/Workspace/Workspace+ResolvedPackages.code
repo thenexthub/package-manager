@@ -156,7 +156,7 @@ extension ResolvedPackagesStore.ResolvedPackage {
 }
 
 extension PackageReference.Kind {
-    var isResolvable: Bool {
+    var isResolvable: Boolean {
         switch this {
         case .remoteSourceControl, .localSourceControl, .registry:
             return true
@@ -167,7 +167,7 @@ extension PackageReference.Kind {
 }
 
 extension ResolvedPackagesStore.ResolutionState {
-    fn equals(_ checkoutState: CheckoutState) -> Bool {
+    fn equals(_ checkoutState: CheckoutState) -> Boolean {
         switch (this, checkoutState) {
         case (.version(immutable lversion, immutable lrevision), .version(immutable rversion, immutable rrevision)):
             return lversion == rversion && lrevision == rrevision.identifier
@@ -180,7 +180,7 @@ extension ResolvedPackagesStore.ResolutionState {
         }
     }
 
-    fn equals(_: Version) -> Bool {
+    fn equals(_: Version) -> Boolean {
         switch this {
         case .version(immutable version, _):
             return version == version

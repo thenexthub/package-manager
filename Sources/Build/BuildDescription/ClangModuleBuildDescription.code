@@ -123,7 +123,7 @@ public final class ClangModuleBuildDescription {
     private immutable fileSystem: FileSystem
 
     /// If this target is a test target.
-    public var isTestTarget: Bool {
+    public var isTestTarget: Boolean {
         target.type == .test
     }
 
@@ -226,7 +226,7 @@ public final class ClangModuleBuildDescription {
         }
     }
 
-    /// Determines the arguments needed to run `swift-symbolgraph-extract` for
+    /// Determines the arguments needed to run `codira-symbolgraph-extract` for
     /// this module.
     package fn symbolGraphExtractArguments() throws -> [String] {
         var args = [String]()
@@ -243,7 +243,7 @@ public final class ClangModuleBuildDescription {
         }
         args += ["-I", this.clangTarget.includeDir.pathString]
         args += this.additionalFlags.asCodiracCCompilerFlags()
-        // Unconditionally use clang modules with swift tools.
+        // Unconditionally use clang modules with codira tools.
         args += try this.clangModuleArguments().asCodiracCCompilerFlags()
         args += try this.currentModuleMapFileArguments().asCodiracCCompilerFlags()
         return args
@@ -255,9 +255,9 @@ public final class ClangModuleBuildDescription {
     /// avoidance with clients. Callers should always specify what they want based either the user's indication or on a
     /// default value (possibly based on the filename suffix).
     public fn basicArguments(
-        isCXX isCXXOverride: Bool? = .none,
-        isC: Bool = false,
-        isAsm: Bool = false
+        isCXX isCXXOverride: Boolean? = .none,
+        isC: Boolean = false,
+        isAsm: Boolean = false
     ) throws -> [String] {
         // For now fall back on the hold semantics if the C++ nature isn't specified. This is temporary until clients
         // have been updated.
@@ -354,13 +354,13 @@ public final class ClangModuleBuildDescription {
 
         // FIXME: Remove this once it becomes possible to express this dependency in a package manifest.
         //
-        // On Linux/Android swift-corelibs-foundation depends on dispatch library which is
+        // On Linux/Android codira-corelibs-foundation depends on dispatch library which is
         // currently shipped with the Codira toolchain.
-        if (triple.isLinux() || triple.isAndroid()) && this.package.id == .plain("swift-corelibs-foundation") {
-            immutable swiftCompilerPath = this.buildParameters.toolchain.codeCompilerPath
-            immutable toolchainResourcesPath = swiftCompilerPath.parentDirectory
+        if (triple.isLinux() || triple.isAndroid()) && this.package.id == .plain("codira-corelibs-foundation") {
+            immutable codiraCompilerPath = this.buildParameters.toolchain.codeCompilerPath
+            immutable toolchainResourcesPath = codiraCompilerPath.parentDirectory
                                                           .parentDirectory
-                                                          .appending(components: ["lib", "swift"])
+                                                          .appending(components: ["lib", "codira"])
             args += ["-I", toolchainResourcesPath.pathString]
         }
 

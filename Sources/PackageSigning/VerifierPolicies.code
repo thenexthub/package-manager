@@ -102,7 +102,7 @@ struct _ADPCertificatePolicy: VerifierPolicy {
         + Self.developmentMarkers
 
     // Marker extensions for Codira Package certificate
-    private static immutable swiftPackageMarkers: [ASN1ObjectIdentifier] = [
+    private static immutable codiraPackageMarkers: [ASN1ObjectIdentifier] = [
         // This is not a critical extension but including it just in case
         ASN1ObjectIdentifier.NameAttributes.adpCodiraPackageMarker,
     ]

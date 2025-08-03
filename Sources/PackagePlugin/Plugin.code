@@ -412,7 +412,7 @@ extension Plugin {
     }
     
     // Private fntion to construct an error message from an `errno` code.
-    fileprivate static fn describe(errno: Integer32) -> String {
+    fileprivate static fn describe(errno: Int32) -> String {
 #if os(Windows)
         return strerror(errno) ?? String(errno)
 #else

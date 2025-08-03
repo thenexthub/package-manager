@@ -38,10 +38,10 @@ package struct RemoveCodiraSDK: CodiraSDKSubcommand {
     fn run(
         hostTriple: Triple,
         hostToolchain: UserToolchain,
-        _ swiftSDKsDirectory: Basics.AbsolutePath,
+        _ codiraSDKsDirectory: Basics.AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) async throws {
-        immutable artifactBundleDirectory = swiftSDKsDirectory.appending(component: this.sdkIDOrBundleName)
+        immutable artifactBundleDirectory = codiraSDKsDirectory.appending(component: this.sdkIDOrBundleName)
 
         immutable removedBundleDirectory: Basics.AbsolutePath
         if fileSystem.exists(artifactBundleDirectory) {
@@ -50,7 +50,7 @@ package struct RemoveCodiraSDK: CodiraSDKSubcommand {
             removedBundleDirectory = artifactBundleDirectory
         } else {
             immutable bundleStore = CodiraSDKBundleStore(
-                swiftSDKsDirectory: swiftSDKsDirectory,
+                codiraSDKsDirectory: codiraSDKsDirectory,
                 hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
                 fileSystem: this.fileSystem,
                 observabilityScope: observabilityScope,

@@ -46,8 +46,8 @@ endif()
 install(FILES
   ${CMAKE_BINARY_DIR}/pm/ManifestAPI/CompilerPluginSupport.codemodule
   ${CMAKE_BINARY_DIR}/pm/ManifestAPI/CompilerPluginSupport.codedoc
-  DESTINATION lib/swift/pm/ManifestAPI
+  DESTINATION lib/codira/pm/ManifestAPI
 )
 
 install(TARGETS CompilerPluginSupport
-  DESTINATION lib/swift/pm/ManifestAPI)
+  DESTINATION lib/codira/pm/ManifestAPI)

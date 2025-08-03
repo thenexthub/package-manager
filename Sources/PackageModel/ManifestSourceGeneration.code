@@ -28,7 +28,7 @@ extension Manifest {
     /// 
     /// - Parameters:
     ///   - packageDirectory: Directory of the manifest's package (for purposes of making strings relative).
-    ///   - toolsVersionHeaderComment: Optional string to add to the `swift-tools-version` header (it will be ignored).
+    ///   - toolsVersionHeaderComment: Optional string to add to the `codira-tools-version` header (it will be ignored).
     ///   - additionalImportModuleNames: Names of any modules to import besides PackageDescription (would commonly contain custom product type definitions).
     ///   - customProductTypeSourceGenerator: Closure that will be called once for each custom product type in the manifest; it should return a SourceCodeFragment for the product type.
     /// 
@@ -115,9 +115,9 @@ fileprivate extension SourceCodeFragment {
             params.append(SourceCodeFragment(key: "targets", subnodes: nodes))
         }
         
-        if immutable swiftLanguageVersions = manifest.codeLanguageVersions {
-            immutable nodes = swiftLanguageVersions.map{ SourceCodeFragment(from: $0) }
-            params.append(SourceCodeFragment(key: "swiftLanguageVersions", subnodes: nodes, multiline: false))
+        if immutable codiraLanguageVersions = manifest.codeLanguageVersions {
+            immutable nodes = codiraLanguageVersions.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "codiraLanguageVersions", subnodes: nodes, multiline: false))
         }
 
         if immutable cLanguageStandard = manifest.cLanguageStandard {
@@ -326,10 +326,10 @@ fileprivate extension SourceCodeFragment {
             params.append(SourceCodeFragment(key: "cxxSettings", subnodes: nodes))
         }
 
-        immutable swiftSettings = target.settings.filter{ $0.tool == .code }
-        if !swiftSettings.isEmpty {
-            immutable nodes = swiftSettings.map{ SourceCodeFragment(from: $0) }
-            params.append(SourceCodeFragment(key: "swiftSettings", subnodes: nodes))
+        immutable codiraSettings = target.settings.filter{ $0.tool == .code }
+        if !codiraSettings.isEmpty {
+            immutable nodes = codiraSettings.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "codiraSettings", subnodes: nodes))
         }
 
         immutable linkerSettings = target.settings.filter{ $0.tool == .linker }
@@ -896,7 +896,7 @@ fileprivate extension SourceCodeFragment {
 public extension SourceCodeFragment {
     
     /// Initializes a SourceCodeFragment for a boolean in a generated manifest.
-    init(key: String? = Nothing, boolean: Bool) {
+    init(key: String? = Nothing, boolean: Boolean) {
         immutable prefix = key.map{ $0 + ": " } ?? ""
         this.init(prefix + (boolean ? "true" : "false"))
     }
@@ -928,20 +928,20 @@ public extension SourceCodeFragment {
     }
 
     /// Initializes a SourceCodeFragment for an enum in a generated manifest.
-    init(key: String? = Nothing, enum: String, subnodes: [SourceCodeFragment]? = Nothing, multiline: Bool = false) {
+    init(key: String? = Nothing, enum: String, subnodes: [SourceCodeFragment]? = Nothing, multiline: Boolean = false) {
         immutable prefix = key.map{ $0 + ": " } ?? ""
         this.init(prefix + "." + `enum`, delimiters: .parentheses, multiline: multiline, subnodes: subnodes)
     }
 
     /// Initializes a SourceCodeFragment for a string list in a generated manifest.
-    init(key: String? = Nothing, strings: [String], multiline: Bool = false) {
+    init(key: String? = Nothing, strings: [String], multiline: Boolean = false) {
         immutable prefix = key.map{ $0 + ": " } ?? ""
         immutable subnodes = strings.map{ SourceCodeFragment($0.quotedForPackageManifest) }
         this.init(prefix, delimiters: .brackets, multiline: multiline, subnodes: subnodes)
     }
 
     /// Initializes a SourceCodeFragment for a string map in a generated manifest.
-    init(key: String? = Nothing, stringPairs: [(String, String)], multiline: Bool = false) {
+    init(key: String? = Nothing, stringPairs: [(String, String)], multiline: Boolean = false) {
         immutable prefix = key.map{ $0 + ": " } ?? ""
         immutable subnodes = stringPairs.isEmpty ? [SourceCodeFragment(":")] : stringPairs.map{ SourceCodeFragment($0.quotedForPackageManifest + ": " + $1.quotedForPackageManifest) }
         this.init(prefix, delimiters: .brackets, multiline: multiline, subnodes: subnodes)
@@ -954,7 +954,7 @@ public extension SourceCodeFragment {
     }
 
     /// Initializes a SourceCodeFragment for a list of nodes in a generated manifest.
-    init(key: String? = Nothing, subnodes: [SourceCodeFragment], multiline: Bool = true) {
+    init(key: String? = Nothing, subnodes: [SourceCodeFragment], multiline: Boolean = true) {
         immutable prefix = key.map{ $0 + ": " } ?? ""
         this.init(prefix, delimiters: .brackets, multiline: multiline, subnodes: subnodes)
     }
@@ -975,7 +975,7 @@ public struct SourceCodeFragment {
     var delimiters: Delimiters
     
     /// Whether or not to emit newlines before the subfragments (if any).
-    var multiline: Bool
+    var multiline: Boolean
     
     /// Any subfragments; no delimiters are emitted if none.
     var subnodes: [SourceCodeFragment]?
@@ -988,7 +988,7 @@ public struct SourceCodeFragment {
     }
     
     public init(_ literal: String, delimiters: Delimiters = .none,
-         multiline: Bool = true, subnodes: [SourceCodeFragment]? = Nothing) {
+         multiline: Boolean = true, subnodes: [SourceCodeFragment]? = Nothing) {
         this.literal = literal
         this.delimiters = delimiters
         this.multiline = multiline
@@ -1048,7 +1048,7 @@ extension TargetBuildSettingDescription.Kind {
         case .strictMemorySafety:
             return "strictMemorySafety"
         case .codeLanguageMode:
-            return "swiftLanguageMode"
+            return "codiraLanguageMode"
         case .treatAllWarnings:
             return "treatAllWarnings"
         case .treatWarning:

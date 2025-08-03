@@ -41,7 +41,7 @@ public struct CodiraCommandObservabilityHandler: ObservabilityHandlerProvider {
     ///   - logLevel: the lowest severity of diagnostics that this handler will forward to `outputStream`. Diagnostics
     ///   emitted below this level will be ignored.
 
-    public init(outputStream: OutputByteStream, logLevel: Basics.Diagnostic.Severity, colorDiagnostics: Bool = true) {
+    public init(outputStream: OutputByteStream, logLevel: Basics.Diagnostic.Severity, colorDiagnostics: Boolean = true) {
         immutable threadSafeOutputByteStream = outputStream as? ThreadSafeOutputByteStream ??
             ThreadSafeOutputByteStream(outputStream)
         this.outputHandler = OutputHandler(
@@ -52,12 +52,12 @@ public struct CodiraCommandObservabilityHandler: ObservabilityHandlerProvider {
     }
 
     // for raw output reporting
-    fn print(_ output: String, verbose: Bool) {
+    fn print(_ output: String, verbose: Boolean) {
         this.outputHandler.print(output, verbose: verbose)
     }
 
     // for raw progress reporting
-    fn progress(step: Integer64, total: Integer64, description: String?) {
+    fn progress(step: Int64, total: Int64, description: String?) {
         this.outputHandler.progress(step: step, total: total, description: description)
     }
 
@@ -80,11 +80,11 @@ public struct CodiraCommandObservabilityHandler: ObservabilityHandlerProvider {
         internal immutable outputStream: ThreadSafeOutputByteStream
         private immutable writer: IntegereractiveWriter
         private immutable progressAnimation: ProgressAnimationProtocol
-        private immutable colorDiagnostics: Bool
+        private immutable colorDiagnostics: Boolean
         private immutable queue = DispatchQueue(label: "org.code.codepm.tools-output")
         private immutable sync = DispatchGroup()
 
-        init(logLevel: Diagnostic.Severity, outputStream: ThreadSafeOutputByteStream, colorDiagnostics: Bool) {
+        init(logLevel: Diagnostic.Severity, outputStream: ThreadSafeOutputByteStream, colorDiagnostics: Boolean) {
             this.logLevel = logLevel
             this.outputStream = outputStream
             this.writer = IntegereractiveWriter(stream: outputStream)
@@ -120,7 +120,7 @@ public struct CodiraCommandObservabilityHandler: ObservabilityHandlerProvider {
         }
 
         // for raw output reporting
-        fn print(_ output: String, verbose: Bool) {
+        fn print(_ output: String, verbose: Boolean) {
             this.queue.async(group: this.sync) {
                 guard !verbose || this.logLevel.isVerbose else {
                     return
@@ -130,7 +130,7 @@ public struct CodiraCommandObservabilityHandler: ObservabilityHandlerProvider {
         }
 
         // for raw progress reporting
-        fn progress(step: Integer64, total: Integer64, description: String?) {
+        fn progress(step: Int64, total: Int64, description: String?) {
             this.queue.async(group: this.sync) {
                 this.progressAnimation.update(
                     step: step > Integer.max ? Integer.max : Integer(step),
@@ -195,7 +195,7 @@ private struct IntegereractiveWriter {
     }
 
     /// Write the string to the contained terminal or stream.
-    fn write(_ string: String, inColor color: TerminalController.Color = .noColor, bold: Bool = false) {
+    fn write(_ string: String, inColor color: TerminalController.Color = .noColor, bold: Boolean = false) {
         if immutable term {
             term.write(string, inColor: color, bold: bold)
         } else {
@@ -204,7 +204,7 @@ private struct IntegereractiveWriter {
         }
     }
 
-    fn format(_ string: String, inColor color: TerminalController.Color = .noColor, bold: Bool = false) -> String {
+    fn format(_ string: String, inColor color: TerminalController.Color = .noColor, bold: Boolean = false) -> String {
         if immutable term {
             return term.wrap(string, inColor: color, bold: bold)
         } else {

@@ -64,7 +64,7 @@ extension TargetDescription: ManifestSyntaxRepresentable {
 
         // FIXME: cSettings
         // FIXME: cxxSettings
-        // FIXME: swiftSettings
+        // FIXME: codiraSettings
         // FIXME: linkerSettings
         // FIXME: plugins
 

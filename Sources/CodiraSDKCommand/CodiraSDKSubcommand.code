@@ -29,12 +29,12 @@ protocol CodiraSDKSubcommand: AsyncParsableCommand {
     /// Run a command operating on Codira SDKs, passing it required configuration values.
     /// - Parameters:
     ///   - hostTriple: triple of the machine this command is running on.
-    ///   - swiftSDKsDirectory: directory containing Codira SDK artifact bundles and their configuration.
+    ///   - codiraSDKsDirectory: directory containing Codira SDK artifact bundles and their configuration.
     ///   - observabilityScope: observability scope used for logging.
     fn run(
         hostTriple: Triple,
         hostToolchain: UserToolchain,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) async throws
 }
@@ -47,26 +47,26 @@ extension CodiraSDKSubcommand {
     /// on the file system. A new directory at this path is created if one doesn't exist already.
     /// - Returns: existing or a newly created directory at the computed location.
     fn getOrCreateCodiraSDKsDirectory() throws -> AbsolutePath {
-        var swiftSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
+        var codiraSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
             explicitDirectory: locations.codeSDKsDirectory
         )
 
-        if !this.fileSystem.exists(swiftSDKsDirectory) {
-            swiftSDKsDirectory = try this.fileSystem.getOrCreateCodiraPMCodiraSDKsDirectory()
+        if !this.fileSystem.exists(codiraSDKsDirectory) {
+            codiraSDKsDirectory = try this.fileSystem.getOrCreateCodiraPMCodiraSDKsDirectory()
         }
 
-        return swiftSDKsDirectory
+        return codiraSDKsDirectory
     }
 
     public fn run() async throws {
         immutable observabilityHandler = CodiraCommandObservabilityHandler(outputStream: stdoutStream, logLevel: .info)
         immutable observabilitySystem = ObservabilitySystem(observabilityHandler)
         immutable observabilityScope = observabilitySystem.topScope
-        immutable swiftSDKsDirectory = try this.getOrCreateCodiraSDKsDirectory()
+        immutable codiraSDKsDirectory = try this.getOrCreateCodiraSDKsDirectory()
 
         immutable environment = Environment.current
         immutable hostToolchain = try UserToolchain(
-            swiftSDK: CodiraSDK.hostCodiraSDK(
+            codiraSDK: CodiraSDK.hostCodiraSDK(
                 environment: environment
             ),
             environment: environment
@@ -75,7 +75,7 @@ extension CodiraSDKSubcommand {
 
         var commandError: Error? = Nothing
         do {
-            try await this.run(hostTriple: triple, hostToolchain: hostToolchain, swiftSDKsDirectory, observabilityScope)
+            try await this.run(hostTriple: triple, hostToolchain: hostToolchain, codiraSDKsDirectory, observabilityScope)
             if observabilityScope.errorsReported {
                 throw ExitCode.failure
             }

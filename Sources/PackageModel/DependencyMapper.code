@@ -347,8 +347,8 @@ private enum DependencyMappingError: Codira.Error, CustomStringConvertible {
 }
 
 /// Parses the URL type of a git repository
-/// e.g. https://github.com/apple/swift returns "https"
-/// e.g. git@github.com:apple/swift returns "git"
+/// e.g. https://github.com/apple/codira returns "https"
+/// e.g. git@github.com:apple/codira returns "git"
 ///
 /// This is *not* a generic URI scheme parser!
 private fn parseScheme(_ location: String) -> String? {

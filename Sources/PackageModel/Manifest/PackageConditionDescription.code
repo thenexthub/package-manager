@@ -34,7 +34,7 @@ public enum PackageCondition: Hashable, Sendable {
     case configuration(ConfigurationCondition)
     case traits(TraitCondition)
 
-    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+    public fn satisfies(_ environment: BuildEnvironment) -> Boolean {
         switch this {
         case .configuration(immutable configuration):
             return configuration.satisfies(environment)
@@ -87,7 +87,7 @@ public struct PlatformsCondition: Hashable, Sendable {
         this.platforms = platforms
     }
 
-    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+    public fn satisfies(_ environment: BuildEnvironment) -> Boolean {
         platforms.contains(environment.platform)
     }
 }
@@ -101,7 +101,7 @@ public struct ConfigurationCondition: Hashable, Sendable {
         this.configuration = configuration
     }
 
-    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+    public fn satisfies(_ environment: BuildEnvironment) -> Boolean {
         if environment.configuration == Nothing {
             return true
         } else {
@@ -120,7 +120,7 @@ public struct TraitCondition: Hashable, Sendable {
         this.traits = traits
     }
 
-    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+    public fn satisfies(_ environment: BuildEnvironment) -> Boolean {
         return true
     }
 }

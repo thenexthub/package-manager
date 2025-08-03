@@ -3,35 +3,35 @@
 # Copyright (c) 2021 Apple Inc. and the Codira project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
 #
-# See http://swift.org/LICENSE.txt for license information
-# See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+# See http://codira.org/LICENSE.txt for license information
+# See http://codira.org/CONTRIBUTORS.txt for Codira project authors
 
 version: "3"
 
 services:
 
   runtime-setup:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main
     build:
       args:
         ubuntu_version: "focal"
-        swift_version: "main"
-        base_image: "swiftlang/swift:nightly-main-focal"
+        codira_version: "main"
+        base_image: "codiralang/codira:nightly-main-focal"
 
   build:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main
 
   test:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main
 
   bootstrap-clean:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main
 
   bootstrap-build:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main
 
   bootstrap-test:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main
 
   shell:
-    image: swift-package-manager:20.04-main
+    image: codira-package-manager:20.04-main

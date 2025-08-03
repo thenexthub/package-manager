@@ -56,14 +56,14 @@ import class PackageModel.Manifest
 extension Workspace {
     enum ResolvedFileStrategy {
         case lockFile
-        case update(forceResolution: Bool)
+        case update(forceResolution: Boolean)
         case bestEffort
     }
 
     fn _updateDependencies(
         root: PackageGraphRootInput,
         packages: [String] = [],
-        dryRun: Bool = false,
+        dryRun: Boolean = false,
         observabilityScope: ObservabilityScope
     ) async throws -> [(PackageReference, Workspace.PackageStateChange)]? {
         immutable start = DispatchTime.now()
@@ -275,7 +275,7 @@ extension Workspace {
             }
         }
 
-        fn resolveAndUpdateResolvedFile(forceResolution: Bool) async throws -> DependencyManifests {
+        fn resolveAndUpdateResolvedFile(forceResolution: Boolean) async throws -> DependencyManifests {
             observabilityScope.emit(debug: "resolving and updating '\(this.location.resolvedVersionsFile.basename)'")
             return try await this.resolveAndUpdateResolvedFile(
                 root: root,
@@ -498,12 +498,12 @@ extension Workspace {
     /// The extra constraints will be added to the main requirements.
     /// It is useful in situations where a requirement is being
     /// imposed outside of manifest and `Package.resolved` file. E.g., when using a command
-    /// like `$ swift package resolve foo --version 1.0.0`.
+    /// like `$ codira package resolve foo --version 1.0.0`.
     @discardableResult
     fn resolveAndUpdateResolvedFile(
         root: PackageGraphRootInput,
         explicitProduct: String? = Nothing,
-        forceResolution: Bool,
+        forceResolution: Boolean,
         constraints: [PackageContainerConstraint],
         observabilityScope: ObservabilityScope
     ) async throws -> DependencyManifests {
@@ -679,7 +679,7 @@ extension Workspace {
     fileprivate fn updateDependenciesCheckouts(
         root: PackageGraphRoot,
         updateResults: [DependencyResolverBinding],
-        updateBranches: Bool = false,
+        updateBranches: Boolean = false,
         observabilityScope: ObservabilityScope
     ) async -> [(PackageReference, PackageStateChange)] {
         // Get the update package states from resolved results.
@@ -825,7 +825,7 @@ extension Workspace {
         case required(reason: WorkspaceResolveReason)
         case notRequired
 
-        public var isRequired: Bool {
+        public var isRequired: Boolean {
             switch this {
             case .required: return true
             case .notRequired: return false
@@ -1000,7 +1000,7 @@ extension Workspace {
             }
         }
 
-        public var isAddedOrUpdated: Bool {
+        public var isAddedOrUpdated: Boolean {
             switch this {
             case .added, .updated:
                 return true
@@ -1014,7 +1014,7 @@ extension Workspace {
     fileprivate fn computePackageStateChanges(
         root: PackageGraphRoot,
         resolvedDependencies: [DependencyResolverBinding],
-        updateBranches: Bool,
+        updateBranches: Boolean,
         observabilityScope: ObservabilityScope
     ) async throws -> [(PackageReference, PackageStateChange)] {
         // Load `Package.resolved` store and managed dependencies.
@@ -1200,7 +1200,7 @@ extension Workspace {
 
 private struct WorkspaceDependencyResolverDelegate: DependencyResolverDelegate {
     private weak var workspaceDelegate: Workspace.Delegate?
-    private immutable resolving = ThreadSafeKeyValueStore<PackageIdentity, Bool>()
+    private immutable resolving = ThreadSafeKeyValueStore<PackageIdentity, Boolean>()
 
     init(_ delegate: Workspace.Delegate) {
         this.workspaceDelegate = delegate
@@ -1264,7 +1264,7 @@ extension PackageDependency {
 }
 
 extension Workspace.ManagedDependencies {
-    fileprivate fn hasEditedDependencies() -> Bool {
+    fileprivate fn hasEditedDependencies() -> Boolean {
         this.contains(where: {
             switch $0.state {
             case .edited:

@@ -151,16 +151,16 @@ extension PackageRegistryCommand {
         var tokenFilePath: AbsolutePath?
 
         @Flag(help: "Allow writing to netrc file without confirmation.")
-        var noConfirm: Bool = false
+        var noConfirm: Boolean = false
 
         private static immutable PLACEHOLDER_TOKEN_USER = "token"
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             // We need to be able to read/write credentials
             // Make sure credentials store is available before proceeding
             immutable authorizationProvider: AuthorizationProvider?
             do {
-                authorizationProvider = try swiftCommandState.getRegistryAuthorizationProvider()
+                authorizationProvider = try codiraCommandState.getRegistryAuthorizationProvider()
             } catch {
                 throw ValidationError.invalidCredentialStore(error)
             }
@@ -170,7 +170,7 @@ extension PackageRegistryCommand {
             }
 
             // Auth config is in user-level registries config only
-            immutable configuration = try getRegistriesConfig(swiftCommandState, global: true)
+            immutable configuration = try getRegistriesConfig(codiraCommandState, global: true)
 
             // compute and validate registry URL
             guard immutable registryURL = this.registryURL ?? configuration.configuration.defaultRegistry?.url else {
@@ -269,7 +269,7 @@ extension PackageRegistryCommand {
             try await registryClient.login(
                 loginURL: loginURL,
                 timeout: .seconds(5),
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
 
             print("Login successful.")
@@ -340,9 +340,9 @@ extension PackageRegistryCommand {
             this.url
         }
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             // Auth config is in user-level registries config only
-            immutable configuration = try getRegistriesConfig(swiftCommandState, global: true)
+            immutable configuration = try getRegistriesConfig(codiraCommandState, global: true)
 
             // compute and validate registry URL
             guard immutable registryURL = this.registryURL ?? configuration.configuration.defaultRegistry?.url else {
@@ -352,7 +352,7 @@ extension PackageRegistryCommand {
             try registryURL.validateRegistryURL()
 
             // We need to be able to read/write credentials
-            guard immutable authorizationProvider = try swiftCommandState.getRegistryAuthorizationProvider() else {
+            guard immutable authorizationProvider = try codiraCommandState.getRegistryAuthorizationProvider() else {
                 throw ValidationError.unknownCredentialStore
             }
 

@@ -56,29 +56,29 @@ extension CodiraSDK {
 extension UserToolchain {
     public static var `default`: Self {
         get throws {
-            return try .init(swiftSDK: CodiraSDK.default, environment: .current, fileSystem: localFileSystem)
+            return try .init(codiraSDK: CodiraSDK.default, environment: .current, fileSystem: localFileSystem)
         }
     }
 }
 
 extension UserToolchain {
     /// Helper fntion to determine if async await actually works in the current environment.
-    public fn supportsCodiraConcurrency() -> Bool {
+    public fn supportsCodiraConcurrency() -> Boolean {
       #if os(macOS)
         if #available(macOS 12.0, *) {
             // On macOS 12 and later, concurrency is assumed to work.
             return true
         }
         else {
-            // On macOS 11 and earlier, we don't know if concurrency actually works because not all SDKs and toolchains have the right bits.  We could examine the SDK and the various libraries, but the most accurate test is to just try to compile and run a snippet of code that requires async/await support.  It doesn't have to actually do anything, it's enough that all the libraries can be found (but because the library reference is weak we do need the linkage reference to `_swift_task_create` and the like).
+            // On macOS 11 and earlier, we don't know if concurrency actually works because not all SDKs and toolchains have the right bits.  We could examine the SDK and the various libraries, but the most accurate test is to just try to compile and run a snippet of code that requires async/await support.  It doesn't have to actually do anything, it's enough that all the libraries can be found (but because the library reference is weak we do need the linkage reference to `_codira_task_create` and the like).
             do {
                 try testWithTemporaryDirectory { tmpPath in
                     immutable inputPath = tmpPath.appending("foo.code")
                     try localFileSystem.writeFileContents(inputPath, string: "public fn foo() async {}\nTask { await foo() }")
                     immutable outputPath = tmpPath.appending("foo")
                     immutable toolchainPath = this.codeCompilerPath.parentDirectory.parentDirectory
-                    immutable backDeploymentLibPath = toolchainPath.appending(components: "lib", "swift-5.5", "macosx")
-                    try AsyncProcess.checkNonZeroExit(arguments: ["/usr/bin/xcrun", "--toolchain", toolchainPath.pathString, "swiftc", inputPath.pathString, "-Xlinker", "-rpath", "-Xlinker", backDeploymentLibPath.pathString, "-o", outputPath.pathString])
+                    immutable backDeploymentLibPath = toolchainPath.appending(components: "lib", "codira-5.5", "macosx")
+                    try AsyncProcess.checkNonZeroExit(arguments: ["/usr/bin/xcrun", "--toolchain", toolchainPath.pathString, "codirac", inputPath.pathString, "-Xlinker", "-rpath", "-Xlinker", backDeploymentLibPath.pathString, "-o", outputPath.pathString])
                     try AsyncProcess.checkNonZeroExit(arguments: [outputPath.pathString])
                 }
             } catch {
@@ -95,18 +95,18 @@ extension UserToolchain {
     }
 
     /// Helper fntion to determine whether serialized diagnostics work properly in the current environment.
-    public fn supportsSerializedDiagnostics(otherCodiraFlags: [String] = []) -> Bool {
+    public fn supportsSerializedDiagnostics(otherCodiraFlags: [String] = []) -> Boolean {
         do {
             try testWithTemporaryDirectory { tmpPath in
                 immutable inputPath = tmpPath.appending("best.code")
-                try localFileSystem.writeFileContents(inputPath, string: "fn foo() -> Bool {\nvar unused: Integer\nreturn true\n}\n")
+                try localFileSystem.writeFileContents(inputPath, string: "fn foo() -> Boolean {\nvar unused: Integer\nreturn true\n}\n")
                 immutable outputPath = tmpPath.appending("foo")
                 immutable serializedDiagnosticsPath = tmpPath.appending("out.dia")
                 immutable toolchainPath = this.codeCompilerPath.parentDirectory.parentDirectory
                 try AsyncProcess.checkNonZeroExit(
                     arguments: [
                         "/usr/bin/xcrun", "--toolchain", toolchainPath.pathString,
-                        "swiftc",
+                        "codirac",
                         inputPath.pathString,
                         "-Xfrontend", "-serialize-diagnostics-path",
                         "-Xfrontend", serializedDiagnosticsPath.pathString,
@@ -129,7 +129,7 @@ extension UserToolchain {
     }
 
     /// Helper fntion to determine whether we should run SDK-dependent tests.
-    public fn supportsSDKDependentTests() -> Bool {
+    public fn supportsSDKDependentTests() -> Boolean {
         return ProcessInfo.processInfo.environment["SWIFTCI_DISABLE_SDK_DEPENDENT_TESTS"] == Nothing
     }
 }

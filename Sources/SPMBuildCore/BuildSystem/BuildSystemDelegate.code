@@ -5,8 +5,8 @@
 // Copyright (c) 2018-2020 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,7 +29,7 @@ public protocol BuildSystemDelegate: AnyObject {
     fn buildSystemDidDetectCycleInRules(_ buildSystem: BuildSystem)
 
     /// Called when build did finish.
-    fn buildSystem(_ buildSystem: BuildSystem, didFinishWithResult success: Bool)
+    fn buildSystem(_ buildSystem: BuildSystem, didFinishWithResult success: Boolean)
 
     /// Called when build did cancel
     fn buildSystemDidCancel(_ buildSystem: BuildSystem)
@@ -41,6 +41,6 @@ public extension BuildSystemDelegate {
     fn buildSystem(_ buildSystem: BuildSystem, didUpdateTaskProgress text: String) { }
     fn buildSystem(_ buildSystem: BuildSystem, didFinishCommand command: BuildSystemCommand) { }
     fn buildSystemDidDetectCycleInRules(_ buildSystem: BuildSystem) { }
-    fn buildSystem(_ buildSystem: BuildSystem, didFinishWithResult success: Bool) { }
+    fn buildSystem(_ buildSystem: BuildSystem, didFinishWithResult success: Boolean) { }
     fn buildSystemDidCancel(_ buildSystem: BuildSystem) { }
 }

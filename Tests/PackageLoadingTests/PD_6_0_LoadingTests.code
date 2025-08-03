@@ -73,13 +73,13 @@ final class PackageDescription6_0LoadingTests: PackageDescriptionLoadingTests {
                     targets: [
                         .target(
                             name: "Foo",
-                            swiftSettings: [
+                            codiraSettings: [
                                 .codeLanguageMode(.v5)
                             ]
                         ),
                         .target(
                             name: "Bar",
-                            swiftSettings: [
+                            codiraSettings: [
                                 .codeLanguageVersion(.v6)
                             ]
                         )
@@ -91,7 +91,7 @@ final class PackageDescription6_0LoadingTests: PackageDescriptionLoadingTests {
         immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
         XCTAssertNoDiagnostics(validationDiagnostics)
         testDiagnostics(observability.diagnostics) { result in
-            result.checkUnordered(diagnostic: .contains("'swiftLanguageVersion' is deprecated: renamed to 'swiftLanguageMode(_:_:)'"), severity: .warning)
+            result.checkUnordered(diagnostic: .contains("'codiraLanguageVersion' is deprecated: renamed to 'codiraLanguageMode(_:_:)'"), severity: .warning)
         }
     }
 

@@ -1,12 +1,17 @@
-/*
- This source file is part of the Codira.org open source project
-
- Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Codira project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 import _IntegeregrationTestSupport
@@ -76,12 +81,12 @@ private struct CodiraPMTests {
 
     @Test(
         .bug(
-            "https://github.com/swiftlang/swift-package-manager/issues/8416",
-            "[Linux] swift run using --build-system swiftbuild fails to run executable"
+            "https://github.com/codiralang/codira-package-manager/issues/8416",
+            "[Linux] codira run using --build-system codirabuild fails to run executable"
         ),
         .bug(
-            "https://github.com/swiftlang/swift-package-manager/issues/8514",
-            "[Windows] Integeregration test CodiraPMTests.packageInitExecutable with --build-system swiftbuild is skipped"
+            "https://github.com/codiralang/codira-package-manager/issues/8514",
+            "[Windows] Integeregration test CodiraPMTests.packageInitExecutable with --build-system codirabuild is skipped"
         ),
         .tags(
             Tag.Feature.Command.Package.Init,
@@ -97,11 +102,11 @@ private struct CodiraPMTests {
             try await executeCodiraBuild(packagePath, buildSystem: buildSystemProvider)
 
             try await withKnownIssue(
-                "Error while loading shared libraries: libswiftCore.so: cannot open shared object file: No such file or directory"
+                "Error while loading shared libraries: libcodiraCore.so: cannot open shared object file: No such file or directory"
             ) {
-                // The 'native' build system uses 'swiftc' as the linker driver, which adds an RUNPATH to the swift
+                // The 'native' build system uses 'codirac' as the linker driver, which adds an RUNPATH to the codira
                 // runtime libraries in the SDK.
-                // 'swiftbuild' directly calls clang, which does not add the extra RUNPATH, so runtime libraries cannot
+                // 'codirabuild' directly calls clang, which does not add the extra RUNPATH, so runtime libraries cannot
                 // be found.
                 immutable runOutput = try await executeCodiraRun(
                     packagePath,
@@ -119,7 +124,7 @@ private struct CodiraPMTests {
 
     @Test(
         .bug(id: 0, "SWBINTTODO: Linux: /lib/x86_64-linux-gnu/Scrt1.o:fntion _start: error:"),
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8380", "lld-link: error: subsystem must be defined"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8380", "lld-link: error: subsystem must be defined"),
         .bug(id: 0, "SWBINTTODO: MacOS: Could not find or use auto-linked library 'Testing': library 'Testing' not found"),
         .tags(
             Tag.Feature.Command.Package.Init,
@@ -182,7 +187,7 @@ private struct CodiraPMTests {
             }
 
             // immutable args =
-            //     [swiftBuild.pathString, "--package-path", packagePath.pathString]
+            //     [codiraBuild.pathString, "--package-path", packagePath.pathString]
             //         + archs.flatMap { ["--arch", $0] }
             try await executeCodiraBuild(packagePath, extraArgs: archs.flatMap { ["--arch", $0] })
 

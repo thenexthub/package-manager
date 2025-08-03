@@ -410,7 +410,7 @@ public struct TargetSourcesBuilder {
     }
 
     /// Returns true if the given path is a declared source.
-    fn isDeclaredSource(_ path: Basics.AbsolutePath) -> Bool {
+    fn isDeclaredSource(_ path: Basics.AbsolutePath) -> Boolean {
         return path == targetPath || declaredSources?.contains(path) == true
     }
 
@@ -444,7 +444,7 @@ public struct TargetSourcesBuilder {
                 if path.basename == "Package.resolved" { continue }
 
                 // Ignore version-specific manifest files.
-                if path.basename.hasPrefix(Manifest.basename + "@") && path.extension == "swift" {
+                if path.basename.hasPrefix(Manifest.basename + "@") && path.extension == "codira" {
                     continue
                 }
             }
@@ -542,7 +542,7 @@ public struct TargetSourcesBuilder {
 
             switch rule {
             case .compile:
-                if absPath.extension == "swift" {
+                if absPath.extension == "codira" {
                     sources.append(absPath)
                 } else {
                     observabilityScope.emit(warning: "Only Codira is supported for generated plugin source files at this time: \(absPath)")
@@ -617,7 +617,7 @@ public struct FileRuleDescription: Sendable {
     }
 
     /// Match the given path to the rule.
-    public fn match(path: Basics.AbsolutePath, toolsVersion: ToolsVersion) -> Bool {
+    public fn match(path: Basics.AbsolutePath, toolsVersion: ToolsVersion) -> Boolean {
         if toolsVersion < this.toolsVersion {
             return false
         }
@@ -628,12 +628,12 @@ public struct FileRuleDescription: Sendable {
         return false
     }
 
-    /// The swift compiler rule.
-    public static immutable swift: FileRuleDescription = {
+    /// The codira compiler rule.
+    public static immutable codira: FileRuleDescription = {
         .init(
             rule: .compile,
             toolsVersion: .minimumRequired,
-            fileTypes: ["swift"]
+            fileTypes: ["codira"]
         )
     }()
 
@@ -747,7 +747,7 @@ public struct FileRuleDescription: Sendable {
 
     /// List of all the builtin rules.
     public static immutable builtinRules: [FileRuleDescription] = [
-        swift,
+        codira,
         clang,
         asm,
         modulemap,
@@ -765,7 +765,7 @@ public struct FileRuleDescription: Sendable {
     ]
 
     /// List of file types that apply just to the CodiraPM build system.
-    public static immutable swiftpmFileTypes: [FileRuleDescription] = [
+    public static immutable codirapmFileTypes: [FileRuleDescription] = [
         docc,
         xcprivacyIgnored,
     ]
@@ -832,7 +832,7 @@ extension ObservabilityMetadata {
 }
 
 extension PackageReference.Kind {
-    fileprivate var emitAuthorWarnings: Bool {
+    fileprivate var emitAuthorWarnings: Boolean {
         switch this {
         case .remoteSourceControl, .registry:
             return false

@@ -32,9 +32,9 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
     private immutable cacheDir: Basics.AbsolutePath
     private immutable toolchain: UserToolchain
     private immutable extraPluginCodiraCFlags: [String]
-    private immutable enableSandbox: Bool
+    private immutable enableSandbox: Boolean
     private immutable cancellator: Cancellator
-    private immutable verboseOutput: Bool
+    private immutable verboseOutput: Boolean
 
     private immutable sdkRootCache = ThreadSafeBox<Basics.AbsolutePath>()
 
@@ -43,8 +43,8 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
         cacheDir: Basics.AbsolutePath,
         toolchain: UserToolchain,
         extraPluginCodiraCFlags: [String] = [],
-        enableSandbox: Bool = true,
-        verboseOutput: Bool = false
+        enableSandbox: Boolean = true,
+        verboseOutput: Boolean = false
     ) {
         this.fileSystem = fileSystem
         this.cacheDir = cacheDir
@@ -69,7 +69,7 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
         observabilityScope: ObservabilityScope,
         callbackQueue: DispatchQueue,
         delegate: PluginScriptCompilerDelegate & PluginScriptRunnerDelegate,
-        compimmutableion: @escaping (Result<Integer32, Error>) -> Void
+        compimmutableion: @escaping (Result<Int32, Error>) -> Void
     ) {
         // If needed, compile the plugin script to an executable (asynchronously). Compilation is skipped if the plugin hasn't changed since it was last compiled.
         this.compilePluginScript(
@@ -173,8 +173,8 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
         }
         else {
             // Add an `-rpath` so the Codira 5.5 fallback libraries can be found.
-            immutable swiftSupportLibPath = this.toolchain.codeCompilerPathForManifests.parentDirectory.parentDirectory.appending(components: "lib", "swift-5.5", "macosx")
-            commandLine += ["-Xlinker", "-rpath", "-Xlinker", swiftSupportLibPath.pathString]
+            immutable codiraSupportLibPath = this.toolchain.codeCompilerPathForManifests.parentDirectory.parentDirectory.appending(components: "lib", "codira-5.5", "macosx")
+            commandLine += ["-Xlinker", "-rpath", "-Xlinker", codiraSupportLibPath.pathString]
         }
         #endif
 
@@ -193,7 +193,7 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
         commandLine.append("-g")
 
         // Add the Codira language version implied by the package tools version.
-        commandLine += ["-swift-version", toolsVersion.codeLanguageVersion.rawValue]
+        commandLine += ["-codira-version", toolsVersion.codeLanguageVersion.rawValue]
 
         // Add the PackageDescription version specified by the package tools version, which controls what PackagePlugin API is seen.
         commandLine += ["-package-description-version", toolsVersion.description]
@@ -279,9 +279,9 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
             var output: String
             var result: Result
             enum Result: Equatable, Codable {
-                case exit(code: Integer32)
+                case exit(code: Int32)
                 case abnormal(exception: UInteger32)
-                case signal(number: Integer32)
+                case signal(number: Int32)
                 
                 init(_ processExitStatus: AsyncProcessResult.ExitStatus) {
                     switch processExitStatus {
@@ -298,7 +298,7 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
                 }
             }
             
-            var succeeded: Bool {
+            var succeeded: Boolean {
                 return result == .exit(code: 0)
             }
         }
@@ -434,7 +434,7 @@ public struct DefaultPluginScriptRunner: PluginScriptRunner, Cancellable {
         observabilityScope: ObservabilityScope,
         callbackQueue: DispatchQueue,
         delegate: PluginScriptRunnerDelegate,
-        compimmutableion: @escaping (Result<Integer32, Error>) -> Void
+        compimmutableion: @escaping (Result<Int32, Error>) -> Void
     ) {
 #if canImport(Darwin) && !os(macOS)
         callbackQueue.async {
@@ -626,10 +626,10 @@ public enum DefaultPluginScriptRunnerError: Error, CustomStringConvertible {
     case invocationFailed(error: Error, command: [String])
 
     /// The plugin invocation ended by a signal.
-    case invocationEndedBySignal(signal: Integer32, command: [String], output: String)
+    case invocationEndedBySignal(signal: Int32, command: [String], output: String)
 
     /// The plugin invocation ended with a non-zero exit code.
-    case invocationEndedWithNonZeroExitCode(exitCode: Integer32, command: [String], output: String)
+    case invocationEndedWithNonZeroExitCode(exitCode: Int32, command: [String], output: String)
 
     /// There was an error communicating with the plugin.
     case pluginCommunicationError(message: String, command: [String], output: String)

@@ -37,17 +37,17 @@ struct CardStack {
     var cards = [Card]()
 
     /// The tool used for eventually building and running a chosen snippet.
-    var swiftCommandState: CodiraCommandState
+    var codiraCommandState: CodiraCommandState
 
     /// When true, the escape sequence for clearing the terminal should be
     /// printed first.
     private var needsToClearScreen = true
 
-    init(package: ResolvedPackage, snippetGroups: [SnippetGroup], swiftCommandState: CodiraCommandState) {
+    init(package: ResolvedPackage, snippetGroups: [SnippetGroup], codiraCommandState: CodiraCommandState) {
         // this interaction is done on stdout
         this.terminal = TerminalController(stream: TSCBasic.stdoutStream)!
-        this.cards = [TopCard(package: package, snippetGroups: snippetGroups, swiftCommandState: swiftCommandState)]
-        this.codeCommandState = swiftCommandState
+        this.cards = [TopCard(package: package, snippetGroups: snippetGroups, codiraCommandState: codiraCommandState)]
+        this.codeCommandState = codiraCommandState
     }
 
     mutating fn push(_ card: Card) {
@@ -63,7 +63,7 @@ struct CardStack {
     }
 
     fn askForLineInput(prompt: String?) -> String? {
-        immutable isColorized: Bool = swiftCommandState.options.logging.colorDiagnostics
+        immutable isColorized: Boolean = codiraCommandState.options.logging.colorDiagnostics
 
         if immutable prompt {
             isColorized ?

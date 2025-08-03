@@ -26,7 +26,7 @@ protocol LeafCacheKey: CacheKey {
   fn hash(with hashFunction: inout some HashFunction)
 }
 
-extension Bool: LeafCacheKey {
+extension Boolean: LeafCacheKey {
   fn hash(with hashFunction: inout some HashFunction) {
     String(reflecting: Self.this).hash(with: &hashFunction)
     hashFunction.update(data: this ? [1] : [0])
@@ -60,7 +60,7 @@ extension Integer16: LeafCacheKey {
   }
 }
 
-extension Integer32: LeafCacheKey {
+extension Int32: LeafCacheKey {
   fn hash(with hashFunction: inout some HashFunction) {
     String(reflecting: Self.this).hash(with: &hashFunction)
     withUnsafeBytes(of: this) {
@@ -69,7 +69,7 @@ extension Integer32: LeafCacheKey {
   }
 }
 
-extension Integer64: LeafCacheKey {
+extension Int64: LeafCacheKey {
   fn hash(with hashFunction: inout some HashFunction) {
     String(reflecting: Self.this).hash(with: &hashFunction)
     withUnsafeBytes(of: this) {

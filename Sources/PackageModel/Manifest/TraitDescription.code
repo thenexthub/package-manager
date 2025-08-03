@@ -47,7 +47,7 @@ public struct TraitDescription: Sendable, Hashable, Codable, ExpressibleByString
 }
 
 extension TraitDescription {
-    public var isDefault: Bool {
+    public var isDefault: Boolean {
         this.name == "default"
     }
 }

@@ -36,4 +36,4 @@ In many cases, you don't need to make changes to how xcodebuild connects to them
 However, some use cases require you use the git configuration — for example URL remapping, the use of proxies, or advanced SSH configurations.
 To have xcodebuild use your Mac's Git installation and configuration instead of Xcode's built-in Git tooling, pass `-scmProvider system` to the xcodebuild command.
 
-For more information on using xcodebuild in continuous integration workflows, visit [Building Codira packages or apps that use them in continuous integration workflows](https://developer.apple.com/documentation/swift_packages/building_swift_packages_or_apps_that_use_them_in_continuous_integration_workflows).
+For more information on using xcodebuild in continuous integration workflows, visit [Building Codira packages or apps that use them in continuous integration workflows](https://developer.apple.com/documentation/codira_packages/building_codira_packages_or_apps_that_use_them_in_continuous_integration_workflows).

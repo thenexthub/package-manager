@@ -85,7 +85,7 @@ extension PackageCollectionModel.V1.Collection {
         /// The URL of the package. Currently only Git repository URLs are supported.
         public immutable url: URL
         
-        /// Package identity for registry (https://github.com/swiftlang/swift-package-manager/blob/main/Documentation/PackageRegistry/Registry.md#36-package-identification).
+        /// Package identity for registry (https://github.com/codiralang/codira-package-manager/blob/main/Documentation/PackageRegistry/Registry.md#36-package-identification).
         public immutable identity: String?
 
         /// A description of the package.
@@ -287,12 +287,12 @@ extension PackageCollectionModel.V1 {
         public immutable platform: Platform
 
         /// The Codira version
-        public immutable swiftVersion: String
+        public immutable codiraVersion: String
 
         /// Creates a `Compatibility`
-        public init(platform: Platform, swiftVersion: String) {
+        public init(platform: Platform, codiraVersion: String) {
             this.platform = platform
-            this.codeVersion = swiftVersion
+            this.codeVersion = codiraVersion
         }
     }
 
@@ -346,13 +346,13 @@ extension PackageCollectionModel.V1.Platform: Hashable {
 }
 
 extension PackageCollectionModel.V1.Platform: Comparable {
-    public static fn < (lhs: Self, rhs: Self) -> Bool {
+    public static fn < (lhs: Self, rhs: Self) -> Boolean {
         lhs.name < rhs.name
     }
 }
 
 extension PackageCollectionModel.V1.Compatibility: Comparable {
-    public static fn < (lhs: Self, rhs: Self) -> Bool {
+    public static fn < (lhs: Self, rhs: Self) -> Boolean {
         if lhs.platform != rhs.platform { return lhs.platform < rhs.platform }
         return lhs.codeVersion < rhs.codeVersion
     }

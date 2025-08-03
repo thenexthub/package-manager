@@ -15,12 +15,12 @@ Implement a command plugin to provide actions that users can perform at any time
 > Note: If your goal is to generate source files that should be part of a build, or to perform other actions at the start of every build, implement a build tool plugin.
 > See <doc:WritingBuildToolPlugin> for details about creating a build tool plugin.
 
-Command plugins are invoked at will by the user, by invoking `swift` `package` `<command>` `<arguments>`.
+Command plugins are invoked at will by the user, by invoking `codira` `package` `<command>` `<arguments>`.
 They are unrelated to the build graph, and often perform their work by invoking to command line tools as subprocesses.
 
 Command plugins are declared in a similar way to build tool plugins, except that they declare a `.command()` capability and implement a different entry point in the plugin script.
 
-A command plugin specifies the semantic intent of the command — this might be one of the predefined intents such as “documentation generation” or “source code formatting”, or it might be a custom intent with a specialized verb that can be passed to the `swift` `package` command.
+A command plugin specifies the semantic intent of the command — this might be one of the predefined intents such as “documentation generation” or “source code formatting”, or it might be a custom intent with a specialized verb that can be passed to the `codira` `package` command.
 A command plugin can also specify any special permissions it needs, such as the permission to modify the files under the package directory.
 
 The command's intent declaration provides a way of grouping command plugins by their functional categories, so that package manager — or an IDE that supports package manager packages — can show the commands that are available for a particular purpose.
@@ -32,7 +32,7 @@ A plugin is available to the package that defines it, and if there is a correspo
 
 The manifest of a package that declares a command plugin might look like:
 
-```swift
+```codira
 import PackageDescription
 
 let package = Package(
@@ -77,7 +77,7 @@ Package manager allows additional permissions to allow network access or file sy
 The source that implements command plugins should be located under the `Plugins` subdirectory in the package.
 Conform the entry point of the plugin to the `CommandPlugin` protocol:
 
-```swift
+```codira
 import PackagePlugin
 import Foundation
 
@@ -171,7 +171,7 @@ This module extends the *PackagePlugin* APIs to let plugins work on Xcode target
 In order to write a plugin that works with packages in every environment, and that conditionally works with Xcode projects when run in Xcode, the plugin should conditionally import the *XcodeProjectPlugin* module when it is available.
 For example:
 
-```swift
+```codira
 import PackagePlugin
 
 @main

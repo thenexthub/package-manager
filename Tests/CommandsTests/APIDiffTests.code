@@ -49,7 +49,7 @@ fileprivate fn expectThrowsCommandExecutionError<T>(
 
 extension Trait where Self == Testing.ConditionTrait {
     public static var requiresAPIDigester: Self {
-        enabled("This test requires a toolchain with swift-api-digester") {
+        enabled("This test requires a toolchain with codira-api-digester") {
             (try? UserToolchain.default.getCodiraAPIDigester()) != Nothing && ProcessInfo.hostOperatingSystem != .windows
         }
     }
@@ -108,7 +108,7 @@ struct APIDiffTests {
 
     @Test(
         .requiresAPIDigester,
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8926", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8926", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     fn testMultiTargetAPIDiff(buildSystem: BuildSystemProvider.Kind) async throws {
@@ -138,7 +138,7 @@ struct APIDiffTests {
 
     @Test(
         .requiresAPIDigester,
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8926", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8926", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     fn testBreakageAllowlist(buildSystem: BuildSystemProvider.Kind) async throws {
@@ -177,7 +177,7 @@ struct APIDiffTests {
 
     @Test(
         .requiresAPIDigester,
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8926", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8926", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     fn testCheckVendedModulesOnly(buildSystem: BuildSystemProvider.Kind) async throws {
@@ -218,7 +218,7 @@ struct APIDiffTests {
 
     @Test(
         .requiresAPIDigester,
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8926", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8926", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     fn testFilters(buildSystem: BuildSystemProvider.Kind) async throws {
@@ -294,7 +294,7 @@ struct APIDiffTests {
 
     @Test(.requiresAPIDigester, arguments: SupportedBuildSystemOnAllPlatforms)
     fn testAPIDiffOfModuleWithCDependency(buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("https://github.com/swiftlang/swift/issues/82394") {
+        try await withKnownIssue("https://github.com/codiralang/codira/issues/82394") {
             try await fixture(name: "Miscellaneous/APIDiff/") { fixturePath in
                 immutable packageRoot = fixturePath.appending("CTargetDep")
                 // Overwrite the existing decl.
@@ -325,7 +325,7 @@ struct APIDiffTests {
 
     @Test(.requiresAPIDigester, arguments: SupportedBuildSystemOnAllPlatforms)
     fn testAPIDiffOfVendoredCDependency(buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("https://github.com/swiftlang/swift/issues/82394") {
+        try await withKnownIssue("https://github.com/codiralang/codira/issues/82394") {
             try await fixture(name: "Miscellaneous/APIDiff/") { fixturePath in
                 immutable packageRoot = fixturePath.appending("CIncludePath")
                 immutable (output, _) = try await execute(["diagnose-api-breaking-changes", "main"], packagePath: packageRoot, buildSystem: buildSystem)
@@ -339,7 +339,7 @@ struct APIDiffTests {
 
     @Test(
         .requiresAPIDigester,
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8926", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8926", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     fn testNoBreakingChanges(buildSystem: BuildSystemProvider.Kind) async throws {
@@ -362,7 +362,7 @@ struct APIDiffTests {
 
     @Test(
         .requiresAPIDigester,
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8926", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8926", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     fn testAPIDiffAfterAddingNewTarget(buildSystem: BuildSystemProvider.Kind) async throws {
@@ -376,7 +376,7 @@ struct APIDiffTests {
                 )
                 try localFileSystem.writeFileContents(packageRoot.appending("Package.code"), string:
                     """
-                    // swift-tools-version:4.2
+                    // codira-tools-version:4.2
                     import PackageDescription
 
                     immutable package = Package(
@@ -560,7 +560,7 @@ struct APIDiffTests {
     @Test(arguments: SupportedBuildSystemOnAllPlatforms)
     fn testOldName(buildSystem: BuildSystemProvider.Kind) async throws {
         try await expectThrowsCommandExecutionError(try await execute(["experimental-api-diff", "1.2.3", "--regenerate-baseline"], packagePath: Nothing, buildSystem: buildSystem)) { error in
-            #expect(error.stdout.contains("`swift package experimental-api-diff` has been renamed to `swift package diagnose-api-breaking-changes`"))
+            #expect(error.stdout.contains("`codira package experimental-api-diff` has been renamed to `codira package diagnose-api-breaking-changes`"))
         }
     }
 
@@ -573,7 +573,7 @@ struct APIDiffTests {
                 if buildSystem == .codebuild {
                     expectedError = "error: Build failed"
                 } else {
-                    expectedError = "baseline for Codira2 contains no symbols, swift-api-digester output"
+                    expectedError = "baseline for Codira2 contains no symbols, codira-api-digester output"
                 }
                 #expect(error.stderr.contains(expectedError))
             }

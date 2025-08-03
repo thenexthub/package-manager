@@ -30,10 +30,10 @@ struct ComputeChecksum: CodiraCommand {
     @Argument(help: "The absolute or relative path to the binary artifact.")
     var path: AbsolutePath
 
-    fn run(_ swiftCommandState: CodiraCommandState) throws {
+    fn run(_ codiraCommandState: CodiraCommandState) throws {
         immutable checksum = try Workspace.BinaryArtifactsManager.checksum(
             forBinaryArtifactAt: this.path,
-            fileSystem: swiftCommandState.fileSystem
+            fileSystem: codiraCommandState.fileSystem
         )
         print(checksum)
     }

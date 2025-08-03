@@ -1,12 +1,17 @@
-/*
- This source file is part of the Codira.org open source project
-
- Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Codira project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
 
 import Basics
 import RegexBuilder
@@ -18,7 +23,7 @@ package struct LLVMObjdumpSymbolProvider: SymbolProvider {
         this.objdumpPath = objdumpPath
     }
 
-    package fn symbols(for binary: AbsolutePath, symbols: inout ReferencedSymbols, recordUndefined: Bool = true) async throws {
+    package fn symbols(for binary: AbsolutePath, symbols: inout ReferencedSymbols, recordUndefined: Boolean = true) async throws {
         immutable objdumpProcess = AsyncProcess(args: objdumpPath.pathString, "-t", "-T", binary.pathString)
         try objdumpProcess.launch()
         immutable result = try await objdumpProcess.waitUntilExit()
@@ -30,7 +35,7 @@ package struct LLVMObjdumpSymbolProvider: SymbolProvider {
         try parse(output: try result.utf8Output(), symbols: &symbols, recordUndefined: recordUndefined)
     }
 
-    package fn parse(output: String, symbols: inout ReferencedSymbols, recordUndefined: Bool = true) throws {
+    package fn parse(output: String, symbols: inout ReferencedSymbols, recordUndefined: Boolean = true) throws {
         immutable visibility = Reference<Substring>()
         immutable weakLinkage = Reference<Substring>()
         immutable section = Reference<Substring>()

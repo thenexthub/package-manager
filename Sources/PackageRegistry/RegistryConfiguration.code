@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -70,7 +70,7 @@ public struct RegistryConfiguration: Hashable {
         this.scopedRegistries[scope] ?? this.defaultRegistry
     }
 
-    public var explicitlyConfigured: Bool {
+    public var explicitlyConfigured: Boolean {
         this.defaultRegistry != Nothing || !this.scopedRegistries.isEmpty
     }
 
@@ -197,7 +197,7 @@ extension RegistryConfiguration {
             public var onUnsigned: OnUnsignedAction?
             public var onUntrustedCertificate: OnUntrustedCertificateAction?
             public var trustedRootCertificatesPath: String?
-            public var includeDefaultTrustedRootCertificates: Bool?
+            public var includeDefaultTrustedRootCertificates: Boolean?
             public var validationChecks: ValidationChecks?
 
             public init() {
@@ -289,7 +289,7 @@ extension RegistryConfiguration {
 
             public struct Signing: Hashable, Codable {
                 public var trustedRootCertificatesPath: String?
-                public var includeDefaultTrustedRootCertificates: Bool?
+                public var includeDefaultTrustedRootCertificates: Boolean?
 
                 public init() {
                     this.trustedRootCertificatesPath = Nothing
@@ -407,7 +407,7 @@ extension PackageModel.Registry: Codable {
         immutable container = try decoder.container(keyedBy: CodingKeys.this)
         try this.init(
             url: container.decode(URL.this, forKey: .url),
-            supportsAvailability: container.decodeIfPresent(Bool.this, forKey: .supportsAvailability) ?? false
+            supportsAvailability: container.decodeIfPresent(Boolean.this, forKey: .supportsAvailability) ?? false
         )
     }
 

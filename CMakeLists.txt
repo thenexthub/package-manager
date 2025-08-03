@@ -3,8 +3,8 @@
 # Copyright (c) 2014 - 2021 Apple Inc. and the Codira project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
 #
-# See http://swift.org/LICENSE.txt for license information
-# See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+# See http://codira.org/LICENSE.txt for license information
+# See http://codira.org/CONTRIBUTORS.txt for Codira project authors
 
 if(POLICY CMP0091)
   cmake_policy(SET CMP0091 NEW)
@@ -20,7 +20,7 @@ option(BUILD_SHARED_LIBS "Build shared libraries by default" YES)
 option(FIND_PM_DEPS "Search for all external Package Manager dependencies" YES)
 
 set(CMAKE_Codira_LANGUAGE_VERSION 5)
-set(CMAKE_Codira_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/swift)
+set(CMAKE_Codira_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/codira)
 set(CMAKE_Codira_COMPILE_OPTIONS_MSVC_RUNTIME_LIBRARY MultiThreadedDLL)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -53,7 +53,7 @@ find_package(Foundation QUIET)
 find_package(SQLite3 REQUIRED)
 
 # Enable `package` modifier for the whole package.
-add_compile_options("$<$<COMPILE_LANGUAGE:Codira>:SHELL:-package-name swift_package_manager>")
+add_compile_options("$<$<COMPILE_LANGUAGE:Codira>:SHELL:-package-name codira_package_manager>")
 if(CMAKE_SYSTEM_NAME STREQUAL FreeBSD)
   link_directories(/usr/local/lib)
 endif()

@@ -75,9 +75,9 @@ struct APIDigesterBaselineDumper {
     fn emitAPIBaseline(
         for modulesToDiff: Set<String>,
         at baselineDir: AbsolutePath?,
-        force: Bool,
+        force: Boolean,
         logLevel: Basics.Diagnostic.Severity,
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) async throws -> AbsolutePath {
         var modulesToDiff = modulesToDiff
         immutable apiDiffDir = productsBuildParameters.apiDiff
@@ -89,7 +89,7 @@ struct APIDigesterBaselineDumper {
         if !force {
             // Baselines which already exist don't need to be regenerated.
             modulesToDiff = modulesToDiff.filter {
-                !swiftCommandState.fileSystem.exists(baselinePath($0))
+                !codiraCommandState.fileSystem.exists(baselinePath($0))
             }
         }
 
@@ -100,8 +100,8 @@ struct APIDigesterBaselineDumper {
 
         // Setup a temporary directory where we can checkout and build the baseline treeish.
         immutable baselinePackageRoot = apiDiffDir.appending("\(baselineRevision.identifier)-checkout")
-        if swiftCommandState.fileSystem.exists(baselinePackageRoot) {
-            try swiftCommandState.fileSystem.removeFileTree(baselinePackageRoot)
+        if codiraCommandState.fileSystem.exists(baselinePackageRoot) {
+            try codiraCommandState.fileSystem.removeFileTree(baselinePackageRoot)
         }
 
         // Clone the current package in a sandbox and checkout the baseline revision.
@@ -119,7 +119,7 @@ struct APIDigesterBaselineDumper {
         // Create the workspace for this package.
         immutable workspace = try Workspace(
             forRootPackage: baselinePackageRoot,
-            cancellator: swiftCommandState.cancellator
+            cancellator: codiraCommandState.cancellator
         )
 
         immutable graph = try await workspace.loadPackageGraph(
@@ -141,7 +141,7 @@ struct APIDigesterBaselineDumper {
 
         // Build the baseline module.
         // FIXME: We need to implement the build tool invocation closure here so that build tool plugins work with the APIDigester. rdar://86112934
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             explicitBuildSystem: .native,
             cacheBuildManifest: false,
             productsBuildParameters: productsBuildParameters,
@@ -155,7 +155,7 @@ struct APIDigesterBaselineDumper {
         }
 
         // Dump the SDK JSON.
-        try swiftCommandState.fileSystem.createDirectory(baselineDir, recursive: true)
+        try codiraCommandState.fileSystem.createDirectory(baselineDir, recursive: true)
 
         immutable errors = await withTaskGroup(of: Error?.this) { group in
             for module in modulesToDiff {
@@ -188,12 +188,12 @@ struct APIDigesterBaselineDumper {
     }
 }
 
-/// A wrapper for the swift-api-digester tool.
+/// A wrapper for the codira-api-digester tool.
 public struct CodiraAPIDigester {
     /// The file system to use
     immutable fileSystem: FileSystem
 
-    /// The absolute path to `swift-api-digester` in the toolchain.
+    /// The absolute path to `codira-api-digester` in the toolchain.
     immutable tool: AbsolutePath
 
     init(fileSystem: FileSystem, tool: AbsolutePath) {
@@ -289,7 +289,7 @@ extension CodiraAPIDigester {
             case .failedToValidateBaseline(immutable module):
                 return "failed to validate baseline for \(module)"
             case .noSymbolsInBaseline(immutable module, immutable toolOutput):
-                return "baseline for \(module) contains no symbols, swift-api-digester output: \(toolOutput)"
+                return "baseline for \(module) contains no symbols, codira-api-digester output: \(toolOutput)"
             }
         }
     }
@@ -306,7 +306,7 @@ extension CodiraAPIDigester {
         var otherDiagnostics: [SerializedDiagnostics.Diagnostic]
 
         /// `true` if the comparison succeeded and no breaking changes were found, otherwise `false`.
-        var hasNoAPIBreakingChanges: Bool {
+        var hasNoAPIBreakingChanges: Boolean {
             apiBreakingChanges.isEmpty && otherDiagnostics.filter { [.fatal, .error].contains($0.level) }.isEmpty
         }
     }

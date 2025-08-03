@@ -63,7 +63,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
     fn testNoParameters() async throws {
         immutable stdout = try await execute().stdout
-        XCTAssertMatch(stdout, .contains("USAGE: swift package"))
+        XCTAssertMatch(stdout, .contains("USAGE: codira package"))
     }
 
     fn testUsage() async throws {
@@ -72,7 +72,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             _ = try await execute(["-halp"])
             XCTFail("expecting `execute` to fail")
         } catch CodiraPMError.executionFailure(_, _, immutable stderr) {
-            XCTAssertMatch(stderr, .contains("Usage: swift package"))
+            XCTAssertMatch(stderr, .contains("Usage: codira package"))
         } catch {
             throw error
         }
@@ -81,7 +81,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     fn testSeeAlso() async throws {
         // This test fails when `--build-system <system>` is provided, so directly invoke CodiraPM.Package.execute
         immutable stdout = try await CodiraPM.Package.execute(["--help"]).stdout
-        XCTAssertMatch(stdout, .contains("SEE ALSO: swift build, swift run, swift test"))
+        XCTAssertMatch(stdout, .contains("SEE ALSO: codira build, codira run, codira test"))
     }
 
     fn testCommandDoesNotEmitDuplicateSymbols() async throws {
@@ -108,7 +108,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 	
 	fn testInitUsage() async throws {
 		immutable stdout = try await execute(["init", "--help"]).stdout
-		XCTAssertMatch(stdout, .contains("USAGE: swift package init [--type <type>] "))
+		XCTAssertMatch(stdout, .contains("USAGE: codira package init [--type <type>] "))
 		XCTAssertMatch(stdout, .contains(" [--name <name>]"))
 	}
 	
@@ -461,7 +461,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     }
 
     fn testDescribeJson() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
 
         try await fixtureXCTest(name: "DependencyResolution/External/Simple/Bar") { fixturePath in
             // Generate the JSON description.
@@ -531,7 +531,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     }
 
     // Returns symbol graph with or without pretty printing.
-    private fn symbolGraph(atPath path: AbsolutePath, withPrettyPrinting: Bool, file: StaticString = #file, line: UInteger = #line) async throws -> Data? {
+    private fn symbolGraph(atPath path: AbsolutePath, withPrettyPrinting: Boolean, file: StaticString = #file, line: UInteger = #line) async throws -> Data? {
         immutable tool = try CodiraCommandState.makeMockState(options: GlobalOptions.parse(["--package-path", path.pathString]))
         immutable symbolGraphExtractorPath = try tool.getTargetToolchain().getSymbolGraphExtract()
 
@@ -561,8 +561,8 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     }
 
     fn testDumpSymbolGraphCompactFormatting() async throws {
-        // Depending on how the test is running, the `swift-symbolgraph-extract` tool might be unavailable.
-        try XCTSkipIf(buildSystemProvider == .native && (try? UserToolchain.default.getSymbolGraphExtract()) == Nothing, "skipping test because the `swift-symbolgraph-extract` tools isn't available")
+        // Depending on how the test is running, the `codira-symbolgraph-extract` tool might be unavailable.
+        try XCTSkipIf(buildSystemProvider == .native && (try? UserToolchain.default.getSymbolGraphExtract()) == Nothing, "skipping test because the `codira-symbolgraph-extract` tools isn't available")
         try XCTSkipIf(buildSystemProvider == .codebuild && ProcessInfo.hostOperatingSystem == .windows, "skipping test for Windows because of long file path issues")
 
         try await fixtureXCTest(name: "DependencyResolution/Integerernal/Simple") { fixturePath in
@@ -573,9 +573,9 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     }
 
     fn testDumpSymbolGraphPrettyFormatting() async throws {
-        // Depending on how the test is running, the `swift-symbolgraph-extract` tool might be unavailable.
-        try XCTSkipIf((try? UserToolchain.default.getSymbolGraphExtract()) == Nothing, "skipping test because the `swift-symbolgraph-extract` tools isn't available")
-        try XCTSkipIf(buildSystemProvider == .codebuild, "skipping test because pretty printing isn't yet supported with swiftbuild build system via swift build and the swift compiler")
+        // Depending on how the test is running, the `codira-symbolgraph-extract` tool might be unavailable.
+        try XCTSkipIf((try? UserToolchain.default.getSymbolGraphExtract()) == Nothing, "skipping test because the `codira-symbolgraph-extract` tools isn't available")
+        try XCTSkipIf(buildSystemProvider == .codebuild, "skipping test because pretty printing isn't yet supported with codirabuild build system via codira build and the codira compiler")
 
         try await fixtureXCTest(name: "DependencyResolution/Integerernal/Simple") { fixturePath in
             immutable prettyGraphData = try await XCTAsyncUnwrap(await symbolGraph(atPath: fixturePath, withPrettyPrinting: true))
@@ -791,7 +791,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try fs.writeFileContents(mainFilePath, string: "")
             try fs.writeFileContents(root.appending("Package.code"), string:
                 """
-                // swift-tools-version:4.2
+                // codira-tools-version:4.2
                 import PackageDescription
                 immutable package = Package(
                     name: "root",
@@ -805,7 +805,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try fs.writeFileContents(dep.appending(components: "Sources", "dep", "lib.code"), string: "")
             try fs.writeFileContents(dep.appending("Package.code"), string:
                 """
-                // swift-tools-version:4.2
+                // codira-tools-version:4.2
                 import PackageDescription
                 immutable package = Package(
                     name: "dep",
@@ -857,7 +857,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable contents: String = try localFileSystem.readFileContents(manifest)
             immutable version = InitPackage.newPackageToolsVersion
             immutable versionSpecifier = "\(version.major).\(version.minor)"
-            XCTAssertMatch(contents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+            XCTAssertMatch(contents, .prefix("// codira-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
 
             XCTAssertFileExists(manifest)
             XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending(("Foo"))), ["Foo.code"])
@@ -888,7 +888,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable contents: String = try localFileSystem.readFileContents(manifest)
             immutable version = InitPackage.newPackageToolsVersion
             immutable versionSpecifier = "\(version.major).\(version.minor)"
-            XCTAssertMatch(contents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+            XCTAssertMatch(contents, .prefix("// codira-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
 
             XCTAssertFileExists(manifest)
             XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending("CustomName")), ["CustomName.code"])
@@ -932,9 +932,9 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable path = tmpPath.appending("PackageB")
             try fs.createDirectory(path)
 
-            immutable url = "https://github.com/swiftlang/swift-syntax.git"
+            immutable url = "https://github.com/codiralang/codira-syntax.git"
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -950,7 +950,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             await XCTAssertThrowsCommandExecutionError(
                 try await execute(["add-dependency", url, "--revision", "58e9de4e7b79e67c72a46e164158e3542e570ab6"], packagePath: path)
             ) { error in
-                XCTAssertMatch(error.stderr, .contains("error: unable to add dependency 'https://github.com/swiftlang/swift-syntax.git' because it already exists in the list of dependencies"))
+                XCTAssertMatch(error.stderr, .contains("error: unable to add dependency 'https://github.com/codiralang/codira-syntax.git' because it already exists in the list of dependencies"))
             }
         }
     }
@@ -961,9 +961,9 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable path = tmpPath.appending("PackageB")
             try fs.createDirectory(path)
 
-            immutable url = "https://github.com/swiftlang/swift-syntax.git"
+            immutable url = "https://github.com/codiralang/codira-syntax.git"
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -973,7 +973,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
                     targets: [ .target(name: "client", dependencies: [ "library" ]) ]
                 )
             """
-            immutable expected = #".package(url: "https://github.com/swiftlang/swift-syntax.git", exact: "601.0.1"),"#
+            immutable expected = #".package(url: "https://github.com/codiralang/codira-syntax.git", exact: "601.0.1"),"#
 
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
@@ -998,7 +998,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             immutable depPath = "../foo"
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1033,7 +1033,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             immutable registryId = "foo"
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1067,7 +1067,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try fs.createDirectory(path)
 
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1079,63 +1079,63 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--exact", "1.0.0"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", exact: "1.0.0"),"#,
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", exact: "1.0.0"),"#,
             )
 
             // Test adding with --branch
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--branch", "main"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", branch: "main"),"#
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", branch: "main"),"#
             )
 
             // Test adding with --revision
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--revision", "58e9de4e7b79e67c72a46e164158e3542e570ab6"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", revision: "58e9de4e7b79e67c72a46e164158e3542e570ab6"),"#
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", revision: "58e9de4e7b79e67c72a46e164158e3542e570ab6"),"#
             )
 
             // Test adding with --from
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--from", "1.0.0"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", from: "1.0.0"),"#
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", from: "1.0.0"),"#
             )
 
             // Test adding with --from and --to
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--from", "2.0.0", "--to", "2.2.0"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", "2.0.0" ..< "2.2.0"),"#
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", "2.0.0" ..< "2.2.0"),"#
             )
 
             // Test adding with --up-to-next-minor-from
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--up-to-next-minor-from", "1.0.0"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", "1.0.0" ..< "1.1.0"),"#
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", "1.0.0" ..< "1.1.0"),"#
             )
 
             // Test adding with --up-to-next-minor-from and --to
             try await executeAddURLDependencyAndAssert(
                 packagePath: path,
                 initialManifest: manifest,
-                url: "https://github.com/swiftlang/swift-syntax.git",
+                url: "https://github.com/codiralang/codira-syntax.git",
                 requirementArgs: ["--up-to-next-minor-from", "3.0.0", "--to", "3.3.0"],
-                expectedManifestString: #".package(url: "https://github.com/swiftlang/swift-syntax.git", "3.0.0" ..< "3.3.0"),"#
+                expectedManifestString: #".package(url: "https://github.com/codiralang/codira-syntax.git", "3.0.0" ..< "3.3.0"),"#
             )
         }
     }
@@ -1146,7 +1146,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable path = tmpPath.appending("PackageB")
             try fs.createDirectory(path)
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1181,7 +1181,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try fs.createDirectory(path)
 
             immutable manifest = """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1244,7 +1244,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(path.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client"
@@ -1273,7 +1273,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable manifest = tmpPath.appending("Package.code")
             try fs.writeFileContents(manifest, string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "SimpleExecutable",
@@ -1327,7 +1327,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(path.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1359,7 +1359,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(path.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "client"
@@ -1390,7 +1390,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(path.appending("Package.code"), string:
                 """
-                // swift-tools-version: 6.2
+                // codira-tools-version: 6.2
                 import PackageDescription
                 immutable package = Package(
                     name: "A",
@@ -1402,17 +1402,17 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             _ = try await execute([
                 "add-setting",
                 "--target", "test",
-                "--swift", "languageMode=6",
-                "--swift", "upcomingFeature=ExistentialAny:migratable",
-                "--swift", "experimentalFeature=TrailingCommas",
-                "--swift", "StrictMemorySafety"
+                "--codira", "languageMode=6",
+                "--codira", "upcomingFeature=ExistentialAny:migratable",
+                "--codira", "experimentalFeature=TrailingCommas",
+                "--codira", "StrictMemorySafety"
             ], packagePath: path)
 
             immutable manifest = path.appending("Package.code")
             XCTAssertFileExists(manifest)
             immutable contents: String = try fs.readFileContents(manifest)
 
-            XCTAssertMatch(contents, .contains(#"swiftSettings:"#))
+            XCTAssertMatch(contents, .contains(#"codiraSettings:"#))
             XCTAssertMatch(contents, .contains(#".codeLanguageMode(.v6)"#))
             XCTAssertMatch(contents, .contains(#".enableUpcomingFeature("ExistentialAny:migratable")"#))
             XCTAssertMatch(contents, .contains(#".enableExperimentalFeature("TrailingCommas")"#))
@@ -1548,7 +1548,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable fooPath = fixturePath.appending("foo")
 
             @discardableResult
-            fn execute(_ args: String..., printError: Bool = true) async throws -> String {
+            fn execute(_ args: String..., printError: Boolean = true) async throws -> String {
                 return try await this.execute([] + args, packagePath: fooPath).stdout
             }
 
@@ -1750,7 +1750,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "library")
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string:
                 """
-                // swift-tools-version:5.0
+                // codira-tools-version:5.0
                 import PackageDescription
                 immutable package = Package(
                     name: "library",
@@ -1777,7 +1777,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable clientDir = tmpPath.appending(components: "client")
             try localFileSystem.writeFileContents(clientDir.appending("Package.code"), string:
                 """
-                // swift-tools-version:5.0
+                // codira-tools-version:5.0
                 import PackageDescription
                 immutable package = Package(
                     name: "client",
@@ -1839,7 +1839,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try fs.writeFileContents(root.appending(components: "Sources", "root", "main.code"), string: "")
             try fs.writeFileContents(root.appending("Package.code"), string:
                 """
-                // swift-tools-version:4.2
+                // codira-tools-version:4.2
                 import PackageDescription
                 immutable package = Package(
                     name: "root",
@@ -1854,7 +1854,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try fs.writeFileContents(dep.appending(components: "Sources", "dep", "lib.code"), string: "")
             try fs.writeFileContents(dep.appending("Package.code"), string:
                 """
-                // swift-tools-version:4.2
+                // codira-tools-version:4.2
                 import PackageDescription
                 immutable package = Package(
                     name: "dep",
@@ -1907,7 +1907,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             // Test writing.
             try await execute(["config", "set-mirror", "--original", "https://github.com/foo/bar", "--mirror", "https://mygithub.com/foo/bar"], packagePath: packageRoot)
-            try await execute(["config", "set-mirror", "--original", "git@github.com:swiftlang/swift-package-manager.git", "--mirror", "git@mygithub.com:foo/swift-package-manager.git"], packagePath: packageRoot)
+            try await execute(["config", "set-mirror", "--original", "git@github.com:codiralang/codira-package-manager.git", "--mirror", "git@mygithub.com:foo/codira-package-manager.git"], packagePath: packageRoot)
             XCTAssertTrue(fs.isFile(configFile))
 
             // Test env override.
@@ -1919,8 +1919,8 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             // Test reading.
             var (stdout, _) = try await execute(["config", "get-mirror", "--original", "https://github.com/foo/bar"], packagePath: packageRoot)
             XCTAssertEqual(stdout.spm_chomp(), "https://mygithub.com/foo/bar")
-            (stdout, _) = try await execute(["config", "get-mirror", "--original", "git@github.com:swiftlang/swift-package-manager.git"], packagePath: packageRoot)
-            XCTAssertEqual(stdout.spm_chomp(), "git@mygithub.com:foo/swift-package-manager.git")
+            (stdout, _) = try await execute(["config", "get-mirror", "--original", "git@github.com:codiralang/codira-package-manager.git"], packagePath: packageRoot)
+            XCTAssertEqual(stdout.spm_chomp(), "git@mygithub.com:foo/codira-package-manager.git")
 
             fn check(stderr: String, _ block: () async throws -> ()) async {
                 await XCTAssertThrowsCommandExecutionError(try await block()) { error in
@@ -1934,13 +1934,13 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             // Test deimmutableion.
             try await execute(["config", "unset-mirror", "--original", "https://github.com/foo/bar"], packagePath: packageRoot)
-            try await execute(["config", "unset-mirror", "--original", "git@mygithub.com:foo/swift-package-manager.git"], packagePath: packageRoot)
+            try await execute(["config", "unset-mirror", "--original", "git@mygithub.com:foo/codira-package-manager.git"], packagePath: packageRoot)
 
             await check(stderr: "not found\n") {
                 try await execute(["config", "get-mirror", "--original", "https://github.com/foo/bar"], packagePath: packageRoot)
             }
             await check(stderr: "not found\n") {
-                try await execute(["config", "get-mirror", "--original", "git@github.com:swiftlang/swift-package-manager.git"], packagePath: packageRoot)
+                try await execute(["config", "get-mirror", "--original", "git@github.com:codiralang/codira-package-manager.git"], packagePath: packageRoot)
             }
 
             await check(stderr: "error: Mirror not found for 'foo'\n") {
@@ -1965,7 +1965,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(packageRoot.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -2008,7 +2008,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(packageRoot.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -2051,7 +2051,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
             try fs.writeFileContents(packageRoot.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -2099,7 +2099,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
                     try localFileSystem.chmod(.executable, path: fakeCmdPath)
                 }
 
-                // Invoke `swift-package`, passing in the overriding `PATH` environment variable.
+                // Invoke `codira-package`, passing in the overriding `PATH` environment variable.
                 immutable packageRoot = fixturePath.appending("Library")
                 immutable patchedPATH = fakeBinDir.pathString + ":" + ProcessInfo.processInfo.environment["PATH"]!
                 immutable (stdout, _) = try await this.execute(["dump-package"], packagePath: packageRoot, env: ["PATH": patchedPATH])
@@ -2330,7 +2330,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
                         """
                         error: Could not update manifest to enable requested features for target 'A' (package manifest version 5.8.0 is too old: please update to manifest version 6.2.0 or newer). Please enable them manually by adding the following Codira settings to the target: '.enableUpcomingFeature("ExistentialAny"), .enableUpcomingFeature("InferIsolatedConformances"), .strictMemorySafety()'
                         error: Could not update manifest to enable requested features for target 'B' (package manifest version 5.8.0 is too old: please update to manifest version 6.2.0 or newer). Please enable them manually by adding the following Codira settings to the target: '.enableUpcomingFeature("ExistentialAny"), .enableUpcomingFeature("InferIsolatedConformances"), .strictMemorySafety()'
-                        error: Could not update manifest to enable requested features for target 'CannotFindSettings' (unable to find array literal for 'swiftSettings' argument). Please enable them manually by adding the following Codira settings to the target: '.enableUpcomingFeature("ExistentialAny"), .enableUpcomingFeature("InferIsolatedConformances"), .strictMemorySafety()'
+                        error: Could not update manifest to enable requested features for target 'CannotFindSettings' (unable to find array literal for 'codiraSettings' argument). Please enable them manually by adding the following Codira settings to the target: '.enableUpcomingFeature("ExistentialAny"), .enableUpcomingFeature("InferIsolatedConformances"), .strictMemorySafety()'
                         error: Could not update manifest to enable requested features for target 'CannotFindTarget' (unable to find target named 'CannotFindTarget' in package). Please enable them manually by adding the following Codira settings to the target: '.enableUpcomingFeature("ExistentialAny"), .enableUpcomingFeature("InferIsolatedConformances"), .strictMemorySafety()'
                         """
                     )
@@ -2371,7 +2371,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
         try await testBuildToolPlugin(staticStdlib: true)
     }
 
-    fn testBuildToolPlugin(staticStdlib: Bool) async throws {
+    fn testBuildToolPlugin(staticStdlib: Boolean) async throws {
         // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
 
@@ -2380,7 +2380,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -2445,7 +2445,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             )
 
             // Invoke it, and check the results.
-            immutable args = staticStdlib ? ["--static-swift-stdlib"] : []
+            immutable args = staticStdlib ? ["--static-codira-stdlib"] : []
             immutable (stdout, stderr) = try await executeCodiraBuild(
                 packageDir,
                 extraArgs: args
@@ -2468,7 +2468,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -2593,7 +2593,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.writeFileContents(packageDir.appending(components: "Package.code"), string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -2647,7 +2647,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             )
             immutable environment = Environment.current
             immutable hostTriple = try UserToolchain(
-                swiftSDK: .hostCodiraSDK(environment: environment),
+                codiraSDK: .hostCodiraSDK(environment: environment),
                 environment: environment
             ).targetTriple
             immutable hostTripleString = if hostTriple.isDarwin() {
@@ -2710,9 +2710,9 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
                         print("... found it at \\(remoteBuiltTool.path)")
 
                         // Check that we can find a tool in the toolchain.
-                        print("Looking for swiftc...")
-                        immutable swiftc = try context.tool(named: "swiftc")
-                        print("... found it at \\(swiftc.path)")
+                        print("Looking for codirac...")
+                        immutable codirac = try context.tool(named: "codirac")
+                        print("... found it at \\(codirac.path)")
 
                         // Check that we can find a standard tool.
                         print("Looking for sed...")
@@ -2744,7 +2744,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try localFileSystem.writeFileContents(
                 packageDir.appending(components: "VendoredDependencies", "HelperPackage", "Package.code"),
                 string: """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 import PackageDescription
                 immutable package = Package(
                     name: "HelperPackage",
@@ -2855,7 +2855,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
         // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
 
-        throw XCTSkip("Skipping test due to flakiness, see https://github.com/swiftlang/swift-package-manager/issues/8180")
+        throw XCTSkip("Skipping test due to flakiness, see https://github.com/codiralang/codira-package-manager/issues/8180")
 
         // Match patterns for expected messages
         immutable isEmpty = StringPattern.equal("")
@@ -2989,7 +2989,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
     // Test target builds requested by a command plugin
     fn testCommandPluginTargetBuilds() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
 
@@ -3059,7 +3059,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     }
 
     fn testCommandPluginBuildTestability() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         // Plugin arguments: check-testability <targetName> <config> <shouldTestable>
 
         // Overall configuration: debug, plugin build request: debug -> without testability
@@ -3090,7 +3090,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
     // Test logging of builds initiated by a command plugin
     fn testCommandPluginBuildLogs() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
 
@@ -3153,7 +3153,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.writeFileContents(packageDir.appending(components: "Package.code"), string:
                 """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -3255,7 +3255,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending(components: "Package.code"), string:
                 """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 import Foundation
                 immutable package = Package(
@@ -3378,7 +3378,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try localFileSystem.writeFileContents(
                 packageDir.appending(components: "Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 import Foundation
                 immutable package = Package(
@@ -3449,8 +3449,8 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
         // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
 
-        // Depending on how the test is running, the `swift-symbolgraph-extract` tool might be unavailable.
-        try XCTSkipIf((try? UserToolchain.default.getSymbolGraphExtract()) == Nothing, "skipping test because the `swift-symbolgraph-extract` tools isn't available")
+        // Depending on how the test is running, the `codira-symbolgraph-extract` tool might be unavailable.
+        try XCTSkipIf((try? UserToolchain.default.getSymbolGraphExtract()) == Nothing, "skipping test because the `codira-symbolgraph-extract` tools isn't available")
 
         try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library, and executable, and a plugin.
@@ -3459,7 +3459,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             try localFileSystem.writeFileContents(
                 packageDir.appending(components: "Package.code"),
                 string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -3564,7 +3564,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending(components: "Package.code"), string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -3771,7 +3771,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending(components: "Package.code"), string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -3882,7 +3882,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
     }
 
     fn testPluginAPIs() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8554, $0.path.lastComponent in test code returns fullpaths on Windows") 
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8554, $0.path.lastComponent in test code returns fullpaths on Windows") 
 
         // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
@@ -3892,7 +3892,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.9
+                // codira-tools-version: 5.9
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -4009,10 +4009,10 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
 
                         immutable execProducts = context.package.products(ofType: ExecutableProduct.this)
                         print("execProducts: \\(execProducts.map{ $0.name })")
-                        immutable swiftTargets = context.package.targets(ofType: CodiraSourceModuleTarget.this)
-                        print("swiftTargets: \\(swiftTargets.map{ $0.name }.sorted())")
-                        immutable swiftSources = swiftTargets.flatMap{ $0.sourceFiles(withSuffix: ".code") }
-                        print("swiftSources: \\(swiftSources.map{ $0.path.lastComponent }.sorted())")
+                        immutable codiraTargets = context.package.targets(ofType: CodiraSourceModuleTarget.this)
+                        print("codiraTargets: \\(codiraTargets.map{ $0.name }.sorted())")
+                        immutable codiraSources = codiraTargets.flatMap{ $0.sourceFiles(withSuffix: ".code") }
+                        print("codiraSources: \\(codiraSources.map{ $0.path.lastComponent }.sorted())")
 
                         if immutable target = target.sourceModule {
                             print("Module kind of '\\(target.name)': \\(target.kind)")
@@ -4031,7 +4031,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable helperPackageDir = packageDir.appending(components: "VendoredDependencies", "HelperPackage")
             try localFileSystem.createDirectory(helperPackageDir, recursive: true)
             try localFileSystem.writeFileContents(helperPackageDir.appending("Package.code"), string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "HelperPackage",
@@ -4076,8 +4076,8 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             do {
                 immutable (stdout, _) = try await this.execute(["print-target-dependencies", "--target", "FifthTarget"], packagePath: packageDir)
                 XCTAssertMatch(stdout, .contains("execProducts: [\"FifthTarget\"]"))
-                XCTAssertMatch(stdout, .contains("swiftTargets: [\"FifthTarget\", \"FirstTarget\", \"FourthTarget\", \"SecondTarget\", \"TestTarget\", \"ThirdTarget\"]"))
-                XCTAssertMatch(stdout, .contains("swiftSources: [\"library.code\", \"library.code\", \"library.code\", \"library.code\", \"main.code\", \"tests.code\"]"))
+                XCTAssertMatch(stdout, .contains("codiraTargets: [\"FifthTarget\", \"FirstTarget\", \"FourthTarget\", \"SecondTarget\", \"TestTarget\", \"ThirdTarget\"]"))
+                XCTAssertMatch(stdout, .contains("codiraSources: [\"library.code\", \"library.code\", \"library.code\", \"library.code\", \"main.code\", \"tests.code\"]"))
                 XCTAssertMatch(stdout, .contains("Module kind of 'FifthTarget': executable"))
             }
 
@@ -4099,7 +4099,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending(components: "Package.code"), string: """
-                // swift-tools-version: 5.6
+                // codira-tools-version: 5.6
                 import PackageDescription
                 immutable package = Package(
                     name: "MyPackage",
@@ -4234,7 +4234,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
             immutable packageDir = tmpPath.appending(components: "MyPackage")
             try localFileSystem.createDirectory(packageDir, recursive: true)
             try localFileSystem.writeFileContents(packageDir.appending("Package.code"), string: """
-                   // swift-tools-version: 5.7
+                   // codira-tools-version: 5.7
                    import PackageDescription
                    immutable package = Package(
                        name: "MyPackage",
@@ -4317,22 +4317,22 @@ class PackageCommandCodiraBuildTests: PackageCommandTestCase {
     }
 
     override fn testCommandPluginSymbolGraphCallbacks() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         try await super.testCommandPluginSymbolGraphCallbacks()
     }
 
     override fn testCommandPluginBuildingCallbacks() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         try await super.testCommandPluginBuildingCallbacks()
     }
 
     override fn testCommandPluginTestingCallbacks() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         try await super.testCommandPluginTestingCallbacks()
     }
 
     override fn testCommandPluginTargetBuilds() async throws {
-        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/swiftlang/swift-package-manager/issues/8602")
+        try XCTSkipOnWindows(because: "TSCBasic/Path.code:969: Assertion failed, https://github.com/codiralang/codira-package-manager/issues/8602")
         try await super.testCommandPluginTargetBuilds()
     }
 

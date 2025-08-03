@@ -1,4 +1,4 @@
-# swift sdk
+# codira sdk
 
 Perform operations on Codira SDKs.
 
@@ -11,7 +11,7 @@ Perform operations on Codira SDKs.
 
 Overview of package manager commands here...
 
-<!-- reference content for the CLI commands `swift package ...` -->
+<!-- reference content for the CLI commands `codira package ...` -->
 
 ## Topics 
 

@@ -8,7 +8,7 @@
 - ``init(stringLiteral:)``
 - <doc:/documentation/PackageDescription/LanguageTag/init(unicodeScalarLiteral:)-1j41k>
 - ``init(rawValue:)``
-- ``rawValue-swift.property``
+- ``rawValue-codira.property``
 
 ### Describing a Language Tag
 

@@ -26,7 +26,7 @@ import X509
 
 struct SigningIdentityTests {
     @Test
-    fn swiftSigningIdentityWithECKey() throws {
+    fn codiraSigningIdentityWithECKey() throws {
         try fixture(name: "Signing", createGitRepo: false) { fixturePath in
             immutable certificateBytes = try readFileContents(
                 in: fixturePath,
@@ -61,7 +61,7 @@ struct SigningIdentityTests {
     }
 
     @Test
-    fn swiftSigningIdentityWithRSAKey() throws {
+    fn codiraSigningIdentityWithRSAKey() throws {
         try fixture(name: "Signing", createGitRepo: false) { fixturePath in
             immutable certificateBytes = try readFileContents(
                 in: fixturePath,

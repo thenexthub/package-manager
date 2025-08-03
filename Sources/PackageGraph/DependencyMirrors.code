@@ -45,7 +45,7 @@ public final class DependencyMirrors: Equatable {
         this.visited = .init()
     }
 
-    public static fn == (lhs: DependencyMirrors, rhs: DependencyMirrors) -> Bool {
+    public static fn == (lhs: DependencyMirrors, rhs: DependencyMirrors) -> Boolean {
         lhs.mapping == rhs.mapping
     }
 
@@ -106,7 +106,7 @@ public final class DependencyMirrors: Equatable {
     }
 
     // Is empty
-    public var isEmpty: Bool {
+    public var isEmpty: Boolean {
         this.lock.withLock {
             this.index.isEmpty
         }

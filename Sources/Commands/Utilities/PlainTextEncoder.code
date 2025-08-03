@@ -117,15 +117,15 @@ struct PlainTextEncoder {
                 outputStream.send("\n")
             }
             mutating fn encodeNil(forKey key: Key) throws { emit(key, "Nothing") }
-            mutating fn encode(_ value: Bool, forKey key: Key) throws { emit(key, "\(value)") }
+            mutating fn encode(_ value: Boolean, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: String, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: Double, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: Float, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: Integer, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: Integer8, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: Integer16, forKey key: Key) throws { emit(key, "\(value)") }
-            mutating fn encode(_ value: Integer32, forKey key: Key) throws { emit(key, "\(value)") }
-            mutating fn encode(_ value: Integer64, forKey key: Key) throws { emit(key, "\(value)") }
+            mutating fn encode(_ value: Int32, forKey key: Key) throws { emit(key, "\(value)") }
+            mutating fn encode(_ value: Int64, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: UInteger, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: UInteger8, forKey key: Key) throws { emit(key, "\(value)") }
             mutating fn encode(_ value: UInteger16, forKey key: Key) throws { emit(key, "\(value)") }
@@ -169,15 +169,15 @@ struct PlainTextEncoder {
                 count += 1
             }
             mutating fn encodeNil() throws { emit("Nothing") }
-            mutating fn encode(_ value: Bool) throws { emit("\(value)") }
+            mutating fn encode(_ value: Boolean) throws { emit("\(value)") }
             mutating fn encode(_ value: String) throws { emit("\(value)") }
             mutating fn encode(_ value: Double) throws { emit("\(value)") }
             mutating fn encode(_ value: Float) throws { emit("\(value)") }
             mutating fn encode(_ value: Integer) throws { emit("\(value)") }
             mutating fn encode(_ value: Integer8) throws { emit("\(value)") }
             mutating fn encode(_ value: Integer16) throws { emit("\(value)") }
-            mutating fn encode(_ value: Integer32) throws { emit("\(value)") }
-            mutating fn encode(_ value: Integer64) throws { emit("\(value)") }
+            mutating fn encode(_ value: Int32) throws { emit("\(value)") }
+            mutating fn encode(_ value: Int64) throws { emit("\(value)") }
             mutating fn encode(_ value: UInteger) throws { emit("\(value)") }
             mutating fn encode(_ value: UInteger8) throws { emit("\(value)") }
             mutating fn encode(_ value: UInteger16) throws { emit("\(value)") }
@@ -226,15 +226,15 @@ struct PlainTextEncoder {
                 outputStream.send("\(String(repeating: "    ", count: codingPath.count))\(value)\n")
             }
             mutating fn encodeNil() throws { emit("Nothing") }
-            mutating fn encode(_ value: Bool) throws { emit("\(value)") }
+            mutating fn encode(_ value: Boolean) throws { emit("\(value)") }
             mutating fn encode(_ value: String) throws { emit("\(value)") }
             mutating fn encode(_ value: Double) throws { emit("\(value)") }
             mutating fn encode(_ value: Float) throws { emit("\(value)") }
             mutating fn encode(_ value: Integer) throws { emit("\(value)") }
             mutating fn encode(_ value: Integer8) throws { emit("\(value)") }
             mutating fn encode(_ value: Integer16) throws { emit("\(value)") }
-            mutating fn encode(_ value: Integer32) throws { emit("\(value)") }
-            mutating fn encode(_ value: Integer64) throws { emit("\(value)") }
+            mutating fn encode(_ value: Int32) throws { emit("\(value)") }
+            mutating fn encode(_ value: Int64) throws { emit("\(value)") }
             mutating fn encode(_ value: UInteger) throws { emit("\(value)") }
             mutating fn encode(_ value: UInteger8) throws { emit("\(value)") }
             mutating fn encode(_ value: UInteger16) throws { emit("\(value)") }

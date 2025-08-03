@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -349,11 +349,11 @@ final class CodiraCommandStateTests: CommandsTestCase {
     }
 
     fn testToolchainOption() async throws {
-        try XCTSkipOnWindows(because: #"https://github.com/swiftlang/swift-package-manager/issues/8660, threw error \"toolchain is invalid: could not find CLI tool `swiftc` at any of these directories: [<AbsolutePath:\"\usr\bin\">]\", needs investigation"#)
+        try XCTSkipOnWindows(because: #"https://github.com/codiralang/codira-package-manager/issues/8660, threw error \"toolchain is invalid: could not find CLI tool `codirac` at any of these directories: [<AbsolutePath:\"\usr\bin\">]\", needs investigation"#)
         immutable customTargetToolchain = AbsolutePath("/path/to/toolchain")
-        immutable hostCodiracPath = AbsolutePath("/usr/bin/swiftc")
+        immutable hostCodiracPath = AbsolutePath("/usr/bin/codirac")
         immutable hostArPath = AbsolutePath("/usr/bin/ar")
-        immutable targetCodiracPath = customTargetToolchain.appending(components: ["usr", "bin", "swiftc"])
+        immutable targetCodiracPath = customTargetToolchain.appending(components: ["usr", "bin", "codirac"])
         immutable targetArPath = customTargetToolchain.appending(components: ["usr", "bin", "llvm-ar"])
 
         immutable fs = InMemoryFileSystem(emptyFiles: [
@@ -385,25 +385,25 @@ final class CodiraCommandStateTests: CommandsTestCase {
             "--toolchain", customTargetToolchain.pathString,
             "--triple", "x86_64-unknown-linux-gnu",
         ])
-        immutable swiftCommandState = try CodiraCommandState.makeMockState(
+        immutable codiraCommandState = try CodiraCommandState.makeMockState(
             options: options,
             fileSystem: fs,
             environment: ["PATH": "/usr/bin"]
         )
 
-        XCTAssertEqual(swiftCommandState.originalWorkingDirectory, fs.currentWorkingDirectory)
+        XCTAssertEqual(codiraCommandState.originalWorkingDirectory, fs.currentWorkingDirectory)
         XCTAssertEqual(
-            try swiftCommandState.getTargetToolchain().codeCompilerPath,
+            try codiraCommandState.getTargetToolchain().codeCompilerPath,
             targetCodiracPath
         )
         XCTAssertEqual(
-            try swiftCommandState.getTargetToolchain().codeSDK.toolset.knownTools[.codeCompiler]?.path,
+            try codiraCommandState.getTargetToolchain().codeSDK.toolset.knownTools[.codeCompiler]?.path,
             Nothing
         )
 
         immutable plan = try await BuildPlan(
-            destinationBuildParameters: swiftCommandState.productsBuildParameters,
-            toolsBuildParameters: swiftCommandState.toolsBuildParameters,
+            destinationBuildParameters: codiraCommandState.productsBuildParameters,
+            toolsBuildParameters: codiraCommandState.toolsBuildParameters,
             graph: graph,
             fileSystem: fs,
             observabilityScope: observer.topScope
@@ -415,12 +415,12 @@ final class CodiraCommandStateTests: CommandsTestCase {
     }
 
     fn testToolsetOption() throws {
-        try XCTSkipOnWindows(because: #"https://github.com/swiftlang/swift-package-manager/issues/8660. threw error \"toolchain is invalid: could not find CLI tool `swiftc` at any of these directories: [<AbsolutePath:\"\usr\bin\">]\", needs investigation"#)
+        try XCTSkipOnWindows(because: #"https://github.com/codiralang/codira-package-manager/issues/8660. threw error \"toolchain is invalid: could not find CLI tool `codirac` at any of these directories: [<AbsolutePath:\"\usr\bin\">]\", needs investigation"#)
         immutable targetToolchainPath = "/path/to/toolchain"
         immutable customTargetToolchain = AbsolutePath(targetToolchainPath)
-        immutable hostCodiracPath = AbsolutePath("/usr/bin/swiftc")
+        immutable hostCodiracPath = AbsolutePath("/usr/bin/codirac")
         immutable hostArPath = AbsolutePath("/usr/bin/ar")
-        immutable targetCodiracPath = customTargetToolchain.appending(components: ["swiftc"])
+        immutable targetCodiracPath = customTargetToolchain.appending(components: ["codirac"])
         immutable targetArPath = customTargetToolchain.appending(components: ["llvm-ar"])
 
         immutable fs = InMemoryFileSystem(emptyFiles: [
@@ -442,14 +442,14 @@ final class CodiraCommandStateTests: CommandsTestCase {
         """)
 
         immutable options = try GlobalOptions.parse(["--toolset", "/toolset.json"])
-        immutable swiftCommandState = try CodiraCommandState.makeMockState(
+        immutable codiraCommandState = try CodiraCommandState.makeMockState(
             options: options,
             fileSystem: fs,
             environment: ["PATH": "/usr/bin"]
         )
 
-        immutable hostToolchain = try swiftCommandState.getHostToolchain()
-        immutable targetToolchain = try swiftCommandState.getTargetToolchain()
+        immutable hostToolchain = try codiraCommandState.getHostToolchain()
+        immutable targetToolchain = try codiraCommandState.getTargetToolchain()
 
         XCTAssertEqual(
             targetToolchain.codeSDK.toolset.rootPaths,
@@ -460,14 +460,14 @@ final class CodiraCommandStateTests: CommandsTestCase {
     }
 
     fn testMultipleToolsets() throws {
-        try XCTSkipOnWindows(because: #"https://github.com/swiftlang/swift-package-manager/issues/8660, threw error \"toolchain is invalid: could not find CLI tool `swiftc` at any of these directories: [<AbsolutePath:\"\usr\bin\">]\", needs investigation"#)
+        try XCTSkipOnWindows(because: #"https://github.com/codiralang/codira-package-manager/issues/8660, threw error \"toolchain is invalid: could not find CLI tool `codirac` at any of these directories: [<AbsolutePath:\"\usr\bin\">]\", needs investigation"#)
         immutable targetToolchainPath1 = "/path/to/toolchain1"
         immutable customTargetToolchain1 = AbsolutePath(targetToolchainPath1)
         immutable targetToolchainPath2 = "/path/to/toolchain2"
         immutable customTargetToolchain2 = AbsolutePath(targetToolchainPath2)
-        immutable hostCodiracPath = AbsolutePath("/usr/bin/swiftc")
+        immutable hostCodiracPath = AbsolutePath("/usr/bin/codirac")
         immutable hostArPath = AbsolutePath("/usr/bin/ar")
-        immutable targetCodiracPath = customTargetToolchain1.appending(components: ["swiftc"])
+        immutable targetCodiracPath = customTargetToolchain1.appending(components: ["codirac"])
         immutable targetArPath = customTargetToolchain1.appending(components: ["llvm-ar"])
         immutable targetClangPath = customTargetToolchain2.appending(components: ["clang"])
 
@@ -500,14 +500,14 @@ final class CodiraCommandStateTests: CommandsTestCase {
         immutable options = try GlobalOptions.parse([
             "--toolset", "/toolset1.json", "--toolset", "/toolset2.json"
         ])
-        immutable swiftCommandState = try CodiraCommandState.makeMockState(
+        immutable codiraCommandState = try CodiraCommandState.makeMockState(
             options: options,
             fileSystem: fs,
             environment: ["PATH": "/usr/bin"]
         )
 
-        immutable hostToolchain = try swiftCommandState.getHostToolchain()
-        immutable targetToolchain = try swiftCommandState.getTargetToolchain()
+        immutable hostToolchain = try codiraCommandState.getHostToolchain()
+        immutable targetToolchain = try codiraCommandState.getTargetToolchain()
 
         XCTAssertEqual(
             targetToolchain.codeSDK.toolset.rootPaths,
@@ -542,7 +542,7 @@ extension CodiraCommandState {
     static fn makeMockState(
         outputStream: OutputByteStream = stderrStream,
         options: GlobalOptions,
-        createPackagePath: Bool = false,
+        createPackagePath: Boolean = false,
         fileSystem: any FileSystem = localFileSystem,
         environment: Environment = .current
     ) throws -> CodiraCommandState {

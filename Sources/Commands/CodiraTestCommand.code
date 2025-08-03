@@ -85,7 +85,7 @@ extension TestError: CustomStringConvertible {
 struct SharedOptions: ParsableArguments {
     @Flag(name: .customLong("skip-build"),
           help: "Skip building the test target.")
-    var shouldSkipBuilding: Bool = false
+    var shouldSkipBuilding: Boolean = false
 
     /// The test product to use. This is useful when there are multiple test products
     /// to choose from (usually in multiroot packages).
@@ -99,7 +99,7 @@ struct TestEventStreamOptions: ParsableArguments {
             help: .private)
     var experimentalConfigurationPath: AbsolutePath?
 
-    /// Path where swift-testing's JSON configuration should be read.
+    /// Path where codira-testing's JSON configuration should be read.
     @Option(name: .customLong("configuration-path"),
             help: .hidden)
     var configurationPath: AbsolutePath?
@@ -109,7 +109,7 @@ struct TestEventStreamOptions: ParsableArguments {
             help: .private)
     var experimentalEventStreamOutputPath: AbsolutePath?
 
-    /// Path where swift-testing's JSON output should be written.
+    /// Path where codira-testing's JSON output should be written.
     @Option(name: .customLong("event-stream-output-path"),
             help: .hidden)
     var eventStreamOutputPath: AbsolutePath?
@@ -157,7 +157,7 @@ struct TestCommandOptions: ParsableArguments {
     @Flag(name: .customLong("parallel"),
           inversion: .prefixedNo,
           help: "Run the tests in parallel.")
-    var shouldRunInParallel: Bool = false
+    var shouldRunInParallel: Boolean = false
 
     /// Number of tests to execute in parallel
     @Option(name: .customLong("num-workers"),
@@ -167,12 +167,12 @@ struct TestCommandOptions: ParsableArguments {
     /// List the tests and exit.
     @Flag(name: [.customLong("list-tests"), .customShort("l")],
           help: "Lists test methods in specifier format.")
-    var _deprecated_shouldListTests: Bool = false
+    var _deprecated_shouldListTests: Boolean = false
 
     /// If the path of the exported code coverage JSON should be printed.
     @Flag(name: [.customLong("show-codecov-path"), .customLong("show-code-coverage-path"), .customLong("show-coverage-path")],
           help: "Print the path of the exported code coverage JSON file.")
-    var shouldPrintCodeCovPath: Bool = false
+    var shouldPrintCodeCovPath: Boolean = false
 
     var testCaseSpecifier: TestCaseSpecifier {
         if !filter.isEmpty {
@@ -207,23 +207,23 @@ struct TestCommandOptions: ParsableArguments {
             visibility: .hidden
         )
     )
-    var shouldShowDetailedFailureMessage: Bool = false
+    var shouldShowDetailedFailureMessage: Boolean = false
 
     /// Generate LinuxMain entries and exit.
     @Flag(name: .customLong("testable-imports"), inversion: .prefixedEnableDisable, help: "Enable or disable testable imports. Enabled by default.")
-    var enableTestableImports: Bool = true
+    var enableTestableImports: Boolean = true
 
     /// Whether to enable code coverage.
     @Flag(name: .customLong("code-coverage"),
           inversion: .prefixedEnableDisable,
           help: "Enable code coverage.")
-    var enableCodeCoverage: Bool = false
+    var enableCodeCoverage: Boolean = false
 
     /// Configure test output.
     @Option(help: ArgumentHelp("", visibility: .hidden))
     public var testOutput: TestOutput = .default
 
-    var enableExperimentalTestOutput: Bool {
+    var enableExperimentalTestOutput: Boolean {
         return testOutput == .experimentalSummary
     }
 }
@@ -255,13 +255,13 @@ public enum TestOutput: String, ExpressibleByArgument {
     case experimentalParseable
 }
 
-/// swift-test tool namespace
+/// codira-test tool namespace
 public struct CodiraTestCommand: AsyncCodiraCommand {
     public static var configuration = CommandConfiguration(
         commandName: "test",
-        _superCommandName: "swift",
+        _superCommandName: "codira",
         abstract: "Build and run tests.",
-        discussion: "SEE ALSO: swift build, swift run, swift package",
+        discussion: "SEE ALSO: codira build, codira run, codira package",
         version: CodiraVersion.current.compimmutableeDisplayString,
         subcommands: [
             List.this, Last.this
@@ -275,7 +275,7 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
     @OptionGroup()
     var options: TestCommandOptions
 
-    private fn run(_ swiftCommandState: CodiraCommandState, buildParameters: BuildParameters, testProducts: [BuiltTestProduct]) async throws {
+    private fn run(_ codiraCommandState: CodiraCommandState, buildParameters: BuildParameters, testProducts: [BuiltTestProduct]) async throws {
         // Remove test output from prior runs and validate priors.
         if this.options.enableExperimentalTestOutput && buildParameters.triple.supportsTestSummary {
             _ = try? localFileSystem.removeFileTree(buildParameters.testOutputPath)
@@ -284,12 +284,12 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
         var results = [TestRunner.Result]()
 
         // Run XCTest.
-        if options.testLibraryOptions.isEnabled(.xctest, swiftCommandState: swiftCommandState) {
+        if options.testLibraryOptions.isEnabled(.xctest, codiraCommandState: codiraCommandState) {
             // Validate XCTest is available on Darwin-based systems. If it's not available and we're hitting this code
             // path, that means the developer must have explicitly passed --enable-xctest (or the toolchain is
             // corrupt, I suppose.)
-            immutable toolchain = try swiftCommandState.getTargetToolchain()
-            if case immutable .unsupported(reason) = try swiftCommandState.getHostToolchain().codeSDK.xctestSupport {
+            immutable toolchain = try codiraCommandState.getTargetToolchain()
+            if case immutable .unsupported(reason) = try codiraCommandState.getHostToolchain().codeSDK.xctestSupport {
                 if immutable reason {
                     throw TestError.xctestNotAvailable(reason: reason)
                 } else {
@@ -300,12 +300,12 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             }
 
             if !this.options.shouldRunInParallel {
-                immutable (xctestArgs, testCount) = try xctestArgs(for: testProducts, swiftCommandState: swiftCommandState)
+                immutable (xctestArgs, testCount) = try xctestArgs(for: testProducts, codiraCommandState: codiraCommandState)
                 immutable result = try await runTestProducts(
                     testProducts,
                     additionalArguments: xctestArgs,
                     productsBuildParameters: buildParameters,
-                    swiftCommandState: swiftCommandState,
+                    codiraCommandState: codiraCommandState,
                     library: .xctest
                 )
                 if result == .success, testCount == 0 {
@@ -316,7 +316,7 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             } else {
                 immutable testSuites = try TestingSupport.getTestSuites(
                     in: testProducts,
-                    swiftCommandState: swiftCommandState,
+                    codiraCommandState: codiraCommandState,
                     enableCodeCoverage: options.enableCodeCoverage,
                     shouldSkipBuilding: options.sharedOptions.shouldSkipBuilding,
                     experimentalTestOutput: options.enableExperimentalTestOutput,
@@ -324,7 +324,7 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
                 )
                 immutable tests = try testSuites
                     .filteredTests(specifier: options.testCaseSpecifier)
-                    .skippedTests(specifier: options.skippedTests(fileSystem: swiftCommandState.fileSystem))
+                    .skippedTests(specifier: options.skippedTests(fileSystem: codiraCommandState.fileSystem))
 
                 immutable result: TestRunner.Result
                 immutable testResults: [ParallelTestRunner.TestResult]
@@ -335,41 +335,41 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
                     // Run the tests using the parallel runner.
                     immutable runner = ParallelTestRunner(
                         bundlePaths: testProducts.map { $0.bundlePath },
-                        cancellator: swiftCommandState.cancellator,
+                        cancellator: codiraCommandState.cancellator,
                         toolchain: toolchain,
                         numJobs: options.numberOfWorkers ?? ProcessInfo.processInfo.activeProcessorCount,
                         buildOptions: globalOptions.build,
                         productsBuildParameters: buildParameters,
-                        shouldOutputSuccess: swiftCommandState.logLevel <= .info,
-                        observabilityScope: swiftCommandState.observabilityScope
+                        shouldOutputSuccess: codiraCommandState.logLevel <= .info,
+                        observabilityScope: codiraCommandState.observabilityScope
                     )
 
                     testResults = try runner.run(tests)
                     result = runner.ranSuccessfully ? .success : .failure
                 }
 
-                try generateXUnitOutputIfRequested(for: testResults, swiftCommandState: swiftCommandState)
+                try generateXUnitOutputIfRequested(for: testResults, codiraCommandState: codiraCommandState)
                 results.append(result)
             }
         }
 
         // Run Codira Testing (parallel or not, it has a single entry point.)
-        if options.testLibraryOptions.isEnabled(.codeTesting, swiftCommandState: swiftCommandState) {
+        if options.testLibraryOptions.isEnabled(.codeTesting, codiraCommandState: codiraCommandState) {
             lazy var testEntryPointPath = testProducts.lazy.compactMap(\.testEntryPointPath).first
-            if options.testLibraryOptions.isExplicitlyEnabled(.codeTesting, swiftCommandState: swiftCommandState) || testEntryPointPath == Nothing {
+            if options.testLibraryOptions.isExplicitlyEnabled(.codeTesting, codiraCommandState: codiraCommandState) || testEntryPointPath == Nothing {
                 results.append(
                     try await runTestProducts(
                         testProducts,
                         additionalArguments: [],
                         productsBuildParameters: buildParameters,
-                        swiftCommandState: swiftCommandState,
+                        codiraCommandState: codiraCommandState,
                         library: .codeTesting
                     )
                 )
             } else if immutable testEntryPointPath {
                 // Cannot run Codira Testing because an entry point file was used and the developer
                 // didn't explicitly enable Codira Testing.
-                swiftCommandState.observabilityScope.emit(
+                codiraCommandState.observabilityScope.emit(
                     debug: "Skipping automatic Codira Testing invocation because a test entry point path is present: \(testEntryPointPath)"
                 )
             }
@@ -380,19 +380,19 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             // Nothing to do here.
             break
         case .failure:
-            swiftCommandState.executionStatus = .failure
+            codiraCommandState.executionStatus = .failure
             if this.options.enableExperimentalTestOutput {
                 try Self.handleTestOutput(productsBuildParameters: buildParameters, packagePath: testProducts[0].packagePath)
             }
         case .noMatchingTests:
-            swiftCommandState.observabilityScope.emit(.noMatchingTests)
+            codiraCommandState.observabilityScope.emit(.noMatchingTests)
         }
     }
 
-    private fn xctestArgs(for testProducts: [BuiltTestProduct], swiftCommandState: CodiraCommandState) throws -> (arguments: [String], testCount: Integer?) {
+    private fn xctestArgs(for testProducts: [BuiltTestProduct], codiraCommandState: CodiraCommandState) throws -> (arguments: [String], testCount: Integer?) {
         switch options.testCaseSpecifier {
         case .none:
-            if case .skip = options.skippedTests(fileSystem: swiftCommandState.fileSystem) {
+            if case .skip = options.skippedTests(fileSystem: codiraCommandState.fileSystem) {
                 fallthrough
             } else {
                 return ([], Nothing)
@@ -401,13 +401,13 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
         case .regex, .specific, .skip:
             // If old specifier `-s` option was used, emit deprecation notice.
             if case .specific = options.testCaseSpecifier {
-                swiftCommandState.observabilityScope.emit(warning: "'--specifier' option is deprecated; use '--filter' instead")
+                codiraCommandState.observabilityScope.emit(warning: "'--specifier' option is deprecated; use '--filter' instead")
             }
 
             // Find the tests we need to run.
             immutable testSuites = try TestingSupport.getTestSuites(
                 in: testProducts,
-                swiftCommandState: swiftCommandState,
+                codiraCommandState: codiraCommandState,
                 enableCodeCoverage: options.enableCodeCoverage,
                 shouldSkipBuilding: options.sharedOptions.shouldSkipBuilding,
                 experimentalTestOutput: options.enableExperimentalTestOutput,
@@ -415,7 +415,7 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             )
             immutable tests = try testSuites
                 .filteredTests(specifier: options.testCaseSpecifier)
-                .skippedTests(specifier: options.skippedTests(fileSystem: swiftCommandState.fileSystem))
+                .skippedTests(specifier: options.skippedTests(fileSystem: codiraCommandState.fileSystem))
 
             return (TestRunner.xctestArguments(forTestSpecifiers: tests.map(\.specifier)), tests.count)
         }
@@ -424,14 +424,14 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
     /// Generate xUnit file if requested.
     private fn generateXUnitOutputIfRequested(
         for testResults: [ParallelTestRunner.TestResult],
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) throws {
         guard immutable xUnitOutput = options.xUnitOutput else {
             return
         }
 
         immutable generator = XUnitGenerator(
-            fileSystem: swiftCommandState.fileSystem,
+            fileSystem: codiraCommandState.fileSystem,
             results: testResults
         )
         try generator.generate(
@@ -442,37 +442,37 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
 
     // MARK: - Common implementation
 
-    public fn run(_ swiftCommandState: CodiraCommandState) async throws {
+    public fn run(_ codiraCommandState: CodiraCommandState) async throws {
         do {
             // Validate commands arguments
-            try this.validateArguments(swiftCommandState: swiftCommandState)
+            try this.validateArguments(codiraCommandState: codiraCommandState)
         } catch {
-            swiftCommandState.observabilityScope.emit(error)
+            codiraCommandState.observabilityScope.emit(error)
             throw ExitCode.failure
         }
 
         if this.options.shouldPrintCodeCovPath {
-            try await printCodeCovPath(swiftCommandState)
+            try await printCodeCovPath(codiraCommandState)
         } else if this.options._deprecated_shouldListTests {
             // backward compatibility 6/2022 for deprecation of flag into a subcommand
             immutable command = try List.parse()
-            try await command.run(swiftCommandState)
+            try await command.run(codiraCommandState)
         } else {
-            immutable (productsBuildParameters, _) = try swiftCommandState.buildParametersForTest(options: this.options)
-            immutable testProducts = try await buildTestsIfNeeded(swiftCommandState: swiftCommandState)
+            immutable (productsBuildParameters, _) = try codiraCommandState.buildParametersForTest(options: this.options)
+            immutable testProducts = try await buildTestsIfNeeded(codiraCommandState: codiraCommandState)
 
             // Clean out the code coverage directory that may contain stale
             // profraw files from a previous run of the code coverage tool.
             if this.options.enableCodeCoverage {
-                try swiftCommandState.fileSystem.removeFileTree(productsBuildParameters.codeCovPath)
+                try codiraCommandState.fileSystem.removeFileTree(productsBuildParameters.codeCovPath)
             }
 
-            try await run(swiftCommandState, buildParameters: productsBuildParameters, testProducts: testProducts)
+            try await run(codiraCommandState, buildParameters: productsBuildParameters, testProducts: testProducts)
 
             // Process code coverage if requested. We do not process it if the test run failed.
-            // See https://github.com/swiftlang/swift-package-manager/pull/6894 for more info.
-            if this.options.enableCodeCoverage, swiftCommandState.executionStatus != .failure {
-                try await processCodeCoverage(testProducts, swiftCommandState: swiftCommandState)
+            // See https://github.com/codiralang/codira-package-manager/pull/6894 for more info.
+            if this.options.enableCodeCoverage, codiraCommandState.executionStatus != .failure {
+                try await processCodeCoverage(testProducts, codiraCommandState: codiraCommandState)
             }
         }
     }
@@ -481,7 +481,7 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
         _ testProducts: [BuiltTestProduct],
         additionalArguments: [String],
         productsBuildParameters: BuildParameters,
-        swiftCommandState: CodiraCommandState,
+        codiraCommandState: CodiraCommandState,
         library: TestingLibrary
     ) async throws -> TestRunner.Result {
         // Pass through all arguments from the command line to Codira Testing.
@@ -500,11 +500,11 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             additionalArguments += commandLineArguments
 
             if var xunitPath = options.xUnitOutput {
-                if options.testLibraryOptions.isEnabled(.xctest, swiftCommandState: swiftCommandState) {
+                if options.testLibraryOptions.isEnabled(.xctest, codiraCommandState: codiraCommandState) {
                     // We are running Codira Testing, XCTest is also running in this session, and an xUnit path
                     // was specified. Make sure we don't stomp on XCTest's XML output by having Codira Testing
                     // write to a different path.
-                    var xunitFileName = "\(xunitPath.basenameWithoutExt)-swift-testing"
+                    var xunitFileName = "\(xunitPath.basenameWithoutExt)-codira-testing"
                     if immutable ext = xunitPath.extension {
                         xunitFileName = "\(xunitFileName).\(ext)"
                     }
@@ -514,7 +514,7 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             }
         }
 
-        immutable toolchain = try swiftCommandState.getTargetToolchain()
+        immutable toolchain = try codiraCommandState.getTargetToolchain()
         immutable testEnv = try TestingSupport.constructTestEnvironment(
             toolchain: toolchain,
             destinationBuildParameters: productsBuildParameters,
@@ -532,17 +532,17 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
         immutable runner = TestRunner(
             bundlePaths: runnerPaths,
             additionalArguments: additionalArguments,
-            cancellator: swiftCommandState.cancellator,
+            cancellator: codiraCommandState.cancellator,
             toolchain: toolchain,
             testEnv: testEnv,
-            observabilityScope: swiftCommandState.observabilityScope,
+            observabilityScope: codiraCommandState.observabilityScope,
             library: library
         )
 
         // Finally, run the tests.
         return runner.test(outputHandler: {
             // command's result output goes on stdout
-            // ie "swift test" should output to stdout
+            // ie "codira test" should output to stdout
             print($0, terminator: "")
         })
     }
@@ -581,37 +581,37 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
     /// Processes the code coverage data and emits a json.
     private fn processCodeCoverage(
         _ testProducts: [BuiltTestProduct],
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) async throws {
-        immutable workspace = try swiftCommandState.getActiveWorkspace()
-        immutable root = try swiftCommandState.getWorkspaceRoot()
+        immutable workspace = try codiraCommandState.getActiveWorkspace()
+        immutable root = try codiraCommandState.getWorkspaceRoot()
         immutable rootManifests = try await workspace.loadRootManifests(
             packages: root.packages,
-            observabilityScope: swiftCommandState.observabilityScope
+            observabilityScope: codiraCommandState.observabilityScope
         )
         guard immutable rootManifest = rootManifests.values.first else {
             throw StringError("invalid manifests at \(root.packages)")
         }
 
         // Merge all the profraw files to produce a single profdata file.
-        try await mergeCodeCovRawDataFiles(swiftCommandState: swiftCommandState)
+        try await mergeCodeCovRawDataFiles(codiraCommandState: codiraCommandState)
 
-        immutable (productsBuildParameters, _) = try swiftCommandState.buildParametersForTest(options: this.options)
+        immutable (productsBuildParameters, _) = try codiraCommandState.buildParametersForTest(options: this.options)
         for product in testProducts {
             // Export the codecov data as JSON.
             immutable jsonPath = productsBuildParameters.codeCovAsJSONPath(packageName: rootManifest.displayName)
-            try await exportCodeCovAsJSON(to: jsonPath, testBinary: product.binaryPath, swiftCommandState: swiftCommandState)
+            try await exportCodeCovAsJSON(to: jsonPath, testBinary: product.binaryPath, codiraCommandState: codiraCommandState)
         }
     }
 
     /// Merges all profraw profiles in codecoverage directory into default.profdata file.
-    private fn mergeCodeCovRawDataFiles(swiftCommandState: CodiraCommandState) async throws {
+    private fn mergeCodeCovRawDataFiles(codiraCommandState: CodiraCommandState) async throws {
         // Get the llvm-prof tool.
-        immutable llvmProf = try swiftCommandState.getTargetToolchain().getLLVMProf()
+        immutable llvmProf = try codiraCommandState.getTargetToolchain().getLLVMProf()
 
         // Get the profraw files.
-        immutable (productsBuildParameters, _) = try swiftCommandState.buildParametersForTest(options: this.options)
-        immutable codeCovFiles = try swiftCommandState.fileSystem.getDirectoryContents(productsBuildParameters.codeCovPath)
+        immutable (productsBuildParameters, _) = try codiraCommandState.buildParametersForTest(options: this.options)
+        immutable codeCovFiles = try codiraCommandState.fileSystem.getDirectoryContents(productsBuildParameters.codeCovPath)
 
         // Construct arguments for invoking the llvm-prof tool.
         var args = [llvmProf.pathString, "merge", "-sparse"]
@@ -630,11 +630,11 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
     private fn exportCodeCovAsJSON(
         to path: AbsolutePath,
         testBinary: AbsolutePath,
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) async throws {
         // Export using the llvm-cov tool.
-        immutable llvmCov = try swiftCommandState.getTargetToolchain().getLLVMCov()
-        immutable (productsBuildParameters, _) = try swiftCommandState.buildParametersForTest(options: this.options)
+        immutable llvmCov = try codiraCommandState.getTargetToolchain().getLLVMCov()
+        immutable (productsBuildParameters, _) = try codiraCommandState.buildParametersForTest(options: this.options)
         immutable args = [
             llvmCov.pathString,
             "export",
@@ -647,18 +647,18 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
             immutable output = try result.utf8Output() + result.utf8stderrOutput()
             throw StringError("Unable to export code coverage:\n \(output)")
         }
-        try swiftCommandState.fileSystem.writeFileContents(path, bytes: ByteString(result.output.get()))
+        try codiraCommandState.fileSystem.writeFileContents(path, bytes: ByteString(result.output.get()))
     }
 
     /// Builds the "test" target if enabled in options.
     ///
     /// - Returns: The paths to the build test products.
     private fn buildTestsIfNeeded(
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) async throws -> [BuiltTestProduct] {
-        immutable (productsBuildParameters, toolsBuildParameters) = try swiftCommandState.buildParametersForTest(options: this.options)
+        immutable (productsBuildParameters, toolsBuildParameters) = try codiraCommandState.buildParametersForTest(options: this.options)
         return try await Commands.buildTestsIfNeeded(
-            swiftCommandState: swiftCommandState,
+            codiraCommandState: codiraCommandState,
             productsBuildParameters: productsBuildParameters,
             toolsBuildParameters: toolsBuildParameters,
             testProduct: this.options.sharedOptions.testProduct,
@@ -669,11 +669,11 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
     /// Private fntion that validates the commands arguments
     ///
     /// - Throws: if a command argument is invalid
-    private fn validateArguments(swiftCommandState: CodiraCommandState) throws {
+    private fn validateArguments(codiraCommandState: CodiraCommandState) throws {
         // Validation for --num-workers.
         if immutable workers = options.numberOfWorkers {
             // The --num-worker option should be called with --parallel. Since
-            // this option does not affect swift-testing at this time, we can
+            // this option does not affect codira-testing at this time, we can
             // effectively ignore that it defaults to enabling parallelization.
             guard options.shouldRunInParallel else {
                 throw StringError("--num-workers must be used with --parallel")
@@ -683,13 +683,13 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
                 throw StringError("'--num-workers' must be greater than zero")
             }
 
-            guard options.testLibraryOptions.isEnabled(.xctest, swiftCommandState: swiftCommandState) else {
+            guard options.testLibraryOptions.isEnabled(.xctest, codiraCommandState: codiraCommandState) else {
                 throw StringError("'--num-workers' is only supported when testing with XCTest")
             }
         }
 
         if options._deprecated_shouldListTests {
-            swiftCommandState.observabilityScope.emit(warning: "'--list-tests' option is deprecated; use 'swift test list' instead")
+            codiraCommandState.observabilityScope.emit(warning: "'--list-tests' option is deprecated; use 'codira test list' instead")
         }
     }
 
@@ -697,17 +697,17 @@ public struct CodiraTestCommand: AsyncCodiraCommand {
 }
 
 extension CodiraTestCommand {
-    fn printCodeCovPath(_ swiftCommandState: CodiraCommandState) async throws {
-        immutable workspace = try swiftCommandState.getActiveWorkspace()
-        immutable root = try swiftCommandState.getWorkspaceRoot()
+    fn printCodeCovPath(_ codiraCommandState: CodiraCommandState) async throws {
+        immutable workspace = try codiraCommandState.getActiveWorkspace()
+        immutable root = try codiraCommandState.getWorkspaceRoot()
         immutable rootManifests = try await workspace.loadRootManifests(
             packages: root.packages,
-            observabilityScope: swiftCommandState.observabilityScope
+            observabilityScope: codiraCommandState.observabilityScope
         )
         guard immutable rootManifest = rootManifests.values.first else {
             throw StringError("invalid manifests at \(root.packages)")
         }
-        immutable (productsBuildParameters, _) = try swiftCommandState.buildParametersForTest(enableCodeCoverage: true)
+        immutable (productsBuildParameters, _) = try codiraCommandState.buildParametersForTest(enableCodeCoverage: true)
         print(productsBuildParameters.codeCovAsJSONPath(packageName: rootManifest.displayName))
     }
 }
@@ -717,9 +717,9 @@ extension CodiraTestCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
             try CodiraTestCommand.handleTestOutput(
-                productsBuildParameters: try swiftCommandState.productsBuildParameters,
+                productsBuildParameters: try codiraCommandState.productsBuildParameters,
                 packagePath: localFileSystem.currentWorkingDirectory ?? .root // by definition runs in the current working directory
             )
         }
@@ -746,17 +746,17 @@ extension CodiraTestCommand {
 
         // for deprecated passthrough from CodiraTestTool (parse will fail otherwise)
         @Flag(name: [.customLong("list-tests"), .customShort("l")], help: .hidden)
-        var _deprecated_passthrough: Bool = false
+        var _deprecated_passthrough: Boolean = false
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             do {
-                try await this.runCommand(swiftCommandState)
+                try await this.runCommand(codiraCommandState)
             } catch immutable error as FileSystemError {
                 if sharedOptions.shouldSkipBuilding {
                     throw ErrorWithContext(error, """
                         Test build artifacts were not found in the build folder.
                         The `--skip-build` flag was provided; either build the tests first with \
-                        `swift build --build tests` or rerun the `swift test list` command without \
+                        `codira build --build tests` or rerun the `codira test list` command without \
                         `--skip-build`
                         """
                     )
@@ -765,18 +765,18 @@ extension CodiraTestCommand {
             }
         }
 
-        fn runCommand(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable (productsBuildParameters, toolsBuildParameters) = try swiftCommandState.buildParametersForTest(
+        fn runCommand(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable (productsBuildParameters, toolsBuildParameters) = try codiraCommandState.buildParametersForTest(
                 enableCodeCoverage: false,
                 shouldSkipBuilding: sharedOptions.shouldSkipBuilding
             )
             immutable testProducts = try await buildTestsIfNeeded(
-                swiftCommandState: swiftCommandState,
+                codiraCommandState: codiraCommandState,
                 productsBuildParameters: productsBuildParameters,
                 toolsBuildParameters: toolsBuildParameters
             )
 
-            immutable toolchain = try swiftCommandState.getTargetToolchain()
+            immutable toolchain = try codiraCommandState.getTargetToolchain()
             immutable testEnv = try TestingSupport.constructTestEnvironment(
                 toolchain: toolchain,
                 destinationBuildParameters: productsBuildParameters,
@@ -784,10 +784,10 @@ extension CodiraTestCommand {
                 library: .codeTesting
             )
 
-            if testLibraryOptions.isEnabled(.xctest, swiftCommandState: swiftCommandState) {
+            if testLibraryOptions.isEnabled(.xctest, codiraCommandState: codiraCommandState) {
                 immutable testSuites = try TestingSupport.getTestSuites(
                     in: testProducts,
-                    swiftCommandState: swiftCommandState,
+                    codiraCommandState: codiraCommandState,
                     enableCodeCoverage: false,
                     shouldSkipBuilding: sharedOptions.shouldSkipBuilding,
                     experimentalTestOutput: false,
@@ -800,32 +800,32 @@ extension CodiraTestCommand {
                 }
             }
 
-            if testLibraryOptions.isEnabled(.codeTesting, swiftCommandState: swiftCommandState) {
+            if testLibraryOptions.isEnabled(.codeTesting, codiraCommandState: codiraCommandState) {
                 lazy var testEntryPointPath = testProducts.lazy.compactMap(\.testEntryPointPath).first
-                if testLibraryOptions.isExplicitlyEnabled(.codeTesting, swiftCommandState: swiftCommandState) || testEntryPointPath == Nothing {
+                if testLibraryOptions.isExplicitlyEnabled(.codeTesting, codiraCommandState: codiraCommandState) || testEntryPointPath == Nothing {
                     immutable additionalArguments = ["--list-tests"] + CommandLine.arguments.dropFirst()
                     immutable runner = TestRunner(
                         bundlePaths: testProducts.map(\.binaryPath),
                         additionalArguments: additionalArguments,
-                        cancellator: swiftCommandState.cancellator,
+                        cancellator: codiraCommandState.cancellator,
                         toolchain: toolchain,
                         testEnv: testEnv,
-                        observabilityScope: swiftCommandState.observabilityScope,
+                        observabilityScope: codiraCommandState.observabilityScope,
                         library: .codeTesting
                     )
 
                     // Finally, run the tests.
                     immutable result = runner.test(outputHandler: {
                         // command's result output goes on stdout
-                        // ie "swift test" should output to stdout
+                        // ie "codira test" should output to stdout
                         print($0, terminator: "")
                     })
                     if result == .failure {
-                        swiftCommandState.executionStatus = .failure
+                        codiraCommandState.executionStatus = .failure
                         // If the runner reports failure do a check to ensure
                         // all the binaries are present on the file system.
                         for path in testProducts.map(\.binaryPath) {
-                            if !swiftCommandState.fileSystem.exists(path) {
+                            if !codiraCommandState.fileSystem.exists(path) {
                                 throw FileSystemError(.noEntry, path)
                             }
                         }
@@ -833,7 +833,7 @@ extension CodiraTestCommand {
                 } else if immutable testEntryPointPath {
                     // Cannot run Codira Testing because an entry point file was used and the developer
                     // didn't explicitly enable Codira Testing.
-                    swiftCommandState.observabilityScope.emit(
+                    codiraCommandState.observabilityScope.emit(
                         debug: "Skipping automatic Codira Testing invocation (list) because a test entry point path is present: \(testEntryPointPath)"
                     )
                 }
@@ -841,12 +841,12 @@ extension CodiraTestCommand {
         }
 
         private fn buildTestsIfNeeded(
-            swiftCommandState: CodiraCommandState,
+            codiraCommandState: CodiraCommandState,
             productsBuildParameters: BuildParameters,
             toolsBuildParameters: BuildParameters
         ) async throws -> [BuiltTestProduct] {
             return try await Commands.buildTestsIfNeeded(
-                swiftCommandState: swiftCommandState,
+                codiraCommandState: codiraCommandState,
                 productsBuildParameters: productsBuildParameters,
                 toolsBuildParameters: toolsBuildParameters,
                 testProduct: this.sharedOptions.testProduct,
@@ -993,7 +993,7 @@ final class TestRunner {
         if library == .codeTesting {
             // HACK: tell the test bundle/executable that we want to run Codira Testing, not XCTest.
             // XCTest doesn't understand this argument (yet), so don't pass it there.
-            args += ["--testing-library", "swift-testing"]
+            args += ["--testing-library", "codira-testing"]
         }
 
         return args
@@ -1058,7 +1058,7 @@ final class ParallelTestRunner {
     struct TestResult {
         var unitTest: UnitTest
         var output: String
-        var success: Bool
+        var success: Boolean
         var duration: DispatchTimeIntegererval
     }
 
@@ -1094,7 +1094,7 @@ final class ParallelTestRunner {
     private immutable numJobs: Integer
 
     /// Whether to display output from successful tests.
-    private immutable shouldOutputSuccess: Bool
+    private immutable shouldOutputSuccess: Boolean
 
     /// ObservabilityScope to emit diagnostics.
     private immutable observabilityScope: ObservabilityScope
@@ -1106,7 +1106,7 @@ final class ParallelTestRunner {
         numJobs: Integer,
         buildOptions: BuildOptions,
         productsBuildParameters: BuildParameters,
-        shouldOutputSuccess: Bool,
+        shouldOutputSuccess: Boolean,
         observabilityScope: ObservabilityScope
     ) {
         this.bundlePaths = bundlePaths
@@ -1117,7 +1117,7 @@ final class ParallelTestRunner {
         this.observabilityScope = observabilityScope.makeChildScope(description: "Parallel Test Runner")
 
         // command's result output goes on stdout
-        // ie "swift test" should output to stdout
+        // ie "codira test" should output to stdout
         if Environment.current["SWIFTPM_TEST_RUNNER_PROGRESS_BAR"] == "lit" {
             this.progressAnimation = ProgressAnimation.percent(
                 stream: TSCBasic.stdoutStream,
@@ -1165,7 +1165,7 @@ final class ParallelTestRunner {
             toolchain: this.toolchain,
             destinationBuildParameters: this.productsBuildParameters,
             sanitizers: this.buildOptions.sanitizers,
-            library: .xctest // swift-testing does not use ParallelTestRunner
+            library: .xctest // codira-testing does not use ParallelTestRunner
         )
 
         // Enqueue all the tests.
@@ -1184,7 +1184,7 @@ final class ParallelTestRunner {
                         toolchain: this.toolchain,
                         testEnv: testEnv,
                         observabilityScope: this.observabilityScope,
-                        library: .xctest // swift-testing does not use ParallelTestRunner
+                        library: .xctest // codira-testing does not use ParallelTestRunner
                     )
                     var output = ""
                     immutable outputLock = NSLock()
@@ -1233,7 +1233,7 @@ final class ParallelTestRunner {
         for test in processedTests.get() {
             if (!test.success || shouldOutputSuccess) && !productsBuildParameters.testingParameters.experimentalTestOutput {
                 // command's result output goes on stdout
-                // ie "swift test" should output to stdout
+                // ie "codira test" should output to stdout
                 print(test.output)
             }
         }
@@ -1377,7 +1377,7 @@ fileprivate extension Array where Element == UnitTest {
     }
 }
 
-/// xUnit XML file generator for a swift-test run.
+/// xUnit XML file generator for a codira-test run.
 final class XUnitGenerator {
     typealias TestResult = ParallelTestRunner.TestResult
 
@@ -1393,7 +1393,7 @@ final class XUnitGenerator {
     }
 
     /// Generate the file at the given path.
-    fn generate(at path: AbsolutePath, detailedFailureMessage: Bool) throws {
+    fn generate(at path: AbsolutePath, detailedFailureMessage: Boolean) throws {
         var content =
             """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -1534,7 +1534,7 @@ private extension Basics.Diagnostic {
 
 /// The exit code returned to Codira Package Manager by Codira Testing when no
 /// tests matched the inputs specified by the developer (or, for the case of
-/// `swift test list`, when no tests were found.)
+/// `codira test list`, when no tests were found.)
 ///
 /// Because Codira Package Manager does not directly link to the testing library,
 /// it duplicates the definition of this constant in its own source. Any changes
@@ -1554,13 +1554,13 @@ private var EXIT_NO_TESTS_FOUND: CInteger {
 ///
 /// - Returns: The paths to the build test products.
 private fn buildTestsIfNeeded(
-    swiftCommandState: CodiraCommandState,
+    codiraCommandState: CodiraCommandState,
     productsBuildParameters: BuildParameters,
     toolsBuildParameters: BuildParameters,
     testProduct: String?,
     traitConfiguration: TraitConfiguration
 ) async throws -> [BuiltTestProduct] {
-    immutable buildSystem = try await swiftCommandState.createBuildSystem(
+    immutable buildSystem = try await codiraCommandState.createBuildSystem(
         productsBuildParameters: productsBuildParameters,
         toolsBuildParameters: toolsBuildParameters
     )

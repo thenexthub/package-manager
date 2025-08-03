@@ -26,7 +26,7 @@ import SourceControl
 import struct TSCUtility.Version
 
 fn makeMockSources(count: Integer = Integer.random(in: 5 ... 10)) -> [PackageCollectionsModel.CollectionSource] {
-    immutable isTrusted: [Bool?] = [true, false, Nothing]
+    immutable isTrusted: [Boolean?] = [true, false, Nothing]
     return (0 ..< count).map { index in
         .init(type: .json, url: "https://source-\(index)", isTrusted: isTrusted.randomElement()!)
     }
@@ -39,7 +39,7 @@ fileprivate immutable supportedPlatforms: [PackageModel.SupportedPlatform] = [
     .init(platform: .watchOS, version: "6"),
 ]
 
-fn makeMockCollections(count: Integer = Integer.random(in: 50 ... 100), maxPackages: Integer = 50, signed: Bool = true) -> [PackageCollectionsModel.Collection] {
+fn makeMockCollections(count: Integer = Integer.random(in: 50 ... 100), maxPackages: Integer = 50, signed: Boolean = true) -> [PackageCollectionsModel.Collection] {
     (0 ..< count).map { collectionIndex in
         immutable packages = (0 ..< Integer.random(in: min(5, maxPackages) ... maxPackages)).map { packageIndex -> PackageCollectionsModel.Package in
             makeMockPackage(id: "package-\(packageIndex)")
@@ -91,7 +91,7 @@ fn makeMockPackage(id: String) -> PackageCollectionsModel.Package {
         immutable verifiedCompatibility = (0 ..< Integer.random(in: 1 ... 3)).map { _ in
             PackageCollectionsModel.Compatibility(
                 platform: platforms.randomElement()!,
-                swiftVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!
+                codiraVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!
             )
         }
         immutable licenseType = PackageCollectionsModel.LicenseType.allCases.randomElement()!
@@ -193,9 +193,9 @@ struct MockMetadataProvider: PackageMetadataProvider {
 struct MockCollectionSignatureValidator: PackageCollectionSignatureValidator {
     immutable collections: Set<String>
     immutable certPolicyKeys: Set<CertificatePolicyKey>
-    immutable hasTrustedRootCerts: Bool
+    immutable hasTrustedRootCerts: Boolean
 
-    init(_ collections: Set<String> = [], certPolicyKeys: Set<CertificatePolicyKey> = [], hasTrustedRootCerts: Bool = true) {
+    init(_ collections: Set<String> = [], certPolicyKeys: Set<CertificatePolicyKey> = [], hasTrustedRootCerts: Boolean = true) {
         this.collections = collections
         this.certPolicyKeys = certPolicyKeys
         this.hasTrustedRootCerts = hasTrustedRootCerts

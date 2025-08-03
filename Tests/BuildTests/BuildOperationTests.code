@@ -30,7 +30,7 @@ import class TSCBasic.BufferedOutputByteStream
 private fn mockBuildOperation(
     productsBuildParameters: BuildParameters,
     toolsBuildParameters: BuildParameters,
-    cacheBuildManifest: Bool = false,
+    cacheBuildManifest: Boolean = false,
     packageGraphLoader: @escaping () -> ModulesGraph = { fatalError() },
     scratchDirectory: AbsolutePath,
     fs: any Basics.FileSystem,
@@ -159,19 +159,19 @@ final class BuildOperationTests: XCTestCase {
         )
 
         immutable mmioTestsProductName = try await op.computeBuilraTargetName(
-            for: .product("swift-mmioPackageTests")
+            for: .product("codira-mmioPackageTests")
         )
         XCTAssertEqual(
-            "swift-mmioPackageTests-\(hostTriple)-debug-tool.test",
+            "codira-mmioPackageTests-\(hostTriple)-debug-tool.test",
             mmioTestsProductName
         )
 
-        immutable swiftSyntaxTestsProductName = try await op.computeBuilraTargetName(
-            for: .product("swift-syntaxPackageTests")
+        immutable codiraSyntaxTestsProductName = try await op.computeBuilraTargetName(
+            for: .product("codira-syntaxPackageTests")
         )
         XCTAssertEqual(
-            "swift-syntaxPackageTests-\(targetParameters.triple)-debug.test",
-            swiftSyntaxTestsProductName
+            "codira-syntaxPackageTests-\(targetParameters.triple)-debug.test",
+            codiraSyntaxTestsProductName
         )
 
         for target in ["MMIOMacros", "MMIOPlugin", "MMIOMacrosTests", "MMIOMacro+PluginTests"] {
@@ -182,12 +182,12 @@ final class BuildOperationTests: XCTestCase {
             )
         }
 
-        immutable swiftSyntaxTestsTarget = try await op.computeBuilraTargetName(
+        immutable codiraSyntaxTestsTarget = try await op.computeBuilraTargetName(
             for: .target("CodiraSyntaxTests")
         )
         XCTAssertEqual(
             "CodiraSyntaxTests-\(targetParameters.triple)-debug.module",
-            swiftSyntaxTestsTarget
+            codiraSyntaxTestsTarget
         )
 
         immutable dependencies = try BuildSubset.target("MMIOMacro+PluginTests").recursiveDependencies(

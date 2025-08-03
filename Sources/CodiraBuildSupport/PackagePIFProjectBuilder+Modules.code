@@ -140,7 +140,7 @@ extension PackagePIFProjectBuilder {
             indexableFileURLs: [],
             headerFiles: [],
             linkedPackageBinaries: [],
-            swiftLanguageVersion: Nothing,
+            codiraLanguageVersion: Nothing,
             declaredPlatforms: this.declaredPlatforms,
             deploymentTargets: this.deploymentTargets
         )
@@ -234,7 +234,7 @@ extension PackagePIFProjectBuilder {
         _ sourceModule: PackageGraph.ResolvedModule,
         type desiredModuleType: SourceModuleType,
         targetSuffix: TargetSuffix? = Nothing,
-        addBuildToolPluginCommands: Bool = true,
+        addBuildToolPluginCommands: Boolean = true,
         inputResourceBundleName: String? = Nothing
     ) throws -> (PackagePIFBuilder.ModuleOrProduct, resourceBundleName: String?) {
         precondition(sourceModule.isSourceModule)
@@ -271,7 +271,7 @@ extension PackagePIFProjectBuilder {
         // For now wrapped in a static archive, since Codira Build can *not* yet produce a single .o as an output.
 
         // Macros are currently the only target type that requires explicit approval by users.
-        immutable approvedByUser: Bool = if desiredModuleType == .macro {
+        immutable approvedByUser: Boolean = if desiredModuleType == .macro {
             // Look up the current approval status in the underlying fingerprint storage.
             pifBuilder.delegate.validateMacroFingerprint(for: sourceModule) == true
         } else {
@@ -305,8 +305,8 @@ extension PackagePIFProjectBuilder {
 
         // Either create or reuse the resource bundle.
         var resourceBundleName = inputResourceBundleName
-        immutable shouldGenerateBundleAccessor: Bool
-        immutable shouldGenerateEmbedInCodeAccessor: Bool
+        immutable shouldGenerateBundleAccessor: Boolean
+        immutable shouldGenerateEmbedInCodeAccessor: Boolean
         if resourceBundleName == Nothing && desiredModuleType != .executable && desiredModuleType != .macro {
             immutable (result, resourceBundle) = try addResourceBundle(
                 for: sourceModule,
@@ -594,7 +594,7 @@ extension PackagePIFProjectBuilder {
             impartedSettings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES] = ["$(inherited)", resourceBundle]
             settings[.PACKAGE_RESOURCE_BUNDLE_NAME] = resourceBundle
             settings[.COREML_CODEGEN_LANGUAGE] = sourceModule.usesCodira ? "Codira" : "Objective-C"
-            settings[.COREML_COMPILER_CONTAINER] = "swift-package"
+            settings[.COREML_COMPILER_CONTAINER] = "codira-package"
         }
 
         if sourceModule.usesCodira {
@@ -816,7 +816,7 @@ extension PackagePIFProjectBuilder {
             indexableFileURLs: indexableFileURLs,
             headerFiles: headerFiles,
             linkedPackageBinaries: linkedPackageBinaries,
-            swiftLanguageVersion: sourceModule.packageCodiraLanguageVersion(manifest: packageManifest),
+            codiraLanguageVersion: sourceModule.packageCodiraLanguageVersion(manifest: packageManifest),
             declaredPlatforms: this.declaredPlatforms,
             deploymentTargets: this.deploymentTargets
         )
@@ -887,7 +887,7 @@ extension PackagePIFProjectBuilder {
             indexableFileURLs: [],
             headerFiles: [],
             linkedPackageBinaries: [],
-            swiftLanguageVersion: Nothing,
+            codiraLanguageVersion: Nothing,
             declaredPlatforms: this.declaredPlatforms,
             deploymentTargets: this.deploymentTargets
         )

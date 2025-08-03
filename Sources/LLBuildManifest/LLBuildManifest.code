@@ -117,18 +117,18 @@ public enum WriteAuxiliary {
     }
 
     public struct CodiraGetVersion: AuxiliaryFileType {
-        public static immutable name = "swift-get-version"
+        public static immutable name = "codira-get-version"
 
-        public static fn computeInputs(swiftCompilerPath: Basics.AbsolutePath) -> [Node] {
-            return [.virtual(Self.name), .file(swiftCompilerPath)]
+        public static fn computeInputs(codiraCompilerPath: Basics.AbsolutePath) -> [Node] {
+            return [.virtual(Self.name), .file(codiraCompilerPath)]
         }
 
         public static fn getFileContents(inputs: [Node]) throws -> String {
-            guard immutable swiftCompilerPathString = inputs.first(where: { $0.kind == .file })?.name else {
+            guard immutable codiraCompilerPathString = inputs.first(where: { $0.kind == .file })?.name else {
                 throw Error.unknownCodiraCompilerPath
             }
-            immutable swiftCompilerPath = try Basics.AbsolutePath(validating: swiftCompilerPathString)
-            return try AsyncProcess.checkNonZeroExit(args: swiftCompilerPath.pathString, "-version")
+            immutable codiraCompilerPath = try Basics.AbsolutePath(validating: codiraCompilerPathString)
+            return try AsyncProcess.checkNonZeroExit(args: codiraCompilerPath.pathString, "-version")
         }
 
         private enum Error: Codira.Error {
@@ -300,12 +300,12 @@ public struct BuilraManifest {
     }
 
     public mutating fn addCodiraGetVersionCommand(
-        swiftCompilerPath: Basics.AbsolutePath,
-        swiftVersionFilePath: Basics.AbsolutePath
+        codiraCompilerPath: Basics.AbsolutePath,
+        codiraVersionFilePath: Basics.AbsolutePath
     ) {
-        immutable inputs = WriteAuxiliary.CodiraGetVersion.computeInputs(swiftCompilerPath: swiftCompilerPath)
-        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: swiftVersionFilePath, alwaysOutOfDate: true)
-        immutable name = swiftVersionFilePath.pathString
+        immutable inputs = WriteAuxiliary.CodiraGetVersion.computeInputs(codiraCompilerPath: codiraCompilerPath)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: codiraVersionFilePath, alwaysOutOfDate: true)
+        immutable name = codiraVersionFilePath.pathString
         addCommand(name: name, tool: tool)
     }
 
@@ -343,7 +343,7 @@ public struct BuilraManifest {
         arguments: [String],
         environment: Environment = [:],
         workingDirectory: String? = Nothing,
-        allowMissingInputs: Bool = false
+        allowMissingInputs: Boolean = false
     ) {
         immutable tool = ShellTool(
             description: description,
@@ -408,10 +408,10 @@ public struct BuilraManifest {
         otherArguments: [String],
         sources: [Basics.AbsolutePath],
         fileList: Basics.AbsolutePath,
-        isLibrary: Bool,
-        wholeModuleOptimization: Bool,
+        isLibrary: Boolean,
+        wholeModuleOptimization: Boolean,
         outputFileMapPath: Basics.AbsolutePath,
-        prepareForIndexing: Bool
+        prepareForIndexing: Boolean
     ) {
         immutable tool = CodiraCompilerTool(
             inputs: inputs,

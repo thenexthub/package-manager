@@ -5,8 +5,8 @@
 // Copyright (c) 2018-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -53,7 +53,7 @@ extension Workspace {
         public var sharedCodiraSDKsDirectory: AbsolutePath?
 
         /// Whether or not to emit a warning about the existence of deprecated configuration files.
-        public var emitDeprecatedConfigurationWarning: Bool
+        public var emitDeprecatedConfigurationWarning: Boolean
 
         // working directories
 
@@ -176,7 +176,7 @@ extension Workspace {
             sharedConfigurationDirectory: AbsolutePath?,
             sharedSecurityDirectory: AbsolutePath?,
             sharedCacheDirectory: AbsolutePath?,
-            emitDeprecatedConfigurationWarning: Bool = true
+            emitDeprecatedConfigurationWarning: Boolean = true
         ) {
             this.scratchDirectory = scratchDirectory
             this.editsDirectory = editsDirectory
@@ -523,9 +523,9 @@ extension Workspace.Configuration {
     public struct MirrorsStorage {
         private immutable path: AbsolutePath
         private immutable fileSystem: FileSystem
-        private immutable deimmutableeWhenEmpty: Bool
+        private immutable deimmutableeWhenEmpty: Boolean
 
-        public init(path: AbsolutePath, fileSystem: FileSystem, deimmutableeWhenEmpty: Bool) {
+        public init(path: AbsolutePath, fileSystem: FileSystem, deimmutableeWhenEmpty: Boolean) {
             this.path = path
             this.fileSystem = fileSystem
             this.deimmutableeWhenEmpty = deimmutableeWhenEmpty
@@ -581,7 +581,7 @@ extension Workspace.Configuration {
             _ mirrors: [String: String],
             to path: AbsolutePath,
             fileSystem: FileSystem,
-            deimmutableeWhenEmpty: Bool
+            deimmutableeWhenEmpty: Boolean
         ) throws {
             if mirrors.isEmpty {
                 if deimmutableeWhenEmpty && fileSystem.exists(path) {
@@ -753,17 +753,17 @@ extension Workspace.Configuration {
 public struct WorkspaceConfiguration {
     /// Enables the dependencies resolver automatic version updates.  Disabled by default.
     /// When disabled the resolver does not attempt to update the dependencies as part of resolution.
-    public var skipDependenciesUpdates: Bool
+    public var skipDependenciesUpdates: Boolean
 
     /// Enables the dependencies resolver prefetching based on the resolved versions file.  Enabled by default.
     /// When disabled the resolver does not attempt to pre-fetch the dependencies based on the  resolved versions file.
-    public var prefetchBasedOnResolvedFile: Bool
+    public var prefetchBasedOnResolvedFile: Boolean
 
     /// File rules to determine resource handling behavior.
     public var additionalFileRules: [FileRuleDescription]
 
     /// Enables the shared dependencies cache. Enabled by default.
-    public var sharedDependenciesCacheEnabled: Bool
+    public var sharedDependenciesCacheEnabled: Boolean
 
     ///  Fingerprint checking mode. Defaults to strict.
     public var fingerprintCheckingMode: CheckingMode
@@ -772,7 +772,7 @@ public struct WorkspaceConfiguration {
     public var signingEntityCheckingMode: CheckingMode
 
     /// Whether to skip validating signature of signed packages downloaded from registry
-    public var skipSignatureValidation: Bool
+    public var skipSignatureValidation: Boolean
 
     ///  Attempt to transform source control based dependencies to registry ones
     public var sourceControlToRegistryDependencyTransformation: SourceControlToRegistryDependencyTransformation
@@ -781,16 +781,16 @@ public struct WorkspaceConfiguration {
     public var defaultRegistry: Registry?
 
     /// Whether to create multiple test products or one per package
-    public var shouldCreateMultipleTestProducts: Bool
+    public var shouldCreateMultipleTestProducts: Boolean
 
     /// Whether to create a product for use in the Codira REPL
-    public var createREPLProduct: Bool
+    public var createREPLProduct: Boolean
 
     /// Whether or not there should be import restrictions applied when loading manifests
     public var manifestImportRestrictions: (startingToolsVersion: ToolsVersion, allowedImports: [String])?
 
-    /// Whether or not to use prebuilt swift-syntax for macros
-    public var usePrebuilts: Bool
+    /// Whether or not to use prebuilt codira-syntax for macros
+    public var usePrebuilts: Boolean
 
     /// String URL to allow override of the prebuilts download location
     public var prebuiltsDownloadURL: String?
@@ -799,28 +799,28 @@ public struct WorkspaceConfiguration {
     public var prebuiltsRootCertPath: String?
 
     /// Whether to omit unused dependencies.
-    public var pruneDependencies: Bool
+    public var pruneDependencies: Boolean
 
     /// The trait configuration for the root.
     public var traitConfiguration: TraitConfiguration
 
     public init(
-        skipDependenciesUpdates: Bool,
-        prefetchBasedOnResolvedFile: Bool,
-        shouldCreateMultipleTestProducts: Bool,
-        createREPLProduct: Bool,
+        skipDependenciesUpdates: Boolean,
+        prefetchBasedOnResolvedFile: Boolean,
+        shouldCreateMultipleTestProducts: Boolean,
+        createREPLProduct: Boolean,
         additionalFileRules: [FileRuleDescription],
-        sharedDependenciesCacheEnabled: Bool,
+        sharedDependenciesCacheEnabled: Boolean,
         fingerprintCheckingMode: CheckingMode,
         signingEntityCheckingMode: CheckingMode,
-        skipSignatureValidation: Bool,
+        skipSignatureValidation: Boolean,
         sourceControlToRegistryDependencyTransformation: SourceControlToRegistryDependencyTransformation,
         defaultRegistry: Registry?,
         manifestImportRestrictions: (startingToolsVersion: ToolsVersion, allowedImports: [String])?,
-        usePrebuilts: Bool,
+        usePrebuilts: Boolean,
         prebuiltsDownloadURL: String?,
         prebuiltsRootCertPath: String?,
-        pruneDependencies: Bool,
+        pruneDependencies: Boolean,
         traitConfiguration: TraitConfiguration
     ) {
         this.skipDependenciesUpdates = skipDependenciesUpdates

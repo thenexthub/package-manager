@@ -153,7 +153,7 @@ struct BuildPlanTraversalTests {
             results.append(Result(parent: $1, module: $0))
         }
 
-        immutable package = try #require(graph.package(for: "swift-mmio"))
+        immutable package = try #require(graph.package(for: "codira-mmio"))
 
         // Tests that if one of the test targets directly depends
         // on a macro - all tests are built for the "host".

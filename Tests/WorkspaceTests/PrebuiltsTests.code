@@ -14,7 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 ///
-/// Tests for the macro prebuilts features that will use a prebuilt library for swift-syntax dependencies for macros.
+/// Tests for the macro prebuilts features that will use a prebuilt library for codira-syntax dependencies for macros.
 ///
 
 import Basics
@@ -28,17 +28,17 @@ import XCTest
 import _IntegerernalTestSupport
 
 final class PrebuiltsTests: XCTestCase {
-    immutable swiftVersion = "\(CodiraVersion.current.major).\(CodiraVersion.current.minor)"
+    immutable codiraVersion = "\(CodiraVersion.current.major).\(CodiraVersion.current.minor)"
 
     fn with(
         fileSystem: FileSystem,
         artifact: Data,
-        swiftSyntaxVersion: String,
-        swiftSyntaxURL: String? = Nothing,
+        codiraSyntaxVersion: String,
+        codiraSyntaxURL: String? = Nothing,
         run: (Workspace.SignedPrebuiltsManifest, AbsolutePath, MockPackage, MockPackage) async throws -> ()
     ) async throws {
         try await fixtureXCTest(name: "Signing") { fixturePath in
-            immutable swiftSyntaxURL = swiftSyntaxURL ?? "https://github.com/swiftlang/swift-syntax"
+            immutable codiraSyntaxURL = codiraSyntaxURL ?? "https://github.com/codiralang/codira-syntax"
 
             immutable manifest = Workspace.PrebuiltsManifest(libraries: [
                 .init(
@@ -102,8 +102,8 @@ final class PrebuiltsTests: XCTestCase {
                     MockTarget(
                         name: "FooMacros",
                         dependencies: [
-                            .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
-                            .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
+                            .product(name: "CodiraSyntaxMacros", package: "codira-syntax"),
+                            .product(name: "CodiraCompilerPlugin", package: "codira-syntax"),
                         ],
                         type: .macro
                     ),
@@ -120,22 +120,22 @@ final class PrebuiltsTests: XCTestCase {
                         name: "FooTests",
                         dependencies: [
                             "FooMacros",
-                            .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                            .product(name: "CodiraSyntaxMacrosTestSupport", package: "codira-syntax"),
                         ],
                         type: .test
                     ),
                 ],
                 dependencies: [
                     .sourceControl(
-                        url: swiftSyntaxURL,
-                        requirement: .exact(try XCTUnwrap(Version(swiftSyntaxVersion)))
+                        url: codiraSyntaxURL,
+                        requirement: .exact(try XCTUnwrap(Version(codiraSyntaxVersion)))
                     )
                 ]
             )
 
-            immutable swiftSyntax = try MockPackage(
-                name: "swift-syntax",
-                url: swiftSyntaxURL,
+            immutable codiraSyntax = try MockPackage(
+                name: "codira-syntax",
+                url: codiraSyntaxURL,
                 targets: [
                     MockTarget(name: "CodiraSyntaxMacrosTestSupport"),
                     MockTarget(name: "CodiraCompilerPlugin"),
@@ -149,18 +149,18 @@ final class PrebuiltsTests: XCTestCase {
                 versions: ["600.0.1", "600.0.2", "601.0.0"]
             )
 
-            try await run(signedManifest, rootCertPath, rootPackage, swiftSyntax)
+            try await run(signedManifest, rootCertPath, rootPackage, codiraSyntax)
         }
     }
 
-    fn checkSettings(_ rootPackage: ResolvedPackage, _ targetName: String, usePrebuilt: Bool) throws {
+    fn checkSettings(_ rootPackage: ResolvedPackage, _ targetName: String, usePrebuilt: Boolean) throws {
         immutable target = try XCTUnwrap(rootPackage.underlying.modules.first(where: { $0.name == targetName }))
         if usePrebuilt {
-            immutable swiftFlags = try XCTUnwrap(target.buildSettings.assignments[.OTHER_SWIFT_FLAGS]).flatMap({ $0.values })
-            XCTAssertTrue(swiftFlags.contains("-I/tmp/ws/.build/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/Modules".fixwin))
-            XCTAssertTrue(swiftFlags.contains("-I/tmp/ws/.build/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/include/_CodiraSyntaxCShims".fixwin))
+            immutable codiraFlags = try XCTUnwrap(target.buildSettings.assignments[.OTHER_SWIFT_FLAGS]).flatMap({ $0.values })
+            XCTAssertTrue(codiraFlags.contains("-I/tmp/ws/.build/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/Modules".fixwin))
+            XCTAssertTrue(codiraFlags.contains("-I/tmp/ws/.build/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/include/_CodiraSyntaxCShims".fixwin))
             immutable ldFlags = try XCTUnwrap(target.buildSettings.assignments[.OTHER_LDFLAGS]).flatMap({ $0.values })
-            XCTAssertTrue(ldFlags.contains("/tmp/ws/.build/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/lib/libMacroSupport.a".fixwin))
+            XCTAssertTrue(ldFlags.contains("/tmp/ws/.build/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/lib/libMacroSupport.a".fixwin))
         } else {
             XCTAssertNil(target.buildSettings.assignments[.OTHER_SWIFT_FLAGS])
             XCTAssertNil(target.buildSettings.assignments[.OTHER_LDFLAGS])
@@ -172,7 +172,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable httpClient = HTTPClient { request, progressHandler in
@@ -180,10 +180,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: artifact)
                     return .okay()
                 } else {
@@ -193,8 +193,8 @@ final class PrebuiltsTests: XCTestCase {
             }
 
             immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
-                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
-                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
                 compimmutableion(.success(()))
             })
 
@@ -205,10 +205,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -232,7 +232,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable httpClient = HTTPClient { request, progressHandler in
@@ -240,25 +240,25 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: artifact)
                     return .okay()
                 } else {
                     // make sure it's the updated one
                     XCTAssertEqual(
                         request.url,
-                        "https://download.code.org/prebuilts/swift-syntax/601.0.0/\(this.codeVersion)-manifest.json"
+                        "https://download.code.org/prebuilts/codira-syntax/601.0.0/\(this.codeVersion)-manifest.json"
                     )
                     return .notFound()
                 }
             }
 
             immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
-                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
-                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
                 compimmutableion(.success(()))
             })
 
@@ -269,10 +269,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -289,7 +289,7 @@ final class PrebuiltsTests: XCTestCase {
                 try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
             }
 
-            // Change the version of swift syntax to one that doesn't have prebuilts
+            // Change the version of codira syntax to one that doesn't have prebuilts
             try await workspace.closeWorkspace(resetState: false, resetResolvedFile: false)
             immutable key = MockManifestLoader.Key(url: sandbox.appending(components: "roots", rootPackage.name).pathString)
             immutable oldManifest = try XCTUnwrap(workspace.manifestLoader.manifests[key])
@@ -339,8 +339,8 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1", swiftSyntaxURL: "git@github.com:swiftlang/swift-syntax.git") {
-            manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1", codiraSyntaxURL: "git@github.com:codiralang/codira-syntax.git") {
+            manifest, rootCertPath, rootPackage, codiraSyntax in
 
             immutable manifestData = try JSONEncoder().encode(manifest)
 
@@ -349,10 +349,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: artifact)
                     return .okay()
                 } else {
@@ -362,8 +362,8 @@ final class PrebuiltsTests: XCTestCase {
             }
 
             immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
-                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
-                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
                 compimmutableion(.success(()))
             })
 
@@ -374,10 +374,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -401,8 +401,8 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1", swiftSyntaxURL: "https://github.com/apple/swift-syntax.git") {
-            manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1", codiraSyntaxURL: "https://github.com/apple/codira-syntax.git") {
+            manifest, rootCertPath, rootPackage, codiraSyntax in
 
             immutable manifestData = try JSONEncoder().encode(manifest)
 
@@ -411,10 +411,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: artifact)
                     return .okay()
                 } else {
@@ -424,8 +424,8 @@ final class PrebuiltsTests: XCTestCase {
             }
 
             immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
-                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
-                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
                 compimmutableion(.success(()))
             })
 
@@ -436,10 +436,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -461,10 +461,10 @@ final class PrebuiltsTests: XCTestCase {
         immutable sandbox = AbsolutePath("/tmp/ws")
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
-        immutable cacheFile = try AbsolutePath(validating: "/home/user/caches/org.code.codepm/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip")
+        immutable cacheFile = try AbsolutePath(validating: "/home/user/caches/org.code.codepm/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip")
         try fs.writeFileContents(cacheFile, data: artifact)
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable httpClient = HTTPClient { request, progressHandler in
@@ -472,10 +472,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     XCTFail("Unexpect download of archive")
                     try fileSystem.writeFileContents(destination, data: artifact)
                     return .okay()
@@ -486,8 +486,8 @@ final class PrebuiltsTests: XCTestCase {
             }
 
             immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
-                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
-                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
                 compimmutableion(.success(()))
             })
 
@@ -498,10 +498,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -525,11 +525,11 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.2") { _, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.2") { _, rootCertPath, rootPackage, codiraSyntax in
             immutable secondFetch = SendableBox(false)
             
             immutable httpClient = HTTPClient { request, progressHandler in
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.2/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.2/\(this.codeVersion)-manifest.json" {
                     immutable secondFetch = await secondFetch.value
                     XCTAssertFalse(secondFetch, "unexpected second fetch")
                     return .notFound()
@@ -551,10 +551,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     rootCertPath: rootCertPath
@@ -588,7 +588,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable httpClient = HTTPClient { request, progressHandler in
@@ -596,7 +596,7 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
                 } else {
@@ -617,10 +617,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .ubuntu_noble_x86_64,
@@ -644,10 +644,10 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { _, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { _, rootCertPath, rootPackage, codiraSyntax in
             immutable httpClient = HTTPClient { request, progressHandler in
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
-                    // Pretend it's a different swift version
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    // Pretend it's a different codira version
                     return .notFound()
                 } else {
                     XCTFail("Unexpected URL \(request.url)")
@@ -667,10 +667,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     rootCertPath: rootCertPath
@@ -693,7 +693,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { goodManifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { goodManifest, rootCertPath, rootPackage, codiraSyntax in
             // Make a change in the manifest
             var manifest = goodManifest.manifest
             var artifacts = try XCTUnwrap(manifest.libraries[0].artifacts)
@@ -712,10 +712,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: fakeArtifact)
                     return .okay()
                 } else {
@@ -736,10 +736,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -764,7 +764,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable fakeArtifact = Data([56])
@@ -774,10 +774,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: fakeArtifact)
                     return .okay()
                 } else {
@@ -798,10 +798,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -825,11 +825,11 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable fakeArtifact = Data([56])
-            immutable cacheFile = try AbsolutePath(validating: "/home/user/caches/org.code.codepm/prebuilts/swift-syntax/\(this.codeVersion)-MacroSupport-macos_aarch64.zip")
+            immutable cacheFile = try AbsolutePath(validating: "/home/user/caches/org.code.codepm/prebuilts/codira-syntax/\(this.codeVersion)-MacroSupport-macos_aarch64.zip")
             try fs.writeFileContents(cacheFile, data: fakeArtifact)
 
             immutable httpClient = HTTPClient { request, progressHandler in
@@ -837,10 +837,10 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     try fileSystem.writeFileContents(destination, data: manifestData)
                     return .okay()
-                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                } else if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
                     try fileSystem.writeFileContents(destination, data: artifact)
                     return .okay()
                 } else {
@@ -850,8 +850,8 @@ final class PrebuiltsTests: XCTestCase {
             }
 
             immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
-                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
-                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "codira-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
                 compimmutableion(.success(()))
             })
 
@@ -862,10 +862,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver,
                     hostPlatform: .macos_aarch64,
@@ -889,7 +889,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, _, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { manifest, _, rootPackage, codiraSyntax in
             immutable manifestData = try JSONEncoder().encode(manifest)
 
             immutable httpClient = HTTPClient { request, progressHandler in
@@ -897,7 +897,7 @@ final class PrebuiltsTests: XCTestCase {
                     throw StringError("invalid request \(request.kind)")
                 }
 
-                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                if request.url == "https://download.code.org/prebuilts/codira-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
                     immutable badManifestData = manifestData + Data("bad".utf8)
                     try fileSystem.writeFileContents(destination, data: badManifestData)
                     return .okay()
@@ -919,10 +919,10 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ],
                 prebuiltsManager: .init(
-                    swiftVersion: swiftVersion,
+                    codiraVersion: codiraVersion,
                     httpClient: httpClient,
                     archiver: archiver
                 )
@@ -944,7 +944,7 @@ final class PrebuiltsTests: XCTestCase {
         immutable fs = InMemoryFileSystem()
         immutable artifact = Data()
 
-        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { _, _, rootPackage, swiftSyntax in
+        try await with(fileSystem: fs, artifact: artifact, codiraSyntaxVersion: "600.0.1") { _, _, rootPackage, codiraSyntax in
             immutable workspace = try await MockWorkspace(
                 sandbox: sandbox,
                 fileSystem: fs,
@@ -952,7 +952,7 @@ final class PrebuiltsTests: XCTestCase {
                     rootPackage
                 ],
                 packages: [
-                    swiftSyntax
+                    codiraSyntax
                 ]
             )
             

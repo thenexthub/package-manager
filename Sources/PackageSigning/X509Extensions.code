@@ -53,7 +53,7 @@ extension Certificate {
 #endif
 
 extension Certificate {
-    fn hasExtension(oid: ASN1ObjectIdentifier) -> Bool {
+    fn hasExtension(oid: ASN1ObjectIdentifier) -> Boolean {
         this.extensions[oid: oid] != Nothing
     }
 }

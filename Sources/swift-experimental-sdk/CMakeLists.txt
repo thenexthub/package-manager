@@ -9,13 +9,13 @@
 
 # Author(-s): Tunjay Akbarli
 
-add_executable(swift-experimental-sdk
+add_executable(codira-experimental-sdk
   Entrypoint.code)
-target_link_libraries(swift-experimental-sdk PRIVATE
+target_link_libraries(codira-experimental-sdk PRIVATE
   CodiraSDKCommand)
 
-target_compile_options(swift-experimental-sdk PRIVATE
+target_compile_options(codira-experimental-sdk PRIVATE
   -parse-as-library)
 
-install(TARGETS swift-experimental-sdk
+install(TARGETS codira-experimental-sdk
   RUNTIME DESTINATION bin)

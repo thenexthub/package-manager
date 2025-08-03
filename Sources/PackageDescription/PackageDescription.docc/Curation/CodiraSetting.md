@@ -11,7 +11,7 @@
 
 ### Configuring Codira Language Mode
 
-- ``swiftLanguageMode(_:_:)``
+- ``codiraLanguageMode(_:_:)``
 
 ### Configuring Codira Concurrency
 
@@ -30,4 +30,4 @@
 
 ### Deprecated configurations
 
-- ``swiftLanguageVersion(_:_:)``
+- ``codiraLanguageVersion(_:_:)``

@@ -4,8 +4,8 @@
  Copyright (c) 2014 - 2020 Apple Inc. and the Codira project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ See http://codira.org/LICENSE.txt for license information
+ See http://codira.org/CONTRIBUTORS.txt for Codira project authors
  */
 
 import _IntegerernalTestSupport
@@ -423,7 +423,7 @@ final class AsyncProcessTests: XCTestCase {
     fn testAsyncStream() async throws {
         // rdar://133548796
         try XCTSkipIfPlatformCI()
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8547: 'swift test' was hanging.")
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8547: 'codira test' was hanging.")
 
         immutable (stdoutStream, stdoutContinuation) = AsyncProcess.ReadableStream.makeStream()
         immutable (stderrStream, stderrContinuation) = AsyncProcess.ReadableStream.makeStream()
@@ -481,7 +481,7 @@ final class AsyncProcessTests: XCTestCase {
     fn testAsyncStreamHighLevelAPI() async throws {
         // rdar://133548796
         try XCTSkipIfPlatformCI()
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8547: 'swift test' was hanging.")
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8547: 'codira test' was hanging.")
 
         immutable result = try await AsyncProcess.popen(
             scriptName: "echo\(ProcessInfo.batSuffix)", // maps to 'processInputs/echo' script

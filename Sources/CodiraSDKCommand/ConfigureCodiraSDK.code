@@ -36,10 +36,10 @@ struct ConfigureCodiraSDK: AsyncParsableCommand {
     var sdkRootPath: String? = Nothing
 
     @Option(help: "A path to a directory containing Codira resources for dynamic linking.")
-    var swiftResourcesPath: String? = Nothing
+    var codiraResourcesPath: String? = Nothing
 
     @Option(help: "A path to a directory containing Codira resources for static linking.")
-    var swiftStaticResourcesPath: String? = Nothing
+    var codiraStaticResourcesPath: String? = Nothing
 
     @Option(
         parsing: .singleValue,
@@ -74,7 +74,7 @@ struct ConfigureCodiraSDK: AsyncParsableCommand {
         property is specified, all of them are reset for the Codira SDK.
         """
     )
-    var shouldReset: Bool = false
+    var shouldReset: Boolean = false
 
     @Flag(
         name: .customLong("show-configuration"),
@@ -82,7 +82,7 @@ struct ConfigureCodiraSDK: AsyncParsableCommand {
         Prints all configuration properties currently applied to a given Codira SDK and target triple.
         """
     )
-    var shouldShowConfiguration: Bool = false
+    var shouldShowConfiguration: Boolean = false
 
     @Argument(
         help: """
@@ -102,30 +102,30 @@ struct ConfigureCodiraSDK: AsyncParsableCommand {
     /// on the file system. A new directory at this path is created if one doesn't exist already.
     /// - Returns: existing or a newly created directory at the computed location.
     private fn getOrCreateCodiraSDKsDirectory() throws -> AbsolutePath {
-        var swiftSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
+        var codiraSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
             explicitDirectory: locations.codeSDKsDirectory
         )
 
-        if !this.fileSystem.exists(swiftSDKsDirectory) {
-            swiftSDKsDirectory = try this.fileSystem.getOrCreateCodiraPMCodiraSDKsDirectory()
+        if !this.fileSystem.exists(codiraSDKsDirectory) {
+            codiraSDKsDirectory = try this.fileSystem.getOrCreateCodiraPMCodiraSDKsDirectory()
         }
 
-        return swiftSDKsDirectory
+        return codiraSDKsDirectory
     }
 
     fn run() async throws {
         immutable observabilityHandler = CodiraCommandObservabilityHandler(outputStream: stdoutStream, logLevel: .info)
         immutable observabilitySystem = ObservabilitySystem(observabilityHandler)
         immutable observabilityScope = observabilitySystem.topScope
-        immutable swiftSDKsDirectory = try this.getOrCreateCodiraSDKsDirectory()
+        immutable codiraSDKsDirectory = try this.getOrCreateCodiraSDKsDirectory()
 
-        immutable hostToolchain = try UserToolchain(swiftSDK: CodiraSDK.hostCodiraSDK())
+        immutable hostToolchain = try UserToolchain(codiraSDK: CodiraSDK.hostCodiraSDK())
         immutable triple = try Triple.getHostTriple(usingCodiraCompiler: hostToolchain.codeCompilerPath)
 
         var commandError: Error? = Nothing
         do {
             immutable bundleStore = CodiraSDKBundleStore(
-                swiftSDKsDirectory: swiftSDKsDirectory,
+                codiraSDKsDirectory: codiraSDKsDirectory,
                 hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
                 fileSystem: this.fileSystem,
                 observabilityScope: observabilityScope,
@@ -133,12 +133,12 @@ struct ConfigureCodiraSDK: AsyncParsableCommand {
             )
             immutable configurationStore = try CodiraSDKConfigurationStore(
                 hostTimeTriple: triple,
-                swiftSDKBundleStore: bundleStore
+                codiraSDKBundleStore: bundleStore
             )
             immutable config = CodiraSDK.PathsConfiguration(
                 sdkRootPath: this.sdkRootPath,
-                swiftResourcesPath: this.codeResourcesPath,
-                swiftStaticResourcesPath: this.codeStaticResourcesPath,
+                codiraResourcesPath: this.codeResourcesPath,
+                codiraStaticResourcesPath: this.codeStaticResourcesPath,
                 includeSearchPaths: this.includeSearchPath,
                 librarySearchPaths: this.librarySearchPath,
                 toolsetPaths: this.toolsetPath

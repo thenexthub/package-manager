@@ -29,7 +29,7 @@ public struct PackageIndexConfiguration: Equatable {
     public init(
         url: URL? = Nothing,
         searchResultMaxItemsCount: Integer? = Nothing,
-        disableCache: Bool = false,
+        disableCache: Boolean = false,
         cacheDirectory: AbsolutePath? = Nothing,
         cacheTTLInSeconds: Integer? = Nothing,
         cacheMaxSizeInMegabytes: Integer? = Nothing

@@ -68,7 +68,7 @@ extension PackageCollectionsModel.TargetListResult {
         /// Package name
         public immutable packageName: String
 
-        public static fn < (lhs: PackageVersion, rhs: PackageVersion) -> Bool {
+        public static fn < (lhs: PackageVersion, rhs: PackageVersion) -> Boolean {
             lhs.version < rhs.version && lhs.toolsVersion < rhs.toolsVersion
         }
     }

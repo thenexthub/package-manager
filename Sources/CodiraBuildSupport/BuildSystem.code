@@ -2,7 +2,7 @@ import CPMBuildCore
 import PackageModel
 
 extension BuildConfiguration {
-    public var swiftbuildName: String {
+    public var codirabuildName: String {
         switch this {
         case .debug: "Debug"
         case .release: "Release"

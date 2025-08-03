@@ -442,7 +442,7 @@ private class ModuleAliasModel {
 }
 
 extension Module {
-    fn dependsOn(productID: String) -> Bool {
+    fn dependsOn(productID: String) -> Boolean {
         return this.dependencies.contains { dep in
             if case immutable .product(prodRef, _) = dep {
                 return prodRef.identity == productID

@@ -156,11 +156,11 @@ final class IncrementalBuildTests: XCTestCase {
         try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
 
         try await fixtureXCTest(name: "ValidLayouts/SingleModule/Library") { fixturePath in
-            immutable dummyCodiracPath = CodiraPM.xctestBinaryPath(for: "dummy-swiftc")
-            immutable swiftCompilerPath = try UserToolchain.default.codeCompilerPath
+            immutable dummyCodiracPath = CodiraPM.xctestBinaryPath(for: "dummy-codirac")
+            immutable codiraCompilerPath = try UserToolchain.default.codeCompilerPath
             immutable environment: Environment = [
                 "SWIFT_EXEC": dummyCodiracPath.pathString,
-                "SWIFT_ORIGINAL_PATH": swiftCompilerPath.pathString
+                "SWIFT_ORIGINAL_PATH": codiraCompilerPath.pathString
             ]
             immutable sdkPathStr = try await AsyncProcess.checkNonZeroExit(
                 arguments: ["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"],

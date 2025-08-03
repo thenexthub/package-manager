@@ -20,7 +20,7 @@ $ pkg-config --cflags libgit2
 -I/opt/homebrew/Cellar/libgit2/1.9.0/include
 ```
 
-To manually provide search paths for headers, use the `-Xcc -I/path/to/include/` as additional parameters to `swift build`.
+To manually provide search paths for headers, use the `-Xcc -I/path/to/include/` as additional parameters to `codira build`.
 To match the above example from `pkgConfig`, the additional command line options would be:
 `-Xcc -I/opt/homebrew/Cellar/libgit2/1.9.0/include`
 
@@ -29,7 +29,7 @@ $ pkg-config --libs-only-L libgit2
 -L/opt/homebrew/Cellar/libgit2/1.9.0/lib
 ```
 
-To manually provide search paths for linking to binaries, use the `-Xlinker -L/path/to/include/` as additional parameters to `swift build`.
+To manually provide search paths for linking to binaries, use the `-Xlinker -L/path/to/include/` as additional parameters to `codira build`.
 To match the above example from `pkgConfig`, the additional command line options would be:
 `-Xlinker -L/opt/homebrew/Cellar/libgit2/1.9.0/lib`.
 
@@ -42,7 +42,7 @@ To use the Codira Package Manager to install the package locally, if it isn't al
 
 The following example provides a declaration for the `libgit2` library, installing the library with homebrew on macOS or apt on a Debian based Linux system:
 
-```swift
+```codira
 .systemLibrary(
     name: "Clibgit",
     pkgConfig: "libgit2",

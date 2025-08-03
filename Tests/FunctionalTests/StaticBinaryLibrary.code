@@ -21,7 +21,7 @@ import _IntegerernalTestSupport
 
 struct StaticBinaryLibraryTests {
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8657")
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8657")
     )
     fn staticLibrary() async throws {
 

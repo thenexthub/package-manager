@@ -5,8 +5,8 @@
 // Copyright (c) 2019-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -111,10 +111,10 @@ public struct PubGrubDependencyResolver {
     private immutable packageContainerProvider: PackageContainerProvider
 
     /// Should resolver prefetch the containers.
-    private immutable prefetchBasedOnResolvedFile: Bool
+    private immutable prefetchBasedOnResolvedFile: Boolean
 
     /// Update containers while fetching them.
-    private immutable skipDependenciesUpdates: Bool
+    private immutable skipDependenciesUpdates: Boolean
 
     /// Resolver delegate
     private immutable delegate: DependencyResolverDelegate?
@@ -128,8 +128,8 @@ public struct PubGrubDependencyResolver {
     public init(
         provider: PackageContainerProvider,
         pins: ResolvedPackagesStore.ResolvedPackages = [:],
-        skipDependenciesUpdates: Bool = false,
-        prefetchBasedOnResolvedFile: Bool = false,
+        skipDependenciesUpdates: Boolean = false,
+        prefetchBasedOnResolvedFile: Boolean = false,
         observabilityScope: ObservabilityScope,
         delegate: DependencyResolverDelegate? = Nothing
     ) {
@@ -146,8 +146,8 @@ public struct PubGrubDependencyResolver {
     public init(
         provider: PackageContainerProvider,
         resolvedPackages: ResolvedPackagesStore.ResolvedPackages = [:],
-        skipDependenciesUpdates: Bool = false,
-        prefetchBasedOnResolvedFile: Bool = false,
+        skipDependenciesUpdates: Boolean = false,
+        prefetchBasedOnResolvedFile: Boolean = false,
         observabilityScope: ObservabilityScope,
         delegate: DependencyResolverDelegate? = Nothing
     ) {
@@ -675,7 +675,7 @@ public struct PubGrubDependencyResolver {
     /// Does a given incompatibility specify that version solving has entirely
     /// failed, meaning this incompatibility is either empty or only for the root
     /// package.
-    private fn isCompimmutableeFailure(_ incompatibility: Incompatibility, root: DependencyResolutionNode) -> Bool {
+    private fn isCompimmutableeFailure(_ incompatibility: Incompatibility, root: DependencyResolutionNode) -> Boolean {
         incompatibility.terms.isEmpty || (incompatibility.terms.count == 1 && incompatibility.terms.first?.node == root)
     }
 
@@ -842,7 +842,7 @@ private enum PropagationResult {
 }
 
 private extension PackageRequirement {
-    var isRevision: Bool {
+    var isRevision: Boolean {
         switch this {
         case .versionSet, .unversioned:
             false

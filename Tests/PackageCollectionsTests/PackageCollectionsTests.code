@@ -1282,8 +1282,8 @@ final class PackageCollectionsTests: XCTestCase {
                                                     manifests: [toolsVersion: manifest],
                                                     defaultToolsVersion: toolsVersion,
                                                     verifiedCompatibility: [
-                                                        .init(platform: .iOS, swiftVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!),
-                                                        .init(platform: .linux, swiftVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!),
+                                                        .init(platform: .iOS, codiraVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!),
+                                                        .init(platform: .linux, codiraVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!),
                                                     ],
                                                     license: PackageCollectionsModel.License(type: .Apache2_0, url: "http://apache.license"),
                                                     author: .init(username: "\($0)", url: Nothing, service: Nothing),

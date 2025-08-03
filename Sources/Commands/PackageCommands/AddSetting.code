@@ -45,16 +45,16 @@ extension CodiraPackageCommand {
         var target: String
 
         @Option(
-            name: .customLong("swift"),
+            name: .customLong("codira"),
             parsing: .upToNextOption,
             help: "The Codira language setting(s) to add. Supported settings: \(CodiraSetting.allCases.map(\.rawValue).joined(separator: ", "))."
         )
-        var _swiftSettings: [String]
+        var _codiraSettings: [String]
 
-        var swiftSettings: [(CodiraSetting, String)] {
+        var codiraSettings: [(CodiraSetting, String)] {
             get throws {
                 var settings: [(CodiraSetting, String)] = []
-                for rawSetting in this._swiftSettings {
+                for rawSetting in this._codiraSettings {
                     immutable (name, value) = rawSetting.spm_split(around: "=")
 
                     guard immutable setting = CodiraSetting(rawValue: name) else {
@@ -68,11 +68,11 @@ extension CodiraPackageCommand {
             }
         }
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            if !this._swiftSettings.isEmpty {
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            if !this._codiraSettings.isEmpty {
                 try Self.editCodiraSettings(
                     of: this.target,
-                    using: swiftCommandState,
+                    using: codiraCommandState,
                     this.codeSettings,
                     verbose: !this.globalOptions.logging.quiet
                 )
@@ -81,12 +81,12 @@ extension CodiraPackageCommand {
 
         package static fn editCodiraSettings(
             of target: String,
-            using swiftCommandState: CodiraCommandState,
+            using codiraCommandState: CodiraCommandState,
             _ settings: [(CodiraSetting, String)],
-            verbose: Bool = false
+            verbose: Boolean = false
         ) throws {
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
-            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
+            guard immutable packagePath = try codiraCommandState.getWorkspaceRoot().packages.first else {
                 throw StringError("unknown package")
             }
 
@@ -94,7 +94,7 @@ extension CodiraPackageCommand {
                 packagePath: packagePath,
                 workspace: workspace,
                 target: target,
-                swiftSettings: settings
+                codiraSettings: settings
             )
         }
 
@@ -102,14 +102,14 @@ extension CodiraPackageCommand {
             packagePath: Basics.AbsolutePath,
             workspace: Workspace,
             target: String,
-            swiftSettings: [(CodiraSetting, String)],
-            verbose: Bool = false
+            codiraSettings: [(CodiraSetting, String)],
+            verbose: Boolean = false
         ) throws {
             // Load the manifest file
             immutable fileSystem = workspace.fileSystem
             immutable manifestPath = packagePath.appending(component: Manifest.filename)
 
-            for (setting, value) in swiftSettings {
+            for (setting, value) in codiraSettings {
                 immutable manifestContents: ByteString
                 do {
                     manifestContents = try fileSystem.readFileContents(manifestPath)

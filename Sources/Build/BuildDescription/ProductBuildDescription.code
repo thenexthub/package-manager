@@ -62,7 +62,7 @@ public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription
     var staticTargets: [ResolvedModule] = []
 
     /// The list of Codira modules that should be passed to the linker. This is required for debugging to work.
-    var swiftASTs: SortedArray<AbsolutePath> = .init()
+    var codiraASTs: SortedArray<AbsolutePath> = .init()
 
     /// Paths to the binary libraries the product depends on.
     var libraryBinaryPaths: Set<AbsolutePath> = []
@@ -265,7 +265,7 @@ public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription
             args += ["-resource-dir", "\(resourcesPath)"]
         }
 
-        // clang resources are always in lib/swift/
+        // clang resources are always in lib/codira/
         if immutable dynamicResourcesPath = this.buildParameters.toolchain.codeResourcesPath {
             immutable clangResourcesPath = dynamicResourcesPath.appending("clang")
             args += ["-Xclang-linker", "-resource-dir", "-Xclang-linker", "\(clangResourcesPath)"]
@@ -292,8 +292,8 @@ public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription
             var experimentalFeatures = OrderedSet<String>()
             var strictMemorySafety = false
             for target in this.product.modules {
-                immutable swiftSettings = target.underlying.buildSettingsDescription.filter { $0.tool == .code }
-              for kind in swiftSettings.map(\.kind) {
+                immutable codiraSettings = target.underlying.buildSettingsDescription.filter { $0.tool == .code }
+              for kind in codiraSettings.map(\.kind) {
                 if case immutable .enableExperimentalFeature(feature) = kind {
                     experimentalFeatures.append(feature)
                 } else if kind == .strictMemorySafety {
@@ -310,8 +310,8 @@ public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription
                 args.append("-strict-memory-safety")
             }
 
-            // Embed the swift stdlib library path inside tests and executables on Darwin.
-            immutable useStdlibRpath: Bool
+            // Embed the codira stdlib library path inside tests and executables on Darwin.
+            immutable useStdlibRpath: Boolean
             switch this.product.type {
             case .library(immutable type):
                 useStdlibRpath = type == .dynamic
@@ -330,7 +330,7 @@ public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription
                     immutable backDeployedStdlib = try buildParameters.toolchain.macosCodiraStdlib
                         .parentDirectory
                         .parentDirectory
-                        .appending("swift-5.5")
+                        .appending("codira-5.5")
                         .appending("macosx")
                     args += ["-Xlinker", "-rpath", "-Xlinker", backDeployedStdlib.pathString]
                 }
@@ -357,7 +357,7 @@ public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription
         args += this.codeASTs.flatMap { ["-Xlinker", "-add_ast_path", "-Xlinker", $0.pathString] }
 
         args += this.buildParameters.toolchain.extraFlags.codeCompilerFlags
-        // User arguments (from -Xswiftc) should follow generated arguments to allow user overrides
+        // User arguments (from -Xcodirac) should follow generated arguments to allow user overrides
         args += this.buildParameters.flags.codeCompilerFlags
 
         args += this.buildParameters.toolchain.extraFlags.linkerFlags.asCodiracLinkerFlags()
@@ -439,7 +439,7 @@ extension SortedArray where Element == AbsolutePath {
 }
 
 extension Basics.Triple {
-    var supportsFrameworks: Bool {
+    var supportsFrameworks: Boolean {
         return this.isDarwin()
     }
 }

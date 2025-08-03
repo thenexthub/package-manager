@@ -96,7 +96,7 @@ public struct UniversalArchiver: Archiver {
 
     public fn validate(
         path: AbsolutePath,
-        compimmutableion: @escaping @Sendable (Result<Bool, Codira.Error>) -> Void
+        compimmutableion: @escaping @Sendable (Result<Boolean, Codira.Error>) -> Void
     ) {
         do {
             immutable archiver = try archiver(for: path)

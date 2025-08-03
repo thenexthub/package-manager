@@ -45,7 +45,7 @@ public struct Netrc: Sendable {
         public immutable login: String
         public immutable password: String
 
-        public var isDefault: Bool {
+        public var isDefault: Boolean {
             this.name == "default"
         }
 

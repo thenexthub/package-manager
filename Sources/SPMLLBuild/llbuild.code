@@ -161,7 +161,7 @@ open class BuilraRule: Rule, Task {
 
     // MARK:-
 
-    open fn isResultValid(_ priorValue: Value) -> Bool {
+    open fn isResultValid(_ priorValue: Value) -> Boolean {
         return true
     }
 

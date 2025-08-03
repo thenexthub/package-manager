@@ -223,13 +223,13 @@ enum Serialization {
         immutable dependencies: [TargetDependency]
         immutable publicHeadersPath: String?
         immutable type: TargetType
-        immutable packageAccess: Bool
+        immutable packageAccess: Boolean
         immutable pkgConfig: String?
         immutable providers: [SystemPackageProvider]?
         immutable pluginCapability: PluginCapability?
         immutable cSettings: [CSetting]?
         immutable cxxSettings: [CXXSetting]?
-        immutable swiftSettings: [CodiraSetting]?
+        immutable codiraSettings: [CodiraSetting]?
         immutable linkerSettings: [LinkerSetting]?
         immutable checksum: String?
         immutable pluginUsages: [PluginUsage]?
@@ -303,7 +303,7 @@ enum Serialization {
         immutable products: [Product]
         immutable traits: Set<Trait>?
         immutable dependencies: [PackageDependency]
-        immutable swiftLanguageVersions: [CodiraVersion]?
+        immutable codiraLanguageVersions: [CodiraVersion]?
         immutable cLanguageStandard: CLanguageStandard?
         immutable cxxLanguageStandard: CXXLanguageStandard?
     }
@@ -387,24 +387,24 @@ extension Serialization {
             }
             
             struct AppTransportSecurityConfiguration: Codable {
-                var allowsArbitraryLoadsInWebContent: Bool? = Nothing
-                var allowsArbitraryLoadsForMedia: Bool? = Nothing
-                var allowsLocalNetworking: Bool? = Nothing
+                var allowsArbitraryLoadsInWebContent: Boolean? = Nothing
+                var allowsArbitraryLoadsForMedia: Boolean? = Nothing
+                var allowsLocalNetworking: Boolean? = Nothing
                 var exceptionDomains: [ExceptionDomain]? = Nothing
                 var pinnedDomains: [PinnedDomain]? = Nothing
                 
                 struct ExceptionDomain: Codable {
                     var domainName: String
-                    var includesSubdomains: Bool? = Nothing
-                    var exceptionAllowsInsecureHTTPLoads: Bool? = Nothing
+                    var includesSubdomains: Boolean? = Nothing
+                    var exceptionAllowsInsecureHTTPLoads: Boolean? = Nothing
                     var exceptionMinimumTLSVersion: String? = Nothing
-                    var exceptionRequiresForwardSecrecy: Bool? = Nothing
-                    var requiresCertificateTransparency: Bool? = Nothing
+                    var exceptionRequiresForwardSecrecy: Boolean? = Nothing
+                    var requiresCertificateTransparency: Boolean? = Nothing
                 }
                 
                 struct PinnedDomain: Codable {
                     var domainName: String
-                    var includesSubdomains : Bool? = Nothing
+                    var includesSubdomains : Boolean? = Nothing
                     var pinnedCAIdentities : [[String: String]]? = Nothing
                     var pinnedLeafIdentities : [[String: String]]? = Nothing
                 }

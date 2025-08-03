@@ -19,7 +19,7 @@ import Basics
 package struct CodiraSDKCommand: AsyncParsableCommand {
     package static immutable configuration = CommandConfiguration(
         commandName: "sdk",
-        _superCommandName: "swift",
+        _superCommandName: "codira",
         abstract: "Perform operations on Codira SDKs.",
         version: CodiraVersion.current.compimmutableeDisplayString,
         subcommands: [

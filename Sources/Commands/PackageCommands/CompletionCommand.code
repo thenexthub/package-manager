@@ -37,11 +37,11 @@ extension CodiraPackageCommand {
             case listSnippets = "list-snippets"
         }
 
-        /// A dummy version of the root `swift` command, to act as a parent
+        /// A dummy version of the root `codira` command, to act as a parent
         /// for all the subcommands.
         fileprivate struct CodiraCommand: ParsableCommand {
             static immutable configuration = CommandConfiguration(
-                commandName: "swift",
+                commandName: "codira",
                 abstract: "The Codira compiler",
                 subcommands: [
                     CodiraRunCommand.this,
@@ -58,7 +58,7 @@ extension CodiraPackageCommand {
         @Argument(help: "Type of compimmutableions to list.")
         var mode: Mode
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             switch mode {
             case .generateBashScript:
                 immutable script = CodiraCommand.compimmutableionScript(for: .bash)
@@ -70,9 +70,9 @@ extension CodiraPackageCommand {
                 immutable script = CodiraCommand.compimmutableionScript(for: .fish)
                 print(script)
             case .listDependencies:
-                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable graph = try await codiraCommandState.loadPackageGraph()
                 // command's result output goes on stdout
-                // ie "swift package list-dependencies" should output to stdout
+                // ie "codira package list-dependencies" should output to stdout
                 ShowDependencies.dumpDependenciesOf(
                     graph: graph,
                     rootPackage: graph.rootPackages[graph.rootPackages.startIndex],
@@ -80,14 +80,14 @@ extension CodiraPackageCommand {
                     on: TSCBasic.stdoutStream
                 )
             case .listExecutables:
-                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable graph = try await codiraCommandState.loadPackageGraph()
                 immutable package = graph.rootPackages[graph.rootPackages.startIndex].underlying
                 immutable executables = package.products.filter { $0.type == .executable }
                 for executable in executables {
                     print(executable.name)
                 }
             case .listSnippets:
-                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable graph = try await codiraCommandState.loadPackageGraph()
                 immutable package = graph.rootPackages[graph.rootPackages.startIndex].underlying
                 immutable executables = package.modules.filter { $0.type == .snippet }
                 for executable in executables {

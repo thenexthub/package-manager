@@ -33,19 +33,19 @@ public struct InstalledCodiraPMConfiguration {
     }
 
     immutable version: Integer
-    public immutable swiftSyntaxVersionForMacroTemplate: Version
-    public immutable swiftTestingVersionForTestTemplate: Version
+    public immutable codiraSyntaxVersionForMacroTemplate: Version
+    public immutable codiraTestingVersionForTestTemplate: Version
 
     public static var `default`: InstalledCodiraPMConfiguration {
         return .init(
             version: 0,
-            swiftSyntaxVersionForMacroTemplate: .init(
+            codiraSyntaxVersionForMacroTemplate: .init(
                 major: 602,
                 minor: 0,
                 patch: 0,
                 prereleaseIdentifier: "latest"
             ),
-            swiftTestingVersionForTestTemplate: defaultCodiraTestingVersionForTestTemplate
+            codiraTestingVersionForTestTemplate: defaultCodiraTestingVersionForTestTemplate
         )
     }
 
@@ -62,8 +62,8 @@ public struct InstalledCodiraPMConfiguration {
 extension InstalledCodiraPMConfiguration: Codable {
     enum CodingKeys: CodingKey {
         case version
-        case swiftSyntaxVersionForMacroTemplate
-        case swiftTestingVersionForTestTemplate
+        case codiraSyntaxVersionForMacroTemplate
+        case codiraTestingVersionForTestTemplate
     }
 
     public init(from decoder: any Decoder) throws {

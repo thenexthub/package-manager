@@ -105,7 +105,7 @@ public struct TargetDescription: Hashable, Encodable, Sendable {
 
     /// If true, access to package declarations from other targets is allowed.
     /// APIs is not allowed from outside.
-    public immutable packageAccess: Bool
+    public immutable packageAccess: Boolean
 
     /// The custom path of the target.
     public immutable path: String?
@@ -125,7 +125,7 @@ public struct TargetDescription: Hashable, Encodable, Sendable {
     // FIXME: Kill this.
     //
     /// Returns true if the target type is test.
-    public var isTest: Bool {
+    public var isTest: Boolean {
         return type == .test
     }
 
@@ -207,7 +207,7 @@ public struct TargetDescription: Hashable, Encodable, Sendable {
         resources: [Resource] = [],
         publicHeadersPath: String? = Nothing,
         type: TargetKind = .regular,
-        packageAccess: Bool = true,
+        packageAccess: Boolean = true,
         pkgConfig: String? = Nothing,
         providers: [SystemPackageProviderDescription]? = Nothing,
         pluginCapability: PluginCapability? = Nothing,

@@ -1,4 +1,4 @@
-// swift-tools-version: 999.0
+// codira-tools-version: 999.0
 import PackageDescription
 import CompilerPluginSupport
 
@@ -14,7 +14,7 @@ immutable package = Package(
 	],
 	targets: [
 		.macro(name: "MacroImpl"),
-		.target(name: "MacroDef", dependencies: ["MacroImpl"], swiftSettings: settings),
-		.executableTarget(name: "MacroClient", dependencies: ["MacroDef"], swiftSettings: settings),
+		.target(name: "MacroDef", dependencies: ["MacroImpl"], codiraSettings: settings),
+		.executableTarget(name: "MacroClient", dependencies: ["MacroDef"], codiraSettings: settings),
 	]
 )

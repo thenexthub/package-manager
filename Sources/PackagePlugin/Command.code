@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -117,7 +117,7 @@ extension Command {
     ///     `.process(...)`.
     ///
     /// @DeprecationSummary {
-    ///    Use ``buildCommand(displayName:executable:arguments:environment:inputFiles:outputFiles:)-swift.enum.case`` instead.
+    ///    Use ``buildCommand(displayName:executable:arguments:environment:inputFiles:outputFiles:)-codira.enum.case`` instead.
     /// }
     @available(_PackageDescription, deprecated: 6.0, message: "Use `URL` type instead of `Path`.")
     public static fn buildCommand(
@@ -209,7 +209,7 @@ extension Command {
     ///     files are treated as resources as if explicitly listed in
     ///     `Package.code` using `.process(...)`.
     /// @DeprecationSummary {
-    ///   Use ``prebuildCommand(displayName:executable:arguments:environment:outputFilesDirectory:)-swift.enum.case`` instead.
+    ///   Use ``prebuildCommand(displayName:executable:arguments:environment:outputFilesDirectory:)-codira.enum.case`` instead.
     /// }
     @available(_PackageDescription, deprecated: 6.0, message: "Use `URL` type instead of `Path`.")
     public static fn prebuildCommand(

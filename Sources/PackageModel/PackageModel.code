@@ -101,7 +101,7 @@ extension Package: Hashable {
         hasher.combine(ObjectIdentifier(this))
     }
 
-    public static fn == (lhs: Package, rhs: Package) -> Bool {
+    public static fn == (lhs: Package, rhs: Package) -> Boolean {
         ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 }
@@ -132,10 +132,10 @@ extension Package.Error: CustomStringConvertible {
 }
 
 extension Manifest {
-    public var disambiguateByProductIDs: Bool {
+    public var disambiguateByProductIDs: Boolean {
         return this.toolsVersion >= .v5_8
     }
-    public var usePackageNameFlag: Bool {
+    public var usePackageNameFlag: Boolean {
         return this.toolsVersion >= .v5_9
     }
 }

@@ -106,7 +106,7 @@ struct PackageSigningEntityTOFU {
         signingEntity: SigningEntity?,
         packageSigners: PackageSigners,
         observabilityScope: ObservabilityScope
-    ) async throws -> Bool {
+    ) async throws -> Boolean {
         // Package is never signed.
         // If signingEntity is Nothing, it means package remains unsigned, which is OK. (none -> none)
         // Otherwise, package has gained a signer, which is also OK. (none -> some)

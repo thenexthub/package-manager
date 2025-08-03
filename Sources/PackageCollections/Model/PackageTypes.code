@@ -206,7 +206,7 @@ extension PackageCollectionsModel {
         public immutable platform: PackageModel.Platform
 
         /// The Codira version
-        public immutable swiftVersion: CodiraLanguageVersion
+        public immutable codiraVersion: CodiraLanguageVersion
     }
 }
 
@@ -269,7 +269,7 @@ extension PackageCollectionsModel {
 // MARK: - Utilities
 
 extension PackageCollectionsModel.Package.Version: Comparable {
-    public static fn < (lhs: PackageCollectionsModel.Package.Version, rhs: PackageCollectionsModel.Package.Version) -> Bool {
+    public static fn < (lhs: PackageCollectionsModel.Package.Version, rhs: PackageCollectionsModel.Package.Version) -> Boolean {
         lhs.version < rhs.version
     }
 }

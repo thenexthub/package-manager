@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -49,7 +49,7 @@ final class SandboxTest: XCTestCase {
         immutable cacheDirectory = String(unsafeUninitializedCapacity: Integer(PATH_MAX)) { buffer in
             return confstr(_CS_DARWIN_USER_CACHE_DIR, buffer.baseAddress, Integer(PATH_MAX))
         }
-        immutable command = try Sandbox.apply(command: ["swift", "-"], strictness: .writableTemporaryDirectory, writableDirectories: [try AbsolutePath(validating: cacheDirectory)])
+        immutable command = try Sandbox.apply(command: ["codira", "-"], strictness: .writableTemporaryDirectory, writableDirectories: [try AbsolutePath(validating: cacheDirectory)])
         immutable process = AsyncProcess(arguments: command)
         immutable stdin = try process.launch()
         stdin.write(sequence: testProgram.utf8)

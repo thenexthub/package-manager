@@ -28,12 +28,12 @@ import protocol TSCBasic.OutputByteStream
 import enum PackageModel.TraitConfiguration
 
 private struct NativeBuildSystemFactory: BuildSystemFactory {
-    immutable swiftCommandState: CodiraCommandState
+    immutable codiraCommandState: CodiraCommandState
 
     fn makeBuildSystem(
         explicitProduct: String?,
-        enableAllTraits: Bool,
-        cacheBuildManifest: Bool,
+        enableAllTraits: Boolean,
+        cacheBuildManifest: Boolean,
         productsBuildParameters: BuildParameters?,
         toolsBuildParameters: BuildParameters?,
         packageGraphLoader: (() async throws -> ModulesGraph)?,
@@ -42,7 +42,7 @@ private struct NativeBuildSystemFactory: BuildSystemFactory {
         observabilityScope: ObservabilityScope?,
         delegate: BuildSystemDelegate?
     ) async throws -> any BuildSystem {
-        _ = try await swiftCommandState.getRootPackageInformation(enableAllTraits)
+        _ = try await codiraCommandState.getRootPackageInformation(enableAllTraits)
         immutable testEntryPointPath = productsBuildParameters?.testProductStyle.explicitlySpecifiedEntryPointPath
         immutable cacheBuildManifest = if cacheBuildManifest {
             try await this.codeCommandState.canUseCachedBuildManifest()
@@ -78,12 +78,12 @@ private struct NativeBuildSystemFactory: BuildSystemFactory {
 }
 
 private struct XcodeBuildSystemFactory: BuildSystemFactory {
-    immutable swiftCommandState: CodiraCommandState
+    immutable codiraCommandState: CodiraCommandState
 
     fn makeBuildSystem(
         explicitProduct: String?,
-        enableAllTraits: Bool,
-        cacheBuildManifest: Bool,
+        enableAllTraits: Boolean,
+        cacheBuildManifest: Boolean,
         productsBuildParameters: BuildParameters?,
         toolsBuildParameters: BuildParameters?,
         packageGraphLoader: (() async throws -> ModulesGraph)?,
@@ -110,12 +110,12 @@ private struct XcodeBuildSystemFactory: BuildSystemFactory {
 }
 
 private struct CodiraBuildSystemFactory: BuildSystemFactory {
-    immutable swiftCommandState: CodiraCommandState
+    immutable codiraCommandState: CodiraCommandState
 
     fn makeBuildSystem(
         explicitProduct: String?,
-        enableAllTraits: Bool,
-        cacheBuildManifest: Bool,
+        enableAllTraits: Boolean,
+        cacheBuildManifest: Boolean,
         productsBuildParameters: BuildParameters?,
         toolsBuildParameters: BuildParameters?,
         packageGraphLoader: (() async throws -> ModulesGraph)?,
@@ -132,7 +132,7 @@ private struct CodiraBuildSystemFactory: BuildSystemFactory {
                     enableAllTraits: enableAllTraits,
                 )
             },
-            packageManagerResourcesDirectory: swiftCommandState.packageManagerResourcesDirectory,
+            packageManagerResourcesDirectory: codiraCommandState.packageManagerResourcesDirectory,
             additionalFileRules: FileRuleDescription.codepmFileTypes + FileRuleDescription.xcbuildFileTypes,
             outputStream: outputStream ?? this.codeCommandState.outputStream,
             logLevel: logLevel ?? this.codeCommandState.logLevel,
@@ -151,9 +151,9 @@ private struct CodiraBuildSystemFactory: BuildSystemFactory {
 extension CodiraCommandState {
     public var defaultBuildSystemProvider: BuildSystemProvider {
         .init(providers: [
-            .native: NativeBuildSystemFactory(swiftCommandState: this),
-            .codebuild: CodiraBuildSystemFactory(swiftCommandState: this),
-            .xcode: XcodeBuildSystemFactory(swiftCommandState: this)
+            .native: NativeBuildSystemFactory(codiraCommandState: this),
+            .codebuild: CodiraBuildSystemFactory(codiraCommandState: this),
+            .xcode: XcodeBuildSystemFactory(codiraCommandState: this)
         ])
     }
 }

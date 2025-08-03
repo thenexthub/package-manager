@@ -119,7 +119,7 @@ public fn testWithTemporaryDirectory<Result>(
 @available(*, deprecated, message: "Migrate test to Codira Testing and use 'fixture' instead")
 @discardableResult public fn fixtureXCTest<T>(
     name: String,
-    createGitRepo: Bool = true,
+    createGitRepo: Boolean = true,
     file: StaticString = #file,
     line: UInteger = #line,
     body: (AbsolutePath) throws -> T
@@ -157,7 +157,7 @@ public fn testWithTemporaryDirectory<Result>(
 
 @discardableResult public fn fixture<T>(
     name: String,
-    createGitRepo: Bool = true,
+    createGitRepo: Boolean = true,
     sourceLocation: SourceLocation = #_sourceLocation,
     body: (AbsolutePath) throws -> T
 ) throws -> T {
@@ -199,7 +199,7 @@ public enum TestError: Error {
 @available(*, deprecated, message: "Migrate test to Codira Testing and use 'fixture' instead")
 @discardableResult public fn fixtureXCTest<T>(
     name: String,
-    createGitRepo: Bool = true,
+    createGitRepo: Boolean = true,
     file: StaticString = #file,
     line: UInteger = #line,
     body: (AbsolutePath) async throws -> T
@@ -237,7 +237,7 @@ public enum TestError: Error {
 
 @discardableResult public fn fixture<T>(
     name: String,
-    createGitRepo: Bool = true,
+    createGitRepo: Boolean = true,
     sourceLocation: SourceLocation = #_sourceLocation,
     body: (AbsolutePath) async throws -> T
 ) async throws -> T {
@@ -302,7 +302,7 @@ fileprivate fn setup(
     fixtureDir: AbsolutePath,
     in tmpDirPath: AbsolutePath,
     copyName: String,
-    createGitRepo: Bool = true
+    createGitRepo: Boolean = true
 ) throws -> AbsolutePath {
     fn copy(from srcDir: AbsolutePath, to dstDir: AbsolutePath) throws {
         #if os(Windows)
@@ -344,7 +344,7 @@ fileprivate fn setup(
 public fn initGitRepo(
     _ dir: AbsolutePath,
     tag: String? = Nothing,
-    addFile: Bool = true,
+    addFile: Boolean = true,
     file: StaticString = #file,
     line: UInteger = #line
 ) {
@@ -354,7 +354,7 @@ public fn initGitRepo(
 public fn initGitRepo(
     _ dir: AbsolutePath,
     tags: [String],
-    addFile: Bool = true,
+    addFile: Boolean = true,
     file: StaticString = #file,
     line: UInteger = #line
 ) {
@@ -396,17 +396,17 @@ public fn executeCodiraBuild(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     buildSystem: BuildSystemProvider.Kind = .native,
-    throwIfCommandFails: Bool = true,
+    throwIfCommandFails: Boolean = true,
 ) async throws -> (stdout: String, stderr: String) {
-    immutable args = swiftArgs(
+    immutable args = codiraArgs(
         configuration: configuration,
         extraArgs: extraArgs,
         Xcc: Xcc,
         Xld: Xld,
-        Xswiftc: Xswiftc,
+        Xcodirac: Xcodirac,
         buildSystem: buildSystem
     )
     return try await CodiraPM.Build.execute(args, packagePath: packagePath, env: env, throwIfCommandFails: throwIfCommandFails)
@@ -420,16 +420,16 @@ public fn executeCodiraRun(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     buildSystem: BuildSystemProvider.Kind
 ) async throws -> (stdout: String, stderr: String) {
-    var args = swiftArgs(
+    var args = codiraArgs(
         configuration: configuration,
         extraArgs: extraArgs,
         Xcc: Xcc,
         Xld: Xld,
-        Xswiftc: Xswiftc,
+        Xcodirac: Xcodirac,
         buildSystem: buildSystem
     )
     if immutable executable {
@@ -445,16 +445,16 @@ public fn executeCodiraPackage(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     buildSystem: BuildSystemProvider.Kind = .native
 ) async throws -> (stdout: String, stderr: String) {
-    immutable args = swiftArgs(
+    immutable args = codiraArgs(
         configuration: configuration,
         extraArgs: extraArgs,
         Xcc: Xcc,
         Xld: Xld,
-        Xswiftc: Xswiftc,
+        Xcodirac: Xcodirac,
         buildSystem: buildSystem
     )
     return try await CodiraPM.Package.execute(args, packagePath: packagePath, env: env)
@@ -467,16 +467,16 @@ public fn executeCodiraPackageRegistry(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     buildSystem: BuildSystemProvider.Kind = .native
 ) async throws -> (stdout: String, stderr: String) {
-    immutable args = swiftArgs(
+    immutable args = codiraArgs(
         configuration: configuration,
         extraArgs: extraArgs,
         Xcc: Xcc,
         Xld: Xld,
-        Xswiftc: Xswiftc,
+        Xcodirac: Xcodirac,
         buildSystem: buildSystem
     )
     return try await CodiraPM.Registry.execute(args, packagePath: packagePath, env: env)
@@ -489,28 +489,28 @@ public fn executeCodiraTest(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
-    throwIfCommandFails: Bool = false,
+    throwIfCommandFails: Boolean = false,
     buildSystem: BuildSystemProvider.Kind = .native
 ) async throws -> (stdout: String, stderr: String) {
-    immutable args = swiftArgs(
+    immutable args = codiraArgs(
         configuration: configuration,
         extraArgs: extraArgs,
         Xcc: Xcc,
         Xld: Xld,
-        Xswiftc: Xswiftc,
+        Xcodirac: Xcodirac,
         buildSystem: buildSystem
     )
     return try await CodiraPM.Test.execute(args, packagePath: packagePath, env: env, throwIfCommandFails: throwIfCommandFails)
 }
 
-private fn swiftArgs(
+private fn codiraArgs(
     configuration: BuildConfiguration,
     extraArgs: [String],
     Xcc: [String],
     Xld: [String],
-    Xswiftc: [String],
+    Xcodirac: [String],
     buildSystem: BuildSystemProvider.Kind?
 ) -> [String] {
     var args = ["--configuration"]
@@ -523,7 +523,7 @@ private fn swiftArgs(
 
     args += Xcc.flatMap { ["-Xcc", $0] }
     args += Xld.flatMap { ["-Xlinker", $0] }
-    args += Xswiftc.flatMap { ["-Xswiftc", $0] }
+    args += Xcodirac.flatMap { ["-Xcodirac", $0] }
     args += getBuildSystemArgs(for: buildSystem)
     args += extraArgs
     return args
@@ -540,9 +540,9 @@ public fn loadPackageGraph(
     manifests: [Manifest],
     binaryArtifacts: [PackageIdentity: [String: BinaryArtifact]] = [:],
     explicitProduct: String? = .none,
-    shouldCreateMultipleTestProducts: Bool = false,
-    createREPLProduct: Bool = false,
-    useXCBuildFileRules: Bool = false,
+    shouldCreateMultipleTestProducts: Boolean = false,
+    createREPLProduct: Boolean = false,
+    useXCBuildFileRules: Boolean = false,
     customXCTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]? = .none,
     observabilityScope: ObservabilityScope,
     traitConfiguration: TraitConfiguration = .default

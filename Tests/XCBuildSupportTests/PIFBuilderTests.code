@@ -445,7 +445,7 @@ final class PIFBuilderTests: XCTestCase {
                     displayName: "Foo",
                     path: "/Foo",
                     toolsVersion: .v5_2,
-                    swiftLanguageVersions: [.v4_2, .v5],
+                    codiraLanguageVersions: [.v4_2, .v5],
                     dependencies: [
                         .localSourceControl(path: "/Bar", requirement: .branch("master")),
                     ],
@@ -470,7 +470,7 @@ final class PIFBuilderTests: XCTestCase {
                     toolsVersion: .v4_2,
                     cLanguageStandard: "c11",
                     cxxLanguageStandard: "c++14",
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     products: [
                         .init(name: "bar", type: .executable, targets: ["bar"]),
                         .init(name: "cbar", type: .executable, targets: ["cbar"]),
@@ -544,7 +544,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "foo")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                             XCTAssertEqual(
                                 settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
@@ -573,7 +573,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "foo")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                             XCTAssertEqual(
                                 settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
@@ -618,7 +618,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "cfoo")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                         }
                     }
@@ -646,7 +646,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "cfoo")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                         }
                     }
@@ -681,7 +681,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "bar")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                             XCTAssertEqual(
                                 settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
@@ -704,7 +704,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "bar")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                             XCTAssertEqual(
                                 settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
@@ -745,7 +745,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "cbar")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                         }
                     }
@@ -769,7 +769,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "cbar")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                         }
                     }
@@ -806,7 +806,7 @@ final class PIFBuilderTests: XCTestCase {
                     displayName: "Foo",
                     path: "/Foo",
                     toolsVersion: .v5_2,
-                    swiftLanguageVersions: [.v4_2, .v5],
+                    codiraLanguageVersions: [.v4_2, .v5],
                     dependencies: [
                         .localSourceControl(path: "/Bar", requirement: .branch("master")),
                     ],
@@ -831,7 +831,7 @@ final class PIFBuilderTests: XCTestCase {
                     toolsVersion: .v4_2,
                     cLanguageStandard: "c11",
                     cxxLanguageStandard: "c++14",
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     products: [
                         .init(name: "bar", type: .executable, targets: ["bar"]),
                         .init(name: "BarLib", type: .library(.static), targets: ["BarLib"]),
@@ -895,7 +895,7 @@ final class PIFBuilderTests: XCTestCase {
                             ])
                             XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
                                 "$(inherited)",
-                                "/toolchain/lib/swift/macosx",
+                                "/toolchain/lib/codira/macosx",
                             ])
                             XCTAssertEqual(
                                 settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
@@ -946,7 +946,7 @@ final class PIFBuilderTests: XCTestCase {
                             ])
                             XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
                                 "$(inherited)",
-                                "/toolchain/lib/swift/macosx",
+                                "/toolchain/lib/codira/macosx",
                             ])
                             XCTAssertEqual(
                                 settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
@@ -1012,7 +1012,7 @@ final class PIFBuilderTests: XCTestCase {
                             ])
                             XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
                                 "$(inherited)",
-                                "/toolchain/lib/swift/macosx",
+                                "/toolchain/lib/codira/macosx",
                             ])
                             XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
                             XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "CFooTests")
@@ -1062,7 +1062,7 @@ final class PIFBuilderTests: XCTestCase {
                             ])
                             XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
                                 "$(inherited)",
-                                "/toolchain/lib/swift/macosx",
+                                "/toolchain/lib/codira/macosx",
                             ])
                             XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
                             XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "CFooTests")
@@ -1125,7 +1125,7 @@ final class PIFBuilderTests: XCTestCase {
                     displayName: "Foo",
                     path: "/Foo",
                     toolsVersion: .v5_2,
-                    swiftLanguageVersions: [.v4_2, .v5],
+                    codiraLanguageVersions: [.v4_2, .v5],
                     dependencies: [
                         .localSourceControl(path: "/Bar", requirement: .branch("master")),
                     ],
@@ -1147,7 +1147,7 @@ final class PIFBuilderTests: XCTestCase {
                     toolsVersion: .v4_2,
                     cLanguageStandard: "c11",
                     cxxLanguageStandard: "c++14",
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     products: [
                         .init(name: "BarLib", type: .library(.dynamic), targets: ["BarLib"]),
                     ],
@@ -1278,7 +1278,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                         }
                     }
@@ -1305,7 +1305,7 @@ final class PIFBuilderTests: XCTestCase {
                             XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
                             XCTAssertEqual(
                                 settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
+                                ["$(inherited)", "/toolchain/lib/codira/macosx"]
                             )
                         }
                     }
@@ -1337,7 +1337,7 @@ final class PIFBuilderTests: XCTestCase {
                     path: "/Foo",
                     toolsVersion: .v5_2,
                     cxxLanguageStandard: "c++14",
-                    swiftLanguageVersions: [.v4_2, .v5],
+                    codiraLanguageVersions: [.v4_2, .v5],
                     dependencies: [
                         .localSourceControl(path: "/Bar", requirement: .branch("master")),
                     ],
@@ -1354,7 +1354,7 @@ final class PIFBuilderTests: XCTestCase {
                     path: "/Bar",
                     toolsVersion: .v4_2,
                     cLanguageStandard: "c11",
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     products: [
                         .init(name: "BarLib", type: .library(.dynamic), targets: ["BarLib"]),
                     ],
@@ -1908,7 +1908,7 @@ final class PIFBuilderTests: XCTestCase {
                     path: "/Bar",
                     toolsVersion: .v4_2,
                     cLanguageStandard: "c11",
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     products: [
                         .init(name: "BarLib", type: .library(.dynamic), targets: ["BarLib"]),
                     ],
@@ -1965,7 +1965,7 @@ final class PIFBuilderTests: XCTestCase {
                     packageIdentity: .plain("Bar"),
                     toolsVersion: .v4_2,
                     cLanguageStandard: "c11",
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     products: [
                         .init(name: "BarLib", type: .library(.dynamic), targets: ["BarLib"]),
                     ],
@@ -2024,7 +2024,7 @@ final class PIFBuilderTests: XCTestCase {
                     path: "/Foo",
                     toolsVersion: .v5_2,
                     cxxLanguageStandard: "c++14",
-                    swiftLanguageVersions: [.v4_2, .v5],
+                    codiraLanguageVersions: [.v4_2, .v5],
                     targets: [
                         .init(name: "SystemLib1", type: .system),
                         .init(name: "SystemLib2", type: .system, pkgConfig: "Foo"),
@@ -2462,7 +2462,7 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    fn buildSettingsTestCase(isPackageAccessModifierSupported: Bool) throws {
+    fn buildSettingsTestCase(isPackageAccessModifierSupported: Boolean) throws {
         #if !os(macOS)
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
@@ -2972,7 +2972,7 @@ final class PIFBuilderTests: XCTestCase {
                     displayName: "Foo",
                     path: "/Foo",
                     toolsVersion: .v5_3,
-                    swiftLanguageVersions: [.v4_2, .v5],
+                    codiraLanguageVersions: [.v4_2, .v5],
                     targets: [
                         .init(name: "foo", dependencies: []),
                         .init(name: "bar", dependencies: [], settings: [
@@ -3041,7 +3041,7 @@ final class PIFBuilderTests: XCTestCase {
                     displayName: "Foo",
                     path: "/Foo",
                     toolsVersion: .v5_3,
-                    swiftLanguageVersions: [.v4_2],
+                    codiraLanguageVersions: [.v4_2],
                     targets: [
                         .init(name: "foo", dependencies: [], settings: [
                             .init(
@@ -3208,8 +3208,8 @@ final class PIFBuilderTests: XCTestCase {
 
 extension PIFBuilderParameters {
     static fn mock(
-        isPackageAccessModifierSupported: Bool = false,
-        shouldCreateDylibForDynamicProducts: Bool = false,
+        isPackageAccessModifierSupported: Boolean = false,
+        shouldCreateDylibForDynamicProducts: Boolean = false,
         supportedCodiraVersions: [CodiraLanguageVersion] = []
     ) -> Self {
         PIFBuilderParameters(

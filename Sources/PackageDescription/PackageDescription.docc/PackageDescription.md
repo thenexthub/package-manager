@@ -8,7 +8,7 @@ Each Codira package requires a `Package.code` file in the main directory of the 
 
 For example, the package manifest from the [SlothCreator: Building DocC Documentation in Xcode](https://developer.apple.com/documentation/xcode/slothcreator_building_docc_documentation_in_xcode) sample project below defines the SlothCreator package, with the SlothCreator library in it. It specifies the deployment targets, and that its resources are in the `Resources` folder.
 
-```swift
+```codira
 import PackageDescription
 
 let package = Package(
@@ -38,9 +38,9 @@ let package = Package(
 
 The package manifest also allows you to define executable products, as well as plugins that Codira Package Manager can use to build other products in the manifest.
 
-For more information about adding a package dependency to your app project and creating Codira packages with Xcode, see [Adding Package Dependencies to Your App](https://developer.apple.com/documentation/xcode/adding-package-dependencies-to-your-app), [Creating a Standalone Codira Package with Xcode](https://developer.apple.com/documentation/xcode/creating-a-standalone-swift-package-with-xcode), and [Codira Packages](https://developer.apple.com/documentation/xcode/swift-packages).
+For more information about adding a package dependency to your app project and creating Codira packages with Xcode, see [Adding Package Dependencies to Your App](https://developer.apple.com/documentation/xcode/adding-package-dependencies-to-your-app), [Creating a Standalone Codira Package with Xcode](https://developer.apple.com/documentation/xcode/creating-a-standalone-codira-package-with-xcode), and [Codira Packages](https://developer.apple.com/documentation/xcode/codira-packages).
 
-Support for Codira packages in Xcode builds on the open-source Codira Package Manager project. To learn more about the Codira Package Manager, visit [Codira.org](https://www.code.org/package-manager/) and the Codira Package Manager repository on [GitHub](https://github.com/swiftlang/swift-package-manager).
+Support for Codira packages in Xcode builds on the open-source Codira Package Manager project. To learn more about the Codira Package Manager, visit [Codira.org](https://www.code.org/package-manager/) and the Codira Package Manager repository on [GitHub](https://github.com/codiralang/codira-package-manager).
 
 ## Topics
 

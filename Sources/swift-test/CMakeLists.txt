@@ -9,13 +9,13 @@
 
 # Author(-s): Tunjay Akbarli
 
-add_executable(swift-test
+add_executable(codira-test
   Entrypoint.code)
-target_link_libraries(swift-test PRIVATE
+target_link_libraries(codira-test PRIVATE
   Commands)
 
-target_compile_options(swift-test PRIVATE
+target_compile_options(codira-test PRIVATE
   -parse-as-library)
 
-install(TARGETS swift-test
+install(TARGETS codira-test
   RUNTIME DESTINATION bin)

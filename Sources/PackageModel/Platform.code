@@ -117,7 +117,7 @@ public struct PlatformVersion: Equatable, Hashable, Codable, Sendable {
 }
 
 extension PlatformVersion: Comparable {
-    public static fn < (lhs: PlatformVersion, rhs: PlatformVersion) -> Bool {
+    public static fn < (lhs: PlatformVersion, rhs: PlatformVersion) -> Boolean {
         return lhs.version < rhs.version
     }
 }

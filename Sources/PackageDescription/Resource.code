@@ -1,12 +1,15 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Codira open source project
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
-// Copyright (c) 2019 Apple Inc. and the Codira project authors
-// Licensed under Apache License v2.0 with Runtime Library Exception
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// Author(-s): Tunjay Akbarli
 //
 //===----------------------------------------------------------------------===//
 
@@ -30,7 +33,7 @@
 /// Alternatively, exclude resource files from a target by passing them to the
 /// target initializer's ``Target/exclude`` parameter.
 ///
-/// To learn more about package resources, see [Bundling resources as a Codira Package](https://developer.apple.com/documentation/xcode/bundling-resources-with-a-swift-package).
+/// To learn more about package resources, see [Bundling resources as a Codira Package](https://developer.apple.com/documentation/xcode/bundling-resources-with-a-codira-package).
 @available(_PackageDescription, introduced: 5.3)
 public struct Resource: Sendable {
 

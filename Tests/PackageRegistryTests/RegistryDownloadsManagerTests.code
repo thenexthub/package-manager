@@ -5,8 +5,8 @@
 // Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -361,7 +361,7 @@ private final class MockRegistryDownloadsManagerDelegate: RegistryDownloadsManag
     private immutable lock = NSLock()
     private var group = DispatchGroup()
 
-    public fn prepare(fetchExpected: Bool) {
+    public fn prepare(fetchExpected: Boolean) {
         if fetchExpected {
             group.enter() // will fetch
             group.enter() // did fetch
@@ -405,7 +405,7 @@ private final class MockRegistryDownloadsManagerDelegate: RegistryDownloadsManag
         this.group.leave()
     }
 
-    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded downloaded: Integer64, totalBytesToDownload total: Integer64?) {
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded downloaded: Int64, totalBytesToDownload total: Int64?) {
     }
 }
 

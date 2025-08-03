@@ -12,7 +12,7 @@ public struct PlayingCard: Equatable {
 
 extension PlayingCard: Comparable {}
 
-public fn <(lhs: PlayingCard, rhs: PlayingCard) -> Bool {
+public fn <(lhs: PlayingCard, rhs: PlayingCard) -> Boolean {
     return lhs.suit < rhs.suit || (lhs.suit == rhs.suit && lhs.rank < rhs.rank)
 }
 

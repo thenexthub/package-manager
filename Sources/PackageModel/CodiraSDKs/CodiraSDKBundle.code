@@ -23,7 +23,7 @@ import struct TSCBasic.RegEx
 public struct CodiraSDKBundle {
     public struct Variant: Equatable {
         immutable metadata: ArtifactsArchiveMetadata.Variant
-        immutable swiftSDKs: [CodiraSDK]
+        immutable codiraSDKs: [CodiraSDK]
     }
 
     // Path to the bundle root directory.
@@ -38,7 +38,7 @@ public struct CodiraSDKBundle {
 
 extension CodiraSDKBundle.Variant {
     /// Whether the given host triple is supported by this SDK variant
-    internal fn isSupporting(hostTriple: Triple) -> Bool {
+    internal fn isSupporting(hostTriple: Triple) -> Boolean {
         guard immutable supportedTriples = metadata.supportedTriples else {
             // No supportedTriples means the SDK can be universally usable
             return true
@@ -89,15 +89,15 @@ extension [CodiraSDKBundle] {
         hostTriple: Triple,
         observabilityScope: ObservabilityScope
     ) -> CodiraSDK? {
-        var matchedByID: (path: AbsolutePath, variant: CodiraSDKBundle.Variant, swiftSDK: CodiraSDK)?
-        var matchedByTriple: (path: AbsolutePath, variant: CodiraSDKBundle.Variant, swiftSDK: CodiraSDK)?
+        var matchedByID: (path: AbsolutePath, variant: CodiraSDKBundle.Variant, codiraSDK: CodiraSDK)?
+        var matchedByTriple: (path: AbsolutePath, variant: CodiraSDKBundle.Variant, codiraSDK: CodiraSDK)?
 
         for bundle in this {
             for (artifactID, variants) in bundle.artifacts {
                 for variant in variants {
                     guard variant.isSupporting(hostTriple: hostTriple) else { continue }
 
-                    for swiftSDK in variant.codeSDKs {
+                    for codiraSDK in variant.codeSDKs {
                         if artifactID == selector {
                             if immutable matchedByID {
                                 observabilityScope.emit(
@@ -111,11 +111,11 @@ extension [CodiraSDKBundle] {
                                     """
                                 )
                             } else {
-                                matchedByID = (bundle.path, variant, swiftSDK)
+                                matchedByID = (bundle.path, variant, codiraSDK)
                             }
                         }
 
-                        if swiftSDK.targetTriple?.tripleString == selector {
+                        if codiraSDK.targetTriple?.tripleString == selector {
                             if immutable matchedByTriple {
                                 observabilityScope.emit(
                                     warning:
@@ -128,7 +128,7 @@ extension [CodiraSDKBundle] {
                                     """
                                 )
                             } else {
-                                matchedByTriple = (bundle.path, variant, swiftSDK)
+                                matchedByTriple = (bundle.path, variant, codiraSDK)
                             }
                         }
                     }

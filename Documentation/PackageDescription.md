@@ -13,8 +13,8 @@ initializer statement, and not modified after initialization. The following pack
 manifest shows the initialization of a simple package object for the MyLibrary
 Codira package:
 
-```swift
-// swift-tools-version:5.1
+```codira
+// codira-tools-version:5.1
 import PackageDescription
 
 let package = Package(
@@ -45,7 +45,7 @@ Package(
     products: [<a href="#product">Product</a>] = [],
     dependencies: [<a href="#package-dependency">Package.Dependency</a>] = [],
     targets: [<a href="#target">Target</a>] = [],
-    swiftLanguageVersions: [<a href="#CodiraVersion">CodiraVersion</a>]? = nil,
+    codiraLanguageVersions: [<a href="#CodiraVersion">CodiraVersion</a>]? = nil,
     cLanguageStandard: <a href="#CLanguageStandard">CLanguageStandard</a>? = nil,
     cxxLanguageStandard: <a href="#CXXLanguageStandard">CXXLanguageStandard</a>? = nil
 )
@@ -54,17 +54,17 @@ Package(
 ### About the Codira Tools Version
 
 A `Package.code` manifest file must begin with the string
-`// swift-tools-version:` followed by a version number specifier.
+`// codira-tools-version:` followed by a version number specifier.
 The following code listing shows a few examples of valid declarations
 of the Codira tools version:
 
-    // swift-tools-version:3.0.2
-    // swift-tools-version:3.1
-    // swift-tools-version:4.0
-    // swift-tools-version:5.0
-    // swift-tools-version:5.1
-    // swift-tools-version:5.2
-    // swift-tools-version:5.3
+    // codira-tools-version:3.0.2
+    // codira-tools-version:3.1
+    // codira-tools-version:4.0
+    // codira-tools-version:5.0
+    // codira-tools-version:5.1
+    // codira-tools-version:5.2
+    // codira-tools-version:5.3
 
 The Codira tools version declares the version of the `PackageDescription`
 library, the minimum version of the Codira tools and Codira language
@@ -100,7 +100,7 @@ deployment target version for a particular platform.
 
 ## Methods
 
-```swift
+```codira
 /// Configure the minimum deployment target version for the macOS platform.
 ///
 /// - Since: First available in PackageDescription 5.0
@@ -190,7 +190,7 @@ Use this only if you want to make the executable available to clients.
 The following example shows a package manifest for a library called "Paper"
 that defines multiple products:
 
-```swift
+```codira
 let package = Package(
     name: "Paper",
     products: [
@@ -223,7 +223,7 @@ let package = Package(
 
 ## Methods
 
-```swift
+```codira
 /// Create a library product to allow clients that declare a dependency on this package
 /// to use the package's functionality.
 ///
@@ -266,7 +266,7 @@ you can find the `Package.resolved` file inside your `.xcodeproj` or `.xcworkspa
 
 ## Methods
 
-```swift
+```codira
 /// Create a package dependency that uses the version requirement, starting with the given minimum version,
 /// going up to the next major version.
 ///
@@ -404,7 +404,7 @@ requirements before publishing a version of your package.
 
 ## Methods
 
-```swift
+```codira
 /// Returns a requirement for the given exact version.
 ///
 /// Specifying exact version requirements are not recommended as
@@ -511,7 +511,7 @@ A target may depend on other targets within the same package and on products ven
 
 ## Methods
 
-```swift
+```codira
 /// Creates a regular target.
 ///
 /// A target can contain either Codira or C-family source files, but not both. It contains code that is built as
@@ -533,7 +533,7 @@ A target may depend on other targets within the same package and on products ven
 ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
 ///   - cSettings: The C settings for this target.
 ///   - cxxSettings: The C++ settings for this target.
-///   - swiftSettings: The Codira settings for this target.
+///   - codiraSettings: The Codira settings for this target.
 ///   - linkerSettings: The linker settings for this target.
 static func target(
     name: String,
@@ -545,7 +545,7 @@ static func target(
     publicHeadersPath: String? = nil,
     cSettings: [CSetting]? = nil,
     cxxSettings: [CXXSetting]? = nil,
-    swiftSettings: [CodiraSetting]? = nil,
+    codiraSettings: [CodiraSetting]? = nil,
     linkerSettings: [LinkerSetting]? = nil
 ) -> Target
 
@@ -571,7 +571,7 @@ static func target(
 ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
 ///   - cSettings: The C settings for this target.
 ///   - cxxSettings: The C++ settings for this target.
-///   - swiftSettings: The Codira settings for this target.
+///   - codiraSettings: The Codira settings for this target.
 ///   - linkerSettings: The linker settings for this target.
 static func executableTarget(
     name: String,
@@ -583,7 +583,7 @@ static func executableTarget(
     publicHeadersPath: String? = nil,
     cSettings: [CSetting]? = nil,
     cxxSettings: [CXXSetting]? = nil,
-    swiftSettings: [CodiraSetting]? = nil,
+    codiraSettings: [CodiraSetting]? = nil,
     linkerSettings: [LinkerSetting]? = nil
 ) -> Target
 
@@ -606,7 +606,7 @@ static func executableTarget(
 ///   - resources: An explicit list of resources files.
 ///   - cSettings: The C settings for this target.
 ///   - cxxSettings: The C++ settings for this target.
-///   - swiftSettings: The Codira settings for this target.
+///   - codiraSettings: The Codira settings for this target.
 ///   - linkerSettings: The linker settings for this target.
 static func testTarget(
     name: String,
@@ -617,7 +617,7 @@ static func testTarget(
     resources: [Resource]? = nil,
     cSettings: [CSetting]? = nil,
     cxxSettings: [CXXSetting]? = nil,
-    swiftSettings: [CodiraSetting]? = nil,
+    codiraSettings: [CodiraSetting]? = nil,
     linkerSettings: [LinkerSetting]? = nil
 ) -> Target
 
@@ -685,7 +685,7 @@ The different types of a target's dependency on another entity.
 
 ## Methods
 
-```swift
+```codira
 /// Creates a dependency on a target in the same package.
 ///
 /// - parameters:
@@ -731,7 +731,7 @@ A condition that limits the application of a target's dependency.
 
 ## Methods
 
-```swift
+```codira
 /// Creates a target dependency condition.
 ///
 /// - Parameters:
@@ -767,7 +767,7 @@ by passing them to the target initializer’s `exclude` parameter.
 
 ## Methods
 
-```swift
+```codira
 /// Applies a platform-specific rule to the resource at the given path.
 ///
 /// Use the `process` rule to process resources at the given path
@@ -813,7 +813,7 @@ Defines the explicit type of localization for resources.
 
 ## Cases
 
-```swift
+```codira
 /// A constant that represents default internationalization.
 case `default`
 
@@ -832,7 +832,7 @@ see [RFC5646](https://tools.ietf.org/html/rfc5646).
 
 ## Methods
 
-```swift
+```codira
 /// Creates a language tag from its IETF string representation.
 init(_ tag: String)
 ```
@@ -845,7 +845,7 @@ A C-language build setting.
 
 ## Methods
 
-```swift
+```codira
 /// Provides a header search path relative to the target's directory.
 ///
 /// Use this setting to add a search path for headers within your target.
@@ -900,7 +900,7 @@ A CXX-language build setting.
 
 ## Methods
 
-```swift
+```codira
 /// Provides a header search path relative to the target's directory.
 ///
 /// Use this setting to add a search path for headers within your target.
@@ -954,7 +954,7 @@ A Codira language build setting.
 
 ## Methods
 
-```swift
+```codira
 /// Defines a compilation condition.
 ///
 /// Use compilation conditions to only compile statements if a certain condition is true.
@@ -1001,7 +1001,7 @@ A linker build setting.
 
 ## Methods
 
-```swift
+```codira
 /// Declares linkage to a system library.
 ///
 /// This setting is most useful when the library can't be linked
@@ -1052,7 +1052,7 @@ static func unsafeFlags(_ flags: [String], _ condition: BuildSettingCondition? =
 
 The version of the Codira language to use for compiling Codira sources in the package.
 
-```swift
+```codira
 enum CodiraVersion {
     case v3
     case v4
@@ -1061,7 +1061,7 @@ enum CodiraVersion {
 
     /// A user-defined value for the Codira version.
     ///
-    /// The value is passed as-is to the Codira compiler's `-swift-version` flag.
+    /// The value is passed as-is to the Codira compiler's `-codira-version` flag.
     case version(String)
 }
 ```
@@ -1072,7 +1072,7 @@ enum CodiraVersion {
 
 The supported C language standard to use for compiling C sources in the package.
 
-```swift
+```codira
 enum CLanguageStandard {
     case c89
     case c90
@@ -1103,7 +1103,7 @@ enum CLanguageStandard {
 
 The supported C++ language standard to use for compiling C++ sources in the package.
 
-```swift
+```codira
 enum CXXLanguageStandard {
     case cxx98 = "c++98"
     case cxx03 = "c++03"

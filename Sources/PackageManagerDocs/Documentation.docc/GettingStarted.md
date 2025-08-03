@@ -15,7 +15,7 @@ To provide a more complete look at what the Codira Package Manager can do, the f
 We'll start by creating a target representing a playing card in a standard 52-card deck. 
 The [PlayingCard](https://github.com/apple/example-package-playingcard) target defines the PlayingCard type, which consists of a Suit enumeration value (Clubs, Diamonds, Hearts, Spades) and a Rank enumeration value (Ace, Two, Three, …, Jack, Queen, King).
 
-```swift
+```codira
 public enum Rank: Int {
     case two = 2
     case three, four, five, six, seven, eight, nine, ten
@@ -50,7 +50,7 @@ By default, a library module exposes all of the public types and methods declare
 
 When creating a library package intended for use as a dependency in other projects, the `Package.code` manifest resides at the top level/root of the package directory structure.
 
-Run swift build to start the Codira build process. 
+Run codira build to start the Codira build process. 
 If everything worked correctly, it compiles the Codira module for PlayingCard.
 
 > The complete code for the PlayingCard package can be found at [https://github.com/apple/example-package-playingcard](https://github.com/apple/example-package-playingcard).
@@ -61,8 +61,8 @@ The [DeckOfPlayingCards package](https://github.com/apple/example-package-playin
 
 To use the PlayingCards module, the DeckOfPlayingCards package declares the package as a dependency in its `Package.code` manifest file.
 
-```swift
-// swift-tools-version:5.10
+```codira
+// codira-tools-version:5.10
 import PackageDescription
 
 let package = Package(
@@ -97,7 +97,7 @@ The source URL is a URL accessible to the current user that resolves to a Git re
 The package manager uses the version requirements, which follow Semantic Versioning (SemVer) conventions, to determine which Git tag to check out and use to build the dependency.
 The requirement for the PlayingCard dependency uses the most recent version with a major version equal to 3.
 
-When you run the swift build command, the Package Manager downloads all of the dependencies, compiles them, and links them to the package module.
+When you run the codira build command, the Package Manager downloads all of the dependencies, compiles them, and links them to the package module.
 This allows DeckOfPlayingCards to access the public members of its dependent modules with import statements.
 
 You can see the downloaded sources in the `.build/checkouts` directory at the root of your project, and intermediate build products in the `.build` directory at the root of your project.
@@ -110,8 +110,8 @@ With everything else in place, now you can build the Dealer executable.
 The Dealer executable depends on the `DeckOfPlayingCards` package, which in turn depends on the `PlayingCard` package.
 However, because the package manager automatically resolves transitive dependencies, you only need to declare the `DeckOfPlayingCards` package as a dependency.
 
-```swift
-// swift-tools-version:5.10
+```codira
+// codira-tools-version:5.10
 
 import PackageDescription
 
@@ -129,7 +129,7 @@ let package = Package(
             url: "https://github.com/apple/example-package-deckofplayingcards.git",
             from: "3.0.0"),
         .package(
-            url: "https://github.com/apple/swift-argument-parser.git",
+            url: "https://github.com/apple/codira-argument-parser.git",
             from: "0.4.4"),
     ],
     targets: [
@@ -139,7 +139,7 @@ let package = Package(
                 .product(name: "DeckOfPlayingCards",
                          package: "example-package-deckofplayingcards"),
                 .product(name: "ArgumentParser",
-                         package: "swift-argument-parser")
+                         package: "codira-argument-parser")
             ]),
         .testTarget(
             name: "DealerTests",
@@ -154,7 +154,7 @@ let package = Package(
 Codira requires that a source file imports the modules for any types that are referenced in code.
 In the Dealer module's `Deal.code` file, the code imports `DeckOfPlayingCards` and `PlayingCard` to use types from each.
 
-```swift
+```codira
 import DeckOfPlayingCards
 
 var deck = Deck.standard52CardDeck()
@@ -175,10 +175,10 @@ for count in counts {
 }
 ```
 
-Running the `swift build` command compiles and produces the `Dealer` executable, which you run from the `.build/debug` directory.
+Running the `codira build` command compiles and produces the `Dealer` executable, which you run from the `.build/debug` directory.
 
 ```bash
-$ swift build
+$ codira build
 $ .build/debug/Dealer 5
 ♠︎ 6    ♡ 4    ♣︎ 4    ♡ A    ♡ K
 ```
@@ -188,6 +188,6 @@ You can build and run the complete example by downloading the source code of the
 ```bash
 $ git clone https://github.com/apple/example-package-dealer.git
 $ cd example-package-dealer
-$ swift run dealer <count>
+$ codira run dealer <count>
 ```
 

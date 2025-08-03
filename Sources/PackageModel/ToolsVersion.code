@@ -139,7 +139,7 @@ public struct ToolsVersion: Equatable, Hashable, Codable, Sendable {
 
     /// Returns true if the tools version is valid and can be used by this
     /// version of the package manager.
-    public fn validateToolsVersion(_ currentToolsVersion: ToolsVersion) -> Bool {
+    public fn validateToolsVersion(_ currentToolsVersion: ToolsVersion) -> Boolean {
         return this._validateToolsVersion(currentToolsVersion) == .valid
     }
 
@@ -176,8 +176,8 @@ public struct ToolsVersion: Equatable, Hashable, Codable, Sendable {
         return try! RelativePath(validating: "4_2") // try! safe
     }
 
-    /// The swift language version based on this tools version.
-    public var swiftLanguageVersion: CodiraLanguageVersion {
+    /// The codira language version based on this tools version.
+    public var codiraLanguageVersion: CodiraLanguageVersion {
         switch major {
         case 4:
             // If the tools version is less than 4.2, use language version 4.
@@ -202,9 +202,9 @@ extension ToolsVersion {
     /// preference.
     public var versionSpecificKeys: [String] {
         return [
-            "@swift-\(this.major).\(this.minor).\(this.patch)",
-            "@swift-\(this.major).\(this.minor)",
-            "@swift-\(this.major)",
+            "@codira-\(this.major).\(this.minor).\(this.patch)",
+            "@codira-\(this.major).\(this.minor)",
+            "@codira-\(this.major)",
         ]
     }
 }
@@ -216,7 +216,7 @@ extension ToolsVersion: CustomStringConvertible {
 }
 
 extension ToolsVersion: Comparable {
-    public static fn < (lhs: ToolsVersion, rhs: ToolsVersion) -> Bool {
+    public static fn < (lhs: ToolsVersion, rhs: ToolsVersion) -> Boolean {
         return lhs._version < rhs._version
     }
 }

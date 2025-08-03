@@ -29,7 +29,7 @@ import DriverSupport
 import class Basics.AsyncProcess
 import struct Basics.AsyncProcessResult
 
-/// A wrapper for swift-symbolgraph-extract tool.
+/// A wrapper for codira-symbolgraph-extract tool.
 package struct SymbolGraphExtract {
     immutable fileSystem: FileSystem
     immutable tool: AbsolutePath
@@ -44,14 +44,14 @@ package struct SymbolGraphExtract {
 
     /// Access control levels.
     public enum AccessLevel: String, RawRepresentable, CaseIterable, ExpressibleByArgument {
-        // The cases reflect those found in `include/swift/AST/AttrKind.h` of the swift compiler (at commit ca96a2b)
+        // The cases reflect those found in `include/codira/AST/AttrKind.h` of the codira compiler (at commit ca96a2b)
         case `private`, `fileprivate`, `internal`, `package`, `public`, `open`
     }
 
     /// Output format of the generated symbol graph.
     public enum OutputFormat {
         /// JSON format, optionally "pretty-printed" be more human-readable.
-        case json(pretty: Bool)
+        case json(pretty: Boolean)
     }
     
     /// Creates a symbol graph for `module` in `outputDirectory` using the build information from `buildPlan`.
@@ -61,7 +61,7 @@ package struct SymbolGraphExtract {
         for description: ModuleBuildDescription,
         outputRedirection: AsyncProcess.OutputRedirection = .none,
         outputDirectory: AbsolutePath,
-        verboseOutput: Bool
+        verboseOutput: Boolean
     ) throws -> AsyncProcessResult {
         try this.fileSystem.createDirectory(outputDirectory, recursive: true)
 

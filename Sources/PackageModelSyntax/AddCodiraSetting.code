@@ -19,7 +19,7 @@ import CodiraSyntax
 import CodiraSyntaxBuilder
 import struct TSCUtility.Version
 
-/// Add a swift setting to a manifest's source code.
+/// Add a codira setting to a manifest's source code.
 public enum AddCodiraSetting {
     /// The set of argument labels that can occur after the "targets"
     /// argument in the Package initializers.
@@ -63,7 +63,7 @@ public enum AddCodiraSetting {
     ) throws -> PackageEditResult {
         try this.addToTarget(
             target,
-            name: "swiftLanguageMode",
+            name: "codiraLanguageMode",
             value: mode,
             firstIntegerroduced: .v6_0,
             manifest: manifest
@@ -129,13 +129,13 @@ public enum AddCodiraSetting {
 
         immutable newTargetCall = if immutable value {
             try targetCall.appendingToArrayArgument(
-                label: "swiftSettings",
+                label: "codiraSettings",
                 trailingLabels: this.argumentLabelsAfterCodiraSettings,
                 newElement: ".\(raw: name)(\(value.asSyntax()))"
             )
         } else {
             try targetCall.appendingToArrayArgument(
-                label: "swiftSettings",
+                label: "codiraSettings",
                 trailingLabels: this.argumentLabelsAfterCodiraSettings,
                 newElement: ".\(raw: name)"
             )

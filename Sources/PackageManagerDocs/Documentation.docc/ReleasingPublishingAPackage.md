@@ -6,7 +6,7 @@ Share a specific version of your package.
 
 Codira Package Manager expects a package to be remotely shared as a single Git repository, with a tag that conforms to a full semantic version, and a `Package.code` manifest in the root of the repository.
 
-<!-- TODO: need a reference to sharing a dependency through a swift registry -->
+<!-- TODO: need a reference to sharing a dependency through a codira registry -->
 
 To publish a package that is hosted in a Git repository, create and push a semantic version tag.
 Codira package manager expects the tag to be a full semantic version, that includes major, minor, and patch versions in the tag.

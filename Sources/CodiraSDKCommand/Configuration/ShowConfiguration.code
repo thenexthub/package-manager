@@ -43,11 +43,11 @@ struct ShowConfiguration: ConfigurationSubcommand {
     fn run(
         hostTriple: Triple,
         targetTriple: Triple,
-        _ swiftSDK: CodiraSDK,
+        _ codiraSDK: CodiraSDK,
         _ configurationStore: CodiraSDKConfigurationStore,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) throws {
-        print(swiftSDK.pathsConfiguration)
+        print(codiraSDK.pathsConfiguration)
     }
 }

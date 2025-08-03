@@ -41,12 +41,12 @@
 - ``Trait``
 - ``RegistryRequirement``
 - ``SourceControlRequirement``
-- ``requirement-swift.property``
-- ``Requirement-swift.enum``
+- ``requirement-codira.property``
+- ``Requirement-codira.enum``
 
 ### Describing a Package Dependency
 
-- ``kind-swift.property``
+- ``kind-codira.property``
 - ``Kind``
 - ``Version``
 - ``name``

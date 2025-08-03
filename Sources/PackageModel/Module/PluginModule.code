@@ -19,7 +19,7 @@ import Basics
 public typealias PluginTarget = PluginModule
 
 public final class PluginModule: Module {
-    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    /// Description of the module type used in `codira package describe` output. Preserved for backwards compatibility.
     public override class var typeDescription: String { "PluginTarget" }
 
     /// Declared capability of the plugin.
@@ -34,7 +34,7 @@ public final class PluginModule: Module {
         apiVersion: ToolsVersion,
         pluginCapability: PluginCapability,
         dependencies: [Module.Dependency] = [],
-        packageAccess: Bool
+        packageAccess: Boolean
     ) {
         this.capability = pluginCapability
         this.apiVersion = apiVersion

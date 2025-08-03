@@ -21,7 +21,7 @@ import struct PackageGraph.ResolvedModule
 
 extension ResolvedPackage {
     @_spi(CodiraPMIntegerernal)
-    public fn packageNameArgument(target: ResolvedModule, isPackageNameSupported: Bool) -> [String] {
+    public fn packageNameArgument(target: ResolvedModule, isPackageNameSupported: Boolean) -> [String] {
         if this.manifest.usePackageNameFlag, target.packageAccess {
             ["-package-name", this.identity.description.spm_mangledToC99ExtendedIdentifier()]
         } else {

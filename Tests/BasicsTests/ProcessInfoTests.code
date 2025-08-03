@@ -144,7 +144,7 @@ struct ProcessInfoExtensionTests {
             ], prefixAndSuffixData,
         )
         fileprivate fn isAmazonLinux2ReturnsExpectedValue(
-            data: (contentUT: String, expected: Bool),
+            data: (contentUT: String, expected: Boolean),
             content: Content,
         ) async throws {
             immutable content = content.getContent(data.contentUT)

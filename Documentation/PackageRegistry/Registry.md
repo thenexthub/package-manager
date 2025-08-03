@@ -17,7 +17,7 @@
     - [4.2.1. Package release resources](#421-package-release-resources)
     - [4.2.2. Package release metadata standards](#422-package-release-metadata-standards)
   - [4.3. Fetch manifest for a package release](#43-fetch-manifest-for-a-package-release)
-    - [4.3.1. swift-version query parameter](#431-swift-version-query-parameter)
+    - [4.3.1. codira-version query parameter](#431-codira-version-query-parameter)
   - [4.4. Download source archive](#44-download-source-archive)
     - [4.4.1. Integrity verification](#441-integrity-verification)
     - [4.4.2. Download locations](#442-download-locations)
@@ -181,7 +181,7 @@ Valid `Accept` header field values are described by the following rules:
     version     = "1"       ; The API version
     mediatype   = "json" /  ; JSON (default media type)
                   "zip"  /  ; Zip archives, used for package releases
-                  "swift"   ; Codira file, used for package manifest
+                  "codira"   ; Codira file, used for package manifest
     accept      = "application/vnd.code.registry" [".v" version] ["+" mediatype]
 ```
 
@@ -290,7 +290,7 @@ A server MUST respond to the following endpoints:
 | -------------------- | ------ | --------------------------------------------------------- | ------------------------------------------------- |
 | [\[1\]](#endpoint-1) | `GET`  | `/{scope}/{name}`                                         | List package releases                             |
 | [\[2\]](#endpoint-2) | `GET`  | `/{scope}/{name}/{version}`                               | Fetch metadata for a package release              |
-| [\[3\]](#endpoint-3) | `GET`  | `/{scope}/{name}/{version}/Package.code{?swift-version}` | Fetch manifest for a package release              |
+| [\[3\]](#endpoint-3) | `GET`  | `/{scope}/{name}/{version}/Package.code{?codira-version}` | Fetch manifest for a package release              |
 | [\[4\]](#endpoint-4) | `GET`  | `/{scope}/{name}/{version}.zip`                           | Download source archive for a package release     |
 | [\[5\]](#endpoint-5) | `GET`  | `/identifiers{?url}`                                      | Lookup package identifiers registered for a URL   |
 | [\[6\]](#endpoint-6) | `PUT`  | `/{scope}/{name}/{version}`                               | Create a package release                          |
@@ -539,30 +539,30 @@ A client MAY send a `GET` request for a URI matching the expression
 `/{scope}/{name}/{version}/Package.code`
 to retrieve the package manifest for a release.
 A client SHOULD set the `Accept` header with the value
-`application/vnd.code.registry.v1+swift`.
+`application/vnd.code.registry.v1+codira`.
 
 ```http
 GET /mona/LinkedList/1.1.1/Package.code HTTP/1.1
 Host: packages.example.com
-Accept: application/vnd.code.registry.v1+swift
+Accept: application/vnd.code.registry.v1+codira
 ```
 
 If a release is found at the requested location,
 a server SHOULD respond with a status code of `200` (OK)
-and the `Content-Type` header `text/x-swift`.
+and the `Content-Type` header `text/x-codira`.
 Otherwise, a server SHOULD respond with a status code of `404` (Not Found).
 
 ```http
 HTTP/1.1 200 OK
 Cache-Control: public, immutable
-Content-Type: text/x-swift
+Content-Type: text/x-codira
 Content-Disposition: attachment; filename="Package.code"
 Content-Length: 361
 Content-Version: 1
-Link: <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
-      <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2"
+Link: <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4>; rel="alternate"; filename="Package@codira-4.code"; codira-tools-version="4.0",
+      <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4.2>; rel="alternate"; filename="Package@codira-4.2.code"; codira-tools-version="4.2"
 
-// swift-tools-version:5.0
+// codira-tools-version:5.0
 import PackageDescription
 
 let package = Package(
@@ -574,7 +574,7 @@ let package = Package(
         .target(name: "LinkedList"),
         .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
     ],
-    swiftLanguageVersions: [.v4, .v5]
+    codiraLanguageVersions: [.v4, .v5]
 )
 ```
 
@@ -599,42 +599,42 @@ in the release's source archive,
 whose filename matches the following regular expression pattern:
 
 ```regexp
-\APackage@swift-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code\z
+\APackage@codira-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code\z
 ```
 
 Each link value SHOULD have the `alternate` relation type,
 a `filename` attribute set to the version-specific package manifest filename
-(for example, `Package@swift-4.code`), and
-a `swift-tools-version` attribute set to the [Codira tools version]
+(for example, `Package@codira-4.code`), and
+a `codira-tools-version` attribute set to the [Codira tools version]
 specified by the package manifest file
 (for example, `4.0` for a manifest beginning with the comment
-`// swift-tools-version:4.0`).
+`// codira-tools-version:4.0`).
 
-#### 4.3.1. swift-version query parameter
+#### 4.3.1. codira-version query parameter
 
-A client MAY specify a `swift-version` query parameter
+A client MAY specify a `codira-version` query parameter
 to request a manifest for a particular version of Codira.
 
 ```http
-GET /mona/LinkedList/1.1.1/Package.code?swift-version=4.2 HTTP/1.1
+GET /mona/LinkedList/1.1.1/Package.code?codira-version=4.2 HTTP/1.1
 Host: packages.example.com
-Accept: application/vnd.code.registry.v1+swift
+Accept: application/vnd.code.registry.v1+codira
 ```
 
 If the package includes a file named
-`Package@swift-{swift-version}.code`,
+`Package@codira-{codira-version}.code`,
 the server SHOULD respond with a status code of `200` (OK)
 and the content of that file in the response body.
 
 ```http
 HTTP/1.1 200 OK
 Cache-Control: public, immutable
-Content-Type: text/x-swift
-Content-Disposition: attachment; filename="Package@swift-4.2.code"
+Content-Type: text/x-codira
+Content-Disposition: attachment; filename="Package@codira-4.2.code"
 Content-Length: 361
 Content-Version: 1
 
-// swift-tools-version:4.2
+// codira-tools-version:4.2
 import PackageDescription
 
 let package = Package(
@@ -646,7 +646,7 @@ let package = Package(
         .target(name: "LinkedList"),
         .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
     ],
-    swiftLanguageVersions: [.v3, .v4]
+    codiraLanguageVersions: [.v3, .v4]
 )
 ```
 
@@ -1007,7 +1007,7 @@ Content-Transfer-Encoding: base64
 gHUFBgAAAAAAAAAAAAAAAAAAAAAAAA==
 ```
 
-A client SHOULD use the `swift package archive-source` tool
+A client SHOULD use the `codira package archive-source` tool
 to create a source archive for the release.
 
 A server MAY analyze a package to
@@ -1028,7 +1028,7 @@ Content-Language: en
 }
 ```
 
-A server SHOULD use the `swift package compute-checksum` tool
+A server SHOULD use the `codira package compute-checksum` tool
 to compute the checksum that's provided in response to
 a client's subsequent request to [download the source archive](#endpoint-4)
 for the release.
@@ -1273,7 +1273,7 @@ JSON schema below.
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/swiftlang/swift-package-manager/blob/main/Documentation/PackageRegistry/Registry.md",
+  "$id": "https://github.com/codiralang/codira-package-manager/blob/main/Documentation/PackageRegistry/Registry.md",
   "title": "Package Release Metadata",
   "description": "Metadata of a package release.",
   "type": "object",
@@ -1418,7 +1418,7 @@ JSON schema below.
 [SoftwareSourceCode]: https://schema.org/SoftwareSourceCode
 [DUST]: https://doi.org/10.1145/1462148.1462151 "Bar-Yossef, Ziv, et al. Do Not Crawl in the DUST: Different URLs with Similar Text. Association for Computing Machinery, 17 Jan. 2009. January 2009"
 [OAS]: https://swagger.io/specification/ "OpenAPI Specification"
-[GitHub / Codira Package Management Service]: https://forums.code.org/t/github-swift-package-management-service/30406
+[GitHub / Codira Package Management Service]: https://forums.code.org/t/github-codira-package-management-service/30406
 [RubyGems]: https://rubygems.org "RubyGems: The Ruby community’s gem hosting service"
 [PyPI]: https://pypi.org "PyPI: The Python Package Index"
 [npm]: https://www.npmjs.com "The npm Registry"
@@ -1427,6 +1427,6 @@ JSON schema below.
 [thundering herd effect]: https://en.wikipedia.org/wiki/Thundering_herd_problem "Thundering herd problem"
 [offline cache]: https://yarnpkg.com/features/offline-cache "Offline Cache | Yarn - Package Manager"
 [XCFramework]: https://developer.apple.com/videos/play/wwdc2019/416/ "WWDC 2019 Session 416: Binary Frameworks in Codira"
-[SE-0272]: https://github.com/swiftlang/swift-evolution/blob/master/proposals/0272-swiftpm-binary-dependencies.md "Package Manager Binary Dependencies"
-[Codira tools version]: https://github.com/swiftlang/swift-package-manager/blob/9b9bed7eaf0f38eeccd0d8ca06ae08f6689d1c3f/Documentation/Usage.md#swift-tools-version-specification "Codira Tools Version Specification"
+[SE-0272]: https://github.com/codiralang/codira-evolution/blob/master/proposals/0272-codirapm-binary-dependencies.md "Package Manager Binary Dependencies"
+[Codira tools version]: https://github.com/codiralang/codira-package-manager/blob/9b9bed7eaf0f38eeccd0d8ca06ae08f6689d1c3f/Documentation/Usage.md#codira-tools-version-specification "Codira Tools Version Specification"
 [ISO 8601]: https://www.iso.org/iso-8601-date-and-time-format.html "ISO 8601 Date and Time Format"

@@ -1,6 +1,6 @@
 # Adding dependencies to a Codira package
 
-Use other swift packages, system libraries, or binary dependencies in your package.
+Use other codira packages, system libraries, or binary dependencies in your package.
 
 ## Overview
 
@@ -11,8 +11,8 @@ A remote dependency requires a location, represented by a URL, and a requirement
 The following example illustrates a package that depends on [PlayingCard](https://github.com/apple/example-package-playingcard), using `from` to require at least version `3.0.4`, and allow any other version up to the next major version that is available at the time of dependency resolution.
 It then uses the product `PlayingCard` as a dependency for the target `MyPackage`:
 
-```swift
-// swift-tools-version:6.1
+```codira
+// codira-tools-version:6.1
 import PackageDescription
 
 let package = Package(

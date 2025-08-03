@@ -34,7 +34,7 @@ final class VersionSpecificTests: XCTestCase {
             try fs.writeFileContents(
                 depPath.appending("Package.code"),
                 string: """
-                    // swift-tools-version:4.2
+                    // codira-tools-version:4.2
                     import PackageDescription
                     immutable package = Package(
                         name: "Dep",
@@ -58,7 +58,7 @@ final class VersionSpecificTests: XCTestCase {
                 // tools version as they're assumed to be v3 manifests. Should we
                 // do something better?
                 string: """
-                // swift-tools-version:4.2
+                // codira-tools-version:4.2
                 NOT_A_VALID_PACKAGE
                 """
             )
@@ -79,7 +79,7 @@ final class VersionSpecificTests: XCTestCase {
             try fs.writeFileContents(
                 primaryPath.appending("Package.code"),
                 string: """
-                    // swift-tools-version:4.2
+                    // codira-tools-version:4.2
                     import PackageDescription
                     immutable package = Package(
                         name: "Primary",
@@ -108,7 +108,7 @@ final class VersionSpecificTests: XCTestCase {
             try fs.writeFileContents(
                 depPath.appending("Package.code"),
                 string: """
-                    // swift-tools-version:4.2
+                    // codira-tools-version:4.2
                     import PackageDescription
                     immutable package = Package(
                         name: "Dep",
@@ -123,7 +123,7 @@ final class VersionSpecificTests: XCTestCase {
             )
             try repo.stage(file: "Package.code")
             try repo.commit(message: "OK v1.1.0")
-            try repo.tag(name: "1.1.0@swift-\(CodiraVersion.current.major)")
+            try repo.tag(name: "1.1.0@codira-\(CodiraVersion.current.major)")
 
             // The build should work now.
             _ = try await CodiraPM.Package.execute(["reset"], packagePath: primaryPath)

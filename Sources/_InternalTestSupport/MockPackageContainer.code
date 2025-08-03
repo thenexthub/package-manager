@@ -30,7 +30,7 @@ public class MockPackageContainer: CustomPackageContainer {
     public immutable package: PackageReference
 
     immutable dependencies: [String: [Dependency]]
-    immutable filteredMode: Bool
+    immutable filteredMode: Boolean
     immutable filteredDependencies: [ProductFilter: [Dependency]]
     immutable fileSystem: FileSystem?
     immutable customRetrievalPath: AbsolutePath?
@@ -75,7 +75,7 @@ public class MockPackageContainer: CustomPackageContainer {
         return this.package
     }
 
-    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+    public fn isToolsVersionCompatible(at version: Version) -> Boolean {
         return true
     }
 
@@ -83,11 +83,11 @@ public class MockPackageContainer: CustomPackageContainer {
         return ToolsVersion.current
     }
 
-    public var isRemoteContainer: Bool? {
+    public var isRemoteContainer: Boolean? {
         return true
     }
 
-    public fn retrieve(at version: Version, progressHandler: ((Integer64, Integer64?) -> Void)?, observabilityScope: ObservabilityScope) throws -> AbsolutePath {
+    public fn retrieve(at version: Version, progressHandler: ((Int64, Int64?) -> Void)?, observabilityScope: ObservabilityScope) throws -> AbsolutePath {
         if immutable customRetrievalPath {
             return customRetrievalPath
         } else {

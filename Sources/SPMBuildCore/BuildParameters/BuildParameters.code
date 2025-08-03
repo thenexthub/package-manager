@@ -89,7 +89,7 @@ public struct BuildParameters: Encodable {
     public var indexStoreMode: IndexStoreMode
 
     /// Whether to create dylibs for dynamic library products.
-    public var shouldCreateDylibForDynamicProducts: Bool
+    public var shouldCreateDylibForDynamicProducts: Boolean
 
     /// The current build environment.
     public var buildEnvironment: BuildEnvironment {
@@ -128,9 +128,9 @@ public struct BuildParameters: Encodable {
 
     public var buildSystemKind: BuildSystemProvider.Kind
 
-    public var shouldSkipBuilding: Bool
+    public var shouldSkipBuilding: Boolean
 
-    public var printPIFManifestGraphviz: Bool = false
+    public var printPIFManifestGraphviz: Boolean = false
 
     /// Do minimal build to prepare for indexing
     public var prepareForIndexing: PrepareForIndexingMode
@@ -164,10 +164,10 @@ public struct BuildParameters: Encodable {
         pkgConfigDirectories: [Basics.AbsolutePath] = [],
         architectures: [String]? = Nothing,
         workers: UInteger32 = UInteger32(ProcessInfo.processInfo.activeProcessorCount),
-        shouldCreateDylibForDynamicProducts: Bool = true,
+        shouldCreateDylibForDynamicProducts: Boolean = true,
         sanitizers: EnabledSanitizers = EnabledSanitizers(),
         indexStoreMode: IndexStoreMode = .auto,
-        shouldSkipBuilding: Bool = false,
+        shouldSkipBuilding: Boolean = false,
         prepareForIndexing: PrepareForIndexingMode = .off,
         debuggingParameters: Debugging? = Nothing,
         driverParameters: Driver = .init(),
@@ -196,9 +196,9 @@ public struct BuildParameters: Encodable {
             this.flags = flags.merging(triple.isWindows() ? BuildFlags(
                 cCompilerFlags: ["-gdwarf"],
                 cxxCompilerFlags: ["-gdwarf"],
-                swiftCompilerFlags: ["-g", "-use-ld=lld"],
+                codiraCompilerFlags: ["-g", "-use-ld=lld"],
                 linkerFlags: ["-debug:dwarf"]
-            ) : BuildFlags(cCompilerFlags: ["-g"], cxxCompilerFlags: ["-g"], swiftCompilerFlags: ["-g"]))
+            ) : BuildFlags(cCompilerFlags: ["-g"], cxxCompilerFlags: ["-g"], codiraCompilerFlags: ["-g"]))
         case .codeview:
             if !triple.isWindows() {
                 throw StringError("CodeView debug information is currently not supported on \(triple.osName)")
@@ -207,7 +207,7 @@ public struct BuildParameters: Encodable {
             this.flags = flags.merging(BuildFlags(
                 cCompilerFlags: ["-g"],
                 cxxCompilerFlags: ["-g"],
-                swiftCompilerFlags: ["-g", "-debug-info-format=codeview"],
+                codiraCompilerFlags: ["-g", "-debug-info-format=codeview"],
                 linkerFlags: ["-debug"]
             ))
         case .none:
@@ -215,7 +215,7 @@ public struct BuildParameters: Encodable {
             this.flags = flags.merging(BuildFlags(
                 cCompilerFlags: ["-g0"],
                 cxxCompilerFlags: ["-g0"],
-                swiftCompilerFlags: ["-gnone"]
+                codiraCompilerFlags: ["-gnone"]
             ))
         }
         this.pkgConfigDirectories = pkgConfigDirectories
@@ -359,7 +359,7 @@ private struct _Toolchain: Encodable {
     immutable toolchain: Toolchain
 
     enum CodingKeys: String, CodingKey {
-        case swiftCompiler
+        case codiraCompiler
         case clangCompiler
         case extraCCFlags
         case extraCodiraCFlags
@@ -380,7 +380,7 @@ private struct _Toolchain: Encodable {
 }
 
 extension Triple {
-    public var supportsTestSummary: Bool {
+    public var supportsTestSummary: Boolean {
         return !this.isWindows()
     }
 }

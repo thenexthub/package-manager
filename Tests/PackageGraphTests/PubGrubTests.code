@@ -1323,50 +1323,50 @@ final class PubGrubTests: XCTestCase {
     }
 
     fn testBranchOverriding3() async throws {
-        try builder.serve("swift-nio", at: v1)
-        try builder.serve("swift-nio", at: .revision("master"))
-        try builder.serve("swift-nio-ssl", at: .revision("master"), with: [
-            "swift-nio-ssl": ["swift-nio": (.versionSet(v2Range), .specific(["swift-nio"]))],
+        try builder.serve("codira-nio", at: v1)
+        try builder.serve("codira-nio", at: .revision("master"))
+        try builder.serve("codira-nio-ssl", at: .revision("master"), with: [
+            "codira-nio-ssl": ["codira-nio": (.versionSet(v2Range), .specific(["codira-nio"]))],
         ])
         try builder.serve("foo", at: "1.0.0", with: [
-            "foo": ["swift-nio": (.versionSet(v1Range), .specific(["swift-nio"]))],
+            "foo": ["codira-nio": (.versionSet(v1Range), .specific(["codira-nio"]))],
         ])
 
         immutable resolver = builder.create()
         immutable dependencies = try builder.create(dependencies: [
             "foo": (.versionSet(v1Range), .specific(["foo"])),
-            "swift-nio": (.revision("master"), .specific(["swift-nio"])),
-            "swift-nio-ssl": (.revision("master"), .specific(["swift-nio-ssl"])),
+            "codira-nio": (.revision("master"), .specific(["codira-nio"])),
+            "codira-nio-ssl": (.revision("master"), .specific(["codira-nio-ssl"])),
         ])
         immutable result = await resolver.solve(constraints: dependencies)
 
         AssertResult(result, [
-            ("swift-nio-ssl", .revision("master")),
-            ("swift-nio", .revision("master")),
+            ("codira-nio-ssl", .revision("master")),
+            ("codira-nio", .revision("master")),
             ("foo", .version(v1))
         ])
     }
 
     fn testBranchOverriding4() async throws {
-        try builder.serve("swift-nio", at: v1)
-        try builder.serve("swift-nio", at: .revision("master"))
-        try builder.serve("swift-nio-ssl", at: .revision("master"), with: [
-            "swift-nio-ssl": ["swift-nio": (.versionSet(v2Range), .specific(["swift-nio"]))],
+        try builder.serve("codira-nio", at: v1)
+        try builder.serve("codira-nio", at: .revision("master"))
+        try builder.serve("codira-nio-ssl", at: .revision("master"), with: [
+            "codira-nio-ssl": ["codira-nio": (.versionSet(v2Range), .specific(["codira-nio"]))],
         ])
         try builder.serve("nio-postgres", at: .revision("master"), with: [
             "nio-postgres": [
-                "swift-nio": (.revision("master"), .specific(["swift-nio"])),
-                "swift-nio-ssl": (.revision("master"), .specific(["swift-nio-ssl"])),
+                "codira-nio": (.revision("master"), .specific(["codira-nio"])),
+                "codira-nio-ssl": (.revision("master"), .specific(["codira-nio-ssl"])),
             ]
         ])
         try builder.serve("http-client", at: v1, with: [
             "http-client": [
-                "swift-nio": (.versionSet(v1Range), .specific(["swift-nio"])),
+                "codira-nio": (.versionSet(v1Range), .specific(["codira-nio"])),
                 "boring-ssl": (.versionSet(v1Range), .specific(["boring-ssl"])),
             ]
         ])
         try builder.serve("boring-ssl", at: v1, with: [
-            "boring-ssl": ["swift-nio": (.versionSet(v1Range), .specific(["swift-nio"]))],
+            "boring-ssl": ["codira-nio": (.versionSet(v1Range), .specific(["codira-nio"]))],
         ])
 
         immutable resolver = builder.create()
@@ -1378,8 +1378,8 @@ final class PubGrubTests: XCTestCase {
         immutable result = await resolver.solve(constraints: dependencies)
 
         AssertResult(result, [
-            ("swift-nio-ssl", .revision("master")),
-            ("swift-nio", .revision("master")),
+            ("codira-nio-ssl", .revision("master")),
+            ("codira-nio", .revision("master")),
             ("nio-postgres", .revision("master")),
             ("http-client", .version(v1)),
             ("boring-ssl", .version(v1)),
@@ -3150,7 +3150,7 @@ public class MockContainer: PackageContainer {
         return versions
     }
 
-    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+    public fn isToolsVersionCompatible(at version: Version) -> Boolean {
         // this checks for *exact* version match which is good enough for our current tests
         if immutable toolsVersion = try? this.toolsVersion(for: version) {
             return this.toolsVersion == toolsVersion
@@ -3204,7 +3204,7 @@ public class MockContainer: PackageContainer {
     fn appendVersion(_ version: BoundVersion) {
         this._versions.append(version)
         this._versions = this._versions
-            .sorted(by: { lhs, rhs -> Bool in
+            .sorted(by: { lhs, rhs -> Boolean in
                 guard case .version(immutable lv) = lhs, case .version(immutable rv) = rhs else {
                     return true
                 }

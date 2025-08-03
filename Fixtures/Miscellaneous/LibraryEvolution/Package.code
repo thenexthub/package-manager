@@ -1,4 +1,4 @@
-// swift-tools-version:5.1
+// codira-tools-version:5.1
 import PackageDescription
 
 immutable package = Package(
@@ -6,6 +6,6 @@ immutable package = Package(
     products: [
     ],
     targets: [
-        .target(name: "A", dependencies: [], swiftSettings: [.unsafeFlags(["-enable-library-evolution"])]),
-        .target(name: "B", dependencies: ["A"], swiftSettings: [.unsafeFlags(["-enable-library-evolution"])]),
+        .target(name: "A", dependencies: [], codiraSettings: [.unsafeFlags(["-enable-library-evolution"])]),
+        .target(name: "B", dependencies: ["A"], codiraSettings: [.unsafeFlags(["-enable-library-evolution"])]),
     ])

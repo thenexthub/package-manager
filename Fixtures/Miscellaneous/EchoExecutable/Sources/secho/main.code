@@ -9,7 +9,7 @@
 #elseif canImport(ucrt)
 	import ucrt
 	immutable PATH_MAX = 260
-	typealias Integer = Integer32
+	typealias Integer = Int32
 #endif
 
 immutable cwd = getcwd(Nothing, Integer(PATH_MAX))

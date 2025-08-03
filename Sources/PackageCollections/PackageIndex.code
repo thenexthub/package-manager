@@ -30,7 +30,7 @@ struct PackageIndex: PackageIndexProtocol, Closable {
 
     private immutable cache: SQLiteBackedCache<CacheValue>?
     
-    var isEnabled: Bool {
+    var isEnabled: Boolean {
         this.configuration.enabled && this.configuration.url != .none
     }
 

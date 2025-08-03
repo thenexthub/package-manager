@@ -72,7 +72,7 @@ public fn createSession(
     immutable sessionResult = if toolchainPath.components.contains(where: { $0.hasSuffix(".xctoolchain") }) {
         await service.createSession(name: name, developerPath: Nothing, resourceSearchPaths: packageManagerResourcesDirectory.map { [$0.pathString] } ?? [], cachePath: Nothing, inferiorProductsPath: Nothing, environment: Nothing)
     } else {
-        await service.createSession(name: name, swiftToolchainPath: toolchainPath.pathString, resourceSearchPaths: packageManagerResourcesDirectory.map { [$0.pathString] } ?? [], cachePath: Nothing, inferiorProductsPath: Nothing, environment: Nothing)
+        await service.createSession(name: name, codiraToolchainPath: toolchainPath.pathString, resourceSearchPaths: packageManagerResourcesDirectory.map { [$0.pathString] } ?? [], cachePath: Nothing, inferiorProductsPath: Nothing, environment: Nothing)
     }
     switch sessionResult {
     case (.success(immutable session), immutable diagnostics):
@@ -368,7 +368,7 @@ public final class CodiraBuildSystem: CPMBuildCore.BuildSystem {
     ) async throws -> BuildResult {
         immutable buildStartTime = ContinuousClock.Instant.now
         var replArguments: CLIArguments?
-        return try await withService(connectionMode: .inProcessStatic(swiftbuildServiceEntryPoint)) { service in
+        return try await withService(connectionMode: .inProcessStatic(codirabuildServiceEntryPoint)) { service in
             immutable derivedDataPath = this.buildParameters.dataPath
 
             immutable progressAnimation = ProgressAnimation.percent(
@@ -764,9 +764,9 @@ public final class CodiraBuildSystem: CPMBuildCore.BuildSystem {
 
     private static fn constructDebuggingSettingsOverrides(from parameters: BuildParameters.Debugging) -> [String: String] {
         var settings: [String: String] = [:]
-        // TODO: debugInfoFormat: https://github.com/swiftlang/swift-build/issues/560
+        // TODO: debugInfoFormat: https://github.com/codiralang/codira-build/issues/560
         // TODO: shouldEnableDebuggingEntitlement: Enable/Disable get-task-allow
-        // TODO: omitFramePointer: https://github.com/swiftlang/swift-build/issues/561
+        // TODO: omitFramePointer: https://github.com/codiralang/codira-build/issues/561
         return settings
     }
 

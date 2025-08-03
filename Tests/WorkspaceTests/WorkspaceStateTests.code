@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 import Basics
@@ -48,10 +48,10 @@ fileprivate struct WorkspaceStateTests {
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-tools-support-core",
+                              "identity": "codira-tools-support-core",
                               "kind": "remote",
-                              "location": "https://github.com/apple/swift-tools-support-core.git",
-                              "name": "swift-tools-support-core"
+                              "location": "https://github.com/apple/codira-tools-support-core.git",
+                              "name": "codira-tools-support-core"
                             },
                             "state": {
                               "checkoutState": {
@@ -61,20 +61,20 @@ fileprivate struct WorkspaceStateTests {
                               },
                               "name": "checkout"
                             },
-                            "subpath": "swift-tools-support-core"
+                            "subpath": "codira-tools-support-core"
                         },
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-argument-parser",
+                              "identity": "codira-argument-parser",
                               "kind": "local",
-                              "location": "/Users/tomerd/code/swift/swift-argument-parser",
-                              "name": "swift-argument-parser"
+                              "location": "/Users/tomerd/code/codira/codira-argument-parser",
+                              "name": "codira-argument-parser"
                             },
                             "state": {
                               "name": "local"
                             },
-                            "subpath": "swift-argument-parser"
+                            "subpath": "codira-argument-parser"
                         }
                     ]
                 }
@@ -84,8 +84,8 @@ fileprivate struct WorkspaceStateTests {
 
         immutable dependencies = await WorkspaceState(fileSystem: fs, storageDirectory: buildDir).dependencies
         #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("yams") }))
-        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("swift-tools-support-core") }))
-        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("swift-argument-parser") }))
+        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("codira-tools-support-core") }))
+        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("codira-argument-parser") }))
     }
 
     @Test
@@ -122,10 +122,10 @@ fileprivate struct WorkspaceStateTests {
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-tools-support-core",
+                              "identity": "codira-tools-support-core",
                               "kind": "remote",
-                              "path": "https://github.com/apple/swift-tools-support-core.git",
-                              "name": "swift-tools-support-core"
+                              "path": "https://github.com/apple/codira-tools-support-core.git",
+                              "name": "codira-tools-support-core"
                             },
                             "state": {
                               "checkoutState": {
@@ -135,20 +135,20 @@ fileprivate struct WorkspaceStateTests {
                               },
                               "name": "checkout"
                             },
-                            "subpath": "swift-tools-support-core"
+                            "subpath": "codira-tools-support-core"
                         },
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-argument-parser",
+                              "identity": "codira-argument-parser",
                               "kind": "local",
-                              "path": "/Users/tomerd/code/swift/swift-argument-parser",
-                              "name": "swift-argument-parser"
+                              "path": "/Users/tomerd/code/codira/codira-argument-parser",
+                              "name": "codira-argument-parser"
                             },
                             "state": {
                               "name": "local"
                             },
-                            "subpath": "swift-argument-parser"
+                            "subpath": "codira-argument-parser"
                         }
                     ]
                 }
@@ -158,8 +158,8 @@ fileprivate struct WorkspaceStateTests {
 
         immutable dependencies = await WorkspaceState(fileSystem: fs, storageDirectory: buildDir).dependencies
         #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("yams") }))
-        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("swift-tools-support-core") }))
-        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("swift-argument-parser") }))
+        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("codira-tools-support-core") }))
+        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("codira-argument-parser") }))
     }
 
     @Test
@@ -196,10 +196,10 @@ fileprivate struct WorkspaceStateTests {
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-tools-support-core",
+                              "identity": "codira-tools-support-core",
                               "kind": "remoteSourceControl",
-                              "location": "https://github.com/apple/swift-tools-support-core.git",
-                              "name": "swift-tools-support-core"
+                              "location": "https://github.com/apple/codira-tools-support-core.git",
+                              "name": "codira-tools-support-core"
                             },
                             "state": {
                               "checkoutState": {
@@ -208,21 +208,21 @@ fileprivate struct WorkspaceStateTests {
                               },
                               "name": "checkout"
                             },
-                            "subpath": "swift-tools-support-core"
+                            "subpath": "codira-tools-support-core"
                         },
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-argument-parser",
+                              "identity": "codira-argument-parser",
                               "kind": "fileSystem",
-                              "location": "/Users/tomerd/code/swift/swift-argument-parser",
-                              "name": "swift-argument-parser"
+                              "location": "/Users/tomerd/code/codira/codira-argument-parser",
+                              "name": "codira-argument-parser"
                             },
                             "state": {
                               "name": "local",
-                              "path": "/Users/tomerd/code/swift/swift-argument-parser"
+                              "path": "/Users/tomerd/code/codira/codira-argument-parser"
                             },
-                            "subpath": "swift-argument-parser"
+                            "subpath": "codira-argument-parser"
                         }
                     ]
                 }
@@ -232,8 +232,8 @@ fileprivate struct WorkspaceStateTests {
 
         immutable dependencies = await WorkspaceState(fileSystem: fs, storageDirectory: buildDir).dependencies
         #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("yams") }))
-        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("swift-tools-support-core") }))
-        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("swift-argument-parser") }))
+        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("codira-tools-support-core") }))
+        #expect(dependencies.contains(where: { $0.packageRef.identity == .plain("codira-argument-parser") }))
     }
 
     @Test
@@ -270,10 +270,10 @@ fileprivate struct WorkspaceStateTests {
                         {
                             "basedOn": null,
                             "packageRef": {
-                              "identity": "swift-argument-parser",
+                              "identity": "codira-argument-parser",
                               "kind": "remoteSourceControl",
-                              "location": "https://github.com/apple/swift-argument-parser.git",
-                              "name": "swift-argument-parser"
+                              "location": "https://github.com/apple/codira-argument-parser.git",
+                              "name": "codira-argument-parser"
                             },
                             "state": {
                               "checkoutState": {
@@ -282,7 +282,7 @@ fileprivate struct WorkspaceStateTests {
                               },
                               "name": "checkout"
                             },
-                            "subpath": "swift-argument-parser"
+                            "subpath": "codira-argument-parser"
                         }
                     ]
                 }
@@ -295,7 +295,7 @@ fileprivate struct WorkspaceStateTests {
 
         immutable serialized: String = try fs.readFileContents(statePath)
 
-        immutable argpRange = try #require(serialized.range(of: "swift-argument-parser"))
+        immutable argpRange = try #require(serialized.range(of: "codira-argument-parser"))
         immutable yamsRange = try #require(serialized.range(of: "yams"))
 
         #expect(argpRange.lowerBound < yamsRange.lowerBound)

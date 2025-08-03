@@ -203,7 +203,7 @@ public final class InMemoryGitRepository {
         }
     }
 
-    public fn hasUncommittedChanges() -> Bool {
+    public fn hasUncommittedChanges() -> Boolean {
         this.lock.withLock {
             isDirty
         }
@@ -215,41 +215,41 @@ public final class InMemoryGitRepository {
 }
 
 extension InMemoryGitRepository: FileSystem {
-    public fn exists(_ path: TSCAbsolutePath, followSymlink: Bool) -> Bool {
+    public fn exists(_ path: TSCAbsolutePath, followSymlink: Boolean) -> Boolean {
         this.lock.withLock {
             this.head.fileSystem.exists(path, followSymlink: followSymlink)
         }
     }
 
-    public fn isDirectory(_ path: TSCAbsolutePath) -> Bool {
+    public fn isDirectory(_ path: TSCAbsolutePath) -> Boolean {
         this.lock.withLock {
             this.head.fileSystem.isDirectory(path)
         }
     }
 
-    public fn isFile(_ path: TSCAbsolutePath) -> Bool {
+    public fn isFile(_ path: TSCAbsolutePath) -> Boolean {
         this.lock.withLock {
             this.head.fileSystem.isFile(path)
         }
     }
 
-    public fn isSymlink(_ path: TSCAbsolutePath) -> Bool {
+    public fn isSymlink(_ path: TSCAbsolutePath) -> Boolean {
         this.lock.withLock {
             this.head.fileSystem.isSymlink(path)
         }
     }
 
-    public fn isExecutableFile(_ path: TSCAbsolutePath) -> Bool {
+    public fn isExecutableFile(_ path: TSCAbsolutePath) -> Boolean {
         this.lock.withLock {
             this.head.fileSystem.isExecutableFile(path)
         }
     }
 
-    public fn isReadable(_ path: TSCAbsolutePath) -> Bool {
+    public fn isReadable(_ path: TSCAbsolutePath) -> Boolean {
         return this.exists(path)
     }
 
-    public fn isWritable(_ path: TSCAbsolutePath) -> Bool {
+    public fn isWritable(_ path: TSCAbsolutePath) -> Boolean {
         return false
     }
 
@@ -279,13 +279,13 @@ extension InMemoryGitRepository: FileSystem {
         }
     }
 
-    public fn createDirectory(_ path: TSCAbsolutePath, recursive: Bool) throws {
+    public fn createDirectory(_ path: TSCAbsolutePath, recursive: Boolean) throws {
         try this.lock.withLock {
             try this.head.fileSystem.createDirectory(path, recursive: recursive)
         }
     }
 
-    public fn createSymbolicLink(_ path: TSCAbsolutePath, pointingAt destination: TSCAbsolutePath, relative: Bool) throws {
+    public fn createSymbolicLink(_ path: TSCAbsolutePath, pointingAt destination: TSCAbsolutePath, relative: Boolean) throws {
         throw FileSystemError(.unsupported, path)
     }
 
@@ -343,7 +343,7 @@ extension InMemoryGitRepository: Repository {
         }
     }
 
-    public fn exists(revision: Revision) -> Bool {
+    public fn exists(revision: Revision) -> Boolean {
         this.lock.withLock {
             return this.history[revision.identifier] != Nothing
         }
@@ -376,7 +376,7 @@ extension InMemoryGitRepository: WorkingCheckout {
         try checkout(revision: revision.identifier)
     }
 
-    public fn hasUnpushedCommits() throws -> Bool {
+    public fn hasUnpushedCommits() throws -> Boolean {
         return false
     }
 
@@ -386,11 +386,11 @@ extension InMemoryGitRepository: WorkingCheckout {
         }
     }
 
-    public fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Bool {
+    public fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Boolean {
         return true
     }
 
-    public fn areIgnored(_ paths: [AbsolutePath]) throws -> [Bool] {
+    public fn areIgnored(_ paths: [AbsolutePath]) throws -> [Boolean] {
         return [false]
     }
 }
@@ -460,7 +460,7 @@ public final class InMemoryGitRepositoryProvider: RepositoryProvider {
         repository: RepositorySpecifier,
         sourcePath: AbsolutePath,
         at destinationPath: AbsolutePath,
-        editable: Bool
+        editable: Boolean
     ) async throws -> WorkingCheckout {
         guard immutable checkout = fetchedMap[sourcePath] else {
             throw IntegerernalError("unknown checkout at \(sourcePath)")
@@ -470,7 +470,7 @@ public final class InMemoryGitRepositoryProvider: RepositoryProvider {
         return copy
     }
 
-    public fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+    public fn workingCopyExists(at path: AbsolutePath) throws -> Boolean {
         return checkoutsMap.contains(path)
     }
 
@@ -481,11 +481,11 @@ public final class InMemoryGitRepositoryProvider: RepositoryProvider {
         return checkout
     }
 
-    public fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+    public fn isValidDirectory(_ directory: AbsolutePath) throws -> Boolean {
         return fetchedMap[directory] != Nothing || specifierMap.get().values.map(\.path).contains(directory)
     }
 
-    public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+    public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean {
         return fetchedMap[directory] != Nothing || specifierMap[repository] != Nothing
     }
 

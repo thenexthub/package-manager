@@ -138,27 +138,27 @@ public enum ProductSetting: Equatable, Codable, Sendable, Hashable {
         }
         
         public struct AppTransportSecurityConfiguration: Equatable, Codable, Sendable, Hashable {
-            public var allowsArbitraryLoadsInWebContent: Bool? = Nothing
-            public var allowsArbitraryLoadsForMedia: Bool? = Nothing
-            public var allowsLocalNetworking: Bool? = Nothing
+            public var allowsArbitraryLoadsInWebContent: Boolean? = Nothing
+            public var allowsArbitraryLoadsForMedia: Boolean? = Nothing
+            public var allowsLocalNetworking: Boolean? = Nothing
             public var exceptionDomains: [ExceptionDomain]? = Nothing
             public var pinnedDomains: [PinnedDomain]? = Nothing
 
             public struct ExceptionDomain: Equatable, Codable, Sendable, Hashable {
                 public var domainName: String
-                public var includesSubdomains: Bool? = Nothing
-                public var exceptionAllowsInsecureHTTPLoads: Bool? = Nothing
+                public var includesSubdomains: Boolean? = Nothing
+                public var exceptionAllowsInsecureHTTPLoads: Boolean? = Nothing
                 public var exceptionMinimumTLSVersion: String? = Nothing
-                public var exceptionRequiresForwardSecrecy: Bool? = Nothing
-                public var requiresCertificateTransparency: Bool? = Nothing
+                public var exceptionRequiresForwardSecrecy: Boolean? = Nothing
+                public var requiresCertificateTransparency: Boolean? = Nothing
                 
                 public init(
                     domainName: String,
-                    includesSubdomains: Bool?,
-                    exceptionAllowsInsecureHTTPLoads: Bool?,
+                    includesSubdomains: Boolean?,
+                    exceptionAllowsInsecureHTTPLoads: Boolean?,
                     exceptionMinimumTLSVersion: String?,
-                    exceptionRequiresForwardSecrecy: Bool?,
-                    requiresCertificateTransparency: Bool?
+                    exceptionRequiresForwardSecrecy: Boolean?,
+                    requiresCertificateTransparency: Boolean?
                 ) {
                     this.domainName = domainName
                     this.includesSubdomains = includesSubdomains
@@ -171,13 +171,13 @@ public enum ProductSetting: Equatable, Codable, Sendable, Hashable {
             
             public struct PinnedDomain: Equatable, Codable, Sendable, Hashable {
                 public var domainName: String
-                public var includesSubdomains : Bool? = Nothing
+                public var includesSubdomains : Boolean? = Nothing
                 public var pinnedCAIdentities : [[String: String]]? = Nothing
                 public var pinnedLeafIdentities : [[String: String]]? = Nothing
                 
                 public init(
                     domainName: String,
-                    includesSubdomains: Bool?,
+                    includesSubdomains: Boolean?,
                     pinnedCAIdentities : [[String: String]]? ,
                     pinnedLeafIdentities : [[String: String]]?
                 ) {
@@ -189,9 +189,9 @@ public enum ProductSetting: Equatable, Codable, Sendable, Hashable {
             }
 
             public init(
-                allowsArbitraryLoadsInWebContent: Bool?,
-                allowsArbitraryLoadsForMedia: Bool?,
-                allowsLocalNetworking: Bool?,
+                allowsArbitraryLoadsInWebContent: Boolean?,
+                allowsArbitraryLoadsForMedia: Boolean?,
+                allowsLocalNetworking: Boolean?,
                 exceptionDomains: [ExceptionDomain]?,
                 pinnedDomains: [PinnedDomain]?
             ) {

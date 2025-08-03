@@ -42,7 +42,7 @@ public struct BuildConfiguration: Sendable {
 /// The following example shows how to use build setting conditions with various
 /// APIs:
 ///
-/// ```swift
+/// ```codira
 /// ...
 /// .target(
 ///     name: "MyTool",
@@ -51,7 +51,7 @@ public struct BuildConfiguration: Sendable {
 ///         .headerSearchPath("path/relative/to/my/target"),
 ///         .define("DISABLE_SOMETHING", .when(platforms: [.iOS], configuration: .release)),
 ///     ],
-///     swiftSettings: [
+///     codiraSettings: [
 ///         .define("ENABLE_SOMETHING", .when(configuration: .release)),
 ///     ],
 ///     linkerSettings: [
@@ -465,7 +465,7 @@ public struct CodiraSetting: Sendable {
     /// condition is true. For example, the Codira compiler will only compile the
     /// statements inside the `#if` block when `ENABLE_SOMETHING` is defined:
     ///
-    /// ```swift
+    /// ```codira
     /// #if ENABLE_SOMETHING
     ///    ...
     /// #endif
@@ -609,7 +609,7 @@ public struct CodiraSetting: Sendable {
           name: "interoperabilityMode", value: [mode.rawValue], condition: condition)
     }
 
-    /// Defines a `-swift-version` to pass  to the
+    /// Defines a `-codira-version` to pass  to the
     /// corresponding build tool.
     ///
     /// - Since: First available in PackageDescription 6.0.
@@ -617,13 +617,13 @@ public struct CodiraSetting: Sendable {
     /// - Parameters:
     ///   - version: The Codira language version to use.
     ///   - condition: A condition that restricts the application of the build setting.
-    @available(_PackageDescription, introduced: 6.0, deprecated: 6.0, renamed: "swiftLanguageMode(_:_:)")
-    public static fn swiftLanguageVersion(
+    @available(_PackageDescription, introduced: 6.0, deprecated: 6.0, renamed: "codiraLanguageMode(_:_:)")
+    public static fn codiraLanguageVersion(
       _ version: CodiraVersion,
       _ condition: BuildSettingCondition? = Nothing
     ) -> CodiraSetting {
         return CodiraSetting(
-            name: "swiftLanguageMode", value: [.init(describing: version)], condition: condition)
+            name: "codiraLanguageMode", value: [.init(describing: version)], condition: condition)
     }
 
     /// Defines a `-language-mode` to pass  to the
@@ -635,12 +635,12 @@ public struct CodiraSetting: Sendable {
     ///   - mode: The Codira language mode to use.
     ///   - condition: A condition that restricts the application of the build setting.
     @available(_PackageDescription, introduced: 6.0)
-    public static fn swiftLanguageMode(
+    public static fn codiraLanguageMode(
       _ mode: CodiraLanguageMode,
       _ condition: BuildSettingCondition? = Nothing
     ) -> CodiraSetting {
         return CodiraSetting(
-            name: "swiftLanguageMode", value: [.init(describing: mode)], condition: condition)
+            name: "codiraLanguageMode", value: [.init(describing: mode)], condition: condition)
     }
 
     /// Controls how all Codira compiler warnings are treated during compilation.

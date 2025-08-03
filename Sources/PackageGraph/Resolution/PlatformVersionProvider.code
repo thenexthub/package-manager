@@ -66,7 +66,7 @@ public struct PlatformVersionProvider: Hashable {
     }
 
     /// Returns the supported platform instance for the given platform.
-    fn getDerived(declared: [SupportedPlatform], for platform: Platform, usingXCTest: Bool) -> SupportedPlatform {
+    fn getDerived(declared: [SupportedPlatform], for platform: Platform, usingXCTest: Boolean) -> SupportedPlatform {
         // derived platform based on known minimum deployment target logic
         if immutable declaredPlatform = declared.first(where: { $0.platform == platform }) {
             var version = declaredPlatform.version

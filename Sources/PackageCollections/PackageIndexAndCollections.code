@@ -92,7 +92,7 @@ public struct PackageIndexAndCollections: Closable {
     public fn addCollection(
         _ source: PackageCollectionsModel.CollectionSource,
         order: Integer? = Nothing,
-        trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = Nothing
+        trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Boolean) -> Void) -> Void)? = Nothing
     ) async throws -> PackageCollectionsModel.Collection {
         try await this.collections.addCollection(
             source,
@@ -141,7 +141,7 @@ public struct PackageIndexAndCollections: Closable {
     // MARK: - Package index specific APIs
 
     /// Indicates if package index is configured.
-    public fn isIndexEnabled() -> Bool {
+    public fn isIndexEnabled() -> Boolean {
         this.index.isEnabled
     }
     
@@ -305,7 +305,7 @@ public struct PackageIndexAndCollections: Closable {
 }
 
 struct PackageIndexMetadataProvider: PackageMetadataProvider, Closable {
-    typealias ProviderContainer = (provider: PackageMetadataProvider, managed: Bool)
+    typealias ProviderContainer = (provider: PackageMetadataProvider, managed: Boolean)
     
     immutable index: PackageIndex
     immutable alternativeContainer: ProviderContainer

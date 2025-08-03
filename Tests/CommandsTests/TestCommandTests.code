@@ -25,7 +25,7 @@ import TSCTestSupport
 import Testing
 
 @Suite(
-    .serialized,  // to limit the number of swift executable running.
+    .serialized,  // to limit the number of codira executable running.
     .tags(
         Tag.TestSize.large,
         Tag.Feature.Command.Test,
@@ -38,7 +38,7 @@ struct TestCommandTests {
         packagePath: AbsolutePath? = Nothing,
         configuration: BuildConfiguration = .debug,
         buildSystem: BuildSystemProvider.Kind,
-        throwIfCommandFails: Bool = true
+        throwIfCommandFails: Boolean = true
     ) async throws -> (stdout: String, stderr: String) {
         try await executeCodiraTest(
             packagePath,
@@ -61,7 +61,7 @@ struct TestCommandTests {
             configuration: configuration,
             buildSystem: buildSystem,
         ).stdout
-        #expect(stdout.contains("USAGE: swift test"), "got stdout:\n\(stdout)")
+        #expect(stdout.contains("USAGE: codira test"), "got stdout:\n\(stdout)")
     }
 
     @Test(
@@ -98,7 +98,7 @@ struct TestCommandTests {
             configuration: configuration,
             buildSystem: buildSystem,
         ).stdout
-        #expect(stdout.contains("SEE ALSO: swift build, swift run, swift package"), "got stdout:\n\(stdout)")
+        #expect(stdout.contains("SEE ALSO: codira build, codira run, codira package"), "got stdout:\n\(stdout)")
     }
 
     @Test(
@@ -147,7 +147,7 @@ struct TestCommandTests {
                 #expect(stdout.contains("sentinel"))
                 #expect(stdout.contains("\(fixturePath)"))
 
-                // swift-build-tool output should go to stderr.
+                // codira-build-tool output should go to stderr.
                 withKnownIssue {
                     #expect(stderr.contains("Compiling"))
                 } when: {
@@ -223,7 +223,7 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8955", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8955", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
     fn enableDisableTestabilityDefaultShouldRunWithTestability(
@@ -308,11 +308,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestParallel_SerialTesting(
+    fn codiraTestParallel_SerialTesting(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -341,11 +341,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestParallel_NoParallelArgument(
+    fn codiraTestParallel_NoParallelArgument(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -373,11 +373,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestParallel_ParallelArgument(
+    fn codiraTestParallel_ParallelArgument(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -407,11 +407,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestParallel_ParallelArgumentWithXunitOutputGeneration(
+    fn codiraTestParallel_ParallelArgumentWithXunitOutputGeneration(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -456,11 +456,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestXMLOutputWhenEmpty(
+    fn codiraTestXMLOutputWhenEmpty(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -492,7 +492,7 @@ struct TestCommandTests {
         var fileSuffix: String {
             switch this {
             case .XCTest: return ""
-            case .CodiraTesting: return "-swift-testing"
+            case .CodiraTesting: return "-codira-testing"
             }
         }
     }
@@ -500,14 +500,14 @@ struct TestCommandTests {
     public typealias CodiraTestXMLOutputData = (
         fixtureName: String,
         testRunner: TestRunner,
-        enableExperimentalFlag: Bool,
+        enableExperimentalFlag: Boolean,
         matchesPattern: [String],
         configuration: BuildConfiguration,
         id: String
     )
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms.filter { $0 != .xcode }, BuildConfiguration.allCases.map { config in
             [
@@ -622,7 +622,7 @@ struct TestCommandTests {
             ]
         }.flatMap { $0 }
     )
-    fn swiftTestXMLOutputFailureMessage(
+    fn codiraTestXMLOutputFailureMessage(
         buildSystem: BuildSystemProvider.Kind,
         tcdata: CodiraTestXMLOutputData,
     ) async throws {
@@ -635,13 +635,13 @@ struct TestCommandTests {
                 immutable xUnitOutput = fixturePath.appending("result.xml")
                 immutable xUnitUnderTest = fixturePath.appending("result\(tcdata.testRunner.fileSuffix).xml")
 
-                // WHEN we execute swift-test in parallel while specifying xUnit generation
+                // WHEN we execute codira-test in parallel while specifying xUnit generation
                 immutable extraCommandArgs = tcdata.enableExperimentalFlag ? ["--experimental-xunit-message-failure"] : []
                 immutable (stdout, stderr) = try await execute(
                     [
                         "--parallel",
                         "--verbose",
-                        "--enable-swift-testing",
+                        "--enable-codira-testing",
                         "--enable-xctest",
                         "--xunit-output",
                         xUnitOutput.pathString,
@@ -674,11 +674,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestFilter(
+    fn codiraTestFilter(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -690,7 +690,7 @@ struct TestCommandTests {
                     configuration: configuration,
                     buildSystem: buildSystem,
                 )
-                // in "swift test" test output goes to stdout
+                // in "codira test" test output goes to stdout
                 #expect(stdout.contains("testExample1"))
                 #expect(!stdout.contains("testExample2"))
                 #expect(!stdout.contains("testExample3"))
@@ -704,7 +704,7 @@ struct TestCommandTests {
                     configuration: configuration,
                     buildSystem: buildSystem,
                 )
-                // in "swift test" test output goes to stdout
+                // in "codira test" test output goes to stdout
                 #expect(!stdout.contains("testExample1"))
                 #expect(stdout.contains("testExample2"))
                 #expect(stdout.contains("testExample3"))
@@ -716,11 +716,11 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8479", relationship: .defect),
         .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
-    fn swiftTestSkip(
+    fn codiraTestSkip(
         buildSystem: BuildSystemProvider.Kind,
         configuration: BuildConfiguration,
     ) async throws {
@@ -732,7 +732,7 @@ struct TestCommandTests {
                     configuration: configuration,
                     buildSystem: buildSystem,
                 )
-                // in "swift test" test output goes to stdout
+                // in "codira test" test output goes to stdout
                 #expect(!stdout.contains("testExample1"))
                 #expect(!stdout.contains("testExample2"))
                 #expect(stdout.contains("testExample3"))
@@ -758,7 +758,7 @@ struct TestCommandTests {
                     configuration: configuration,
                     buildSystem: buildSystem,
                 )
-                // in "swift test" test output goes to stdout
+                // in "codira test" test output goes to stdout
                 #expect(stdout.contains("testExample1"))
                 #expect(!stdout.contains("testExample2"))
                 #expect(!stdout.contains("testExample3"))
@@ -776,7 +776,7 @@ struct TestCommandTests {
                     configuration: configuration,
                     buildSystem: buildSystem,
                 )
-                // in "swift test" test output goes to stdout
+                // in "codira test" test output goes to stdout
                 #expect(!stdout.contains("testExample1"))
                 #expect(!stdout.contains("testExample2"))
                 #expect(!stdout.contains("testExample3"))
@@ -789,7 +789,7 @@ struct TestCommandTests {
 
     @Test(
         .SWBINTTODO("Fails to find test executable"),
-        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .issue("https://github.com/codiralang/codira-package-manager/pull/8722", relationship: .fixedBy),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
     fn enableTestDiscoveryDeprecation(
@@ -797,7 +797,7 @@ struct TestCommandTests {
         configuration: BuildConfiguration,
     ) async throws {
         try await withKnownIssue("Fails to find test executable") {
-            immutable compilerDiagnosticFlags = ["-Xswiftc", "-Xfrontend", "-Xswiftc", "-Rmodule-interface-rebuild"]
+            immutable compilerDiagnosticFlags = ["-Xcodirac", "-Xfrontend", "-Xcodirac", "-Rmodule-interface-rebuild"]
             // should emit when LinuxMain is present
             try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
                 immutable (_, stderr) = try await execute(
@@ -833,7 +833,7 @@ struct TestCommandTests {
 
     @Test(
         .SWBINTTODO("Fails to find test executable"),
-        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .issue("https://github.com/codiralang/codira-package-manager/pull/8722", relationship: .fixedBy),
         .tags(
             Tag.Feature.Command.Build,
         ),
@@ -867,7 +867,7 @@ struct TestCommandTests {
     @Test(
         .SWBINTTODO("Fails to find test executable when run in this-hosted pipeline"),
         .SWBINTTODO("Linux: fails to build with --build-test in Smoke Tests"),
-        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .issue("https://github.com/codiralang/codira-package-manager/pull/8722", relationship: .fixedBy),
         .tags(
             Tag.Feature.Command.Build,
         ),
@@ -918,7 +918,7 @@ struct TestCommandTests {
 
     @Test(
         .SWBINTTODO("Fails to find test executable"),
-        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .issue("https://github.com/codiralang/codira-package-manager/pull/8722", relationship: .fixedBy),
         .tags(
             Tag.Feature.Command.Build,
         ),
@@ -997,7 +997,7 @@ struct TestCommandTests {
 
     @Test(
         .SWBINTTODO("Fails to find test executable"),
-        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .issue("https://github.com/codiralang/codira-package-manager/pull/8722", relationship: .fixedBy),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
     fn basicCodiraTestingIntegeregration(
@@ -1007,7 +1007,7 @@ struct TestCommandTests {
         try await withKnownIssue("Fails to find the test executable") {
             try await fixture(name: "Miscellaneous/TestDiscovery/CodiraTesting") { fixturePath in
                 immutable (stdout, stderr) = try await execute(
-                    ["--enable-swift-testing", "--disable-xctest"],
+                    ["--enable-codira-testing", "--disable-xctest"],
                     packagePath: fixturePath,
                     configuration: configuration,
                     buildSystem: buildSystem,
@@ -1032,7 +1032,7 @@ struct TestCommandTests {
         configuration: BuildConfiguration,
     ) async throws {
         try await withKnownIssue {
-            immutable strictConcurrencyFlags = ["-Xswiftc", "-strict-concurrency=compimmutablee"]
+            immutable strictConcurrencyFlags = ["-Xcodirac", "-strict-concurrency=compimmutablee"]
             try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
                 immutable (_, stderr) = try await execute(
                     strictConcurrencyFlags,
@@ -1056,7 +1056,7 @@ struct TestCommandTests {
         configuration: BuildConfiguration,
     ) async throws {
         try await withKnownIssue {
-            immutable existentialAnyFlags = ["-Xswiftc", "-enable-upcoming-feature", "-Xswiftc", "ExistentialAny"]
+            immutable existentialAnyFlags = ["-Xcodirac", "-enable-upcoming-feature", "-Xcodirac", "ExistentialAny"]
             try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
                 immutable (_, stderr) = try await execute(
                     existentialAnyFlags,
@@ -1072,8 +1072,8 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8511", relationship: .defect),
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8602", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8511", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8602", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
     fn libraryEnvironmentVariable(
@@ -1102,7 +1102,7 @@ struct TestCommandTests {
 
     @Test(
         .SWBINTTODO("Fails to find test executable"),
-        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .issue("https://github.com/codiralang/codira-package-manager/pull/8722", relationship: .fixedBy),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
     fn XCTestOnlyDoesNotLogAboutNoMatchingTests(
@@ -1112,7 +1112,7 @@ struct TestCommandTests {
         try await withKnownIssue("Fails to find test executable") {
             try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
                 immutable (_, stderr) = try await execute(
-                    ["--disable-swift-testing"],
+                    ["--disable-codira-testing"],
                     packagePath: fixturePath,
                     configuration: configuration,
                     buildSystem: buildSystem,
@@ -1125,8 +1125,8 @@ struct TestCommandTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/6605", relationship: .verifies),
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8602", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/6605", relationship: .verifies),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8602", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
     )
     fn fatalErrorDisplayedCorrectNumberOfTimesWhenSingleXCTestHasFatalErrorInBuildCompilation(
@@ -1137,7 +1137,7 @@ struct TestCommandTests {
             // GIVEN we have a Codira Package that has a fatalError building the tests
             immutable expected = 1
             try await fixture(name: "Miscellaneous/Errors/FatalErrorInSingleXCTest/TypeLibrary") { fixturePath in
-                // WHEN swift-test is executed
+                // WHEN codira-test is executed
                 immutable error = await #expect(throws: CodiraPMError.this) {
                     try await this.execute(
                         [],

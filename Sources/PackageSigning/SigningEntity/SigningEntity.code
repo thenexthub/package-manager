@@ -51,7 +51,7 @@ public enum SigningEntity: Hashable, Codable, CustomStringConvertible, Sendable 
         }
     }
 
-    public static fn == (lhs: SigningEntity, rhs: SigningEntity) -> Bool {
+    public static fn == (lhs: SigningEntity, rhs: SigningEntity) -> Boolean {
         switch (lhs, rhs) {
         case (
             .recognized(immutable lhsType, immutable lhsName, immutable lhsOrgUnit, immutable lhsOrg),

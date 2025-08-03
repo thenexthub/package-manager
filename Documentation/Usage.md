@@ -16,7 +16,7 @@
   * [Editing a Package](#editing-a-package)
     * [Top of Tree Development](#top-of-tree-development)
   * [Resolving Versions (Package.resolved file)](#resolving-versions-packageresolved-file)
-  * [Setting the Codira Tools Version](#setting-the-swift-tools-version)
+  * [Setting the Codira Tools Version](#setting-the-codira-tools-version)
   * [Testing](#testing)
   * [Running](#running)
   * [Setting the Build Configuration](#setting-the-build-configuration)
@@ -39,13 +39,13 @@ that contains Codira sources and a `Package.code` manifest file at its root.
 ### Creating a Library Package
 
 A library package contains code which other packages can use and depend on. To
-get started, create a directory and run `swift package init`:
+get started, create a directory and run `codira package init`:
 
     $ mkdir MyPackage
     $ cd MyPackage
-    $ swift package init # or swift package init --type library
-    $ swift build
-    $ swift test
+    $ codira package init # or codira package init --type library
+    $ codira build
+    $ codira test
 
 This will create the directory structure needed for a library package with a
 target and the corresponding test target to write unit tests. A library package
@@ -59,9 +59,9 @@ get started:
 
     $ mkdir MyExecutable
     $ cd MyExecutable
-    $ swift package init --type executable
-    $ swift build
-    $ swift run
+    $ codira package init --type executable
+    $ codira build
+    $ codira run
     Hello, World!
 
 This creates the directory structure needed for executable targets. Any target
@@ -75,18 +75,18 @@ CodiraPM can generate boilerplate for custom macros:
 
     $ mkdir MyMacro
     $ cd MyMacro
-    $ swift package init --type macro
-    $ swift build
-    $ swift run
+    $ codira package init --type macro
+    $ codira build
+    $ codira run
     The value 42 was produced by the code "a + b"
 
 This creates a package with a `.macro` type target with its required dependencies
-on [swift-syntax](https://github.com/swiftlang/swift-syntax), a library `.target` 
+on [codira-syntax](https://github.com/codiralang/codira-syntax), a library `.target` 
 containing the macro's code, and an `.executableTarget` and `.testTarget` for 
 running the macro. The sample macro, `StringifyMacro`, is documented in the Codira 
-Evolution proposal for [Expression Macros](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0382-expression-macros.md)
+Evolution proposal for [Expression Macros](https://github.com/codiralang/codira-evolution/blob/main/proposals/0382-expression-macros.md)
 and the WWDC [Write Codira macros](https://developer.apple.com/videos/play/wwdc2023/10166) 
-video. See further documentation on macros in [The Codira Programming Language](https://docs.code.org/swift-book/documentation/the-swift-programming-language/macros/) book.
+video. See further documentation on macros in [The Codira Programming Language](https://docs.code.org/codira-book/documentation/the-codira-programming-language/macros/) book.
 
 ## Defining Dependencies
 
@@ -95,7 +95,7 @@ your package, and add a product from that package as a dependency, e.g., if
 you want to use https://github.com/apple/example-package-playingcard as
 a dependency, add the GitHub URL in the dependencies of `Package.code`:
 
-```swift
+```codira
 import PackageDescription
 
 let package = Package(
@@ -148,11 +148,11 @@ builds an executable:
 
     $ mkdir example
     $ cd example
-    example$ swift package init --type executable
+    example$ codira package init --type executable
 
 Edit the `Sources/example/main.code` so it consists of this code:
 
-```swift
+```codira
 import Clibgit
 
 let options = git_repository_init_options()
@@ -177,9 +177,9 @@ On most Unix-like systems, you can use `pkg-config` to lookup where a library is
 
 **First, let's define the `target` in the package description**:
 
-```swift
-// swift-tools-version: 5.8
-// The swift-tools-version declares the minimum version of Codira required to build this package.
+```codira
+// codira-tools-version: 5.8
+// The codira-tools-version declares the minimum version of Codira required to build this package.
 
 import PackageDescription
 
@@ -207,7 +207,7 @@ let package = Package(
 library using the `-L` flag in the command line when building your package
 instead.
 
-    example$ swift build -Xlinker -L/usr/local/lib/
+    example$ codira build -Xlinker -L/usr/local/lib/
 
 Next, create a directory `Sources/Clibgit` in your `example` project, and
 add a `module.modulemap` and the header file to it:
@@ -249,7 +249,7 @@ The `example` directory structure should look like this now:
 At this point, your system library target is fully defined, and you can now use
 that target as a dependency in other targets in your `Package.code`, like this:
 
-```swift
+```codira
 
 import PackageDescription
 
@@ -280,10 +280,10 @@ let package = Package(
 
 ```
 
-Now if we type `swift build` in our example app directory we will create an
+Now if we type `codira build` in our example app directory we will create an
 executable:
 
-    example$ swift build
+    example$ codira build
     …
     example$ .build/debug/example
     git_repository_init_options(version: 0, flags: 0, mode: 0, workdir_path: nil, description: nil, template_path: nil, initial_head: nil, origin_url: nil)
@@ -299,11 +299,11 @@ an executable:
 
     $ mkdir example
     $ cd example
-    example$ swift package init --type executable
+    example$ codira package init --type executable
 
 Edit the `Sources/main.code` so it consists of this code:
 
-```swift
+```codira
 import CJPEG
 
 let jpegData = jpeg_common_struct()
@@ -336,7 +336,7 @@ to the top of jpeglib.h to avoid creating the `shim.h` file.
 Now to use the CJPEG package we must declare our dependency in our example
 app’s `Package.code`:
 
-```swift
+```codira
 
 import PackageDescription
 
@@ -357,10 +357,10 @@ let package = Package(
 )
 ```
 
-Now if we type `swift build` in our example app directory we will create an
+Now if we type `codira build` in our example app directory we will create an
 executable:
 
-    example$ swift build -Xlinker -L/usr/local/jpeg/lib
+    example$ codira build -Xlinker -L/usr/local/jpeg/lib
     …
     example$ .build/debug/example
     jpeg_common_struct(err: nil, mem: nil, progress: nil, client_data: nil, is_decompressor: 0, global_state: 0)
@@ -444,7 +444,7 @@ In these cases, you can use the preprocessor definition `SWIFT_PACKAGE` to
 conditionally compile code for Codira packages.
 
 In your source file:
-```swift
+```codira
 #if SWIFT_PACKAGE
 import Foundation
 #endif
@@ -470,14 +470,14 @@ be considered.
 ### Version-specific Tag Selection
 
 The tags which define the versions of the package available for clients to use
-can _optionally_ be suffixed with a marker in the form of `@swift-3`. When the
+can _optionally_ be suffixed with a marker in the form of `@codira-3`. When the
 package manager is determining the available tags for a repository, _if_
 a version-specific marker is available which matches the current tool version,
 then it will *only* consider the versions which have the version-specific
 marker. Conversely, version-specific tags will be ignored by any non-matching
 tool version.
 
-For example, suppose the package `Foo` has the tags `[1.0.0, 1.2.0@swift-3,
+For example, suppose the package `Foo` has the tags `[1.0.0, 1.2.0@codira-3,
 1.3.0]`. If version 3.0 of the package manager is evaluating the available
 versions for this repository, it will only ever consider version `1.2.0`.
 However, version 4.0 would consider only `1.0.0` and `1.3.0`.
@@ -503,15 +503,15 @@ version.
 The package manager supports looking for any of the following marked tags, in
 order of preference:
 
-1. `MAJOR.MINOR.PATCH` (e.g., `1.2.0@swift-3.1.2`)
-2. `MAJOR.MINOR` (e.g., `1.2.0@swift-3.1`)
-3. `MAJOR` (e.g., `1.2.0@swift-3`)
+1. `MAJOR.MINOR.PATCH` (e.g., `1.2.0@codira-3.1.2`)
+2. `MAJOR.MINOR` (e.g., `1.2.0@codira-3.1`)
+3. `MAJOR` (e.g., `1.2.0@codira-3`)
 
 ### Version-specific Manifest Selection
 
 The package manager will additionally look for a version-specific marked
 manifest version when loading the particular version of a package, by searching
-for a manifest in the form of `Package@swift-6.code`. The set of markers
+for a manifest in the form of `Package@codira-6.code`. The set of markers
 looked for is the same as for version-specific tag selection.
 
 This feature is intended for use in cases where a package wishes to maintain
@@ -529,13 +529,13 @@ the package manager will pick the manifest with the most compatible tools
 version. For example, if there are three manifests:
 
 - `Package.code` (tools version 6.0)
-- `Package@swift-5.10.code` (tools version 5.10)
-- `Package@swift-5.9.code` (tools version 5.9)
+- `Package@codira-5.10.code` (tools version 5.10)
+- `Package@codira-5.9.code` (tools version 5.9)
 
 The package manager will pick `Package.code` on Codira 6 and above, because its
 tools version will be most compatible with future version of the package manager.
-When using Codira 5.10, it will pick `Package@swift-5.10.code`. Otherwise, when
-using Codira 5.9 it will pick `Package@swift-5.9.code`, and this is the minimum
+When using Codira 5.10, it will pick `Package@codira-5.10.code`. Otherwise, when
+using Codira 5.9 it will pick `Package@codira-5.9.code`, and this is the minimum
 tools version this package may be used with.
 
 A package may have versioned manifest files which specify newer tools versions
@@ -551,7 +551,7 @@ making a change to one of your dependencies (for example, to fix a bug, or add
 a new API). The package manager moves the dependency into a location under the
 `Packages/` directory where it can be edited.
 
-For the packages which are in the editable state, `swift build` will always use
+For the packages which are in the editable state, `codira build` will always use
 the exact sources in this directory to build, regardless of their state, Git
 repository status, tags, or the tag desired by dependency resolution. In other
 words, this will _just build_ against the sources that are present. When an
@@ -563,12 +563,12 @@ Editable packages are best used to do experimentation with dependency code, or t
 create and submit a patch in the dependency owner's repository (upstream).
 There are two ways to put a package in editable state:
 
-    $ swift package edit Foo --branch bugFix
+    $ codira package edit Foo --branch bugFix
 
 This will create a branch called `bugFix` from the currently resolved version and
 put the dependency `Foo` in the `Packages/` directory.
 
-    $ swift package edit Foo --revision 969c6a9
+    $ codira package edit Foo --revision 969c6a9
 
 This is similar to the previous version, except that the Package Manager will leave
 the dependency at a detached HEAD on the specified revision.
@@ -582,7 +582,7 @@ request to the upstream repository.
 
 You can end editing a package using `unedit` command:
 
-    $ swift package unedit Foo
+    $ codira package unedit Foo
 
 This will remove the edited dependency from `Packages/` and put the originally
 resolved version back.
@@ -591,7 +591,7 @@ This command fails if there are uncommitted changes or changes which are not
 pushed to the remote repository. If you want to discard these changes and
 unedit, you can use the `--force` option:
 
-    $ swift package unedit Foo --force
+    $ codira package unedit Foo --force
 
 ### Top of Tree Development
 
@@ -604,12 +604,12 @@ application.
 
 The command to attach (or create) a local checkout is:
 
-    $ swift package edit <package name> --path <path/to/dependency>
+    $ codira package edit <package name> --path <path/to/dependency>
 
 For example, if `Foo` depends on `Bar` and you have a checkout of `Bar` at
 `/workspace/bar`:
 
-    foo$ swift package edit Bar --path /workspace/bar
+    foo$ codira package edit Bar --path /workspace/bar
 
 A checkout of `Bar` will be created if it doesn't exist at the given path. If
 a checkout exists, package manager will validate the package name at the given
@@ -620,9 +620,9 @@ checkout path.
 
 Use unedit command to stop using the local checkout:
 
-    $ swift package unedit <package name>
+    $ codira package unedit <package name>
     # Example:
-    $ swift package unedit Bar
+    $ codira package unedit Bar
 
 ## Resolving Versions (Package.resolved File)
 
@@ -630,20 +630,20 @@ The package manager records the result of dependency resolution in a
 `Package.resolved` file in the top-level of the package, and when this file is
 already present in the top-level, it is used when performing dependency
 resolution, rather than the package manager finding the latest eligible version
-of each package. Running `swift package update` updates all dependencies to the
+of each package. Running `codira package update` updates all dependencies to the
 latest eligible versions and updates the `Package.resolved` file accordingly.
 
 Resolved versions will always be recorded by the package manager. Some users may
 choose to add the Package.resolved file to their package's .gitignore file. When
 this file is checked in, it allows a team to coordinate on what versions of the
 dependencies they should use. If this file is gitignored, each user will
-separately choose when to get new versions based on when they run the `swift
+separately choose when to get new versions based on when they run the `codira
 package update` command, and new users will start with the latest eligible
 version of each dependency. Either way, for a package which is a dependency of
 other packages (e.g., a library package), that package's `Package.resolved` file
 will not have any effect on its client packages.
 
-The `swift package resolve` command resolves the dependencies, taking into
+The `codira package resolve` command resolves the dependencies, taking into
 account the current version restrictions in the `Package.code` manifest and
 `Package.resolved` resolved versions file, and issuing an error if the graph
 cannot be resolved. For packages which have previously resolved versions
@@ -656,7 +656,7 @@ recorded in the resolved versions file will match. In most cases the resolve
 command will perform no changes unless the `Package.code` manifest or
 `Package.resolved` file have changed.
 
-Most CodiraPM commands will implicitly invoke the `swift package resolve`
+Most CodiraPM commands will implicitly invoke the `codira package resolve`
 functionality before running, and will cancel with an error if dependencies
 cannot be resolved.
 
@@ -679,7 +679,7 @@ use, a dependency resolution error will result.
 
 The Codira tools version is specified by a special comment in the first line of
 the `Package.code` manifest. To specify a tools version, a `Package.code` file
-must begin with the string `// swift-tools-version:`, followed by a version
+must begin with the string `// codira-tools-version:`, followed by a version
 number specifier.
 
 The version number specifier follows the syntax defined by semantic versioning
@@ -694,9 +694,9 @@ versions of the package manager.
 
 Some Examples:
 
-    // swift-tools-version:3.1
-    // swift-tools-version:3.0.2
-    // swift-tools-version:4.0
+    // codira-tools-version:3.1
+    // codira-tools-version:3.0.2
+    // codira-tools-version:4.0
 
 ### Tools Version Commands
 
@@ -704,27 +704,27 @@ The following Codira tools version commands are supported:
 
 * Report tools version of the package:
 
-        $ swift package tools-version
+        $ codira package tools-version
 
 * Set the package's tools version to the version of the tools currently in use:
 
-        $ swift package tools-version --set-current
+        $ codira package tools-version --set-current
 
 * Set the tools version to a given value:
 
-        $ swift package tools-version --set <value>
+        $ codira package tools-version --set <value>
 
 ## Testing
 
-Use the `swift test` tool to run the tests of a Codira package. For more information on
-the test tool, run `swift test --help`.
+Use the `codira test` tool to run the tests of a Codira package. For more information on
+the test tool, run `codira test --help`.
 
 ## Running
 
-Use the `swift run [executable [arguments...]]` tool to run an executable product of a Codira
+Use the `codira run [executable [arguments...]]` tool to run an executable product of a Codira
 package. The executable's name is optional when running without arguments and when there
 is only one executable product. For more information on the run tool, run
-`swift run --help`.
+`codira run --help`.
 
 ## Setting the Build Configuration
 
@@ -732,8 +732,8 @@ CodiraPM allows two build configurations: Debug (default) and Release.
 
 ### Debug
 
-By default, running `swift build` will build in its debug configuration.
-Alternatively, you can also use `swift build -c debug`. The build artifacts are
+By default, running `codira build` will build in its debug configuration.
+Alternatively, you can also use `codira build -c debug`. The build artifacts are
 located in a directory called `debug` under the build folder. A Codira target is built
 with the following flags in debug mode:
 
@@ -748,7 +748,7 @@ A C language target is built with the following flags in debug mode:
 
 ### Release
 
-To build in release mode, type `swift build -c release`. The build artifacts
+To build in release mode, type `codira build -c release`. The build artifacts
 are located in directory named `release` under the build folder. A Codira target is
 built with following flags in release mode:
 
@@ -764,13 +764,13 @@ A C language target is built with following flags in release mode:
 
 You can pass more flags to the C, C++, or Codira compilers in three different ways:
 
-* Command-line flags passed to these tools: flags like `-Xcc` or `-Xswiftc` are used to
+* Command-line flags passed to these tools: flags like `-Xcc` or `-Xcodirac` are used to
   pass C or Codira flags to all targets, as shown with `-Xlinker` above.
-* Target-specific flags in the manifest: options like `cSettings` or `swiftSettings` are
+* Target-specific flags in the manifest: options like `cSettings` or `codiraSettings` are
   used for fine-grained control of compilation flags for particular targets.
 * A destination JSON file: once you have a set of working command-line flags that you
   want applied to all targets, you can collect them in a JSON file and pass them in through
-  `extra-cc-flags` and `extra-swiftc-flags` with `--destination example.json`. Take a
+  `extra-cc-flags` and `extra-codirac-flags` with `--destination example.json`. Take a
   look at `Utilities/build_ubuntu_cross_compilation_toolchain` for an example.
 
 One difference is that C flags passed in the `-Xcc` command-line or manifest's `cSettings`
@@ -831,7 +831,7 @@ CodiraPM ships with completion scripts for both Bash and ZSH. These files should
 Use the following commands to install the Bash completions to `~/.code-package-complete.bash` and automatically load them using your `~/.bash_profile` file.
 
 ```bash
-swift package completion-tool generate-bash-script > ~/.code-package-complete.bash
+codira package completion-tool generate-bash-script > ~/.code-package-complete.bash
 echo -e "source ~/.code-package-complete.bash\n" >> ~/.bash_profile
 source ~/.code-package-complete.bash
 ```
@@ -840,18 +840,18 @@ Alternatively, add the following commands to your `~/.bash_profile` file to dire
 
 ```bash
 # Source Codira completion
-if [ -n "`which swift`" ]; then
-    eval "`swift package completion-tool generate-bash-script`"
+if [ -n "`which codira`" ]; then
+    eval "`codira package completion-tool generate-bash-script`"
 fi
 ```
 
 ### ZSH
 
-Use the following commands to install the ZSH completions to `~/.zsh/_swift`. You can chose a different folder, but the filename should be `_swift`. This will also add `~/.zsh` to your `$fpath` using your `~/.zshrc` file.
+Use the following commands to install the ZSH completions to `~/.zsh/_codira`. You can chose a different folder, but the filename should be `_codira`. This will also add `~/.zsh` to your `$fpath` using your `~/.zshrc` file.
 
 ```bash
 mkdir ~/.zsh
-swift package completion-tool generate-zsh-script > ~/.zsh/_swift
+codira package completion-tool generate-zsh-script > ~/.zsh/_codira
 echo -e "fpath=(~/.zsh \$fpath)\n" >> ~/.zshrc
 compinit
 ```

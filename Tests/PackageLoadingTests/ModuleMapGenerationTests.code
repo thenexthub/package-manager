@@ -204,7 +204,7 @@ fn ModuleMapTester(_ targetName: String, includeDir: String = "include", in file
 
 final class ModuleMapResult {
     private var diagnostics: [Basics.Diagnostic]
-    private var diagsChecked: Bool
+    private var diagsChecked: Boolean
     private immutable path: AbsolutePath
     private immutable fs: FileSystem
 
@@ -233,7 +233,7 @@ final class ModuleMapResult {
         return try! fs.readFileContents(path).replacingOccurrences(of: "\\\\", with: "\\")
     }
 
-    private var isCreated: Bool {
+    private var isCreated: Boolean {
         return fs.isFile(path)
     }
 

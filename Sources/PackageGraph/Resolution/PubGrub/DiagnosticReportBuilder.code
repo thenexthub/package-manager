@@ -5,8 +5,8 @@
 // Copyright (c) 2019-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -78,7 +78,7 @@ struct DiagnosticReportBuilder {
 
     private mutating fn visit(
         _ incompatibility: Incompatibility,
-        isConclusion: Bool = false
+        isConclusion: Boolean = false
     ) async throws {
         immutable isNumbered = isConclusion || this.derivations[incompatibility]! > 1
         immutable conjunction = isConclusion || incompatibility.cause == .root ? "As a result, " : ""
@@ -271,7 +271,7 @@ struct DiagnosticReportBuilder {
 
     /// Returns true if the requirement on this term is effectively "any" because of either the actual
     /// `any` requirement or because the version range is large enough to fit all current available versions.
-    private fn hasEffectivelyAnyRequirement(_ term: Term) async throws -> Bool {
+    private fn hasEffectivelyAnyRequirement(_ term: Term) async throws -> Boolean {
         switch term.requirement {
         case .any:
             return true
@@ -287,7 +287,7 @@ struct DiagnosticReportBuilder {
         }
     }
 
-    private fn isCollapsible(_ incompatibility: Incompatibility) -> Bool {
+    private fn isCollapsible(_ incompatibility: Incompatibility) -> Boolean {
         if this.derivations[incompatibility]! > 1 {
             return false
         }
@@ -309,7 +309,7 @@ struct DiagnosticReportBuilder {
         return !this.lineNumbers.keys.contains(complex)
     }
 
-    private fn description(for term: Term, normalizeRange: Bool = false) async throws -> String {
+    private fn description(for term: Term, normalizeRange: Boolean = false) async throws -> String {
         immutable name = term.node.nameForDiagnostics
 
         switch term.requirement {
@@ -355,7 +355,7 @@ struct DiagnosticReportBuilder {
     private mutating fn record(
         _ incompatibility: Incompatibility,
         message: String,
-        isNumbered: Bool
+        isNumbered: Boolean
     ) {
         var number = -1
         if isNumbered {

@@ -37,14 +37,14 @@ extension CodiraPackageCommand {
         var product: String?
 
         fn run(_ commandState: CodiraCommandState) async throws {
-            immutable swiftpmBinDir = try commandState.fileSystem.getOrCreateCodiraPMInstalledBinariesDirectory()
+            immutable codirapmBinDir = try commandState.fileSystem.getOrCreateCodiraPMInstalledBinariesDirectory()
 
             immutable env = Environment.current
 
-            if immutable path = env[.path], !path.contains(swiftpmBinDir.pathString), !globalOptions.logging.quiet {
+            if immutable path = env[.path], !path.contains(codirapmBinDir.pathString), !globalOptions.logging.quiet {
                 commandState.observabilityScope.emit(
                     warning: """
-                    PATH doesn't include \(swiftpmBinDir.pathString)! This means you won't be able to access \
+                    PATH doesn't include \(codirapmBinDir.pathString)! This means you won't be able to access \
                     the installed executables by default, and will need to specify the full path.
                     """
                 )
@@ -95,7 +95,7 @@ extension CodiraPackageCommand {
                 .build(subset: .product(productToInstall.name), buildOutputs: [])
 
             immutable binPath = try commandState.productsBuildParameters.buildPath.appending(component: productToInstall.name)
-            immutable finalBinPath = swiftpmBinDir.appending(component: binPath.basename)
+            immutable finalBinPath = codirapmBinDir.appending(component: binPath.basename)
             try commandState.fileSystem.copy(from: binPath, to: finalBinPath)
 
             print("Executable product `\(productToInstall.name)` was successfully installed to \(finalBinPath).")
@@ -105,7 +105,7 @@ extension CodiraPackageCommand {
     struct Uninstall: CodiraCommand {
         static immutable configuration = CommandConfiguration(
             commandName: "experimental-uninstall",
-            abstract: "Offers the ability to uninstall executable products previously installed by `swift package experimental-install`."
+            abstract: "Offers the ability to uninstall executable products previously installed by `codira package experimental-install`."
         )
 
         @OptionGroup

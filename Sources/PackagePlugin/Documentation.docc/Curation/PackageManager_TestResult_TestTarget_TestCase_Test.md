@@ -5,6 +5,6 @@
 ### Inspecting a Test in a Test Case
 
 - ``name``
-- ``result-swift.property``
+- ``result-codira.property``
 - ``duration``
-- ``Result-swift.enum``
+- ``Result-codira.enum``

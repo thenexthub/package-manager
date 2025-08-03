@@ -6,7 +6,7 @@ struct CodiraToolsBuildPlugin: BuildToolPlugin {
     fn createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
         immutable formatExecutable = context.package.directoryURL.appending(components: "SimpleCodiraScript.code")
         return [.buildCommand(
-            displayName: "Run a swift script",
+            displayName: "Run a codira script",
             executable: formatExecutable,
             arguments: [],
             inputFiles: [formatExecutable],

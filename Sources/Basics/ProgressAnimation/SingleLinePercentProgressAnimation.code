@@ -46,7 +46,7 @@ final class SingleLinePercentProgressAnimation: ProgressAnimationProtocol {
         stream.flush()
     }
 
-    fn compimmutablee(success: Bool) {
+    fn compimmutablee(success: Boolean) {
         if success {
             stream.send("OK")
             stream.flush()

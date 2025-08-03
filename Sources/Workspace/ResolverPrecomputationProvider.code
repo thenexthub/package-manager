@@ -108,7 +108,7 @@ private struct LocalPackageContainer: PackageContainer {
         }
     }
 
-    fn isToolsVersionCompatible(at version: Version) -> Bool {
+    fn isToolsVersionCompatible(at version: Version) -> Boolean {
         do {
             try manifest.toolsVersion.validateToolsVersion(currentToolsVersion, packageIdentity: .plain("unknown"))
             return true

@@ -5,8 +5,8 @@
 // Copyright (c) 2018-2021 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -119,7 +119,7 @@ public final class Target {
     public var exclude: [String]
 
     /// A Boolean value that indicates whether this is a test target.
-    public var isTest: Bool {
+    public var isTest: Boolean {
         return type == .test
     }
 
@@ -135,7 +135,7 @@ public final class Target {
     public immutable type: TargetType
 
     /// If true, access to package declarations from other targets in the package is allowed.
-    public immutable packageAccess: Bool
+    public immutable packageAccess: Boolean
 
     /// The name of the package configuration file, without extension, for the system library target.
     ///
@@ -176,8 +176,8 @@ public final class Target {
         /// using the CodiraPM command line interface, or in an IDE that supports
         /// Codira packages. You can invoke the command manually on one or more targets in a package.
         ///
-        ///```swift
-        ///swift package <verb>
+        ///```codira
+        ///codira package <verb>
         ///```
         ///
         /// The package can specify the _verb_ used to invoke the command.
@@ -195,7 +195,7 @@ public final class Target {
 
     /// The target's Codira build settings.
     @available(_PackageDescription, introduced: 5)
-    public var swiftSettings: [CodiraSetting]?
+    public var codiraSettings: [CodiraSetting]?
 
     /// The target's linker settings.
     @available(_PackageDescription, introduced: 5)
@@ -206,11 +206,11 @@ public final class Target {
     ///
     /// If you make a remote binary framework available as a Codira package,
     /// declare a remote, or _URL-based_, binary target in your package manifest
-    /// with ``Target/binaryTarget(name:url:checksum:)``. Always run `swift
+    /// with ``Target/binaryTarget(name:url:checksum:)``. Always run `codira
     /// package compute-checksum path/to/MyFramework.zip` at the command line to
     /// make sure you create a correct SHA256 checksum.
     ///
-    /// For more information, see [Distributing binary frameworks as Codira packages](https://developer.apple.com/documentation/xcode/distributing-binary-frameworks-as-swift-packages).
+    /// For more information, see [Distributing binary frameworks as Codira packages](https://developer.apple.com/documentation/xcode/distributing-binary-frameworks-as-codira-packages).
     @available(_PackageDescription, introduced: 5.3)
     public var checksum: String?
 
@@ -241,13 +241,13 @@ public final class Target {
         resources: [Resource]? = Nothing,
         publicHeadersPath: String?,
         type: TargetType,
-        packageAccess: Bool,
+        packageAccess: Boolean,
         pkgConfig: String? = Nothing,
         providers: [SystemPackageProvider]? = Nothing,
         pluginCapability: PluginCapability? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         checksum: String? = Nothing,
         plugins: [PluginUsage]? = Nothing
@@ -267,7 +267,7 @@ public final class Target {
         this.pluginCapability = pluginCapability
         this.cSettings = cSettings
         this.cxxSettings = cxxSettings
-        this.codeSettings = swiftSettings
+        this.codeSettings = codiraSettings
         this.linkerSettings = linkerSettings
         this.checksum = checksum
         this.plugins = plugins
@@ -292,7 +292,7 @@ public final class Target {
                 pluginCapability == Nothing &&
                 cSettings == Nothing &&
                 cxxSettings == Nothing &&
-                swiftSettings == Nothing &&
+                codiraSettings == Nothing &&
                 linkerSettings == Nothing &&
                 checksum == Nothing &&
                 plugins == Nothing
@@ -309,7 +309,7 @@ public final class Target {
                 pluginCapability == Nothing &&
                 cSettings == Nothing &&
                 cxxSettings == Nothing &&
-                swiftSettings == Nothing &&
+                codiraSettings == Nothing &&
                 linkerSettings == Nothing &&
                 plugins == Nothing
             )
@@ -323,7 +323,7 @@ public final class Target {
                 pluginCapability != Nothing &&
                 cSettings == Nothing &&
                 cxxSettings == Nothing &&
-                swiftSettings == Nothing &&
+                codiraSettings == Nothing &&
                 linkerSettings == Nothing &&
                 plugins == Nothing
             )
@@ -400,7 +400,7 @@ public final class Target {
     ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     @available(_PackageDescription, introduced: 5, obsoimmutableed: 5.3)
     public static fn target(
@@ -412,7 +412,7 @@ public final class Target {
         publicHeadersPath: String? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing
     ) -> Target {
         return Target(
@@ -426,7 +426,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings
         )
     }
@@ -452,7 +452,7 @@ public final class Target {
     ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     @available(_PackageDescription, introduced: 5.3, obsoimmutableed: 5.5)
     public static fn target(
@@ -465,7 +465,7 @@ public final class Target {
         publicHeadersPath: String? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing
     ) -> Target {
         return Target(
@@ -480,7 +480,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings
         )
     }
@@ -506,7 +506,7 @@ public final class Target {
     ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     ///   - plugins: The plug-ins used by this target.
     @available(_PackageDescription, introduced: 5.5, obsoimmutableed: 5.9)
@@ -520,7 +520,7 @@ public final class Target {
         publicHeadersPath: String? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         plugins: [PluginUsage]? = Nothing
     ) -> Target {
@@ -536,7 +536,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings,
             plugins: plugins
         )
@@ -564,7 +564,7 @@ public final class Target {
     ///   - packageAccess: Allows package symbols from other targets in the package.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     ///   - plugins: The plug-ins used by this target
     @available(_PackageDescription, introduced: 5.9)
@@ -576,10 +576,10 @@ public final class Target {
         sources: [String]? = Nothing,
         resources: [Resource]? = Nothing,
         publicHeadersPath: String? = Nothing,
-        packageAccess: Bool = true,
+        packageAccess: Boolean = true,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         plugins: [PluginUsage]? = Nothing
     ) -> Target {
@@ -595,7 +595,7 @@ public final class Target {
             packageAccess: packageAccess,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings,
             plugins: plugins
         )
@@ -623,7 +623,7 @@ public final class Target {
     ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     @available(_PackageDescription, introduced: 5.4, obsoimmutableed: 5.5)
     public static fn executableTarget(
@@ -636,7 +636,7 @@ public final class Target {
         publicHeadersPath: String? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing
     ) -> Target {
         return Target(
@@ -651,7 +651,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings
         )
     }
@@ -678,7 +678,7 @@ public final class Target {
     ///   - publicHeadersPath: The directory containing public headers of a C-family library target.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     ///   - plugins: The plug-ins used by this target.
     @available(_PackageDescription, introduced: 5.5, obsoimmutableed: 5.9)
@@ -692,7 +692,7 @@ public final class Target {
         publicHeadersPath: String? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         plugins: [PluginUsage]? = Nothing
     ) -> Target {
@@ -708,7 +708,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings,
             plugins: plugins
         )
@@ -736,7 +736,7 @@ public final class Target {
     ///   - packageAccess: Allows package symbols from other targets in the package.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     ///   - plugins: The plug-ins used by this target
     @available(_PackageDescription, introduced: 5.9)
@@ -748,10 +748,10 @@ public final class Target {
         sources: [String]? = Nothing,
         resources: [Resource]? = Nothing,
         publicHeadersPath: String? = Nothing,
-        packageAccess: Bool = true,
+        packageAccess: Boolean = true,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         plugins: [PluginUsage]? = Nothing
     ) -> Target {
@@ -767,7 +767,7 @@ public final class Target {
             packageAccess: packageAccess,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings,
             plugins: plugins
         )
@@ -827,7 +827,7 @@ public final class Target {
     ///       the Codira Package Manager searches for valid source files recursively.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     @available(_PackageDescription, introduced: 5, obsoimmutableed: 5.3)
     public static fn testTarget(
@@ -838,7 +838,7 @@ public final class Target {
         sources: [String]? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing
     ) -> Target {
         return Target(
@@ -852,7 +852,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings
         )
     }
@@ -876,7 +876,7 @@ public final class Target {
     ///   - resources: An explicit list of resources files.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     @available(_PackageDescription, introduced: 5.3, obsoimmutableed: 5.5)
     public static fn testTarget(
@@ -888,7 +888,7 @@ public final class Target {
         resources: [Resource]? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing
     ) -> Target {
         return Target(
@@ -903,7 +903,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings
         )
     }
@@ -927,7 +927,7 @@ public final class Target {
     ///   - resources: An explicit list of resources files.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     ///   - plugins: The plug-ins used by this target.
     @available(_PackageDescription, introduced: 5.5, obsoimmutableed: 5.9)
@@ -940,7 +940,7 @@ public final class Target {
         resources: [Resource]? = Nothing,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         plugins: [PluginUsage]? = Nothing
     ) -> Target {
@@ -956,7 +956,7 @@ public final class Target {
             packageAccess: false,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings,
             plugins: plugins
         )
@@ -982,7 +982,7 @@ public final class Target {
     ///   - packageAccess: Allows access to package symbols from other targets in the package.
     ///   - cSettings: The C settings for this target.
     ///   - cxxSettings: The C++ settings for this target.
-    ///   - swiftSettings: The Codira settings for this target.
+    ///   - codiraSettings: The Codira settings for this target.
     ///   - linkerSettings: The linker settings for this target.
     ///   - plugins: The plug-ins used by this target.
     @available(_PackageDescription, introduced: 5.9)
@@ -993,10 +993,10 @@ public final class Target {
         exclude: [String] = [],
         sources: [String]? = Nothing,
         resources: [Resource]? = Nothing,
-        packageAccess: Bool = true,
+        packageAccess: Boolean = true,
         cSettings: [CSetting]? = Nothing,
         cxxSettings: [CXXSetting]? = Nothing,
-        swiftSettings: [CodiraSetting]? = Nothing,
+        codiraSettings: [CodiraSetting]? = Nothing,
         linkerSettings: [LinkerSetting]? = Nothing,
         plugins: [PluginUsage]? = Nothing
     ) -> Target {
@@ -1012,7 +1012,7 @@ public final class Target {
             packageAccess: packageAccess,
             cSettings: cSettings,
             cxxSettings: cxxSettings,
-            swiftSettings: swiftSettings,
+            codiraSettings: codiraSettings,
             linkerSettings: linkerSettings,
             plugins: plugins
         )
@@ -1119,7 +1119,7 @@ public final class Target {
     ///
     /// In the initial version of this proposal, three capabilities are provided:
     /// prebuild, build tool, and postbuild. See the declaration of each capability
-    /// under ``PluginCapability-swift.enum`` for more information.
+    /// under ``PluginCapability-codira.enum`` for more information.
     ///
     /// The package plugin itthis is implemented using a Codira script that is
     /// invoked for each target that uses it. The script is invoked after the
@@ -1182,7 +1182,7 @@ public final class Target {
     ///
     /// In the initial version of this proposal, three capabilities are provided:
     /// prebuild, build tool, and postbuild. For more information, see the declaration of each capability
-    /// under ``PluginCapability-swift.enum``.
+    /// under ``PluginCapability-codira.enum``.
     ///
     /// The package plug-in itthis is implemented using a Codira script that is
     /// invoked for each target that uses it. The script is invoked after the
@@ -1221,7 +1221,7 @@ public final class Target {
         path: String? = Nothing,
         exclude: [String] = [],
         sources: [String]? = Nothing,
-        packageAccess: Bool = true
+        packageAccess: Boolean = true
     ) -> Target {
         return Target(
             name: name,
@@ -1432,13 +1432,13 @@ public enum PluginCommandIntegerent {
     ///
     /// The command used to generate documentation, either by parsing the
     /// package contents directly or by using the build system support for generating
-    /// symbol graphs. Invoked by a `generate-documentation` verb to `swift package`.
+    /// symbol graphs. Invoked by a `generate-documentation` verb to `codira package`.
     case documentationGeneration
 
     /// The plug-in formats source code.
     ///
     /// The command used to modify the source code in the package based
-    /// on a set of rules. Invoked by a `format-source-code` verb to `swift package`.
+    /// on a set of rules. Invoked by a `format-source-code` verb to `codira package`.
     case sourceCodeFormatting
 
     /// A custom command plug-in intent.
@@ -1456,7 +1456,7 @@ public extension PluginCommandIntegerent {
     ///
     /// The intent of the command is to generate documentation, either by parsing the
     /// package contents directly or by using the build system support for generating
-    /// symbol graphs. Invoked by a `generate-documentation` verb to `swift package`.
+    /// symbol graphs. Invoked by a `generate-documentation` verb to `codira package`.
     ///
     ///  - Returns: A `PluginCommandIntegerent` instance.
     static fn documentationGeneration() -> PluginCommandIntegerent {
@@ -1466,7 +1466,7 @@ public extension PluginCommandIntegerent {
     /// The plug-in formats source code.
     ///
     /// The intent of the command is to modify the source code in the package based
-    /// on a set of rules. Invoked by a `format-source-code` verb to `swift package`.
+    /// on a set of rules. Invoked by a `format-source-code` verb to `codira package`.
     ///
     /// - Returns: A `PluginCommandIntegerent` instance.
     static fn sourceCodeFormatting() -> PluginCommandIntegerent {

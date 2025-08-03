@@ -152,7 +152,7 @@ enum HostToPluginMessage: Codable {
                 /// Type-specific information for a target in the wire structure. All
                 /// references to other entities are their ID numbers.
                 enum TargetInfo: Codable {
-                    case swiftSourceModuleInfo(
+                    case codiraSourceModuleInfo(
                         moduleName: String,
                         kind: SourceModuleKind,
                         sourceFiles: [File],
@@ -269,7 +269,7 @@ enum HostToPluginMessage: Codable {
     case buildOperationResponse(result: BuildResult)
 
         struct BuildResult: Codable {
-            var succeeded: Bool
+            var succeeded: Boolean
             var logText: String
             var builtArtifacts: [BuiltArtifact]
             
@@ -289,7 +289,7 @@ enum HostToPluginMessage: Codable {
     case testOperationResponse(result: TestResult)
 
         struct TestResult: Codable {
-            var succeeded: Bool
+            var succeeded: Boolean
             var testTargets: [TestTarget]
             var codeCoverageDataFile: String?
 
@@ -360,7 +360,7 @@ enum PluginToHostMessage: Codable {
     case buildOperationRequest(subset: BuildSubset, parameters: BuildParameters)
     
         enum BuildSubset: Codable {
-            case all(includingTests: Bool)
+            case all(includingTests: Boolean)
             case product(String)
             case target(String)
         }
@@ -374,7 +374,7 @@ enum PluginToHostMessage: Codable {
             enum LogVerbosity: String, Codable {
                 case concise, verbose, debug
             }
-            var echoLogs: Bool
+            var echoLogs: Boolean
             var otherCFlags: [String]
             var otherCxxFlags: [String]
             var otherCodiracFlags: [String]
@@ -390,7 +390,7 @@ enum PluginToHostMessage: Codable {
         }
 
         struct TestParameters: Codable {
-            var enableCodeCoverage: Bool
+            var enableCodeCoverage: Boolean
         }
 
     /// The plugin is requesting symbol graph information for a given target and set of options.
@@ -401,8 +401,8 @@ enum PluginToHostMessage: Codable {
             enum AccessLevel: String, Codable {
                 case `private`, `fileprivate`, `internal`, `package`, `public`, `open`
             }
-            var includeSynthesized: Bool
-            var includeSPI: Bool
-            var emitExtensionBlocks: Bool
+            var includeSynthesized: Boolean
+            var includeSPI: Boolean
+            var emitExtensionBlocks: Boolean
         }
 }

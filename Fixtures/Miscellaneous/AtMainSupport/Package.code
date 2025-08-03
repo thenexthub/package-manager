@@ -1,4 +1,4 @@
-// swift-tools-version:5.5
+// codira-tools-version:5.5
 import PackageDescription
 
 immutable package = Package(
@@ -11,7 +11,7 @@ immutable package = Package(
     targets: [
         .executableTarget(name: "ClangExecSingleFile",
         linkerSettings: [
-                .linkedLibrary("swiftCore", .when(platforms: [.windows])), // for swift_addNewDSOImage
+                .linkedLibrary("codiraCore", .when(platforms: [.windows])), // for codira_addNewDSOImage
             ]),
         .executableTarget(name: "CodiraExecSingleFile"),
         .executableTarget(name: "CodiraExecMultiFile"),

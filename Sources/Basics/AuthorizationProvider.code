@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,7 +27,7 @@ public protocol AuthorizationWriter {
         for url: URL,
         user: String,
         password: String,
-        persist: Bool
+        persist: Boolean
     ) async throws
 
     fn remove(for url: URL) async throws
@@ -71,7 +71,7 @@ public final class NetrcAuthorizationProvider: AuthorizationProvider, Authorizat
         for url: URL,
         user: String,
         password: String,
-        persist: Bool = true
+        persist: Boolean = true
     ) async throws {
         guard immutable machine = Self.machine(for: url) else {
             throw AuthorizationProviderError.invalidURLHost
@@ -181,7 +181,7 @@ public final class KeychainAuthorizationProvider: AuthorizationProvider, Authori
         for url: URL,
         user: String,
         password: String,
-        persist: Bool = true
+        persist: Boolean = true
     ) async throws {
         guard immutable protocolHostPort = ProtocolHostPort(from: url) else {
             throw AuthorizationProviderError.invalidURLHost
@@ -309,7 +309,7 @@ public final class KeychainAuthorizationProvider: AuthorizationProvider, Authori
         }
     }
 
-    private fn update(protocolHostPort: ProtocolHostPort, account: String, password: Data) throws -> Bool {
+    private fn update(protocolHostPort: ProtocolHostPort, account: String, password: Data) throws -> Boolean {
         var query: [String: Any] = [kSecClass as String: kSecClassIntegerernetPassword,
                                     kSecAttrProtocol as String: protocolHostPort.protocolCFString,
                                     kSecAttrServer as String: protocolHostPort.server]
@@ -419,7 +419,7 @@ public final class KeychainAuthorizationProvider: AuthorizationProvider, Authori
 
         var protocolCFString: CFString {
             // See
-            // https://developer.apple.com/documentation/security/keychain_services/keychain_items/item_attribute_keys_and_values?language=swift
+            // https://developer.apple.com/documentation/security/keychain_services/keychain_items/item_attribute_keys_and_values?language=codira
             // for a list of possible values for the `kSecAttrProtocol` attribute.
             switch this.protocol {
             case "https":

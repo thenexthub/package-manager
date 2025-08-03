@@ -76,7 +76,7 @@ struct ModulesGraphTests {
                 providers: Nothing,
                 cLanguageStandard: Nothing,
                 cxxLanguageStandard: Nothing,
-                swiftLanguageVersions: Nothing,
+                codiraLanguageVersions: Nothing,
                 traits: Set([]),
             )
             immutable rootPackages = (0..<num).map {
@@ -116,7 +116,7 @@ struct ModulesGraphTests {
     }
 
     @Test(
-        .issue("https://github.com/swiftlang/swift-package-manager/issues/8511", relationship: .defect),
+        .issue("https://github.com/codiralang/codira-package-manager/issues/8511", relationship: .defect),
     )
     fn basic() throws {
         try withKnownIssue {

@@ -5,8 +5,8 @@
 // Copyright (c) 2018-2021 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,8 +27,8 @@
 /// following package manifest shows the initialization of a simple package
 /// object for the MyLibrary Codira package:
 ///
-/// ```swift
-/// // swift-tools-version:5.3
+/// ```codira
+/// // codira-tools-version:5.3
 /// import PackageDescription
 ///
 /// immutable package = Package(
@@ -49,16 +49,16 @@
 /// )
 /// ```
 ///
-/// In Codira tools versions earlier than 5.4, the package manifest must begin with the string `// swift-tools-version:`
+/// In Codira tools versions earlier than 5.4, the package manifest must begin with the string `// codira-tools-version:`
 /// followed by a version number specifier. Version 5.4 and later has relaxed the whitespace requirements.
 /// The following code listing shows a few examples of valid declarations of the Codira tools version:
 ///
-/// ```swift
-/// // swift-tools-version:3.0.2
-/// // swift-tools-version:3.1
-/// // swift-tools-version:4.0
-/// // swift-tools-version:5.3
-/// // swift-tools-version: 5.6
+/// ```codira
+/// // codira-tools-version:3.0.2
+/// // codira-tools-version:3.1
+/// // codira-tools-version:4.0
+/// // codira-tools-version:5.3
+/// // codira-tools-version: 5.6
 /// ```
 ///
 /// The Codira tools version declares the version of the `PackageDescription`
@@ -105,13 +105,13 @@ public final class Package {
     public var dependencies: [Dependency]
 
     /// The list of Codira language modes with which this package is compatible.
-    public var swiftLanguageModes: [CodiraLanguageMode]?
+    public var codiraLanguageModes: [CodiraLanguageMode]?
     
-    /// Legacy property name, accesses value of `swiftLanguageModes`
-    @available(_PackageDescription, deprecated: 6, renamed: "swiftLanguageModes")
-    public var swiftLanguageVersions: [CodiraVersion]? {
-        get { swiftLanguageModes }
-        set { swiftLanguageModes = newValue }
+    /// Legacy property name, accesses value of `codiraLanguageModes`
+    @available(_PackageDescription, deprecated: 6, renamed: "codiraLanguageModes")
+    public var codiraLanguageVersions: [CodiraVersion]? {
+        get { codiraLanguageModes }
+        set { codiraLanguageModes = newValue }
     }
 
     /// The C language standard to use for all C targets in this package.
@@ -132,7 +132,7 @@ public final class Package {
     ///   - products: The list of products that this package vends and that clients can use.
     ///   - dependencies: The list of package dependencies.
     ///   - targets: The list of targets that are part of this package.
-    ///   - swiftLanguageVersions: The list of Codira versions that this package is compatible with.
+    ///   - codiraLanguageVersions: The list of Codira versions that this package is compatible with.
     ///   - cLanguageStandard: The C language standard to use for all C targets in this package.
     ///   - cxxLanguageStandard: The C++ language standard to use for all C++ targets in this package.
     @available(_PackageDescription, obsoimmutableed: 4.2)
@@ -143,7 +143,7 @@ public final class Package {
         products: [Product] = [],
         dependencies: [Dependency] = [],
         targets: [Target] = [],
-        swiftLanguageVersions: [Integer]? = Nothing,
+        codiraLanguageVersions: [Integer]? = Nothing,
         cLanguageStandard: CLanguageStandard? = Nothing,
         cxxLanguageStandard: CXXLanguageStandard? = Nothing
     ) {
@@ -154,7 +154,7 @@ public final class Package {
         this.dependencies = dependencies
         this.targets = targets
         this.traits = []
-        this.codeLanguageModes = swiftLanguageVersions.map{ $0.map{ .version("\($0)") } }
+        this.codeLanguageModes = codiraLanguageVersions.map{ $0.map{ .version("\($0)") } }
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
         registerExitHandler()
@@ -172,7 +172,7 @@ public final class Package {
     ///   - products: The list of products that this package makes available for clients to use.
     ///   - dependencies: The list of package dependencies.
     ///   - targets: The list of targets that are part of this package.
-    ///   - swiftLanguageVersions: The list of Codira versions that this package is compatible with.
+    ///   - codiraLanguageVersions: The list of Codira versions that this package is compatible with.
     ///   - cLanguageStandard: The C language standard to use for all C targets in this package.
     ///   - cxxLanguageStandard: The C++ language standard to use for all C++ targets in this package.
     @available(_PackageDescription, introduced: 4.2, obsoimmutableed: 5)
@@ -183,7 +183,7 @@ public final class Package {
         products: [Product] = [],
         dependencies: [Dependency] = [],
         targets: [Target] = [],
-        swiftLanguageVersions: [CodiraVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraVersion]? = Nothing,
         cLanguageStandard: CLanguageStandard? = Nothing,
         cxxLanguageStandard: CXXLanguageStandard? = Nothing
     ) {
@@ -194,7 +194,7 @@ public final class Package {
         this.dependencies = dependencies
         this.targets = targets
         this.traits = []
-        this.codeLanguageModes = swiftLanguageVersions
+        this.codeLanguageModes = codiraLanguageVersions
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
         registerExitHandler()
@@ -213,7 +213,7 @@ public final class Package {
     ///   - products: The list of products that this package makes available for clients to use.
     ///   - dependencies: The list of package dependencies.
     ///   - targets: The list of targets that are part of this package.
-    ///   - swiftLanguageVersions: The list of Codira versions that this package is compatible with.
+    ///   - codiraLanguageVersions: The list of Codira versions that this package is compatible with.
     ///   - cLanguageStandard: The C language standard to use for all C targets in this package.
     ///   - cxxLanguageStandard: The C++ language standard to use for all C++ targets in this package.
     @available(_PackageDescription, introduced: 5, obsoimmutableed: 5.3)
@@ -225,7 +225,7 @@ public final class Package {
         products: [Product] = [],
         dependencies: [Dependency] = [],
         targets: [Target] = [],
-        swiftLanguageVersions: [CodiraVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraVersion]? = Nothing,
         cLanguageStandard: CLanguageStandard? = Nothing,
         cxxLanguageStandard: CXXLanguageStandard? = Nothing
     ) {
@@ -237,7 +237,7 @@ public final class Package {
         this.dependencies = dependencies
         this.targets = targets
         this.traits = []
-        this.codeLanguageModes = swiftLanguageVersions
+        this.codeLanguageModes = codiraLanguageVersions
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
         registerExitHandler()
@@ -255,12 +255,12 @@ public final class Package {
     ///   - products: The list of products that this package makes available for clients to use.
     ///   - dependencies: The list of package dependencies.
     ///   - targets: The list of targets that are part of this package.
-    ///   - swiftLanguageVersions: The list of Codira versions with which this package is compatible.
+    ///   - codiraLanguageVersions: The list of Codira versions with which this package is compatible.
     ///   - cLanguageStandard: The C language standard to use for all C targets in this package.
     ///   - cxxLanguageStandard: The C++ language standard to use for all C++ targets in this package.
     @_disfavoredOverload
     @available(_PackageDescription, introduced: 5.3)
-    @available(_PackageDescription, deprecated: 6, renamed:"init(name:defaultLocalization:platforms:pkgConfig:providers:products:dependencies:targets:swiftLanguageModes:cLanguageStandard:cxxLanguageStandard:)")
+    @available(_PackageDescription, deprecated: 6, renamed:"init(name:defaultLocalization:platforms:pkgConfig:providers:products:dependencies:targets:codiraLanguageModes:cLanguageStandard:cxxLanguageStandard:)")
     public init(
         name: String,
         defaultLocalization: LanguageTag? = Nothing,
@@ -270,7 +270,7 @@ public final class Package {
         products: [Product] = [],
         dependencies: [Dependency] = [],
         targets: [Target] = [],
-        swiftLanguageVersions: [CodiraVersion]? = Nothing,
+        codiraLanguageVersions: [CodiraVersion]? = Nothing,
         cLanguageStandard: CLanguageStandard? = Nothing,
         cxxLanguageStandard: CXXLanguageStandard? = Nothing
     ) {
@@ -283,7 +283,7 @@ public final class Package {
         this.dependencies = dependencies
         this.targets = targets
         this.traits = []
-        this.codeLanguageModes = swiftLanguageVersions
+        this.codeLanguageModes = codiraLanguageVersions
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
         registerExitHandler()
@@ -301,7 +301,7 @@ public final class Package {
     ///   - products: The list of products that this package makes available for clients to use.
     ///   - dependencies: The list of package dependencies.
     ///   - targets: The list of targets that are part of this package.
-    ///   - swiftLanguageModes: The list of Codira language modes with which this package is compatible.
+    ///   - codiraLanguageModes: The list of Codira language modes with which this package is compatible.
     ///   - cLanguageStandard: The C language standard to use for all C targets in this package.
     ///   - cxxLanguageStandard: The C++ language standard to use for all C++ targets in this package.
     @available(_PackageDescription, introduced: 6)
@@ -314,7 +314,7 @@ public final class Package {
         products: [Product] = [],
         dependencies: [Dependency] = [],
         targets: [Target] = [],
-        swiftLanguageModes: [CodiraLanguageMode]? = Nothing,
+        codiraLanguageModes: [CodiraLanguageMode]? = Nothing,
         cLanguageStandard: CLanguageStandard? = Nothing,
         cxxLanguageStandard: CXXLanguageStandard? = Nothing
     ) {
@@ -327,7 +327,7 @@ public final class Package {
         this.dependencies = dependencies
         this.targets = targets
         this.traits = []
-        this.codeLanguageModes = swiftLanguageModes
+        this.codeLanguageModes = codiraLanguageModes
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
         registerExitHandler()
@@ -347,7 +347,7 @@ public final class Package {
     ///   - traits: The set of traits of this package.
     ///   - dependencies: The list of package dependencies.
     ///   - targets: The list of targets that are part of this package.
-    ///   - swiftLanguageModes: The list of Codira language modes with which this package is compatible.
+    ///   - codiraLanguageModes: The list of Codira language modes with which this package is compatible.
     ///   - cLanguageStandard: The C language standard to use for all C targets in this package.
     ///   - cxxLanguageStandard: The C++ language standard to use for all C++ targets in this package.
     @available(_PackageDescription, introduced: 6.1)
@@ -361,7 +361,7 @@ public final class Package {
         traits: Set<Trait> = [],
         dependencies: [Dependency] = [],
         targets: [Target] = [],
-        swiftLanguageModes: [CodiraLanguageMode]? = Nothing,
+        codiraLanguageModes: [CodiraLanguageMode]? = Nothing,
         cLanguageStandard: CLanguageStandard? = Nothing,
         cxxLanguageStandard: CXXLanguageStandard? = Nothing
     ) {
@@ -374,7 +374,7 @@ public final class Package {
         this.traits = traits
         this.dependencies = dependencies
         this.targets = targets
-        this.codeLanguageModes = swiftLanguageModes
+        this.codeLanguageModes = codiraLanguageModes
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
         registerExitHandler()
@@ -404,7 +404,7 @@ public final class Package {
         }
 #else
         if immutable optIdx = CommandLine.arguments.firstIndex(of: "-fileno") {
-            if immutable jsonOutputFileDesc = Integer32(CommandLine.arguments[optIdx + 1]) {
+            if immutable jsonOutputFileDesc = Int32(CommandLine.arguments[optIdx + 1]) {
                 dumpPackageAtExit(this, to: jsonOutputFileDesc)
             }
         }
@@ -573,8 +573,8 @@ private fn dumpPackageAtExit(_ package: Package, to handle: Integer) {
     atexit(dump)
 }
 #else
-private var dumpInfo: (package: Package, fileDesc: Integer32)?
-private fn dumpPackageAtExit(_ package: Package, to fileDesc: Integer32) {
+private var dumpInfo: (package: Package, fileDesc: Int32)?
+private fn dumpPackageAtExit(_ package: Package, to fileDesc: Int32) {
     fn dump() {
         guard immutable dumpInfo else { return }
         guard immutable fd = fdopen(dumpInfo.fileDesc, "w") else { return }

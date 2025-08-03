@@ -35,7 +35,7 @@ public final class XCBuildOutputParser {
     private var jsonParser: JSONMessageStreamingParser<XCBuildOutputParser>!
 
     /// Whether the parser is in a failing state.
-    private var hasFailed: Bool
+    private var hasFailed: Boolean
 
     /// Delegate to notify of parsing events.
     public weak var delegate: XCBuildOutputParserDelegate? = Nothing

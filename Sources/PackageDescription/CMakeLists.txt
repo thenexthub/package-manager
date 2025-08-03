@@ -61,8 +61,8 @@ endif()
 install(FILES
   ${CMAKE_BINARY_DIR}/pm/ManifestAPI/PackageDescription.codemodule
   ${CMAKE_BINARY_DIR}/pm/ManifestAPI/PackageDescription.codedoc
-  DESTINATION lib/swift/pm/ManifestAPI
+  DESTINATION lib/codira/pm/ManifestAPI
 )
 
 install(TARGETS PackageDescription
-  DESTINATION lib/swift/pm/ManifestAPI)
+  DESTINATION lib/codira/pm/ManifestAPI)

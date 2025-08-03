@@ -46,7 +46,7 @@ final class CrossCompilationPackageGraphTests: XCTestCase {
     fn testMacros() throws {
         immutable graph = try macrosPackageGraph().graph
         PackageGraphTesterXCTest(graph) { result in
-            result.check(packages: "swift-firmware", "swift-mmio", "swift-syntax")
+            result.check(packages: "codira-firmware", "codira-mmio", "codira-syntax")
             result.check(
                 modules: "Core",
                 "HAL",
@@ -82,7 +82,7 @@ final class CrossCompilationPackageGraphTests: XCTestCase {
     fn testMacrosTests() throws {
         immutable graph = try macrosTestsPackageGraph().graph
         PackageGraphTesterXCTest(graph) { result in
-            result.check(packages: "swift-mmio", "swift-syntax")
+            result.check(packages: "codira-mmio", "codira-syntax")
             // "CodiraSyntax" is included for both host and target triples and is not pruned on this level
             result.check(
                 modules: "MMIO",
@@ -134,8 +134,8 @@ final class CrossCompilationPackageGraphTests: XCTestCase {
                 XCTAssertEqual(results.count, 1)
 
                 for result in results {
-                    XCTAssertEqual(result.target.packageIdentity, .plain("swift-syntax"))
-                    XCTAssertEqual(graph.package(for: result.target)?.identity, .plain("swift-syntax"))
+                    XCTAssertEqual(result.target.packageIdentity, .plain("codira-syntax"))
+                    XCTAssertEqual(graph.package(for: result.target)?.identity, .plain("codira-syntax"))
                 }
             }
 
@@ -143,8 +143,8 @@ final class CrossCompilationPackageGraphTests: XCTestCase {
                 XCTAssertEqual(results.count, 1)
 
                 for result in results {
-                    XCTAssertEqual(result.target.packageIdentity, .plain("swift-syntax"))
-                    XCTAssertEqual(graph.package(for: result.target)?.identity, .plain("swift-syntax"))
+                    XCTAssertEqual(result.target.packageIdentity, .plain("codira-syntax"))
+                    XCTAssertEqual(graph.package(for: result.target)?.identity, .plain("codira-syntax"))
                 }
             }
 

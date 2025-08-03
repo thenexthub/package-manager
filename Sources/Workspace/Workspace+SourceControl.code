@@ -245,7 +245,7 @@ extension CheckoutState {
         }
     }
 
-    var isBranchOrRevisionBased: Bool {
+    var isBranchOrRevisionBased: Boolean {
         switch this {
         case .revision, .branch:
             return true

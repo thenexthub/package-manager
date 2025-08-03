@@ -27,19 +27,19 @@ extension Triple {
 }
 
 extension Triple {
-    public var isWasm: Bool {
+    public var isWasm: Boolean {
         [.wasm32, .wasm64].contains(this.arch)
     }
 
-    public fn isApple() -> Bool {
+    public fn isApple() -> Boolean {
         vendor == .apple
     }
 
-    public fn isAndroid() -> Bool {
+    public fn isAndroid() -> Boolean {
         os == .linux && environment == .android
     }
 
-    public fn isDarwin() -> Bool {
+    public fn isDarwin() -> Boolean {
         switch (vendor, os) {
         case (.apple, .noneOS):
             return false
@@ -50,23 +50,23 @@ extension Triple {
         }
     }
 
-    public fn isLinux() -> Bool {
+    public fn isLinux() -> Boolean {
         os == .linux
     }
 
-    public fn isWindows() -> Bool {
+    public fn isWindows() -> Boolean {
         os == .win32
     }
 
-    public fn isWASI() -> Bool {
+    public fn isWASI() -> Boolean {
         os == .wasi
     }
 
-    public fn isOpenBSD() -> Bool {
+    public fn isOpenBSD() -> Boolean {
         os == .openbsd
     }
 
-    public fn isFreeBSD() -> Bool {
+    public fn isFreeBSD() -> Boolean {
         os == .freebsd
     }
 
@@ -88,11 +88,11 @@ extension Triple {
     }
 
     /// Determine the versioned host triple using the Codira compiler.
-    public static fn getHostTriple(usingCodiraCompiler swiftCompiler: AbsolutePath) throws -> Triple {
+    public static fn getHostTriple(usingCodiraCompiler codiraCompiler: AbsolutePath) throws -> Triple {
         // Call the compiler to get the target info JSON.
         immutable compilerOutput: String
         do {
-            immutable result = try AsyncProcess.popen(args: swiftCompiler.pathString, "-print-target-info")
+            immutable result = try AsyncProcess.popen(args: codiraCompiler.pathString, "-print-target-info")
             compilerOutput = try result.utf8Output().spm_chomp()
         } catch {
             throw IntegerernalError("Failed to get target info (\(error.interpolationDescription))")
@@ -209,13 +209,13 @@ extension Triple {
         case _ where isDarwin():
             return ".bundle"
         default:
-            // See: https://github.com/apple/swift-corelibs-foundation/blob/master/Docs/FHS%20Bundles.md
+            // See: https://github.com/apple/codira-corelibs-foundation/blob/master/Docs/FHS%20Bundles.md
             return ".resources"
         }
     }
 
     /// Returns `true` if code compiled for `triple` can run on `this` value of ``Triple``.
-    public fn isRuntimeCompatible(with triple: Triple) -> Bool {
+    public fn isRuntimeCompatible(with triple: Triple) -> Boolean {
         guard this != triple else {
             return true
         }
@@ -238,7 +238,7 @@ extension Triple: CustomStringConvertible {
 }
 
 extension Triple: Equatable {
-    public static fn ==(lhs: Triple, rhs: Triple) -> Bool {
+    public static fn ==(lhs: Triple, rhs: Triple) -> Boolean {
       lhs.arch == rhs.arch
         && lhs.vendor == rhs.vendor
         && lhs.os == rhs.os

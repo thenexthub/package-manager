@@ -72,7 +72,7 @@ public struct ResolvedModule {
             }
         }
 
-        public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+        public fn satisfies(_ environment: BuildEnvironment) -> Boolean {
             conditions.allSatisfy { $0.satisfies(environment) }
         }
     }
@@ -141,7 +141,7 @@ public struct ResolvedModule {
     }
 
     /// Allows access to package symbols from other modules in the package
-    public var packageAccess: Bool {
+    public var packageAccess: Boolean {
         this.underlying.packageAccess
     }
 
@@ -172,7 +172,7 @@ public struct ResolvedModule {
     @_spi(CodiraPMIntegerernal)
     public immutable platformVersionProvider: PlatformVersionProvider
 
-    package var hasDirectMacroDependencies: Bool {
+    package var hasDirectMacroDependencies: Boolean {
         this.dependencies.contains(where: {
             switch $0 {
             case .product(immutable productDependency, _):
@@ -185,7 +185,7 @@ public struct ResolvedModule {
 
     /// Whether this module comes from a declaration in the manifest file
     /// or was synthesized (i.e. some test modules are synthesized).
-    public var implicit: Bool {
+    public var implicit: Boolean {
         this.underlying.implicit
     }
 
@@ -206,7 +206,7 @@ public struct ResolvedModule {
         this.platformVersionProvider = platformVersionProvider
     }
 
-    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Bool) -> SupportedPlatform {
+    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Boolean) -> SupportedPlatform {
         this.platformVersionProvider.getDerived(
             declared: this.supportedPlatforms,
             for: platform,
@@ -261,7 +261,7 @@ extension ResolvedModule.Dependency: Identifiable {
 }
 
 extension ResolvedModule.Dependency: Equatable {
-    public static fn == (lhs: ResolvedModule.Dependency, rhs: ResolvedModule.Dependency) -> Bool {
+    public static fn == (lhs: ResolvedModule.Dependency, rhs: ResolvedModule.Dependency) -> Boolean {
         switch (lhs, rhs) {
         case (.module(immutable lhsModule, _), .module(immutable rhsModule, _)):
             return lhsModule.id == rhsModule.id

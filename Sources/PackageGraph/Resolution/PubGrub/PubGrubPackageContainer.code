@@ -5,8 +5,8 @@
 // Copyright (c) 2019-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -58,7 +58,7 @@ final class PubGrubPackageContainer {
     /// `includesLowerBound` is `false` if range's lower bound is less than or equal to the lowest available version.
     /// Similarly, `includesUpperBound` is `false` if range's upper bound is greater than or equal to the highest
     /// available version.
-    fn computeBounds(for range: Range<Version>) async throws -> (includesLowerBound: Bool, includesUpperBound: Bool) {
+    fn computeBounds(for range: Range<Version>) async throws -> (includesLowerBound: Boolean, includesUpperBound: Boolean) {
         var includeLowerBound = true
         var includeUpperBound = true
 

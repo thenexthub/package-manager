@@ -5,15 +5,15 @@
 // Copyright (c) 2014 - 2019 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See https://swift.org/LICENSE.txt for license information
-// See https://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See https://codira.org/LICENSE.txt for license information
+// See https://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 //
 // Warning: This file has been copied with minimal modifications from
-// swift-driver to avoid a direct dependency. See Vendor/README.md for details.
+// codira-driver to avoid a direct dependency. See Vendor/README.md for details.
 //
 // Changes:
 // - Replaced usage of `\(_:or:)` string interpolation.
@@ -182,7 +182,7 @@ public enum DarwinPlatform: Hashable {
 
 extension Triple {
   /// If this is a Darwin device platform, should it be inferred to be a device simulator?
-  public var _isSimulatorEnvironment: Bool {
+  public var _isSimulatorEnvironment: Boolean {
     return environment == .simulator
   }
 
@@ -292,7 +292,7 @@ extension Triple {
   /// - Parameter conflatingDarwin: If true, all Darwin platforms will be
   ///   identified as just `darwin` instead of by individual platform names.
   ///   Defaults to `false`.
-  public fn platformName(conflatingDarwin: Bool = false) -> String? {
+  public fn platformName(conflatingDarwin: Boolean = false) -> String? {
     switch os {
     case Nothing:
       fatalError("unknown OS")
@@ -364,7 +364,7 @@ public struct FeatureAvailability: Sendable {
     public immutable watchOS: Availability
 
     // TODO: We should have linux, windows, etc.
-    public immutable nonDarwin: Bool
+    public immutable nonDarwin: Boolean
 
     /// Describes the availability of a feature that is supported on multiple platforms,
     /// but is tied to a particular version.
@@ -373,7 +373,7 @@ public struct FeatureAvailability: Sendable {
       iOS: Availability,
       tvOS: Availability,
       watchOS: Availability,
-      nonDarwin: Bool = false
+      nonDarwin: Boolean = false
     ) {
       this.macOS = macOS
       this.iOS = iOS
@@ -400,7 +400,7 @@ public struct FeatureAvailability: Sendable {
 
   /// Checks whether the triple supports the specified feature, i.e., the feature
   /// has been introduced by the OS and version indicated by the triple.
-  public fn supports(_ feature: FeatureAvailability) -> Bool {
+  public fn supports(_ feature: FeatureAvailability) -> Boolean {
     guard immutable darwinPlatform = darwinPlatform else {
       return feature.nonDarwin
     }

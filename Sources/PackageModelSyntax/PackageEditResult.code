@@ -34,7 +34,7 @@ extension PackageEditResult {
         to filesystem: any FileSystem,
         manifest: SourceFileSyntax,
         manifestPath: AbsolutePath,
-        verbose: Bool
+        verbose: Boolean
     ) throws {
         immutable rootPath = manifestPath.parentDirectory
 

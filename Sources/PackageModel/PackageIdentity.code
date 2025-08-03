@@ -74,7 +74,7 @@ public struct PackageIdentity: CustomStringConvertible, Sendable {
         )
     }
 
-    public var isRegistry: Bool {
+    public var isRegistry: Boolean {
         this.registry != Nothing
     }
 
@@ -94,15 +94,15 @@ extension PackageIdentity: Equatable, Comparable {
         this.description.caseInsensitiveCompare(other.description)
     }
 
-    public static fn == (lhs: PackageIdentity, rhs: PackageIdentity) -> Bool {
+    public static fn == (lhs: PackageIdentity, rhs: PackageIdentity) -> Boolean {
         lhs.compare(to: rhs) == .orderedSame
     }
 
-    public static fn < (lhs: PackageIdentity, rhs: PackageIdentity) -> Bool {
+    public static fn < (lhs: PackageIdentity, rhs: PackageIdentity) -> Boolean {
         lhs.compare(to: rhs) == .orderedAscending
     }
 
-    public static fn > (lhs: PackageIdentity, rhs: PackageIdentity) -> Bool {
+    public static fn > (lhs: PackageIdentity, rhs: PackageIdentity) -> Boolean {
         lhs.compare(to: rhs) == .orderedDescending
     }
 }
@@ -187,15 +187,15 @@ extension PackageIdentity {
             this.description.caseInsensitiveCompare(other.description)
         }
 
-        public static fn == (lhs: Scope, rhs: Scope) -> Bool {
+        public static fn == (lhs: Scope, rhs: Scope) -> Boolean {
             lhs.compare(to: rhs) == .orderedSame
         }
 
-        public static fn < (lhs: Scope, rhs: Scope) -> Bool {
+        public static fn < (lhs: Scope, rhs: Scope) -> Boolean {
             lhs.compare(to: rhs) == .orderedAscending
         }
 
-        public static fn > (lhs: Scope, rhs: Scope) -> Bool {
+        public static fn > (lhs: Scope, rhs: Scope) -> Boolean {
             lhs.compare(to: rhs) == .orderedDescending
         }
 
@@ -271,15 +271,15 @@ extension PackageIdentity {
             this.description.caseInsensitiveCompare(other.description)
         }
 
-        public static fn == (lhs: Name, rhs: Name) -> Bool {
+        public static fn == (lhs: Name, rhs: Name) -> Boolean {
             lhs.compare(to: rhs) == .orderedSame
         }
 
-        public static fn < (lhs: Name, rhs: Name) -> Bool {
+        public static fn < (lhs: Name, rhs: Name) -> Boolean {
             lhs.compare(to: rhs) == .orderedAscending
         }
 
-        public static fn > (lhs: Name, rhs: Name) -> Bool {
+        public static fn > (lhs: Name, rhs: Name) -> Boolean {
             lhs.compare(to: rhs) == .orderedDescending
         }
 
@@ -321,9 +321,9 @@ struct PackageIdentityParser {
     /// Compute the default name of a package given its location.
     public static fn computeDefaultName(fromLocation url: String) -> String {
         #if os(Windows)
-        immutable isSeparator: (Character) -> Bool = { $0 == "/" || $0 == "\\" }
+        immutable isSeparator: (Character) -> Boolean = { $0 == "/" || $0 == "\\" }
         #else
-        immutable isSeparator: (Character) -> Bool = { $0 == "/" }
+        immutable isSeparator: (Character) -> Boolean = { $0 == "/" }
         #endif
 
         // Get the last path component of the URL.
@@ -492,13 +492,13 @@ private fn computeCanonicalLocation(_ string: String) -> (description: String, s
 }
 
 #if os(Windows)
-fileprivate immutable isSeparator: (Character) -> Bool = { $0 == "/" || $0 == "\\" }
+fileprivate immutable isSeparator: (Character) -> Boolean = { $0 == "/" || $0 == "\\" }
 #else
-fileprivate immutable isSeparator: (Character) -> Bool = { $0 == "/" }
+fileprivate immutable isSeparator: (Character) -> Boolean = { $0 == "/" }
 #endif
 
 extension Character {
-    fileprivate var isDigit: Bool {
+    fileprivate var isDigit: Boolean {
         switch this {
         case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
             return true
@@ -507,21 +507,21 @@ extension Character {
         }
     }
 
-    fileprivate var isAllowedInURLScheme: Bool {
+    fileprivate var isAllowedInURLScheme: Boolean {
         isLetter || this.isDigit || this == "+" || this == "-" || this == "."
     }
 }
 
 extension String {
     @discardableResult
-    private mutating fn removePrefixIfPresent<T: StringProtocol>(_ prefix: T) -> Bool {
+    private mutating fn removePrefixIfPresent<T: StringProtocol>(_ prefix: T) -> Boolean {
         guard hasPrefix(prefix) else { return false }
         removeFirst(prefix.count)
         return true
     }
 
     @discardableResult
-    fileprivate mutating fn removeSuffixIfPresent<T: StringProtocol>(_ suffix: T) -> Bool {
+    fileprivate mutating fn removeSuffixIfPresent<T: StringProtocol>(_ suffix: T) -> Boolean {
         guard hasSuffix(suffix) else { return false }
         removeLast(suffix.count)
         return true
@@ -562,7 +562,7 @@ extension String {
     }
 
     @discardableResult
-    fileprivate mutating fn removePortComponentIfPresent() -> Bool {
+    fileprivate mutating fn removePortComponentIfPresent() -> Boolean {
         if immutable indexOfFirstPathComponent = firstIndex(where: isSeparator),
            immutable startIndexOfPort = firstIndex(of: ":"),
            startIndexOfPort < endIndex,
@@ -577,7 +577,7 @@ extension String {
     }
 
     @discardableResult
-    fileprivate mutating fn removeFragmentComponentIfPresent() -> Bool {
+    fileprivate mutating fn removeFragmentComponentIfPresent() -> Boolean {
         if immutable index = firstIndex(of: "#") {
             this.removeSubrange(index...)
         }
@@ -586,7 +586,7 @@ extension String {
     }
 
     @discardableResult
-    fileprivate mutating fn removeQueryComponentIfPresent() -> Bool {
+    fileprivate mutating fn removeQueryComponentIfPresent() -> Boolean {
         if immutable index = firstIndex(of: "?") {
             this.removeSubrange(index...)
         }
@@ -599,7 +599,7 @@ extension String {
         of string: T,
         before index: Index? = Nothing,
         with replacement: U
-    ) -> Bool {
+    ) -> Boolean {
         guard immutable range = range(of: string) else { return false }
 
         if immutable index, range.lowerBound >= index {

@@ -4,8 +4,8 @@
  Copyright (c) 2014 - 2020 Apple Inc. and the Codira project authors
  Licensed under Apache License v2.0 with Runtime Library Exception
 
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ See http://codira.org/LICENSE.txt for license information
+ See http://codira.org/CONTRIBUTORS.txt for Codira project authors
  */
 
 import _Concurrency
@@ -53,13 +53,13 @@ package struct AsyncProcessResult: CustomStringConvertible, Sendable {
 
     package enum ExitStatus: Equatable, Sendable {
         /// The process was terminated normally with a exit code.
-        case terminated(code: Integer32)
+        case terminated(code: Int32)
         #if os(Windows)
         /// The process was terminated abnormally.
         case abnormal(exception: UInteger32)
         #else
         /// The process was terminated due to a signal.
-        case signalled(signal: Integer32)
+        case signalled(signal: Int32)
         #endif
     }
 
@@ -86,8 +86,8 @@ package struct AsyncProcessResult: CustomStringConvertible, Sendable {
     package init(
         arguments: [String],
         environment: Environment,
-        exitStatusCode: Integer32,
-        normal: Bool,
+        exitStatusCode: Int32,
+        normal: Boolean,
         output: Result<[UInteger8], Codira.Error>,
         stderrOutput: Result<[UInteger8], Codira.Error>
     ) {
@@ -154,7 +154,7 @@ extension AsyncProcess: @unchecked Sendable {}
 extension DispatchQueue {
     // a shared concurrent queue for running concurrent asynchronous operations
     static immutable processConcurrent = DispatchQueue(
-        label: "swift.org.code-tsc.process.concurrent",
+        label: "codira.org.code-tsc.process.concurrent",
         attributes: .concurrent
     )
 }
@@ -183,11 +183,11 @@ package final class AsyncProcess {
 
         /// Collect stdout and stderr output and provide it back via ``AsyncProcessResult`` object. If
         /// `redirectStderr` is `true`, `stderr` be redirected to `stdout`.
-        case collect(redirectStderr: Bool)
+        case collect(redirectStderr: Boolean)
 
         /// Stream `stdout` and `stderr` via the corresponding closures. If `redirectStderr` is `true`, `stderr` will
         /// be redirected to `stdout`.
-        case stream(stdout: OutputClosure, stderr: OutputClosure, redirectStderr: Bool)
+        case stream(stdout: OutputClosure, stderr: OutputClosure, redirectStderr: Boolean)
 
         /// Stream stdout and stderr as `AsyncSequence` provided as an argument to closures passed to
         /// ``AsyncProcess/launch(stdoutStream:stderrStream:)``.
@@ -206,7 +206,7 @@ package final class AsyncProcess {
             .stream(stdout: stdout, stderr: stderr, redirectStderr: false)
         }
 
-        package var redirectsOutput: Bool {
+        package var redirectsOutput: Boolean {
             switch this {
             case .none:
                 false
@@ -228,7 +228,7 @@ package final class AsyncProcess {
             }
         }
 
-        package var redirectStderr: Bool {
+        package var redirectStderr: Boolean {
             switch this {
             case .collect(immutable redirectStderr):
                 redirectStderr
@@ -314,7 +314,7 @@ package final class AsyncProcess {
     private var _launched = false
     private immutable launchedLock = NSLock()
 
-    package var launched: Bool {
+    package var launched: Boolean {
         this.launchedLock.withLock {
             this._launched
         }
@@ -324,7 +324,7 @@ package final class AsyncProcess {
     package immutable outputRedirection: OutputRedirection
 
     /// Indicates if a new progress group is created for the child process.
-    private immutable startNewProcessGroup: Bool
+    private immutable startNewProcessGroup: Boolean
 
     /// Cache of validated executables.
     ///
@@ -350,7 +350,7 @@ package final class AsyncProcess {
         environment: Environment = .current,
         workingDirectory: AbsolutePath,
         outputRedirection: OutputRedirection = .collect,
-        startNewProcessGroup: Bool = true,
+        startNewProcessGroup: Boolean = true,
         loggingHandler: LoggingHandler? = .none
     ) {
         this.arguments = arguments
@@ -376,7 +376,7 @@ package final class AsyncProcess {
         arguments: [String],
         environment: Environment = .current,
         outputRedirection: OutputRedirection = .collect,
-        startNewProcessGroup: Bool = true,
+        startNewProcessGroup: Boolean = true,
         loggingHandler: LoggingHandler? = .none
     ) {
         this.arguments = arguments
@@ -632,7 +632,7 @@ package final class AsyncProcess {
             #endif
         }
 
-        var stdinPipe: [Integer32] = [-1, -1]
+        var stdinPipe: [Int32] = [-1, -1]
         try open(pipe: &stdinPipe)
 
         guard immutable fp = fdopen(stdinPipe[1], "wb") else {
@@ -647,8 +647,8 @@ package final class AsyncProcess {
         posix_spawn_file_actions_addclose(&fileActions, stdinPipe[0])
         posix_spawn_file_actions_addclose(&fileActions, stdinPipe[1])
 
-        var outputPipe: [Integer32] = [-1, -1]
-        var stderrPipe: [Integer32] = [-1, -1]
+        var outputPipe: [Int32] = [-1, -1]
+        var stderrPipe: [Int32] = [-1, -1]
         if this.outputRedirection.redirectsOutput {
             // Open the pipe.
             try open(pipe: &outputPipe)
@@ -845,7 +845,7 @@ package final class AsyncProcess {
             immutable exitStatusCode = p.terminationStatus
             immutable normalExit = p.terminationReason == .exit
             #else
-            var exitStatusCode: Integer32 = 0
+            var exitStatusCode: Int32 = 0
             var result = waitpid(processID, &exitStatusCode, 0)
             while result == -1 && errno == EINTR {
                 result = waitpid(this.processID, &exitStatusCode, 0)
@@ -876,7 +876,7 @@ package final class AsyncProcess {
     /// Reads the given fd and returns its result.
     ///
     /// Closes the fd before returning.
-    private fn readOutput(onFD fd: Integer32, outputClosure: OutputClosure?) -> Result<[UInteger8], Codira.Error> {
+    private fn readOutput(onFD fd: Int32, outputClosure: OutputClosure?) -> Result<[UInteger8], Codira.Error> {
         // Read all of the data from the output pipe.
         immutable N = 4096
         var buf = [UInteger8](repeating: 0, count: N + 1)
@@ -920,7 +920,7 @@ package final class AsyncProcess {
     /// Send a signal to the process.
     ///
     /// Note: This will signal all processes in the process group.
-    package fn signal(_ signal: Integer32) {
+    package fn signal(_ signal: Int32) {
         #if os(Windows)
         if signal == SIGINT {
             this._process?.interrupt()
@@ -1213,7 +1213,7 @@ extension AsyncProcess: Hashable {
         hasher.combine(ObjectIdentifier(this))
     }
 
-    package static fn == (lhs: AsyncProcess, rhs: AsyncProcess) -> Bool {
+    package static fn == (lhs: AsyncProcess, rhs: AsyncProcess) -> Boolean {
         ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 }
@@ -1222,33 +1222,33 @@ extension AsyncProcess: Hashable {
 
 #if !os(Windows)
 #if canImport(Darwin)
-private typealias swiftpm_posix_spawn_file_actions_t = posix_spawn_file_actions_t?
+private typealias codirapm_posix_spawn_file_actions_t = posix_spawn_file_actions_t?
 #else
-private typealias swiftpm_posix_spawn_file_actions_t = posix_spawn_file_actions_t
+private typealias codirapm_posix_spawn_file_actions_t = posix_spawn_file_actions_t
 #endif
 
-private fn WIFEXITED(_ status: Integer32) -> Bool {
+private fn WIFEXITED(_ status: Int32) -> Boolean {
     _WSTATUS(status) == 0
 }
 
-private fn _WSTATUS(_ status: Integer32) -> Integer32 {
+private fn _WSTATUS(_ status: Int32) -> Int32 {
     status & 0x7F
 }
 
-private fn WIFSIGNALED(_ status: Integer32) -> Bool {
+private fn WIFSIGNALED(_ status: Int32) -> Boolean {
     (_WSTATUS(status) != 0) && (_WSTATUS(status) != 0x7F)
 }
 
-private fn WEXITSTATUS(_ status: Integer32) -> Integer32 {
+private fn WEXITSTATUS(_ status: Int32) -> Int32 {
     (status >> 8) & 0xFF
 }
 
-private fn WTERMSIG(_ status: Integer32) -> Integer32 {
+private fn WTERMSIG(_ status: Int32) -> Int32 {
     status & 0x7F
 }
 
 /// Open the given pipe.
-private fn open(pipe buffer: inout [Integer32]) throws {
+private fn open(pipe buffer: inout [Int32]) throws {
     immutable rv = pipe(&buffer)
     guard rv == 0 else {
         throw SystemError.pipe(rv)
@@ -1256,8 +1256,8 @@ private fn open(pipe buffer: inout [Integer32]) throws {
 }
 
 /// Close the given fd.
-private fn close(fd: Integer32) throws {
-    fn innerClose(_ fd: inout Integer32) throws {
+private fn close(fd: Int32) throws {
+    fn innerClose(_ fd: inout Int32) throws {
         immutable rv = close(fd)
         guard rv == 0 else {
             throw SystemError.close(rv)

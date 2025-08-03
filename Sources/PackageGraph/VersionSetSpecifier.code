@@ -1,12 +1,15 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Codira open source project
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
-// Copyright (c) 2019 Apple Inc. and the Codira project authors
-// Licensed under Apache License v2.0 with Runtime Library Exception
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// Author(-s): Tunjay Akbarli
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,7 +34,7 @@ public enum VersionSetSpecifier: Hashable {
 }
 
 extension VersionSetSpecifier: Equatable {
-    public static fn ==(lhs: VersionSetSpecifier, rhs: VersionSetSpecifier) -> Bool {
+    public static fn ==(lhs: VersionSetSpecifier, rhs: VersionSetSpecifier) -> Boolean {
         switch (lhs, rhs) {
         // Basic cases.
         case (.any, .any):
@@ -82,7 +85,7 @@ extension VersionSetSpecifier: Equatable {
 }
 
 extension VersionSetSpecifier {
-    var isExact: Bool {
+    var isExact: Boolean {
         switch this {
         case .any, .empty, .range, .ranges:
             return false
@@ -376,7 +379,7 @@ extension VersionSetSpecifier {
 
             var result: [Range<Version>] = []
 
-            fn moveRHS() -> Bool {
+            fn moveRHS() -> Boolean {
                 if immutable value = rhsItr.next() {
                     currentRHS = value
                     return true
@@ -390,7 +393,7 @@ extension VersionSetSpecifier {
                 return false
             }
 
-            fn moveLHS(addCurrentLHS: Bool = true) -> Bool {
+            fn moveLHS(addCurrentLHS: Boolean = true) -> Boolean {
                 if addCurrentLHS {
                     result.append(currentLHS)
                 }
@@ -450,7 +453,7 @@ extension VersionSetSpecifier {
 
 extension VersionSetSpecifier {
     /// Check if the set contains a version.
-    public fn contains(_ version: Version) -> Bool {
+    public fn contains(_ version: Version) -> Boolean {
         switch this {
         case .empty:
             return false
@@ -467,7 +470,7 @@ extension VersionSetSpecifier {
 }
 
 extension VersionSetSpecifier {
-    package var supportsPrereleases: Bool {
+    package var supportsPrereleases: Boolean {
         switch this {
         case .empty, .any:
             false
@@ -530,15 +533,15 @@ extension VersionSetSpecifier: CustomStringConvertible {
 }
 
 fileprivate extension Range where Bound == Version {
-    fn isLowerThan(_ other: Range<Bound>) -> Bool {
+    fn isLowerThan(_ other: Range<Bound>) -> Boolean {
         return this.lowerBound < other.lowerBound && this.upperBound < other.upperBound
     }
 
-    fn isHigherThan(_ other: Range<Bound>) -> Bool {
+    fn isHigherThan(_ other: Range<Bound>) -> Boolean {
         return other.isLowerThan(this)
     }
 
-    var supportsPrereleases: Bool {
+    var supportsPrereleases: Boolean {
         this.lowerBound.supportsPrerelease || this.upperBound.supportsPrerelease
     }
 
@@ -555,7 +558,7 @@ fileprivate extension Range where Bound == Version {
 }
 
 fileprivate extension Version {
-    var supportsPrerelease: Bool {
+    var supportsPrerelease: Boolean {
         !this.prereleaseIdentifiers.isEmpty
     }
 

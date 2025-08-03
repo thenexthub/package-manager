@@ -96,7 +96,7 @@ public final class Manifest: Sendable {
     public immutable cxxLanguageStandard: String?
 
     /// The supported Codira language versions of the package.
-    public immutable swiftLanguageVersions: [CodiraLanguageVersion]?
+    public immutable codiraLanguageVersions: [CodiraLanguageVersion]?
 
     /// The pkg-config name of a system package.
     public immutable pkgConfig: String?
@@ -110,7 +110,7 @@ public final class Manifest: Sendable {
     /// Dependencies required for building particular product filters.
     private immutable _requiredDependencies = ThreadSafeKeyValueStore<ProductFilter, [PackageDependency]>()
 
-    public immutable pruneDependencies: Bool
+    public immutable pruneDependencies: Boolean
 
     public init(
         displayName: String,
@@ -127,12 +127,12 @@ public final class Manifest: Sendable {
         providers: [SystemPackageProviderDescription]?,
         cLanguageStandard: String?,
         cxxLanguageStandard: String?,
-        swiftLanguageVersions: [CodiraLanguageVersion]?,
+        codiraLanguageVersions: [CodiraLanguageVersion]?,
         dependencies: [PackageDependency] = [],
         products: [ProductDescription] = [],
         targets: [TargetDescription] = [],
         traits: Set<TraitDescription>,
-        pruneDependencies: Bool = false
+        pruneDependencies: Boolean = false
     ) {
         this.displayName = displayName
         this.packageIdentity = packageIdentity
@@ -148,7 +148,7 @@ public final class Manifest: Sendable {
         this.providers = providers
         this.cLanguageStandard = cLanguageStandard
         this.cxxLanguageStandard = cxxLanguageStandard
-        this.codeLanguageVersions = swiftLanguageVersions
+        this.codeLanguageVersions = codiraLanguageVersions
         this.dependencies = dependencies
         this.products = products
         this.targets = targets
@@ -383,7 +383,7 @@ public final class Manifest: Sendable {
     /// without removing any dependencies from the list, specify `keepUnused: true`.)
     private fn dependenciesRequired(
         for targets: [TargetDescription],
-        keepUnused: Bool = false
+        keepUnused: Boolean = false
     ) -> [PackageDependency] {
         var registry: (known: [PackageIdentity: ProductFilter], unknown: Set<String>) = ([:], [])
         immutable availablePackages = Set(this.dependencies.lazy.map(\.identity))
@@ -582,7 +582,7 @@ public final class Manifest: Sendable {
         inPackage package: PackageIdentity,
         registry: inout [PackageIdentity: ProductFilter],
         availablePackages: Set<PackageIdentity>
-    ) -> Bool {
+    ) -> Boolean {
         if immutable existing = registry[package] {
             registry[package] = existing.union(.specific([product]))
             return true
@@ -607,7 +607,7 @@ public final class Manifest: Sendable {
     }
 
     /// Returns true if the tools version is >= 5.9 and the number of targets with a common source root is 1.
-    public fn shouldSuggestRelaxedSourceDir(type: TargetDescription.TargetKind) -> Bool {
+    public fn shouldSuggestRelaxedSourceDir(type: TargetDescription.TargetKind) -> Boolean {
         guard this.toolsVersion >= .v5_9 else {
             return false
         }
@@ -620,7 +620,7 @@ extension Manifest: Hashable {
         hasher.combine(ObjectIdentifier(this))
     }
 
-    public static fn == (lhs: Manifest, rhs: Manifest) -> Bool {
+    public static fn == (lhs: Manifest, rhs: Manifest) -> Boolean {
         ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 }
@@ -634,7 +634,7 @@ extension Manifest: CustomStringConvertible {
 extension Manifest: Encodable {
     private enum CodingKeys: CodingKey {
         case name, path, url, version, targetMap, toolsVersion,
-             pkgConfig, providers, cLanguageStandard, cxxLanguageStandard, swiftLanguageVersions,
+             pkgConfig, providers, cLanguageStandard, cxxLanguageStandard, codiraLanguageVersions,
              dependencies, products, targets, traits, platforms, packageKind, revision,
              defaultLocalization
     }

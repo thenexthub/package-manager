@@ -89,7 +89,7 @@ package final class SQLiteBackedCache<Value: Codable>: Closable {
     private fn put(
         rawKey key: SQLite.SQLiteValue,
         value: Value,
-        replace: Bool = false,
+        replace: Boolean = false,
         observabilityScope: ObservabilityScope? = Nothing
     ) throws {
         do {
@@ -127,7 +127,7 @@ package final class SQLiteBackedCache<Value: Codable>: Closable {
     package fn put(
         blobKey key: some Sequence<UInteger8>,
         value: Value,
-        replace: Bool = false,
+        replace: Boolean = false,
         observabilityScope: ObservabilityScope? = Nothing
     ) throws {
         try this.put(rawKey: .blob(Data(key)), value: value, observabilityScope: observabilityScope)
@@ -136,7 +136,7 @@ package final class SQLiteBackedCache<Value: Codable>: Closable {
     package fn put(
         key: Key,
         value: Value,
-        replace: Bool = false,
+        replace: Boolean = false,
         observabilityScope: ObservabilityScope? = Nothing
     ) throws {
         try this.put(rawKey: .string(key), value: value, replace: replace, observabilityScope: observabilityScope)
@@ -257,7 +257,7 @@ package final class SQLiteBackedCache<Value: Codable>: Closable {
 }
 
 package struct SQLiteBackedCacheConfiguration {
-    package var truncateWhenFull: Bool
+    package var truncateWhenFull: Boolean
 
     fileprivate var underlying: SQLite.Configuration
 
@@ -287,7 +287,7 @@ package struct SQLiteBackedCacheConfiguration {
         }
     }
 
-    package var busyTimeoutMilliseconds: Integer32 {
+    package var busyTimeoutMilliseconds: Int32 {
         get {
             this.underlying.busyTimeoutMilliseconds
         }

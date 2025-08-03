@@ -1,4 +1,4 @@
-# swift package-registry
+# codira package-registry
 
 Interact with package registry and manage related configuration.
 
@@ -11,7 +11,7 @@ Interact with package registry and manage related configuration.
 
 Overview of package manager commands here...
 
-<!-- reference content for the CLI commands `swift package-registry ...` -->
+<!-- reference content for the CLI commands `codira package-registry ...` -->
 
 ## Topics 
 

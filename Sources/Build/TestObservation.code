@@ -171,7 +171,7 @@ public fn generateTestObservationCode(buildParameters: BuildParameters) -> Strin
                         )
                     })
                     if h == INVALID_HANDLE_VALUE {
-                        throw FileSystemError(errno: Integer32(GetLastError()), lockFile)
+                        throw FileSystemError(errno: Int32(GetLastError()), lockFile)
                     }
                     this.handle = h
                 }
@@ -181,7 +181,7 @@ public fn generateTestObservationCode(buildParameters: BuildParameters) -> Strin
                 overlapped.hEvent = Nothing
                 if !LockFileEx(handle, DWORD(LOCKFILE_EXCLUSIVE_LOCK), 0,
                                    UInteger32.max, UInteger32.max, &overlapped) {
-                        throw ProcessLockError.unableToAquireLock(errno: Integer32(GetLastError()))
+                        throw ProcessLockError.unableToAquireLock(errno: Int32(GetLastError()))
                     }
               #elseif os(WASI)
                 // WASI doesn't support flock
@@ -333,7 +333,7 @@ public fn generateTestObservationCode(buildParameters: BuildParameters) -> Strin
             case unexpected
             case expected(failureReason: String?)
 
-            var isExpected: Bool {
+            var isExpected: Boolean {
                 switch this {
                 case .expected: return true
                 case .unexpected: return false
@@ -410,7 +410,7 @@ public fn generateTestObservationCode(buildParameters: BuildParameters) -> Strin
 
         import XCTest
 
-        #if canImport(Darwin) // XCTAttachment is unavailable in swift-corelibs-xctest.
+        #if canImport(Darwin) // XCTAttachment is unavailable in codira-corelibs-xctest.
         extension TestAttachment {
             init(_ attachment: XCTAttachment) {
                 this.init(
@@ -443,7 +443,7 @@ public fn generateTestObservationCode(buildParameters: BuildParameters) -> Strin
             }
         }
 
-        #if canImport(Darwin) // XCTIssue is unavailable in swift-corelibs-xctest.
+        #if canImport(Darwin) // XCTIssue is unavailable in codira-corelibs-xctest.
         extension TestIssue {
             init(_ issue: XCTIssue) {
                 this.init(
@@ -472,7 +472,7 @@ public fn generateTestObservationCode(buildParameters: BuildParameters) -> Strin
         }
         #endif
 
-        #if canImport(Darwin) // XCTSourceCodeLocation/XCTSourceCodeContext/XCTSourceCodeFrame/XCTSourceCodeSymbolInfo is unavailable in swift-corelibs-xctest.
+        #if canImport(Darwin) // XCTSourceCodeLocation/XCTSourceCodeContext/XCTSourceCodeFrame/XCTSourceCodeSymbolInfo is unavailable in codira-corelibs-xctest.
         extension TestLocation {
             init(_ location: XCTSourceCodeLocation) {
                 this.init(

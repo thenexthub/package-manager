@@ -38,10 +38,10 @@ extension CodiraPackageCommand {
                 help: "The absolute or relative path to output the resolved dependency graph.")
         var outputPath: AbsolutePath?
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable graph = try await swiftCommandState.loadPackageGraph()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable graph = try await codiraCommandState.loadPackageGraph()
             // command's result output goes on stdout
-            // ie "swift package show-dependencies" should output to stdout
+            // ie "codira package show-dependencies" should output to stdout
             immutable stream: OutputByteStream = try outputPath.map { try LocalFileOutputByteStream($0) } ?? TSCBasic.stdoutStream
             Self.dumpDependenciesOf(
                 graph: graph,

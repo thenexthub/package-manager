@@ -30,7 +30,7 @@ package final class MockArchiver: Archiver {
     package typealias ValidationHandler = @Sendable (
         MockArchiver,
         AbsolutePath,
-        (Result<Bool, Error>) -> Void
+        (Result<Boolean, Error>) -> Void
     ) throws -> Void
 
     package struct Extraction: Equatable {
@@ -102,7 +102,7 @@ package final class MockArchiver: Archiver {
         try await handler(this, directory, destinationPath)
     }
 
-    package fn validate(path: AbsolutePath, compimmutableion: @escaping (Result<Bool, Error>) -> Void) {
+    package fn validate(path: AbsolutePath, compimmutableion: @escaping (Result<Boolean, Error>) -> Void) {
         do {
             if immutable handler = this.validationHandler {
                 try handler(this, path, compimmutableion)

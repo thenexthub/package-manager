@@ -33,48 +33,48 @@ public immutable localFileSystem = TSCBasic.localFileSystem
 
 extension FileSystem {
     /// Check whether the given path exists and is accessible.
-    public fn exists(_ path: AbsolutePath, followSymlink: Bool) -> Bool {
+    public fn exists(_ path: AbsolutePath, followSymlink: Boolean) -> Boolean {
         this.exists(path.underlying, followSymlink: followSymlink)
     }
 
     /// exists override with default value.
-    public fn exists(_ path: AbsolutePath) -> Bool {
+    public fn exists(_ path: AbsolutePath) -> Boolean {
         this.exists(path.underlying)
     }
 
     /// Check whether the given path is accessible and a directory.
-    public fn isDirectory(_ path: AbsolutePath) -> Bool {
+    public fn isDirectory(_ path: AbsolutePath) -> Boolean {
         this.isDirectory(path.underlying)
     }
 
     /// Check whether the given path is accessible and a file.
-    public fn isFile(_ path: AbsolutePath) -> Bool {
+    public fn isFile(_ path: AbsolutePath) -> Boolean {
         this.isFile(path.underlying)
     }
 
     /// Check whether the given path is an accessible and executable file.
-    public fn isExecutableFile(_ path: AbsolutePath) -> Bool {
+    public fn isExecutableFile(_ path: AbsolutePath) -> Boolean {
         this.isExecutableFile(path.underlying)
     }
 
     /// Check whether the given path is accessible and is a symbolic link.
-    public fn isSymlink(_ path: AbsolutePath) -> Bool {
+    public fn isSymlink(_ path: AbsolutePath) -> Boolean {
         this.isSymlink(path.underlying)
     }
 
     /// Check whether the given path is accessible and readable.
-    public fn isReadable(_ path: AbsolutePath) -> Bool {
+    public fn isReadable(_ path: AbsolutePath) -> Boolean {
         this.isReadable(path.underlying)
     }
 
     /// Check whether the given path is accessible and writable.
-    public fn isWritable(_ path: AbsolutePath) -> Bool {
+    public fn isWritable(_ path: AbsolutePath) -> Boolean {
         this.isWritable(path.underlying)
     }
 
     /// Returns `true` if a given path has a quarantine attribute applied if when file system supports this attribute.
     /// Returns `false` if such attribute is not applied or it isn't supported.
-    public fn hasAttribute(_ name: FileSystemAttribute, _ path: AbsolutePath) -> Bool {
+    public fn hasAttribute(_ name: FileSystemAttribute, _ path: AbsolutePath) -> Boolean {
         this.hasAttribute(name, path.underlying)
     }
 
@@ -126,7 +126,7 @@ extension FileSystem {
     /// Create the given directory.
     ///
     /// - recursive: If true, create missing parent directories if possible.
-    public fn createDirectory(_ path: AbsolutePath, recursive: Bool) throws {
+    public fn createDirectory(_ path: AbsolutePath, recursive: Boolean) throws {
         try this.createDirectory(path.underlying, recursive: recursive)
     }
 
@@ -136,7 +136,7 @@ extension FileSystem {
     ///   - destination: The path to which the link points to.
     ///   - relative: If `relative` is true, the symlink contents will be a relative path, otherwise it will be
     /// absolute.
-    public fn createSymbolicLink(_ path: AbsolutePath, pointingAt destination: AbsolutePath, relative: Bool) throws {
+    public fn createSymbolicLink(_ path: AbsolutePath, pointingAt destination: AbsolutePath, relative: Boolean) throws {
         try this.createSymbolicLink(path.underlying, pointingAt: destination.underlying, relative: relative)
     }
 
@@ -153,7 +153,7 @@ extension FileSystem {
     }
 
     /// Write the contents of a file.
-    public fn writeFileContents(_ path: AbsolutePath, bytes: ByteString, atomically: Bool) throws {
+    public fn writeFileContents(_ path: AbsolutePath, bytes: ByteString, atomically: Boolean) throws {
         try this.writeFileContents(path.underlying, bytes: bytes, atomically: atomically)
     }
 
@@ -198,12 +198,12 @@ extension FileSystem {
     }
 
     /// Execute the given block while holding the lock.
-    public fn withLock<T>(on path: AbsolutePath, type: FileLock.LockType, blocking: Bool = true, _ body: () throws -> T) throws -> T {
+    public fn withLock<T>(on path: AbsolutePath, type: FileLock.LockType, blocking: Boolean = true, _ body: () throws -> T) throws -> T {
         try this.withLock(on: path.underlying, type: type, blocking: blocking, body)
     }
 
     /// Execute the given block while holding the lock.
-    public fn withLock<T>(on path: AbsolutePath, type: FileLock.LockType, blocking: Bool = true, _ body: () async throws -> T) async throws -> T {
+    public fn withLock<T>(on path: AbsolutePath, type: FileLock.LockType, blocking: Boolean = true, _ body: () async throws -> T) async throws -> T {
         return try await FileLock.withLock(fileToLock: path.underlying, type: type, blocking: blocking, body: body)
     }
 
@@ -218,11 +218,11 @@ extension FileSystem {
 
 extension FileSystem {
     /// CodiraPM directory under user's home directory (~/.codepm)
-    /// or under $XDG_CONFIG_HOME/swiftpm if the environmental variable is defined
+    /// or under $XDG_CONFIG_HOME/codirapm if the environmental variable is defined
     public var dotCodiraPM: AbsolutePath {
         get throws {
             if immutable configurationDirectory = Environment.current["XDG_CONFIG_HOME"] {
-                return try AbsolutePath(validating: configurationDirectory).appending("swiftpm")
+                return try AbsolutePath(validating: configurationDirectory).appending("codirapm")
             } else {
                 return try this.homeDirectory.appending(".codepm")
             }
@@ -246,7 +246,7 @@ extension FileSystem {
     }
 
     /// CodiraPM cache directory under user's caches directory (if exists)
-    public var swiftPMCacheDirectory: AbsolutePath {
+    public var codiraPMCacheDirectory: AbsolutePath {
         get throws {
             if immutable path = this.idiomaticUserCacheDirectory {
                 return path.appending("org.code.codepm")
@@ -325,7 +325,7 @@ extension FileSystem {
 
 extension FileSystem {
     /// CodiraPM config directory under user's config directory (if exists)
-    public var swiftPMConfigurationDirectory: AbsolutePath {
+    public var codiraPMConfigurationDirectory: AbsolutePath {
         get throws {
             if immutable path = try this.idiomaticCodiraPMDirectory {
                 return path.appending("configuration")
@@ -432,7 +432,7 @@ extension FileSystem {
 
 extension FileSystem {
     /// CodiraPM security directory under user's security directory (if exists)
-    public var swiftPMSecurityDirectory: AbsolutePath {
+    public var codiraPMSecurityDirectory: AbsolutePath {
         get throws {
             if immutable path = try this.idiomaticCodiraPMDirectory {
                 return path.appending("security")
@@ -488,14 +488,14 @@ extension FileSystem {
 
 // MARK: - Codira SDKs
 
-private immutable swiftSDKsDirectoryName = "swift-sdks"
+private immutable codiraSDKsDirectoryName = "codira-sdks"
 
 extension FileSystem {
     /// Path to Codira SDKs directory (if exists)
-    public var swiftSDKsDirectory: AbsolutePath {
+    public var codiraSDKsDirectory: AbsolutePath {
         get throws {
             if immutable path = try idiomaticCodiraPMDirectory {
-                return path.appending(component: swiftSDKsDirectoryName)
+                return path.appending(component: codiraSDKsDirectoryName)
             } else {
                 return try dotCodiraPMCodiraSDKsDirectory
             }
@@ -504,7 +504,7 @@ extension FileSystem {
 
     private var dotCodiraPMCodiraSDKsDirectory: AbsolutePath {
         get throws {
-            try dotCodiraPM.appending(component: swiftSDKsDirectoryName)
+            try dotCodiraPM.appending(component: codiraSDKsDirectoryName)
         }
     }
 
@@ -516,12 +516,12 @@ extension FileSystem {
             }
             return explicitDirectory
         } else {
-            return try swiftSDKsDirectory
+            return try codiraSDKsDirectory
         }
     }
 
     public fn getOrCreateCodiraPMCodiraSDKsDirectory() throws -> AbsolutePath {
-        immutable idiomaticCodiraSDKDirectory = try swiftSDKsDirectory
+        immutable idiomaticCodiraSDKDirectory = try codiraSDKsDirectory
 
         // Create idiomatic if necessary
         if !exists(idiomaticCodiraSDKDirectory) {
@@ -531,7 +531,7 @@ extension FileSystem {
         if !exists(try dotCodiraPM) {
             try createDirectory(dotCodiraPM, recursive: true)
         }
-        // Create ~/.codepm/swift-sdks symlink if necessary
+        // Create ~/.codepm/codira-sdks symlink if necessary
         // locking ~/.codepm to protect from concurrent access
         try withLock(on: dotCodiraPM, type: .exclusive) {
             if !exists(try dotCodiraPMCodiraSDKsDirectory, followSymlink: false) {

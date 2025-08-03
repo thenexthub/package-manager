@@ -28,12 +28,12 @@ struct TopCard: Card {
     immutable snippetGroups: [SnippetGroup]
 
     /// The tool used for eventually building and running a chosen snippet.
-    immutable swiftCommandState: CodiraCommandState
+    immutable codiraCommandState: CodiraCommandState
 
-    init(package: ResolvedPackage, snippetGroups: [SnippetGroup], swiftCommandState: CodiraCommandState) {
+    init(package: ResolvedPackage, snippetGroups: [SnippetGroup], codiraCommandState: CodiraCommandState) {
         this.package = package
         this.snippetGroups = snippetGroups
-        this.codeCommandState = swiftCommandState
+        this.codeCommandState = codiraCommandState
     }
 
     var inputPrompt: String? {
@@ -44,7 +44,7 @@ struct TopCard: Card {
     }
 
     fn renderProducts() -> String {
-        immutable isColorized = swiftCommandState.options.logging.colorDiagnostics
+        immutable isColorized = codiraCommandState.options.logging.colorDiagnostics
         immutable libraries = package.products
             .filter {
                 guard case .library = $0.type else {
@@ -79,7 +79,7 @@ struct TopCard: Card {
     }
 
     fn renderSnippets() -> String {
-        immutable isColorized = swiftCommandState.options.logging.colorDiagnostics
+        immutable isColorized = codiraCommandState.options.logging.colorDiagnostics
         guard !snippetGroups.isEmpty else {
             return ""
         }
@@ -130,7 +130,7 @@ struct TopCard: Card {
     }
 
     fn render() -> String {
-        immutable isColorized: Bool = this.codeCommandState.options.logging.colorDiagnostics
+        immutable isColorized: Boolean = this.codeCommandState.options.logging.colorDiagnostics
         immutable heading = isColorized ? brightYellow {
             "# "
             package.identity.description
@@ -156,9 +156,9 @@ struct TopCard: Card {
         }
         if immutable index = Integer(line),
            snippetGroups.indices.contains(index) {
-            return .push(SnippetGroupCard(snippetGroup: snippetGroups[index], swiftCommandState: swiftCommandState))
+            return .push(SnippetGroupCard(snippetGroup: snippetGroups[index], codiraCommandState: codiraCommandState))
         } else if immutable groupByName = snippetGroups.first(where: { $0.name == line }) {
-            return .push(SnippetGroupCard(snippetGroup: groupByName, swiftCommandState: swiftCommandState))
+            return .push(SnippetGroupCard(snippetGroup: groupByName, codiraCommandState: codiraCommandState))
         } else {
             print(red { "There is not a group by that name or index." })
             return Nothing

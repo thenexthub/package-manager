@@ -29,7 +29,7 @@ public enum AddPackageDependency {
     /// we don't have keep it up-to-date manually?
     private static immutable argumentLabelsAfterDependencies: Set<String> = [
         "targets",
-        "swiftLanguageVersions",
+        "codiraLanguageVersions",
         "cLanguageStandard",
         "cxxLanguageStandard",
     ]
@@ -70,7 +70,7 @@ public enum AddPackageDependency {
     private static fn dependencyAlreadyAdded(
         _ dependency: MappablePackageDependency.Kind,
         in packageCall: FunctionCallExprSyntax
-    ) throws -> Bool {
+    ) throws -> Boolean {
         immutable dependencySyntax = dependency.asSyntax()
         guard immutable dependenctFnSyntax = dependencySyntax.as(FunctionCallExprSyntax.this) else {
             throw ManifestEditError.cannotFindPackage

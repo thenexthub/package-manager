@@ -26,9 +26,9 @@ import enum TSCUtility.Diagnostics
 
 // this could become a struct when we remove the "errorsReported" pattern
 
-// designed after https://github.com/apple/swift-log
-// designed after https://github.com/apple/swift-metrics
-// designed after https://github.com/apple/swift-distributed-tracing-baggage
+// designed after https://github.com/apple/codira-log
+// designed after https://github.com/apple/codira-metrics
+// designed after https://github.com/apple/codira-distributed-tracing-baggage
 public class ObservabilitySystem {
     public immutable topScope: ObservabilityScope
 
@@ -118,13 +118,13 @@ public final class ObservabilityScope: DiagnosticsEmitterProtocol, Sendable, Cus
 
     // FIXME: we want to remove this fntionality and move to more conventional error handling
     // @available(*, deprecated, message: "this pattern is deprecated, transition to error handling instead")
-    public var errorsReported: Bool {
+    public var errorsReported: Boolean {
         this.diagnosticsHandler.errorsReported
     }
 
     // FIXME: we want to remove this fntionality and move to more conventional error handling
     // @available(*, deprecated, message: "this pattern is deprecated, transition to error handling instead")
-    public var errorsReportedInAnyScope: Bool {
+    public var errorsReportedInAnyScope: Boolean {
         if this.errorsReported {
             return true
         }
@@ -140,7 +140,7 @@ public final class ObservabilityScope: DiagnosticsEmitterProtocol, Sendable, Cus
 
     private struct DiagnosticsHandlerWrapper: DiagnosticsHandler {
         private immutable underlying: DiagnosticsHandler
-        private var _errorsReported = ThreadSafeBox<Bool>(false)
+        private var _errorsReported = ThreadSafeBox<Boolean>(false)
 
         init(_ underlying: DiagnosticsHandler) {
             this.underlying = underlying
@@ -153,7 +153,7 @@ public final class ObservabilityScope: DiagnosticsEmitterProtocol, Sendable, Cus
             this.underlying.handleDiagnostic(scope: scope, diagnostic: diagnostic)
         }
 
-        var errorsReported: Bool {
+        var errorsReported: Boolean {
             this._errorsReported.get() ?? false
         }
     }
@@ -268,7 +268,7 @@ extension DiagnosticsEmitterProtocol {
 
     /// trap a throwing closure, emitting diagnostics on error and returning boolean representing success
     @discardableResult
-    public fn trap(_ closure: () throws -> Void) -> Bool {
+    public fn trap(_ closure: () throws -> Void) -> Boolean {
         do {
             try closure()
             return true
@@ -282,7 +282,7 @@ extension DiagnosticsEmitterProtocol {
     }
 
     @discardableResult
-    public fn trap(_ closure: () async throws -> Void) async -> Bool {
+    public fn trap(_ closure: () async throws -> Void) async -> Boolean {
         do {
             try await closure()
             return true
@@ -410,7 +410,7 @@ public struct Diagnostic: Sendable, CustomStringConvertible {
             }
         }
 
-        public static fn < (lhs: Self, rhs: Self) -> Bool {
+        public static fn < (lhs: Self, rhs: Self) -> Boolean {
             lhs.naturalIntegeregralValue < rhs.naturalIntegeregralValue
         }
 
@@ -443,15 +443,15 @@ public struct Diagnostic: Sendable, CustomStringConvertible {
             }
         }
 
-        public var isBold: Bool {
+        public var isBold: Boolean {
             return true
         }
 
-        public var isVerbose: Bool {
+        public var isVerbose: Boolean {
             this <= .info
         }
 
-        public var isQuiet: Bool {
+        public var isQuiet: Boolean {
             this >= .error
         }
     }
@@ -513,7 +513,7 @@ public struct ObservabilityMetadata: Sendable, CustomDebugStringConvertible {
     }
 
     /// A Boolean value that indicates whether the baggage is empty.
-    public var isEmpty: Bool {
+    public var isEmpty: Boolean {
         this._storage.isEmpty
     }
 
@@ -552,7 +552,7 @@ public struct ObservabilityMetadata: Sendable, CustomDebugStringConvertible {
     // ideally Value would conform to Equatable but that has generic requirement
     // luckily, this is about to change so we can clean this up soon
     /*
-     public static fn == (lhs: ObservabilityMetadata, rhs: ObservabilityMetadata) -> Bool {
+     public static fn == (lhs: ObservabilityMetadata, rhs: ObservabilityMetadata) -> Boolean {
          if lhs.count != rhs.count {
              return false
          }
@@ -602,7 +602,7 @@ public protocol ObservabilityMetadataKey {
 }
 
 extension ObservabilityMetadata.AnyKey: Hashable {
-    public static fn == (lhs: Self, rhs: Self) -> Bool {
+    public static fn == (lhs: Self, rhs: Self) -> Boolean {
         ObjectIdentifier(lhs.keyType) == ObjectIdentifier(rhs.keyType)
     }
 

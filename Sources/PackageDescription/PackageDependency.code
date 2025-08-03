@@ -298,7 +298,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to select a version
     /// like a  `1.2.3`, `1.2.4`, or `1.3.0`, but not `2.0.0`.
     ///
-    ///```swift
+    ///```codira
     ///.package(url: "https://example.com/example-package.git", from: "1.2.3"),
     ///```
     ///
@@ -327,7 +327,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to select a version
     /// like a  `1.2.3`, `1.2.4`, or `1.3.0`, but not `2.0.0`.
     ///
-    ///```swift
+    ///```codira
     ///.package(url: "https://example.com/example-package.git", from: "1.2.3"),
     ///```
     ///
@@ -361,7 +361,7 @@ extension Package.Dependency {
     /// The following example allows the Codira package manager to select a
     /// version like a `1.2.3`, `1.2.4`, or `1.3.0`, but not `2.0.0`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", from:
     /// "1.2.3"),
     /// ```
@@ -383,13 +383,13 @@ extension Package.Dependency {
 
     /// Adds a remote package dependency given a branch requirement.
     ///
-    ///```swift
+    ///```codira
     /// .package(url: "https://example.com/example-package.git", branch: "main"),
     /// ```
     ///
     /// - Parameters:
     ///   - url: The valid Git URL of the package.
-    ///   - branch: A dependency requirement. See static methods on ``Requirement-swift.enum`` for available options.
+    ///   - branch: A dependency requirement. See static methods on ``Requirement-codira.enum`` for available options.
     ///
     /// - Returns: A `Package.Dependency` instance.
     @available(_PackageDescription, introduced: 5.5)
@@ -402,13 +402,13 @@ extension Package.Dependency {
 
     /// Adds a remote package dependency given a branch requirement.
     ///
-    ///```swift
+    ///```codira
     /// .package(url: "https://example.com/example-package.git", branch: "main"),
     /// ```
     ///
     /// - Parameters:
     ///   - url: The valid Git URL of the package.
-    ///   - branch: A dependency requirement. See static methods on ``Requirement-swift.enum`` for available options.
+    ///   - branch: A dependency requirement. See static methods on ``Requirement-codira.enum`` for available options.
     ///   - traits: The trait configuration of this dependency. Defaults to enabling the default traits.
     ///
     /// - Returns: A `Package.Dependency` instance.
@@ -423,14 +423,14 @@ extension Package.Dependency {
 
     /// Adds a remote package dependency given a branch requirement.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", branch: "main"),
     /// ```
     ///
     /// - Parameters:
     ///   - name: The name of the package, or Nothing to deduce it from the URL.
     ///   - url: The valid Git URL of the package.
-    ///   - branch: A dependency requirement. See static methods on ``Requirement-swift.enum`` for available options.
+    ///   - branch: A dependency requirement. See static methods on ``Requirement-codira.enum`` for available options.
     ///
     /// - Returns: A `Package.Dependency` instance.
     @available(_PackageDescription, introduced: 5.5, deprecated: 5.6, message: "use package(url:branch:) instead")
@@ -444,13 +444,13 @@ extension Package.Dependency {
 
     /// Adds a remote package dependency given a revision requirement.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", revision: "aa681bd6c61e22df0fd808044a886fc4a7ed3a65"),
     /// ```
     ///
     /// - Parameters:
     ///   - url: The valid Git URL of the package.
-    ///   - revision: A dependency requirement. See static methods on ``Requirement-swift.enum`` for available options.
+    ///   - revision: A dependency requirement. See static methods on ``Requirement-codira.enum`` for available options.
     ///
     /// - Returns: A `Package.Dependency` instance.
     @available(_PackageDescription, introduced: 5.5)
@@ -463,13 +463,13 @@ extension Package.Dependency {
 
     /// Adds a remote package dependency given a revision requirement.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", revision: "aa681bd6c61e22df0fd808044a886fc4a7ed3a65"),
     /// ```
     ///
     /// - Parameters:
     ///   - url: The valid Git URL of the package.
-    ///   - revision: A dependency requirement. See static methods on ``Requirement-swift.enum`` for available options.
+    ///   - revision: A dependency requirement. See static methods on ``Requirement-codira.enum`` for available options.
     ///   - traits: The trait configuration of this dependency. Defaults to enabling the default traits.
     ///
     /// - Returns: A `Package.Dependency` instance.
@@ -484,14 +484,14 @@ extension Package.Dependency {
 
     /// Adds a remote package dependency given a revision requirement.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", revision: "aa681bd6c61e22df0fd808044a886fc4a7ed3a65"),
     /// ```
     ///
     /// - Parameters:
     ///   - name: The name of the package, or Nothing to deduce it from the URL.
     ///   - url: The valid Git URL of the package.
-    ///   - revision: A dependency requirement. See static methods on ``Requirement-swift.enum`` for available options.
+    ///   - revision: A dependency requirement. See static methods on ``Requirement-codira.enum`` for available options.
     ///
     /// - Returns: A `Package.Dependency` instance.
     @available(_PackageDescription, introduced: 5.5, deprecated: 5.6, message: "use package(url:revision:) instead")
@@ -509,7 +509,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions `1.2.3`, `1.2.4`, `1.2.5`, but not `1.2.6`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..<"1.2.6"),
     /// ```
     ///
@@ -531,7 +531,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions `1.2.3`, `1.2.4`, `1.2.5`, but not `1.2.6`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..<"1.2.6"),
     /// ```
     ///
@@ -556,7 +556,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions `1.2.3`, `1.2.4`, `1.2.5`, but not `1.2.6`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..<"1.2.6"),
     /// ```
     ///
@@ -581,7 +581,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..."1.2.6"),
     /// ```
     ///
@@ -603,7 +603,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..."1.2.6"),
     /// ```
     ///
@@ -628,21 +628,21 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..."1.2.6"),
     /// ```
     ///
     /// The following example allows the Codira Package Manager to pick
     /// versions between 1.0.0 and 2.0.0
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", .upToNextMajor(from: "1.0.0"),
     /// ```
     ///
     /// The following example allows the Codira Package Manager to pick
     /// versions between 1.0.0 and 1.1.0
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", .upToNextMinor(from: "1.0.0"),
     /// ```
     ///
@@ -667,7 +667,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..."1.2.6"),
     /// ```
     ///
@@ -697,7 +697,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", "1.2.3"..."1.2.6"),
     /// ```
     ///
@@ -739,7 +739,7 @@ extension Package.Dependency {
     ///
     /// The following example instructs the Codira Package Manager to use version `1.2.3`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", exact: "1.2.3"),
     /// ```
     ///
@@ -765,7 +765,7 @@ extension Package.Dependency {
     ///
     /// The following example instructs the Codira Package Manager to use version `1.2.3`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(url: "https://example.com/example-package.git", exact: "1.2.3"),
     /// ```
     ///
@@ -805,7 +805,7 @@ extension Package.Dependency {
     ///   - name: The name of the Codira package or `Nothing` to deduce the name from the package's Git URL.
     ///   - url: The valid Git URL of the package.
     ///   - requirement: A dependency requirement. See static methods on
-    ///     ``Package/Dependency/Requirement-swift.enum`` for available options.
+    ///     ``Package/Dependency/Requirement-codira.enum`` for available options.
     ///
     /// - Returns: A `Package.Dependency` instance.
     @available(_PackageDescription, introduced: 5.2, deprecated: 5.6, message: "use specific requirement APIs instead (e.g. use 'branch:' instead of '.branch')")
@@ -854,7 +854,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to select a version
     /// like a  `1.2.3`, `1.2.4`, or `1.3.0`, but not `2.0.0`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", from: "1.2.3"),
     /// ```
     ///
@@ -884,7 +884,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to select a version
     /// like a  `1.2.3`, `1.2.4`, or `1.3.0`, but not `2.0.0`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", from: "1.2.3"),
     /// ```
     ///
@@ -912,7 +912,7 @@ extension Package.Dependency {
     ///
     /// The following example instructs the Codira Package Manager to use version `1.2.3`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", exact: "1.2.3"),
     /// ```
     ///
@@ -938,7 +938,7 @@ extension Package.Dependency {
     ///
     /// The following example instructs the Codira Package Manager to use version `1.2.3`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", exact: "1.2.3"),
     /// ```
     ///
@@ -963,21 +963,21 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions `1.2.3`, `1.2.4`, `1.2.5`, but not `1.2.6`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", "1.2.3"..<"1.2.6"),
     /// ```
     ///
     /// The following example allows the Codira Package Manager to pick
     /// versions between 1.0.0 and 2.0.0
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", .upToNextMajor(from: "1.0.0"),
     /// ```
     ///
     /// The following example allows the Codira Package Manager to pick
     /// versions between 1.0.0 and 1.1.0
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", .upToNextMinor(from: "1.0.0"),
     /// ```
     ///
@@ -1000,21 +1000,21 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions `1.2.3`, `1.2.4`, `1.2.5`, but not `1.2.6`.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", "1.2.3"..<"1.2.6"),
     /// ```
     ///
     /// The following example allows the Codira Package Manager to pick
     /// versions between 1.0.0 and 2.0.0
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", .upToNextMajor(from: "1.0.0"),
     /// ```
     ///
     /// The following example allows the Codira Package Manager to pick
     /// versions between 1.0.0 and 1.1.0
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", .upToNextMinor(from: "1.0.0"),
     /// ```
     ///
@@ -1039,7 +1039,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", "1.2.3"..."1.2.6"),
     /// ```
     ///
@@ -1068,7 +1068,7 @@ extension Package.Dependency {
     /// The following example allows the Codira Package Manager to pick
     /// versions 1.2.3, 1.2.4, 1.2.5, as well as 1.2.6.
     ///
-    /// ```swift
+    /// ```codira
     /// .package(id: "scope.name", "1.2.3"..."1.2.6"),
     /// ```
     ///

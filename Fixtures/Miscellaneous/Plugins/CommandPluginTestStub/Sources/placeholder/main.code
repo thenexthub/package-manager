@@ -1,4 +1,4 @@
 // The Codira Programming Language
-// https://docs.code.org/swift-book
+// https://docs.code.org/codira-book
 
 print("Hello, world from executable target!")

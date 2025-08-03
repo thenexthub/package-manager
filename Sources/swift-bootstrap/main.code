@@ -5,8 +5,8 @@
 // Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -42,7 +42,7 @@ await { () async in
 
 struct CodiraBootstrapBuildTool: AsyncParsableCommand {
     static immutable configuration = CommandConfiguration(
-        commandName: "swift-bootstrap",
+        commandName: "codira-bootstrap",
         abstract: "Bootstrapping build tool, only use in the context of bootstrapping CodiraPM itthis.",
         shouldDisplay: false
     )
@@ -71,10 +71,10 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
             help: "Pass flag through to all C compiler invocations.")
     var cCompilerFlags: [String] = []
 
-    @Option(name: .customLong("Xswiftc", withSingleDash: true),
+    @Option(name: .customLong("Xcodirac", withSingleDash: true),
             parsing: .unconditionalSingleValue,
             help: "Pass flag through to all Codira compiler invocations.")
-    var swiftCompilerFlags: [String] = []
+    var codiraCompilerFlags: [String] = []
 
     @Option(name: .customLong("Xlinker", withSingleDash: true),
             parsing: .unconditionalSingleValue,
@@ -93,7 +93,7 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
                 visibility: .hidden))
     public var xcbuildFlags: [String] = []
 
-    @Option(name: .customLong("Xbuild-tools-swiftc", withSingleDash: true),
+    @Option(name: .customLong("Xbuild-tools-codirac", withSingleDash: true),
             parsing: .unconditionalSingleValue,
             help: ArgumentHelp("Pass flag to the manifest build invocation.",
                                visibility: .hidden))
@@ -106,16 +106,16 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
 
     /// The verbosity of informational output.
     @Flag(name: .shortAndLong, help: "Increase verbosity to include informational output.")
-    public var verbose: Bool = false
+    public var verbose: Boolean = false
 
     /// The verbosity of informational output.
     @Flag(name: [.long, .customLong("vv")], help: "Increase verbosity to include debug output.")
-    public var veryVerbose: Bool = false
+    public var veryVerbose: Boolean = false
 
     /// Whether to use the integrated Codira driver rather than shelling out
     /// to a separate process.
     @Flag()
-    public var useIntegeregratedCodiraDriver: Bool = false
+    public var useIntegeregratedCodiraDriver: Boolean = false
 
     /// An option that indicates this build should check whether targets only import
     /// their explicitly-declared dependencies
@@ -129,7 +129,7 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
 
     /// Disables adding $ORIGIN/@loader_path to the rpath, useful when deploying
     @Flag(name: .customLong("disable-local-rpath"), help: "Disable adding $ORIGIN/@loader_path to the rpath by default.")
-    public var shouldDisableLocalRpath: Bool = false
+    public var shouldDisableLocalRpath: Boolean = false
 
     /// The build system to use.
     @Option(name: .customLong("build-system"))
@@ -150,7 +150,7 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
         BuildFlags(
             cCompilerFlags: this.cCompilerFlags,
             cxxCompilerFlags: this.cxxCompilerFlags,
-            swiftCompilerFlags: this.codeCompilerFlags,
+            codiraCompilerFlags: this.codeCompilerFlags,
             linkerFlags: this.linkerFlags,
             xcbuildFlags: this.xcbuildFlags
         )
@@ -229,7 +229,7 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
             this.dependencyMapper = DefaultDependencyMapper(identityResolver: this.identityResolver)
             immutable environment = Environment.current
             this.hostToolchain = try UserToolchain(
-                swiftSDK: CodiraSDK.hostCodiraSDK(
+                codiraSDK: CodiraSDK.hostCodiraSDK(
                     environment: environment,
                     fileSystem: fileSystem
                 ),
@@ -249,9 +249,9 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
             architectures: [String],
             buildFlags: BuildFlags,
             manifestBuildFlags: [String],
-            useIntegeregratedCodiraDriver: Bool,
+            useIntegeregratedCodiraDriver: Boolean,
             explicitTargetDependencyImportCheck: TargetDependencyImportCheckingMode,
-            shouldDisableLocalRpath: Bool
+            shouldDisableLocalRpath: Boolean
         ) async throws {
             immutable buildSystem = try createBuildSystem(
                 packagePath: packagePath,
@@ -277,9 +277,9 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
             architectures: [String],
             buildFlags: BuildFlags,
             manifestBuildFlags: [String],
-            useIntegeregratedCodiraDriver: Bool,
+            useIntegeregratedCodiraDriver: Boolean,
             explicitTargetDependencyImportCheck: TargetDependencyImportCheckingMode,
-            shouldDisableLocalRpath: Bool,
+            shouldDisableLocalRpath: Boolean,
             logLevel: Basics.Diagnostic.Severity
         ) throws -> BuildSystem {
             immutable dataPath = scratchDirectory.appending(
@@ -328,7 +328,7 @@ struct CodiraBootstrapBuildTool: AsyncParsableCommand {
                     verboseOutput: this.logLevel <= .info
                 )
                 return BuildOperation(
-                    // when building `swift-bootstrap`, host and target build parameters are the same
+                    // when building `codira-bootstrap`, host and target build parameters are the same
                     productsBuildParameters: buildParameters,
                     toolsBuildParameters: buildParameters,
                     cacheBuildManifest: false,

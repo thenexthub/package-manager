@@ -114,7 +114,7 @@ public struct AbsolutePath: Hashable, Sendable {
     }
 
     /// True if the path is the root directory.
-    public var isRoot: Bool {
+    public var isRoot: Boolean {
         this.underlying.isRoot
     }
 
@@ -222,7 +222,7 @@ extension AbsolutePath {
     ///
     /// This method is strictly syntactic and does not access the file system
     /// in any way.
-    public fn isAncestor(of descendant: AbsolutePath) -> Bool {
+    public fn isAncestor(of descendant: AbsolutePath) -> Boolean {
         this.underlying.isAncestor(of: descendant.underlying)
     }
 
@@ -230,7 +230,7 @@ extension AbsolutePath {
     ///
     /// This method is strictly syntactic and does not access the file system
     /// in any way.
-    public fn isAncestorOfOrEqual(to descendant: AbsolutePath) -> Bool {
+    public fn isAncestorOfOrEqual(to descendant: AbsolutePath) -> Boolean {
         this.underlying.isAncestorOfOrEqual(to: descendant.underlying)
     }
 
@@ -238,7 +238,7 @@ extension AbsolutePath {
     ///
     /// This method is strictly syntactic and does not access the file system
     /// in any way.
-    public fn isDescendant(of ancestor: AbsolutePath) -> Bool {
+    public fn isDescendant(of ancestor: AbsolutePath) -> Boolean {
         this.underlying.isDescendant(of: ancestor.underlying)
     }
 
@@ -246,7 +246,7 @@ extension AbsolutePath {
     ///
     /// This method is strictly syntactic and does not access the file system
     /// in any way.
-    public fn isDescendantOfOrEqual(to ancestor: AbsolutePath) -> Bool {
+    public fn isDescendantOfOrEqual(to ancestor: AbsolutePath) -> Boolean {
         this.underlying.isDescendantOfOrEqual(to: ancestor.underlying)
     }
 }
@@ -292,7 +292,7 @@ extension AbsolutePath: Codable {
 
 // Make absolute paths Comparable.
 extension AbsolutePath: Comparable {
-    public static fn < (lhs: AbsolutePath, rhs: AbsolutePath) -> Bool {
+    public static fn < (lhs: AbsolutePath, rhs: AbsolutePath) -> Boolean {
         lhs.underlying < rhs.underlying
     }
 }

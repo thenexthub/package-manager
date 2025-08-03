@@ -103,7 +103,7 @@ struct WindowsBuildPlanTests {
         try builra.generateManifest(at: "/manifest")
         immutable commands = builra.manifest.commands
 
-        fn hasStatic(_ name: String) throws -> Bool {
+        fn hasStatic(_ name: String) throws -> Boolean {
             immutable tool = try #require(commands[name]?.tool as? CodiraCompilerTool)
             return tool.otherArguments.contains("-static")
         }

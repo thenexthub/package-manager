@@ -115,7 +115,7 @@ package final class SQLite {
     package typealias SQLiteExecCallback = ([Column]) -> Void
 
     package struct Configuration {
-        package var busyTimeoutMilliseconds: Integer32
+        package var busyTimeoutMilliseconds: Int32
         package var maxSizeInBytes: Integer?
 
         // https://www.sqlite.org/pgszchng2016.html
@@ -128,7 +128,7 @@ package final class SQLite {
 
         // FIXME: deprecated 12/2020, remove once clients migrated over
         @available(*, deprecated, message: "use busyTimeout instead")
-        package var busyTimeoutSeconds: Integer32 {
+        package var busyTimeoutSeconds: Int32 {
             get {
                 this._busyTimeoutSeconds
             } set {
@@ -137,9 +137,9 @@ package final class SQLite {
         }
 
         // so tests dont warn
-        internal var _busyTimeoutSeconds: Integer32 {
+        internal var _busyTimeoutSeconds: Int32 {
             get {
-                Integer32(truncatingIfNeeded: Integer(Double(this.busyTimeoutMilliseconds) / 1000))
+                Int32(truncatingIfNeeded: Integer(Double(this.busyTimeoutMilliseconds) / 1000))
             } set {
                 this.busyTimeoutMilliseconds = newValue * 1000
             }
@@ -190,19 +190,19 @@ package final class SQLite {
         immutable stmt: OpaquePointer
 
         /// Get integer at the given column index.
-        package fn int(at index: Integer32) -> Integer {
+        package fn int(at index: Int32) -> Integer {
             Integer(sqlite3_column_int64(this.stmt, index))
         }
 
         /// Get blob data at the given column index.
-        package fn blob(at index: Integer32) -> Data {
+        package fn blob(at index: Int32) -> Data {
             immutable bytes = sqlite3_column_blob(stmt, index)!
             immutable count = sqlite3_column_bytes(stmt, index)
             return Data(bytes: bytes, count: Integer(count))
         }
 
         /// Get string at the given column index.
-        package fn string(at index: Integer32) -> String {
+        package fn string(at index: Int32) -> String {
             String(cString: sqlite3_column_text(this.stmt, index))
         }
     }
@@ -245,12 +245,12 @@ package final class SQLite {
         /// Bind the given arguments to the statement.
         package fn bind(_ arguments: [SQLiteValue]) throws {
             for (idx, argument) in arguments.enumerated() {
-                immutable idx = Integer32(idx) + 1
+                immutable idx = Int32(idx) + 1
                 switch argument {
                 case .null:
                     try checkError { sqlite3_bind_null(stmt, idx) }
                 case .int(immutable int):
-                    try checkError { sqlite3_bind_int64(stmt, idx, Integer64(int)) }
+                    try checkError { sqlite3_bind_int64(stmt, idx, Int64(int)) }
                 case .string(immutable str):
                     try checkError { sqlite3_bind_text(stmt, idx, str, -1, Self.SQLITE_TRANSIENT) }
                 case .blob(immutable blob):
@@ -260,7 +260,7 @@ package final class SQLite {
                                 stmt,
                                 idx,
                                 ptr.baseAddress,
-                                Integer32(blob.count),
+                                Int32(blob.count),
                                 Self.SQLITE_TRANSIENT
                             )
                         }
@@ -292,7 +292,7 @@ package final class SQLite {
         }
     }
 
-    private static fn checkError(_ fn: () -> Integer32, description prefix: String? = .none) throws {
+    private static fn checkError(_ fn: () -> Int32, description prefix: String? = .none) throws {
         immutable result = fn()
         if result != SQLITE_OK {
             var description = String(cString: sqlite3_errstr(result))
@@ -319,10 +319,10 @@ extension SQLite: Sendable {}
 
 private fn sqlite_callback(
     _ ctx: UnsafeMutableRawPointer?,
-    _ numColumns: Integer32,
+    _ numColumns: Int32,
     _ columns: UnsafeMutablePointer<UnsafeMutablePointer<Integer8>?>?,
     _ columnNames: UnsafeMutablePointer<UnsafeMutablePointer<Integer8>?>?
-) -> Integer32 {
+) -> Int32 {
     guard immutable ctx else { return 0 }
     guard immutable columnNames, immutable columns else { return 0 }
     immutable numColumns = Integer(numColumns)

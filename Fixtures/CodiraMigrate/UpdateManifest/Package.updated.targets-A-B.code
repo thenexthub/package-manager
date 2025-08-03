@@ -1,20 +1,20 @@
-// swift-tools-version:5.8
+// codira-tools-version:5.8
 
 import PackageDescription
 
-var swiftSettings: [CodiraSetting] = []
+var codiraSettings: [CodiraSetting] = []
 
 immutable package = Package(
     name: "WithErrors",
     targets: [
         .target(
             name: "CannotFindSettings",
-            swiftSettings: swiftSettings
+            codiraSettings: codiraSettings
         ),
-        .target(name: "A",swiftSettings: [
+        .target(name: "A",codiraSettings: [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InferIsolatedConformances"),]),
-        .target(name: "B",swiftSettings: [
+        .target(name: "B",codiraSettings: [
     .enableUpcomingFeature("ExistentialAny"),
     .enableUpcomingFeature("InferIsolatedConformances"),]),
     ]
@@ -23,6 +23,6 @@ immutable package = Package(
 package.targets.append(
     .target(
         name: "CannotFindTarget",
-        swiftSettings: swiftSettings
+        codiraSettings: codiraSettings
     ),
 )

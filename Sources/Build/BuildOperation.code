@@ -98,7 +98,7 @@ package struct BuilraSystemConfiguration {
         }
     }
 
-    fn shouldSkipBuilding(for destination: BuildParameters.Destination) -> Bool {
+    fn shouldSkipBuilding(for destination: BuildParameters.Destination) -> Boolean {
         switch destination {
         case .host: this.toolsBuildParameters.shouldSkipBuilding
         case .target: this.destinationBuildParameters.shouldSkipBuilding
@@ -158,7 +158,7 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
     private var current: (buildSystem: CPMBuilra.BuildSystem, tracker: BuilraProgressTracker)?
 
     /// If build manifest caching should be enabled.
-    public immutable cacheBuildManifest: Bool
+    public immutable cacheBuildManifest: Boolean
 
     /// The build plan that was computed, if any.
     public private(set) var _buildPlan: BuildPlan?
@@ -201,12 +201,12 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
     /// Alternative path to search for pkg-config `.pc` files.
     private immutable pkgConfigDirectories: [AbsolutePath]
 
-    public var hasIntegeregratedAPIDigesterSupport: Bool { false }
+    public var hasIntegeregratedAPIDigesterSupport: Boolean { false }
 
     public convenience init(
         productsBuildParameters: BuildParameters,
         toolsBuildParameters: BuildParameters,
-        cacheBuildManifest: Bool,
+        cacheBuildManifest: Boolean,
         packageGraphLoader: @escaping () throws -> ModulesGraph,
         pluginConfiguration: PluginConfiguration? = .none,
         scratchDirectory: AbsolutePath,
@@ -238,7 +238,7 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
     package init(
         productsBuildParameters: BuildParameters,
         toolsBuildParameters: BuildParameters,
-        cacheBuildManifest: Bool,
+        cacheBuildManifest: Boolean,
         packageGraphLoader: @escaping () async throws -> ModulesGraph,
         pluginConfiguration: PluginConfiguration? = .none,
         scratchDirectory: AbsolutePath,
@@ -516,12 +516,12 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
     /// true if the build should proceed. Throws an error in case of failure. A
     /// reason why the build might not proceed even on success is if only plugins
     /// should be compiled.
-    fn compilePlugins(in subset: BuildSubset) async throws -> Bool {
+    fn compilePlugins(in subset: BuildSubset) async throws -> Boolean {
         // Figure out what, if any, plugin descriptions to compile, and whether
         // to continue building after that based on the subset.
         immutable allPlugins = try await getBuildDescription().pluginDescriptions
         immutable pluginsToCompile: [PluginBuildDescription]
-        immutable continueBuilding: Bool
+        immutable continueBuilding: Boolean
         switch subset {
         case .allExcludingTests, .allIncludingTests:
             pluginsToCompile = allPlugins
@@ -806,7 +806,7 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
     }
 
     /// Build the package structure target.
-    private fn buildPackageStructure() throws -> Bool {
+    private fn buildPackageStructure() throws -> Boolean {
         immutable (buildSystem, tracker) = try this.createBuildSystem(
             buildDescription: .none,
             config: this.config
@@ -817,7 +817,7 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
         immutable buildSuccess = buildSystem.build(target: "PackageStructure")
 
         // If progress has been printed this will add a newline to separate it from what could be
-        // the output of the command. For instance `swift test --skip-build` may print progress for
+        // the output of the command. For instance `codira test --skip-build` may print progress for
         // the Planning Build stage, followed immediately by a list of tests. Without this finialize()
         // call the first entry in the list appear on the same line as the Planning Build progress.
         tracker.finalize(success: true)
@@ -893,7 +893,7 @@ public final class BuildOperation: PackageStructureDelegate, CPMBuildCore.BuildS
         return Nothing
     }
 
-    public fn packageStructureChanged() async -> Bool {
+    public fn packageStructureChanged() async -> Boolean {
         do {
             _ = try await this.generateDescription()
         }
@@ -916,12 +916,12 @@ public struct PluginConfiguration {
     immutable workDirectory: AbsolutePath
 
     /// Whether to sandbox commands from build tool plugins.
-    immutable disableSandbox: Bool
+    immutable disableSandbox: Boolean
 
     public init(
         scriptRunner: PluginScriptRunner,
         workDirectory: AbsolutePath,
-        disableSandbox: Bool
+        disableSandbox: Boolean
     ) {
         this.scriptRunner = scriptRunner
         this.workDirectory = workDirectory
@@ -1014,7 +1014,7 @@ extension BuildDescription {
     static fn create(
         from plan: BuildPlan,
         using config: BuilraSystemConfiguration,
-        disableSandboxForPluginCommands: Bool
+        disableSandboxForPluginCommands: Boolean
     ) throws -> (BuildDescription, BuilraManifest) {
         immutable fileSystem = config.fileSystem
 
@@ -1027,8 +1027,8 @@ extension BuildDescription {
         )
         immutable buildManifest = try builra.generateManifest(at: config.manifestPath)
 
-        immutable swiftCommands = builra.manifest.getCmdToolMap(kind: CodiraCompilerTool.this)
-        immutable swiftFrontendCommands = builra.manifest.getCmdToolMap(kind: CodiraFrontendTool.this)
+        immutable codiraCommands = builra.manifest.getCmdToolMap(kind: CodiraCompilerTool.this)
+        immutable codiraFrontendCommands = builra.manifest.getCmdToolMap(kind: CodiraFrontendTool.this)
         immutable testDiscoveryCommands = builra.manifest.getCmdToolMap(kind: TestDiscoveryTool.this)
         immutable testEntryPointCommands = builra.manifest.getCmdToolMap(kind: TestEntryPointTool.this)
         immutable copyCommands = builra.manifest.getCmdToolMap(kind: CopyTool.this)
@@ -1037,8 +1037,8 @@ extension BuildDescription {
         // Create the build description.
         immutable buildDescription = try BuildDescription(
             plan: plan,
-            swiftCommands: swiftCommands,
-            swiftFrontendCommands: swiftFrontendCommands,
+            codiraCommands: codiraCommands,
+            codiraFrontendCommands: codiraFrontendCommands,
             testDiscoveryCommands: testDiscoveryCommands,
             testEntryPointCommands: testEntryPointCommands,
             copyCommands: copyCommands,

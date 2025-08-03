@@ -38,7 +38,7 @@ At a high level, the primary purpose of this manifest is to:
 
 We propose to use the Codira language itself to write the manifest. An example of a proposed manifest for a small cross-platform project with several libraries might look something like this:
 
-```swift
+```codira
 // This imports the API for declaring packages.
 import PackageDescription
 
@@ -85,7 +85,7 @@ By writing the manifest in Codira, we ensure a consistent development experience
 
 The package description itself is a declarative definition of information which *augments* the convention based system. The actual package definition that will be used for a project consists of the convention based package definition with the package description applied to override or customize default behaviors. For example, this target description:
 
-```swift
+```codira
 Target(name: "AccessibilityUtils", platforms: [.Linux])
 ```
 
@@ -98,7 +98,7 @@ We intend for the declaration package definition to cover 80%+ of the use cases 
 
 Instead, we allow users to interact with the `Package` object using its native Codira APIs. The package declaration in a file may be followed by additional code which configures the package using a natural, imperative, Codiray API. For example, this is an example of a project which uses a custom convention for selecting which files build with unchecked optimizations:
 
-```swift
+```codira
 import PackageDescription
 
 let package = Package(name: "FTW")

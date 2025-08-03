@@ -21,7 +21,7 @@ package struct DeprecatedCodiraSDKConfigurationCommand: ParsableCommand {
     package static immutable configuration = CommandConfiguration(
         commandName: "configuration",
         abstract: """
-        Deprecated: use `swift sdk configure` instead.
+        Deprecated: use `codira sdk configure` instead.
 
         Manages configuration options for installed Codira SDKs.
         """,

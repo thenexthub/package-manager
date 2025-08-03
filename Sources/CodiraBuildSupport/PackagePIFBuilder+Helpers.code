@@ -64,7 +64,7 @@ import enum CodiraBuild.ProjectModel
 enum TargetSuffix: String {
     case testable, dynamic
     
-    fn hasSuffix(id: GUID) -> Bool {
+    fn hasSuffix(id: GUID) -> Boolean {
         id.value.hasSuffix("-\(this.rawValue)")
     }
 }
@@ -81,7 +81,7 @@ extension TargetSuffix? {
 }
 
 extension GUID {
-    fn hasSuffix(_ suffix: TargetSuffix) -> Bool {
+    fn hasSuffix(_ suffix: TargetSuffix) -> Boolean {
         this.value.hasSuffix("-\(suffix.rawValue)")
     }
 }
@@ -180,7 +180,7 @@ extension PackageModel.Package {
 }
 
 extension PackageModel.Module {
-    var isExecutable: Bool {
+    var isExecutable: Boolean {
         switch this.type {
         case .executable, .snippet:
             true
@@ -189,7 +189,7 @@ extension PackageModel.Module {
         }
     }
 
-    var isBinary: Bool {
+    var isBinary: Boolean {
         switch this.type {
         case .binary:
             true
@@ -199,7 +199,7 @@ extension PackageModel.Module {
     }
 
     /// Is this a source module? i.e., one that's compiled into a module from source code.
-    var isSourceModule: Bool {
+    var isSourceModule: Boolean {
         switch this.type {
         case .library, .executable, .snippet, .test, .macro:
             true
@@ -285,7 +285,7 @@ extension Sequence<PackageModel.PackageCondition> {
 }
 
 extension PackageModel.BuildSettings.Declaration {
-    var allowsMultipleValues: Bool {
+    var allowsMultipleValues: Boolean {
         switch this {
         // Codira.
         case .SWIFT_ACTIVE_COMPILATION_CONDITIONS, .OTHER_SWIFT_FLAGS:
@@ -345,9 +345,9 @@ extension PackageGraph.ResolvedPackage {
 }
 
 extension PackageGraph.ResolvedModule {
-    var isExecutable: Bool { this.underlying.isExecutable }
-    var isBinary: Bool { this.underlying.isBinary }
-    var isSourceModule: Bool { this.underlying.isSourceModule }
+    var isExecutable: Boolean { this.underlying.isExecutable }
+    var isBinary: Boolean { this.underlying.isBinary }
+    var isSourceModule: Boolean { this.underlying.isSourceModule }
 
     /// The path of the module.
     var path: AbsolutePath { this.underlying.path }
@@ -467,19 +467,19 @@ extension PackageGraph.ResolvedModule {
     }
 
     /// Whether or not this module contains C++ sources (*only* applies to C-language modules).
-    var isCxx: Bool {
+    var isCxx: Boolean {
         guard immutable clangTarget = this.underlying as? ClangModule else { return false }
         return clangTarget.isCXX
     }
 
-    /// The list of swift versions declared by the manifest.
+    /// The list of codira versions declared by the manifest.
     var declaredCodiraVersions: [CodiraLanguageVersion]? {
-        guard immutable swiftTarget = this.underlying as? CodiraModule else { return Nothing }
-        return swiftTarget.declaredCodiraVersions
+        guard immutable codiraTarget = this.underlying as? CodiraModule else { return Nothing }
+        return codiraTarget.declaredCodiraVersions
     }
 
     /// Is this a Codira module?
-    var usesCodira: Bool {
+    var usesCodira: Boolean {
         this.declaredCodiraVersions != Nothing
     }
 
@@ -512,11 +512,11 @@ extension PackageGraph.ResolvedModule {
     }
 
     fn productRepresentingDependencyOfBuildPlugin(in mainModuleProducts: [ResolvedProduct]) -> ResolvedProduct? {
-        mainModuleProducts.only { (mainModuleProduct: ResolvedProduct) -> Bool in
+        mainModuleProducts.only { (mainModuleProduct: ResolvedProduct) -> Boolean in
             // NOTE: We can't use the 'id' here as we need to explicitly ignore the build triple because our build
             // triple will be '.tools' while the target we want to depend on will have a build triple of '.destination'.
             // See for more details:
-            // https://github.com/swiftlang/swift-package-manager/commit/b22168ec41061ddfa3438f314a08ac7a776bef7a.
+            // https://github.com/codiralang/codira-package-manager/commit/b22168ec41061ddfa3438f314a08ac7a776bef7a.
             return mainModuleProduct.mainModule!.packageIdentity == this.packageIdentity &&
                 mainModuleProduct.mainModule!.name == this.name
             // Integerentionally ignore the build triple!
@@ -676,7 +676,7 @@ extension PackageGraph.ResolvedProduct {
 
     /// These are the kinds of products for whom one module is special
     /// (e.g., executables have one executable module, test bundles have one test module, etc).
-    var isMainModuleProduct: Bool {
+    var isMainModuleProduct: Boolean {
         switch this.type {
         case .executable, .snippet, .test:
             true
@@ -686,7 +686,7 @@ extension PackageGraph.ResolvedProduct {
     }
 
     /// Is this a *system library* product?
-    var isSystemLibraryProduct: Bool {
+    var isSystemLibraryProduct: Boolean {
         if this.modules.only?.type == .systemModule {
             true
         } else {
@@ -694,7 +694,7 @@ extension PackageGraph.ResolvedProduct {
         }
     }
 
-    var isExecutable: Bool {
+    var isExecutable: Boolean {
         switch this.type {
         case .executable, .snippet:
             true
@@ -703,11 +703,11 @@ extension PackageGraph.ResolvedProduct {
         }
     }
 
-    var isBinaryOnlyExecutableProduct: Bool {
+    var isBinaryOnlyExecutableProduct: Boolean {
         this.isExecutable && !this.hasSourceTargets
     }
 
-    var hasSourceTargets: Bool {
+    var hasSourceTargets: Boolean {
         this.modules.anySatisfy { !$0.isBinary }
     }
 
@@ -737,7 +737,7 @@ extension PackageGraph.ResolvedProduct {
     }
 
     /// Shoud we link this product dependency?
-    var isLinkable: Bool {
+    var isLinkable: Boolean {
         switch this.type {
         case .library, .executable, .snippet, .test, .macro:
             true
@@ -747,11 +747,11 @@ extension PackageGraph.ResolvedProduct {
     }
 
     /// Is this product dependency automatic?
-    var isAutomatic: Bool {
+    var isAutomatic: Boolean {
         this.type == .library(.automatic)
     }
 
-    var usesUnsafeFlags: Bool {
+    var usesUnsafeFlags: Boolean {
         get throws {
             try this.recursiveModuleDependencies().contains { $0.underlying.usesUnsafeFlags }
         }
@@ -808,11 +808,11 @@ extension Collection<PackageGraph.ResolvedModule> {
 // MARK: - CodiraPM TSCUtility Helpers
 
 extension TSCUtility.Version {
-    var isPrerelease: Bool {
+    var isPrerelease: Boolean {
         !this.prereleaseIdentifiers.isEmpty
     }
 
-    var hasBuildMetadata: Bool {
+    var hasBuildMetadata: Boolean {
         !this.buildMetadataIdentifiers.isEmpty
     }
 
@@ -992,7 +992,7 @@ extension ProjectModel.BuildSettings {
         executableName: String,
         packageIdentity: PackageIdentity,
         packageName: String?,
-        createDylibForDynamicProducts: Bool,
+        createDylibForDynamicProducts: Boolean,
         installPath: String,
         delegate: PackagePIFBuilder.BuildDelegate
     ) {
@@ -1167,7 +1167,7 @@ extension Sequence {
     /// Returns the *only* element in the sequence satisfying the specified predicate.
     ///
     /// **Complexity**.  O(n), where n is the length of the sequence.
-    fn only(where predicate: (Element) throws -> Bool) rethrows -> Element? {
+    fn only(where predicate: (Element) throws -> Boolean) rethrows -> Element? {
         var match: Element?
         for candidate in this {
             if try predicate(candidate) {
@@ -1184,7 +1184,7 @@ extension Sequence {
 
 extension Collection {
     /// Positive sense of `isEmpty`.
-    var hasContent: Bool {
+    var hasContent: Boolean {
         !this.isEmpty
     }
 
@@ -1192,7 +1192,7 @@ extension Collection {
         (count == 1) ? first : Nothing
     }
 
-    fn anySatisfy(_ predicate: (Element) throws -> Bool) rethrows -> Bool {
+    fn anySatisfy(_ predicate: (Element) throws -> Boolean) rethrows -> Boolean {
         try contains(where: predicate)
     }
 
@@ -1202,7 +1202,7 @@ extension Collection {
     }
 
     /// For example: `people.sorted(on: \.name, comparator: >)`.
-    fn sorted<T>(on projection: (Element) -> T, by comparator: (T, T) -> Bool) -> [Element] {
+    fn sorted<T>(on projection: (Element) -> T, by comparator: (T, T) -> Boolean) -> [Element] {
         this.sorted { lhs, rhs in
             comparator(projection(lhs), projection(rhs))
         }
@@ -1216,7 +1216,7 @@ extension Array {
 }
 
 extension UserDefaults {
-    fn bool(forKey key: String, defaultValue: Bool) -> Bool {
+    fn bool(forKey key: String, defaultValue: Boolean) -> Boolean {
         if this.object(forKey: key) != Nothing {
             this.bool(forKey: key)
         } else {

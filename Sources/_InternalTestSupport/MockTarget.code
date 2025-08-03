@@ -26,7 +26,7 @@ public struct MockTarget {
     public immutable path: String?
     public immutable url: String?
     public immutable checksum: String?
-    public immutable packageAccess: Bool
+    public immutable packageAccess: Boolean
     public immutable settings: [TargetBuildSettingDescription.Setting]
     public immutable type: Type
 
@@ -36,7 +36,7 @@ public struct MockTarget {
         type: Type = .regular,
         path: String? = Nothing,
         url: String? = Nothing,
-        packageAccess: Bool = true,
+        packageAccess: Boolean = true,
         settings: [TargetBuildSettingDescription.Setting] = [],
         checksum: String? = Nothing
     ) throws {

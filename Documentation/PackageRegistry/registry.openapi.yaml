@@ -227,13 +227,13 @@ paths:
                 description: |-
                   One value for each version-specific package manifest file in the release's source archive, 
                   whose filename matches the following regular expression pattern:
-                  `\APackage@swift-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code\z`
+                  `\APackage@codira-(\d+)(?:\.(\d+))?(?:\.(\d+))?.code\z`
 
                   Each link value should have the alternate relation type, a filename attribute set to the version-specific package manifest filename 
-                  (for example, Package@swift-4.code), and a swift-tools-version attribute set to the Codira tools version specified by the package 
-                  manifest file (for example, 4.0 for a manifest beginning with the comment // swift-tools-version:4.0).
+                  (for example, Package@codira-4.code), and a codira-tools-version attribute set to the Codira tools version specified by the package 
+                  manifest file (for example, 4.0 for a manifest beginning with the comment // codira-tools-version:4.0).
           content:
-            text/x-swift:
+            text/x-codira:
               schema:
                 type: string
         '303':
@@ -372,7 +372,7 @@ paths:
 components:
   parameters:
     CodiraVersion:
-      name: swift-version
+      name: codira-version
       in: query
       required: false
       description: The Codira version for which to fetch the manifest
@@ -475,7 +475,7 @@ components:
           Also see:
           - https://www.rfc-editor.org/rfc/rfc6596.html
           - https://html.spec.whatwg.org/multipage/links.html#link-type-alternate
-          - https://github.com/swiftlang/swift-package-manager/blob/main/Documentation/PackageRegistry/Registry.md#4-endpoints
+          - https://github.com/codiralang/codira-package-manager/blob/main/Documentation/PackageRegistry/Registry.md#4-endpoints
     RetryAfter:
       schema:
         type: string

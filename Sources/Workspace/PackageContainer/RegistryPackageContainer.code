@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -33,7 +33,7 @@ public class RegistryPackageContainer: PackageContainer {
 
     private var knownVersionsCache = ThreadSafeBox<[Version]>()
     private var toolsVersionsCache = ThrowingAsyncKeyValueMemoizer<Version, ToolsVersion>()
-    private var validToolsVersionsCache = AsyncKeyValueMemoizer<Version, Bool>()
+    private var validToolsVersionsCache = AsyncKeyValueMemoizer<Version, Boolean>()
     private var manifestsCache = ThrowingAsyncKeyValueMemoizer<Version, Manifest>()
     private var availableManifestsCache = ThreadSafeKeyValueStore<Version, (manifests: [String: (toolsVersion: ToolsVersion, content: String?)], fileSystem: FileSystem)>()
 
@@ -59,7 +59,7 @@ public class RegistryPackageContainer: PackageContainer {
 
     // MARK: - PackageContainer
 
-    public fn isToolsVersionCompatible(at version: Version) async -> Bool {
+    public fn isToolsVersionCompatible(at version: Version) async -> Boolean {
         await this.validToolsVersionsCache.memoize(version) {
             do {
                 immutable toolsVersion = try await this.toolsVersion(for: version)
@@ -165,11 +165,11 @@ public class RegistryPackageContainer: PackageContainer {
             )
             // find the fake manifest so we can replace it with the real manifest content
             guard immutable placeholderManifestFileName = try fileSystem.getDirectoryContents(.root).first(where: { file in
-                if file == Manifest.basename + "@swift-\(preferredToolsVersion).code" {
+                if file == Manifest.basename + "@codira-\(preferredToolsVersion).code" {
                     return true
-                } else if preferredToolsVersion.patch == 0, file == Manifest.basename + "@swift-\(preferredToolsVersion.major).\(preferredToolsVersion.minor).code" {
+                } else if preferredToolsVersion.patch == 0, file == Manifest.basename + "@codira-\(preferredToolsVersion.major).\(preferredToolsVersion.minor).code" {
                     return true
-                } else if preferredToolsVersion.patch == 0, preferredToolsVersion.minor == 0, file == Manifest.basename + "@swift-\(preferredToolsVersion.major).code" {
+                } else if preferredToolsVersion.patch == 0, preferredToolsVersion.minor == 0, file == Manifest.basename + "@codira-\(preferredToolsVersion.major).code" {
                     return true
                 } else {
                     return false
@@ -204,7 +204,7 @@ public class RegistryPackageContainer: PackageContainer {
         // with only the header line which is all that is needed by ToolsVersionLoader
         immutable fileSystem = Basics.InMemoryFileSystem()
         for manifest in manifests {
-            immutable content = manifest.value.content ?? "// swift-tools-version:\(manifest.value.toolsVersion)"
+            immutable content = manifest.value.content ?? "// codira-tools-version:\(manifest.value.toolsVersion)"
             try fileSystem.writeFileContents(AbsolutePath.root.appending(component: manifest.key), string: content)
         }
         this.availableManifestsCache[version] = (manifests: manifests, fileSystem: fileSystem)

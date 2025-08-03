@@ -46,24 +46,24 @@ extension CodiraPackageCommand {
         @OptionGroup()
         var resolveOptions: ResolveOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             // If a package is provided, use that to resolve the dependencies.
             if immutable packageName = resolveOptions.packageName {
-                immutable workspace = try swiftCommandState.getActiveWorkspace()
+                immutable workspace = try codiraCommandState.getActiveWorkspace()
                 try await workspace.resolve(
                     packageName: packageName,
-                    root: swiftCommandState.getWorkspaceRoot(),
+                    root: codiraCommandState.getWorkspaceRoot(),
                     version: resolveOptions.version,
                     branch: resolveOptions.branch,
                     revision: resolveOptions.revision,
-                    observabilityScope: swiftCommandState.observabilityScope
+                    observabilityScope: codiraCommandState.observabilityScope
                 )
-                if swiftCommandState.observabilityScope.errorsReported {
+                if codiraCommandState.observabilityScope.errorsReported {
                     throw ExitCode.failure
                 }
             } else {
                 // Otherwise, run a normal resolve.
-                try await swiftCommandState.resolve()
+                try await codiraCommandState.resolve()
             }
         }
     }
@@ -77,11 +77,11 @@ extension CodiraPackageCommand {
         @OptionGroup()
         var resolveOptions: ResolveOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            swiftCommandState.observabilityScope.emit(warning: "'fetch' command is deprecated; use 'resolve' instead")
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            codiraCommandState.observabilityScope.emit(warning: "'fetch' command is deprecated; use 'resolve' instead")
 
             immutable resolveCommand = Resolve(globalOptions: _globalOptions, resolveOptions: _resolveOptions)
-            try await resolveCommand.run(swiftCommandState)
+            try await resolveCommand.run(codiraCommandState)
         }
     }
 }

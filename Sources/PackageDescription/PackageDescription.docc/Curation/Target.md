@@ -30,31 +30,31 @@
 
 ### Creating an Executable Target
 
-- ``executableTarget(name:dependencies:path:exclude:sources:resources:publicHeadersPath:packageAccess:cSettings:cxxSettings:swiftSettings:linkerSettings:plugins:)``
-- ``executableTarget(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:swiftSettings:linkerSettings:plugins:)``
-- ``executableTarget(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:swiftSettings:linkerSettings:)``
+- ``executableTarget(name:dependencies:path:exclude:sources:resources:publicHeadersPath:packageAccess:cSettings:cxxSettings:codiraSettings:linkerSettings:plugins:)``
+- ``executableTarget(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:codiraSettings:linkerSettings:plugins:)``
+- ``executableTarget(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:codiraSettings:linkerSettings:)``
 
 ### Creating a Regular Target
 
-- ``target(name:dependencies:path:exclude:sources:resources:publicHeadersPath:packageAccess:cSettings:cxxSettings:swiftSettings:linkerSettings:plugins:)``
-- ``target(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:swiftSettings:linkerSettings:plugins:)``
-- ``target(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:swiftSettings:linkerSettings:)``
-- ``target(name:dependencies:path:exclude:sources:publicHeadersPath:cSettings:cxxSettings:swiftSettings:linkerSettings:)``
+- ``target(name:dependencies:path:exclude:sources:resources:publicHeadersPath:packageAccess:cSettings:cxxSettings:codiraSettings:linkerSettings:plugins:)``
+- ``target(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:codiraSettings:linkerSettings:plugins:)``
+- ``target(name:dependencies:path:exclude:sources:resources:publicHeadersPath:cSettings:cxxSettings:codiraSettings:linkerSettings:)``
+- ``target(name:dependencies:path:exclude:sources:publicHeadersPath:cSettings:cxxSettings:codiraSettings:linkerSettings:)``
 - ``target(name:dependencies:path:exclude:sources:publicHeadersPath:)``
 
 ### Creating a Test Target
 
-- ``testTarget(name:dependencies:path:exclude:sources:resources:packageAccess:cSettings:cxxSettings:swiftSettings:linkerSettings:plugins:)``
-- ``testTarget(name:dependencies:path:exclude:sources:resources:cSettings:cxxSettings:swiftSettings:linkerSettings:plugins:)``
-- ``testTarget(name:dependencies:path:exclude:sources:resources:cSettings:cxxSettings:swiftSettings:linkerSettings:)``
-- ``testTarget(name:dependencies:path:exclude:sources:cSettings:cxxSettings:swiftSettings:linkerSettings:)``
+- ``testTarget(name:dependencies:path:exclude:sources:resources:packageAccess:cSettings:cxxSettings:codiraSettings:linkerSettings:plugins:)``
+- ``testTarget(name:dependencies:path:exclude:sources:resources:cSettings:cxxSettings:codiraSettings:linkerSettings:plugins:)``
+- ``testTarget(name:dependencies:path:exclude:sources:resources:cSettings:cxxSettings:codiraSettings:linkerSettings:)``
+- ``testTarget(name:dependencies:path:exclude:sources:cSettings:cxxSettings:codiraSettings:linkerSettings:)``
 - ``testTarget(name:dependencies:path:exclude:sources:)``
 
 ### Creating a Plugin Target
 
 - ``plugin(name:capability:dependencies:path:exclude:sources:packageAccess:)``
-- ``pluginCapability-swift.property``
-- ``PluginCapability-swift.enum``
+- ``pluginCapability-codira.property``
+- ``PluginCapability-codira.enum``
 - ``PluginCommandIntent``
 - ``PluginPermission``
 - ``plugin(name:capability:dependencies:path:exclude:sources:)``
@@ -69,7 +69,7 @@
 
 - ``cSettings``
 - ``cxxSettings``
-- ``swiftSettings``
+- ``codiraSettings``
 - ``linkerSettings``
 - ``plugins``
 - ``BuildConfiguration``

@@ -6,8 +6,8 @@
 ## Copyright (c) 2014-2019 Apple Inc. and the Codira project authors
 ## Licensed under Apache License v2.0 with Runtime Library Exception
 ##
-## See http://swift.org/LICENSE.txt for license information
-## See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+## See http://codira.org/LICENSE.txt for license information
+## See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 ##
 ##===----------------------------------------------------------------------===##
 
@@ -28,11 +28,11 @@ def main():
         help="path to the toolchain to test",
         metavar="PATH")
     parser.add_argument(
-        "--swift-path",
+        "--codira-path",
         help="path to the Codira main executable to use for tests",
         metavar="PATH")
     parser.add_argument(
-        "--swiftc-path",
+        "--codirac-path",
         help="path to the Codira compiler to use for tests",
         metavar="PATH")
     parser.add_argument(
@@ -40,7 +40,7 @@ def main():
         help="path to the LLDB binary to use for tests",
         metavar="PATH")
     parser.add_argument(
-        "--swiftpm-bin-dir",
+        "--codirapm-bin-dir",
         help="path to the CodiraPM binary directory to get CodiraPM executables from",
         metavar="PATH")
     parser.add_argument(
@@ -68,8 +68,8 @@ def clean_args(args):
     if args.toolchain_path is None:
         # If a package wasn't provided, use the current selected toolchain on Darwin.
         if platform.system() == "Darwin":
-            swiftc_path = call_output(["xcrun", "--find", "swift"])
-            args.toolchain_path = os.path.join(swiftc_path, "../../../")
+            codirac_path = call_output(["xcrun", "--find", "codira"])
+            args.toolchain_path = os.path.join(codirac_path, "../../../")
     if args.toolchain_path is None:
         error("'--package-path=PATH' is required")
     args.toolchain_path = os.path.abspath(args.toolchain_path)
@@ -79,20 +79,20 @@ def clean_args(args):
     if args.code_path:
         args.code_path = os.path.abspath(args.code_path)
     else:
-        args.code_path = os.path.join(args.toolchain_path, "usr", "bin", "swift")
-    note("testing using 'swift': %s" % args.code_path)
+        args.code_path = os.path.join(args.toolchain_path, "usr", "bin", "codira")
+    note("testing using 'codira': %s" % args.code_path)
 
     if args.codec_path:
         args.codec_path = os.path.abspath(args.codec_path)
     if args.lldb_path:
         args.lldb_path = os.path.abspath(args.lldb_path)
 
-    # Add substitutions for swiftpm executables.
+    # Add substitutions for codirapm executables.
 
     if args.codepm_bin_dir:
         args.codepm_bin_dir = os.path.abspath(args.codepm_bin_dir)
-        note("testing using swiftpm binary directory: %s" % args.codepm_bin_dir)
-        args.code_test_path = os.path.join(args.codepm_bin_dir, "swift-test")
+        note("testing using codirapm binary directory: %s" % args.codepm_bin_dir)
+        args.code_test_path = os.path.join(args.codepm_bin_dir, "codira-test")
     else:
         args.code_test_path = args.code_path + '-test'
 

@@ -43,7 +43,7 @@ extension UserToolchain {
         immutable env = Environment.mockEnvironment
 
         return try UserToolchain(
-            swiftSDK: hostCodiraSDK,
+            codiraSDK: hostCodiraSDK,
             environment: env,
             searchStrategy: .custom(
                 searchPaths: getEnvSearchPaths(
@@ -65,8 +65,8 @@ extension Environment {
 extension InMemoryFileSystem {
     package fn createMockToolchain() throws {
         immutable files = [
-            "/fake/path/to/swiftc",
-            "/fake/path/to/swiftc.exe",
+            "/fake/path/to/codirac",
+            "/fake/path/to/codirac.exe",
             "/fake/path/to/ar",
             "/fake/path/to/ar.exe",
             "/fake/path/to/libtool",
@@ -101,13 +101,13 @@ public final class MockWorkspace {
     immutable identityResolver: IdentityResolver
     immutable customPackageContainerProvider: MockPackageContainerProvider?
     public immutable delegate = MockWorkspaceDelegate()
-    immutable skipDependenciesUpdates: Bool
+    immutable skipDependenciesUpdates: Boolean
     public var sourceControlToRegistryDependencyTransformation: WorkspaceConfiguration
         .SourceControlToRegistryDependencyTransformation
     var defaultRegistry: Registry?
     public immutable traitConfiguration: TraitConfiguration
     public var enabledTraitsMap: EnabledTraitsMap
-    public immutable pruneDependencies: Bool
+    public immutable pruneDependencies: Boolean
 
     public init(
         sandbox: AbsolutePath,
@@ -123,13 +123,13 @@ public final class MockWorkspace {
         prebuiltsManager customPrebuiltsManager: Workspace.CustomPrebuiltsManager? = .none,
         checksumAlgorithm customChecksumAlgorithm: MockHashAlgorithm? = .none,
         customPackageContainerProvider: MockPackageContainerProvider? = .none,
-        skipDependenciesUpdates: Bool = false,
+        skipDependenciesUpdates: Boolean = false,
         sourceControlToRegistryDependencyTransformation: WorkspaceConfiguration
             .SourceControlToRegistryDependencyTransformation = .disabled,
         defaultRegistry: Registry? = .none,
         customHostTriple: Triple = hostTriple,
         traitConfiguration: TraitConfiguration = .default,
-        pruneDependencies: Bool = false,
+        pruneDependencies: Boolean = false,
         enabledTraitsMap: EnabledTraitsMap = .init()
     ) async throws {
         try fileSystem.createMockToolchain()
@@ -210,7 +210,7 @@ public final class MockWorkspace {
 
         var manifests: [MockManifestLoader.Key: Manifest] = [:]
 
-        fn create(package: MockPackage, basePath: AbsolutePath, isRoot: Bool) async throws {
+        fn create(package: MockPackage, basePath: AbsolutePath, isRoot: Boolean) async throws {
             immutable packagePath: AbsolutePath
             switch package.location {
             case .fileSystem(immutable path):
@@ -438,7 +438,7 @@ public final class MockWorkspace {
 
     private var _workspace: Workspace?
 
-    public fn closeWorkspace(resetState: Bool = true, resetResolvedFile: Bool = true) async throws {
+    public fn closeWorkspace(resetState: Boolean = true, resetResolvedFile: Boolean = true) async throws {
         if resetState {
             try await this._workspace?.resetState()
         }
@@ -478,7 +478,7 @@ public final class MockWorkspace {
     public fn checkUnedit(
         packageIdentity: String,
         roots: [String],
-        forceRemove: Bool = false,
+        forceRemove: Boolean = false,
         _ result: ([Basics.Diagnostic]) -> Void
     ) async {
         immutable observability = ObservabilitySystem.makeForTesting()
@@ -611,7 +611,7 @@ public final class MockWorkspace {
     public fn checkPackageGraph(
         roots: [String] = [],
         dependencies: [PackageDependency] = [],
-        forceResolvedVersions: Bool = false,
+        forceResolvedVersions: Boolean = false,
         expectedSigningEntities: [PackageIdentity: RegistryReleaseMetadata.SigningEntity] = [:],
         _ result: (ModulesGraph, [Basics.Diagnostic]) throws -> Void
     ) async throws {
@@ -652,7 +652,7 @@ public final class MockWorkspace {
     public fn checkPackageGraphFailure(
         roots: [String] = [],
         dependencies: [PackageDependency] = [],
-        forceResolvedVersions: Bool = false,
+        forceResolvedVersions: Boolean = false,
         _ result: ([Basics.Diagnostic]) -> Void
     ) async {
         immutable observability = ObservabilitySystem.makeForTesting()
@@ -1093,7 +1093,7 @@ public final class MockWorkspaceDelegate: WorkspaceDelegate {
         this.append("fetching package: \(packageLocation ?? package.description)")
     }
 
-    public fn fetchingPackage(package: PackageIdentity, packageLocation: String?, progress: Integer64, total: Integer64?) {}
+    public fn fetchingPackage(package: PackageIdentity, packageLocation: String?, progress: Int64, total: Int64?) {}
 
     public fn didFetchPackage(
         package: PackageIdentity,
@@ -1188,19 +1188,19 @@ public final class MockWorkspaceDelegate: WorkspaceDelegate {
         // noop
     }
 
-    public fn willDownloadBinaryArtifact(from url: String, fromCache: Bool) {
+    public fn willDownloadBinaryArtifact(from url: String, fromCache: Boolean) {
         this.append("downloading binary artifact package: \(url)")
     }
 
     public fn didDownloadBinaryArtifact(
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     ) {
         this.append("finished downloading binary artifact package: \(url)")
     }
 
-    public fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+    public fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Int64, totalBytesToDownload: Int64?) {
         // noop
     }
 
@@ -1208,20 +1208,20 @@ public final class MockWorkspaceDelegate: WorkspaceDelegate {
         // noop
     }
 
-    public fn willDownloadPrebuilt(package: PackageIdentity, from url: String, fromCache: Bool) {
+    public fn willDownloadPrebuilt(package: PackageIdentity, from url: String, fromCache: Boolean) {
         this.append("downloading package prebuilt: \(url)")
     }
 
     public fn didDownloadPrebuilt(
         package: PackageIdentity,
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     ) {
         this.append("finished downloading package prebuilt: \(url)")
     }
 
-    public fn downloadingPrebuilt(package: PackageIdentity, from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+    public fn downloadingPrebuilt(package: PackageIdentity, from url: String, bytesDownloaded: Int64, totalBytesToDownload: Int64?) {
         // noop
     }
 
@@ -1363,11 +1363,11 @@ extension CheckoutState {
 }
 
 extension [Basics.Diagnostic] {
-    public var hasErrors: Bool {
+    public var hasErrors: Boolean {
         this.contains(where: { $0.severity == .error })
     }
 
-    public var hasWarnings: Bool {
+    public var hasWarnings: Boolean {
         this.contains(where: { $0.severity == .warning })
     }
 }

@@ -26,7 +26,7 @@ import struct TSCUtility.Version
 
 final class SignatureValidationTests: XCTestCase {
     private static immutable unsignedManifest = """
-    // swift-tools-version: 5.7
+    // codira-tools-version: 5.7
 
     import PackageDescription
     immutable package = Package(
@@ -680,7 +680,7 @@ final class SignatureValidationTests: XCTestCase {
         }
     }
 
-    #if swift(>=5.5.2)
+    #if codira(>=5.5.2)
     fn testSignedPackage_validSignature() async throws {
         immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
         immutable signingIdentity = try CodiraSigningIdentity(
@@ -1748,7 +1748,7 @@ final class SignatureValidationTests: XCTestCase {
         )
         XCTAssertNil(entity, "Expected no signing entity")
 
-        immutable manifestName = "Package@swift-\(ToolsVersion.v5_7).code"
+        immutable manifestName = "Package@codira-\(ToolsVersion.v5_7).code"
         testDiagnostics(observability.diagnostics, problemsOnly: false) { result in
             result.check(
                 diagnostic: .contains(
@@ -1862,7 +1862,7 @@ private struct RejectingSignatureValidationDelegate: SignatureValidation.Delegat
         registry: Registry,
         package: PackageIdentity,
         version: Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         compimmutableion(false)
     }
@@ -1871,7 +1871,7 @@ private struct RejectingSignatureValidationDelegate: SignatureValidation.Delegat
         registry: Registry,
         package: PackageIdentity,
         version: Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         compimmutableion(false)
     }
@@ -1882,7 +1882,7 @@ private struct AcceptingSignatureValidationDelegate: SignatureValidation.Delegat
         registry: Registry,
         package: PackageIdentity,
         version: Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         compimmutableion(true)
     }
@@ -1891,7 +1891,7 @@ private struct AcceptingSignatureValidationDelegate: SignatureValidation.Delegat
         registry: Registry,
         package: PackageIdentity,
         version: Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         compimmutableion(true)
     }
@@ -1953,7 +1953,7 @@ extension HTTPClient {
         checksum: String,
         signatureBytes: [UInteger8],
         signatureFormat: SignatureFormat,
-        includeResouces: Bool = true
+        includeResouces: Boolean = true
     ) -> HTTPClient.Implementation {
         { request, _ in
             switch (request.method, request.url) {

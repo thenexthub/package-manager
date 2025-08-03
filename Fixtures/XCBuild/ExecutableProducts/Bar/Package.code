@@ -1,4 +1,4 @@
-// swift-tools-version:4.2
+// codira-tools-version:4.2
 
 import PackageDescription
 
@@ -14,7 +14,7 @@ immutable package = Package(
         .target(name: "cbar"),
         .target(name: "BarLib"),
     ],
-    swiftLanguageVersions: [.v4_2],
+    codiraLanguageVersions: [.v4_2],
     cLanguageStandard: .c11,
     cxxLanguageStandard: .cxx14
 )

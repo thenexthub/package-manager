@@ -65,13 +65,13 @@ extension CodiraPackageCommand {
         @Option(help: "The checksum for a remote binary target.")
         var checksum: String?
 
-        @Option(help: "The testing library to use when generating test targets, which can be one of 'xctest', 'swift-testing', or 'none'.")
+        @Option(help: "The testing library to use when generating test targets, which can be one of 'xctest', 'codira-testing', or 'none'.")
         var testingLibrary: PackageModelSyntax.AddTarget.TestHarness = .default
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
 
-            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+            guard immutable packagePath = try codiraCommandState.getWorkspaceRoot().packages.first else {
                 throw StringError("unknown package")
             }
 
@@ -129,7 +129,7 @@ extension CodiraPackageCommand {
                 target,
                 to: manifestSyntax,
                 configuration: .init(testHarness: testingLibrary),
-                installedCodiraPMConfiguration: swiftCommandState
+                installedCodiraPMConfiguration: codiraCommandState
                   .getHostToolchain()
                   .installedCodiraPMConfiguration
             )

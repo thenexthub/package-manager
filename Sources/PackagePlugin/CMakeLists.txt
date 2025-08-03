@@ -3,8 +3,8 @@
 # Copyright (c) 2021-2022 Apple Inc. and the Codira project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
 #
-# See http://swift.org/LICENSE.txt for license information
-# See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+# See http://codira.org/LICENSE.txt for license information
+# See http://codira.org/CONTRIBUTORS.txt for Codira project authors
 
 add_library(PackagePlugin SHARED
   ArgumentExtractor.code
@@ -59,15 +59,15 @@ if(CMAKE_HOST_SYSTEM_NAME STREQUAL Darwin)
   install(FILES
     ${CMAKE_BINARY_DIR}/pm/PluginAPI/PackagePlugin.codeinterface
     ${CMAKE_BINARY_DIR}/pm/PluginAPI/PackagePlugin.codedoc
-    DESTINATION lib/swift/pm/PluginAPI
+    DESTINATION lib/codira/pm/PluginAPI
   )
 else()
   install(FILES
     ${CMAKE_BINARY_DIR}/pm/PluginAPI/PackagePlugin.codemodule
     ${CMAKE_BINARY_DIR}/pm/PluginAPI/PackagePlugin.codedoc
-    DESTINATION lib/swift/pm/PluginAPI
+    DESTINATION lib/codira/pm/PluginAPI
   )
 endif()
 
 install(TARGETS PackagePlugin
-  DESTINATION lib/swift/pm/PluginAPI)
+  DESTINATION lib/codira/pm/PluginAPI)

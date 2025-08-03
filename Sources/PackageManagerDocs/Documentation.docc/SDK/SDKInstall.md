@@ -1,4 +1,4 @@
-# swift sdk install
+# codira sdk install
 
 @Metadata {
     @PageImage(purpose: icon, source: command-icon)
@@ -14,7 +14,7 @@ sdk install [--package-path=<package-path>]
   [--cache-path=<cache-path>] [--config-path=<config-path>]
   [--security-path=<security-path>]
   [--scratch-path=<scratch-path>]
-  [--swift-sdks-path=<swift-sdks-path>]
+  [--codira-sdks-path=<codira-sdks-path>]
   [--toolset=<toolset>...]
   [--pkg-config-path=<pkg-config-path>...]
   <bundle-path-or-url> [--checksum=<checksum>]
@@ -47,7 +47,7 @@ sdk install [--package-path=<package-path>]
 *Specify a custom scratch directory path. (default .build)*
 
 
-- term **--swift-sdks-path=\<swift-sdks-path\>**:
+- term **--codira-sdks-path=\<codira-sdks-path\>**:
 
 *Path to the directory containing installed Codira SDKs.*
 
@@ -70,7 +70,7 @@ specify more than one path.*
 
 - term **--checksum=\<checksum\>**:
 
-*The checksum of the bundle generated with `swift package compute-checksum`.*
+*The checksum of the bundle generated with `codira package compute-checksum`.*
 
 
 - term **--color-diagnostics|no-color-diagnostics**:

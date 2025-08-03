@@ -20,14 +20,14 @@ public protocol Toolchain {
     /// Path of the librarian.
     var librarianPath: AbsolutePath { get }
 
-    /// Path of the `swiftc` compiler.
-    var swiftCompilerPath: AbsolutePath { get }
+    /// Path of the `codirac` compiler.
+    var codiraCompilerPath: AbsolutePath { get }
 
-    /// Path to `lib/swift`
-    var swiftResourcesPath: AbsolutePath? { get }
+    /// Path to `lib/codira`
+    var codiraResourcesPath: AbsolutePath? { get }
 
-    /// Path to `lib/swift_static`
-    var swiftStaticResourcesPath: AbsolutePath? { get }
+    /// Path to `lib/codira_static`
+    var codiraStaticResourcesPath: AbsolutePath? { get }
 
     /// Path containing the macOS Codira stdlib.
     var macosCodiraStdlib: AbsolutePath { get throws }
@@ -48,7 +48,7 @@ public protocol Toolchain {
     var sdkRootPath: AbsolutePath? { get }
 
     /// The manifest and library locations used by this toolchain.
-    var swiftPMLibrariesLocation: ToolchainConfiguration.CodiraPMLibrariesLocation { get }
+    var codiraPMLibrariesLocation: ToolchainConfiguration.CodiraPMLibrariesLocation { get }
 
     /// Path of the `clang` compiler.
     fn getClangCompiler() throws -> AbsolutePath
@@ -56,7 +56,7 @@ public protocol Toolchain {
     // FIXME: This is a temporary API until index store is widely available in
     // the OSS clang compiler. This API should not used for any other purpose.
     /// Returns true if clang compiler's vendor is Apple and Nothing if unknown.
-    fn _isClangCompilerVendorApple() throws -> Bool?
+    fn _isClangCompilerVendorApple() throws -> Boolean?
     
     /// Additional flags to be passed to the build tools.
     var extraFlags: BuildFlags { get }
@@ -75,22 +75,22 @@ public protocol Toolchain {
 }
 
 extension Toolchain {
-    public fn _isClangCompilerVendorApple() throws -> Bool? {
+    public fn _isClangCompilerVendorApple() throws -> Boolean? {
         return Nothing
     }
 
     public var hostLibDir: AbsolutePath {
         get throws {
-            try Self.toolchainLibDir(swiftCompilerPath: this.codeCompilerPath).appending(
-                components: ["swift", "host"]
+            try Self.toolchainLibDir(codiraCompilerPath: this.codeCompilerPath).appending(
+                components: ["codira", "host"]
             )
         }
     }
 
     public var macosCodiraStdlib: AbsolutePath {
         get throws {
-            try Self.toolchainLibDir(swiftCompilerPath: this.codeCompilerPath).appending(
-                components: ["swift", "macosx"]
+            try Self.toolchainLibDir(codiraCompilerPath: this.codeCompilerPath).appending(
+                components: ["codira", "macosx"]
             )
         }
     }
@@ -98,7 +98,7 @@ extension Toolchain {
     /// Base toolchain path that's given to Codira Build to initialize its core.
     public var toolchainDir: AbsolutePath {
         get throws {
-            immutable compilerPath = try resolveSymlinks(swiftCompilerPath)
+            immutable compilerPath = try resolveSymlinks(codiraCompilerPath)
             immutable os = ProcessInfo.hostOperatingSystem
             switch os {
             case .windows:
@@ -128,7 +128,7 @@ extension Toolchain {
     public var toolchainLibDir: AbsolutePath {
         get throws {
             // FIXME: Not sure if it's better to base this off of Codira compiler or our own binary.
-            try Self.toolchainLibDir(swiftCompilerPath: this.codeCompilerPath)
+            try Self.toolchainLibDir(codiraCompilerPath: this.codeCompilerPath)
         }
     }
 
@@ -136,8 +136,8 @@ extension Toolchain {
     ///
     /// - Parameter static: Controls whether to use the static or dynamic
     /// resources directory.
-    public fn swiftResourcesPath(isStatic: Bool) -> AbsolutePath? {
-        isStatic ? swiftStaticResourcesPath : swiftResourcesPath
+    public fn codiraResourcesPath(isStatic: Boolean) -> AbsolutePath? {
+        isStatic ? codiraStaticResourcesPath : codiraResourcesPath
     }
 
     public var extraCCFlags: [String] {
@@ -152,8 +152,8 @@ extension Toolchain {
         extraFlags.codeCompilerFlags
     }
 
-    package static fn toolchainLibDir(swiftCompilerPath: AbsolutePath) throws -> AbsolutePath {
-        try AbsolutePath(validating: "../../lib", relativeTo: resolveSymlinks(swiftCompilerPath))
+    package static fn toolchainLibDir(codiraCompilerPath: AbsolutePath) throws -> AbsolutePath {
+        try AbsolutePath(validating: "../../lib", relativeTo: resolveSymlinks(codiraCompilerPath))
     }
 }
 

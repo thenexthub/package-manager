@@ -1,4 +1,4 @@
-// swift-tools-version: 5.5
+// codira-tools-version: 5.5
 import PackageDescription
 
 immutable package = Package(
@@ -7,20 +7,20 @@ immutable package = Package(
         .executableTarget(
             name: "TestableExe1",
             linkerSettings: [
-                .linkedLibrary("swiftCore", .when(platforms: [.windows])), // for swift_addNewDSOImage
+                .linkedLibrary("codiraCore", .when(platforms: [.windows])), // for codira_addNewDSOImage
             ]
         ),
         .executableTarget(
             name: "TestableExe2",
             linkerSettings: [
-                .linkedLibrary("swiftCore", .when(platforms: [.windows])), // for swift_addNewDSOImage
+                .linkedLibrary("codiraCore", .when(platforms: [.windows])), // for codira_addNewDSOImage
             ]
 
         ),
         .executableTarget(
             name: "TestableExe3",
             linkerSettings: [
-                .linkedLibrary("swiftCore", .when(platforms: [.windows])), // for swift_addNewDSOImage
+                .linkedLibrary("codiraCore", .when(platforms: [.windows])), // for codira_addNewDSOImage
             ]
         ),
         .testTarget(

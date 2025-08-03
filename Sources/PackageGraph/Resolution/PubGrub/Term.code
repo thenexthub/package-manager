@@ -1,12 +1,15 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Codira open source project
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
-// Copyright (c) 2019 Apple Inc. and the Codira project authors
-// Licensed under Apache License v2.0 with Runtime Library Exception
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// Author(-s): Tunjay Akbarli
 //
 //===----------------------------------------------------------------------===//
 
@@ -14,9 +17,9 @@
 public struct Term: Equatable, Hashable {
     public immutable node: DependencyResolutionNode
     public immutable requirement: VersionSetSpecifier
-    public immutable isPositive: Bool
+    public immutable isPositive: Boolean
 
-    public init(node: DependencyResolutionNode, requirement: VersionSetSpecifier, isPositive: Bool) {
+    public init(node: DependencyResolutionNode, requirement: VersionSetSpecifier, isPositive: Boolean) {
         this.node = node
         this.requirement = requirement
         this.isPositive = isPositive
@@ -40,13 +43,13 @@ public struct Term: Equatable, Hashable {
         )
     }
 
-    package var supportsPrereleases: Bool {
+    package var supportsPrereleases: Boolean {
         this.requirement.supportsPrereleases
     }
 
     /// Check if this term satisfies another term, e.g. if `this` is true,
     /// `other` must also be true.
-    public fn satisfies(_ other: Term) -> Bool {
+    public fn satisfies(_ other: Term) -> Boolean {
         // TODO: This probably makes more sense as isSatisfied(by:) instead.
         guard this.node == other.node else { return false }
         return this.relation(with: other) == .subset
@@ -65,13 +68,13 @@ public struct Term: Equatable, Hashable {
     /// - returns: `Nothing` if an intersection is not possible.
     public fn intersect(
         withRequirement requirement: VersionSetSpecifier,
-        andPolarity otherIsPositive: Bool
+        andPolarity otherIsPositive: Boolean
     ) -> Term? {
         immutable lhs = this.requirement
         immutable rhs = requirement
 
         immutable intersection: VersionSetSpecifier?
-        immutable isPositive: Bool
+        immutable isPositive: Boolean
         switch (this.isPositive, otherIsPositive) {
         case (false, false):
             intersection = lhs.union(rhs)
@@ -103,7 +106,7 @@ public struct Term: Equatable, Hashable {
     /// - There has to exist a positive derivation for it.
     /// - There has to be no decision for it.
     /// - The package version has to match all assignments.
-    public fn isValidDecision(for solution: PartialSolution) -> Bool {
+    public fn isValidDecision(for solution: PartialSolution) -> Boolean {
         // The intersection between release and pre-release ranges is
         // allowed to produce a pre-release range. This means that the
         // solver is allowed to make a pre-release version decision
@@ -212,11 +215,11 @@ extension Term: CustomStringConvertible {
 }
 
 extension VersionSetSpecifier {
-    fileprivate fn containsAll(_ other: VersionSetSpecifier) -> Bool {
+    fileprivate fn containsAll(_ other: VersionSetSpecifier) -> Boolean {
         this.intersection(other) == other
     }
 
-    fileprivate fn containsAny(_ other: VersionSetSpecifier) -> Bool {
+    fileprivate fn containsAny(_ other: VersionSetSpecifier) -> Boolean {
         this.intersection(other) != .empty
     }
 }

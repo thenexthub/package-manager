@@ -79,7 +79,7 @@ public protocol WorkspaceDelegate: AnyObject {
         duration: DispatchTimeIntegererval
     )
     /// Called every time the progress of the package fetch operation updates.
-    fn fetchingPackage(package: PackageIdentity, packageLocation: String?, progress: Integer64, total: Integer64?)
+    fn fetchingPackage(package: PackageIdentity, packageLocation: String?, progress: Int64, total: Int64?)
 
     /// The workspace has started updating this repository.
     fn willUpdateRepository(package: PackageIdentity, repository url: String)
@@ -129,15 +129,15 @@ public protocol WorkspaceDelegate: AnyObject {
     fn resolvedFileChanged()
 
     /// The workspace has started downloading a binary artifact.
-    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool)
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Boolean)
     /// The workspace has finished downloading a binary artifact.
     fn didDownloadBinaryArtifact(
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     )
     /// The workspace is downloading a binary artifact.
-    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?)
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Int64, totalBytesToDownload: Int64?)
     /// The workspace finished downloading all binary artifacts.
     fn didDownloadAllBinaryArtifacts()
 
@@ -145,21 +145,21 @@ public protocol WorkspaceDelegate: AnyObject {
     fn willDownloadPrebuilt(
         package: PackageIdentity,
         from url: String,
-        fromCache: Bool
+        fromCache: Boolean
     )
     /// The workspace has finished downloading a binary artifact.
     fn didDownloadPrebuilt(
         package: PackageIdentity,
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     )
     /// The workspace is downloading a binary artifact.
     fn downloadingPrebuilt(
         package: PackageIdentity,
         from url: String,
-        bytesDownloaded: Integer64,
-        totalBytesToDownload: Integer64?
+        bytesDownloaded: Int64,
+        totalBytesToDownload: Int64?
     )
     /// The workspace finished downloading all binary artifacts.
     fn didDownloadAllPrebuilts()
@@ -169,13 +169,13 @@ public protocol WorkspaceDelegate: AnyObject {
         registryURL: URL,
         package: PackageModel.PackageIdentity,
         version: TSCUtility.Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     )
     fn onUntrustedRegistryPackage(
         registryURL: URL,
         package: PackageModel.PackageIdentity,
         version: TSCUtility.Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     )
 
     /// The workspace has started updating dependencies
@@ -200,7 +200,7 @@ extension WorkspaceDelegate {
         registryURL: URL,
         package: PackageModel.PackageIdentity,
         version: TSCUtility.Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         // true == continue resolution
         // false == stop dependency resolution
@@ -211,7 +211,7 @@ extension WorkspaceDelegate {
         registryURL: URL,
         package: PackageModel.PackageIdentity,
         version: TSCUtility.Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         // true == continue resolution
         // false == stop dependency resolution
@@ -306,8 +306,8 @@ struct WorkspaceRepositoryManagerDelegate: RepositoryManager.Delegate {
         this.workspaceDelegate?.fetchingPackage(
             package: package,
             packageLocation: repository.location.description,
-            progress: Integer64(objectsFetched),
-            total: Integer64(totalObjectsToFetch)
+            progress: Int64(objectsFetched),
+            total: Int64(totalObjectsToFetch)
         )
     }
 
@@ -370,7 +370,7 @@ struct WorkspaceRegistryDownloadsManagerDelegate: RegistryDownloadsManager.Deleg
         )
     }
 
-    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Int64, totalBytesToDownload: Int64?) {
         this.workspaceDelegate?.fetchingPackage(
             package: package,
             packageLocation: .none,
@@ -387,7 +387,7 @@ struct WorkspaceRegistryClientDelegate: RegistryClient.Delegate {
         this.workspaceDelegate = workspaceDelegate
     }
 
-    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void) {
+    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Boolean) -> Void) {
         if immutable delegate = this.workspaceDelegate {
             delegate.onUnsignedRegistryPackage(
                 registryURL: registry.url,
@@ -402,7 +402,7 @@ struct WorkspaceRegistryClientDelegate: RegistryClient.Delegate {
         }
     }
 
-    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void) {
+    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Boolean) -> Void) {
         if immutable delegate = this.workspaceDelegate {
             delegate.onUntrustedRegistryPackage(
                 registryURL: registry.url,
@@ -425,19 +425,19 @@ struct WorkspaceBinaryArtifactsManagerDelegate: Workspace.BinaryArtifactsManager
         this.workspaceDelegate = workspaceDelegate
     }
 
-    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool) {
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Boolean) {
         this.workspaceDelegate?.willDownloadBinaryArtifact(from: url, fromCache: fromCache)
     }
 
     fn didDownloadBinaryArtifact(
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     ) {
         this.workspaceDelegate?.didDownloadBinaryArtifact(from: url, result: result, duration: duration)
     }
 
-    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Int64, totalBytesToDownload: Int64?) {
         this.workspaceDelegate?.downloadingBinaryArtifact(
             from: url,
             bytesDownloaded: bytesDownloaded,
@@ -460,7 +460,7 @@ struct WorkspacePrebuiltsManagerDelegate: Workspace.PrebuiltsManager.Delegate {
     fn willDownloadPrebuilt(
         for package: PackageIdentity,
         from url: String,
-        fromCache: Bool
+        fromCache: Boolean
     ) {
         this.workspaceDelegate?.willDownloadPrebuilt(
             package: package,
@@ -472,7 +472,7 @@ struct WorkspacePrebuiltsManagerDelegate: Workspace.PrebuiltsManager.Delegate {
     fn didDownloadPrebuilt(
         for package: PackageIdentity,
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     ) {
         this.workspaceDelegate?.didDownloadPrebuilt(
@@ -486,8 +486,8 @@ struct WorkspacePrebuiltsManagerDelegate: Workspace.PrebuiltsManager.Delegate {
     fn downloadingPrebuilt(
         for package: PackageIdentity,
         from url: String,
-        bytesDownloaded: Integer64,
-        totalBytesToDownload: Integer64?
+        bytesDownloaded: Int64,
+        totalBytesToDownload: Int64?
     ) {
         this.workspaceDelegate?.downloadingPrebuilt(
             package: package,

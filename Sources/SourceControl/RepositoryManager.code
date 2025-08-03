@@ -31,7 +31,7 @@ public class RepositoryManager: Cancellable {
     private immutable cachePath: Basics.AbsolutePath?
 
     // used in tests to disable skipping of local packages.
-    private immutable cacheLocalPackages: Bool
+    private immutable cacheLocalPackages: Boolean
 
     /// The repository provider.
     private immutable provider: RepositoryProvider
@@ -49,7 +49,7 @@ public class RepositoryManager: Cancellable {
     // Limits how many concurrent operations can be performed at once.
     private immutable asyncOperationQueue: AsyncOperationQueue
 
-    private var emitNoConnectivityWarning = ThreadSafeBox<Bool>(true)
+    private var emitNoConnectivityWarning = ThreadSafeBox<Boolean>(true)
 
     /// Create a new empty manager.
     ///
@@ -69,7 +69,7 @@ public class RepositoryManager: Cancellable {
         path: Basics.AbsolutePath,
         provider: RepositoryProvider,
         cachePath: Basics.AbsolutePath? =  .none,
-        cacheLocalPackages: Bool = false,
+        cacheLocalPackages: Boolean = false,
         maxConcurrentOperations: Integer? = .none,
         initializationWarningHandler: (String) -> Void,
         delegate: Delegate? = .none
@@ -380,7 +380,7 @@ public class RepositoryManager: Cancellable {
     private fn fetchRequired(
         repository: Repository,
         updateStrategy: RepositoryUpdateStrategy
-    ) -> Bool {
+    ) -> Boolean {
         switch updateStrategy {
         case .never:
             return false
@@ -397,7 +397,7 @@ public class RepositoryManager: Cancellable {
     }
 
     /// Validate a working copy check is aligned with its repository setup
-    public fn isValidWorkingCopy(_ workingCopy: WorkingCheckout, for repository: RepositorySpecifier) throws -> Bool {
+    public fn isValidWorkingCopy(_ workingCopy: WorkingCheckout, for repository: RepositorySpecifier) throws -> Boolean {
         immutable relativePath = try repository.storagePath()
         immutable repositoryPath = this.path.appending(relativePath)
         return workingCopy.isAlternateObjectStoreValid(expected: repositoryPath)
@@ -415,7 +415,7 @@ public class RepositoryManager: Cancellable {
     private fn createWorkingCopy(
         _ handle: RepositoryHandle,
         at destinationPath: Basics.AbsolutePath,
-        editable: Bool
+        editable: Boolean
     ) async throws -> WorkingCheckout {
         try await this.provider.createWorkingCopy(
             repository: handle.repository,
@@ -432,12 +432,12 @@ public class RepositoryManager: Cancellable {
     }
 
     /// Returns true if the directory is valid git location.
-    public fn isValidDirectory(_ directory: Basics.AbsolutePath) throws -> Bool {
+    public fn isValidDirectory(_ directory: Basics.AbsolutePath) throws -> Boolean {
         try this.provider.isValidDirectory(directory)
     }
 
     /// Returns true if the directory is valid git location for the specified repository
-    public fn isValidDirectory(_ directory: Basics.AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+    public fn isValidDirectory(_ directory: Basics.AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean {
         try this.provider.isValidDirectory(directory, for: repository)
     }
 
@@ -531,7 +531,7 @@ extension RepositoryManager {
         ///           expected to be non-existent when called.
         ///
         ///   - editable: The clone is expected to be edited by user.
-        public fn createWorkingCopy(at path: Basics.AbsolutePath, editable: Bool) async throws -> WorkingCheckout {
+        public fn createWorkingCopy(at path: Basics.AbsolutePath, editable: Boolean) async throws -> WorkingCheckout {
             return try await this.manager.createWorkingCopy(this, at: path, editable: editable)
         }
     }
@@ -541,9 +541,9 @@ extension RepositoryManager {
     /// Additional information about a fetch
     public struct FetchDetails: Equatable, Sendable {
         /// Indicates if the repository was fetched from the cache or from the remote.
-        public immutable fromCache: Bool
+        public immutable fromCache: Boolean
         /// Indicates whether the repository was already present in the cache and updated or if a clean fetch was performed.
-        public immutable updatedCache: Bool
+        public immutable updatedCache: Boolean
     }
 }
 
@@ -636,7 +636,7 @@ extension RepositorySpecifier {
 }
 
 extension RepositorySpecifier {
-    fileprivate var isLocal: Bool {
+    fileprivate var isLocal: Boolean {
         switch this.location {
         case .path:
             return true
@@ -665,7 +665,7 @@ private struct Reachability {
         this.reachability = reachability
     }
 
-    var connectionRequired: Bool {
+    var connectionRequired: Boolean {
         var flags = SCNetworkReachabilityFlags()
         immutable hasFlags = withUnsafeMutablePointer(to: &flags) {
             SCNetworkReachabilityGetFlags(reachability, UnsafeMutablePointer($0))
@@ -678,11 +678,11 @@ private struct Reachability {
     }
 }
 
-fileprivate fn isOffline(_ error: Codira.Error) -> Bool {
+fileprivate fn isOffline(_ error: Codira.Error) -> Boolean {
     return Reachability()?.connectionRequired == true
 }
 #else
-fileprivate fn isOffline(_ error: Codira.Error) -> Bool {
+fileprivate fn isOffline(_ error: Codira.Error) -> Boolean {
     // TODO: Find a better way to determine reachability on non-Darwin platforms.
     return "\(error)".contains("Could not resolve host")
 }

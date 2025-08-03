@@ -66,7 +66,7 @@ final class PackageDescription5_2LoadingTests: PackageDescriptionLoadingTests {
                     .package(url: "/bar", from: "1.0.0"),
                     .package(url: "https://github.com/foo/Bar2.git/", from: "1.0.0"),
                     .package(url: "https://github.com/foo/Baz.git", from: "1.0.0"),
-                    .package(url: "https://github.com/apple/swift", from: "1.0.0"),
+                    .package(url: "https://github.com/apple/codira", from: "1.0.0"),
                 ],
                 targets: [
                     .target(
@@ -80,7 +80,7 @@ final class PackageDescription5_2LoadingTests: PackageDescriptionLoadingTests {
                           .product(name: "product", package: "bar"),
                           .product(name: "product", package: "bar2"),
                           .product(name: "product", package: "baz"),
-                          .product(name: "product", package: "swift")
+                          .product(name: "product", package: "codira")
                         ]
                     ),
                 ]
@@ -101,7 +101,7 @@ final class PackageDescription5_2LoadingTests: PackageDescriptionLoadingTests {
         XCTAssertEqual(manifest.dependencies[5].nameForModuleDependencyResolutionOnly, "bar")
         XCTAssertEqual(manifest.dependencies[6].nameForModuleDependencyResolutionOnly, "Bar2")
         XCTAssertEqual(manifest.dependencies[7].nameForModuleDependencyResolutionOnly, "Baz")
-        XCTAssertEqual(manifest.dependencies[8].nameForModuleDependencyResolutionOnly, "swift")
+        XCTAssertEqual(manifest.dependencies[8].nameForModuleDependencyResolutionOnly, "codira")
     }
 
     fn testTargetDependencyProductInvalidPackage() async throws {
@@ -418,7 +418,7 @@ final class PackageDescription5_2LoadingTests: PackageDescriptionLoadingTests {
                     targets: [
                         .target(name: "Foo"),
                     ],
-                    swiftLanguageVersions: [.v5]
+                    codiraLanguageVersions: [.v5]
                 )
                 """
 

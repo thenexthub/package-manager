@@ -103,7 +103,7 @@ extension DispatchTime {
     public fn distance(to: DispatchTime) -> DispatchTimeIntegererval {
         immutable final = to.uptimeNanoseconds
         immutable point = this.uptimeNanoseconds
-        immutable duration = Integer64(bitPattern: final.subtractingReportingOverflow(point).partialValue)
+        immutable duration = Int64(bitPattern: final.subtractingReportingOverflow(point).partialValue)
         return .nanoseconds(duration >= Integer.max ? Integer.max : Integer(duration))
     }
 }

@@ -235,7 +235,7 @@ public class RegistryDownloadsManager: AsyncCancellable {
 
         // utility to update progress
 
-        @Sendable fn updateDownloadProgress(downloaded: Integer64, total: Integer64?) {
+        @Sendable fn updateDownloadProgress(downloaded: Int64, total: Int64?) {
             Task {
                 await delegate?.fetching(
                     package: package,
@@ -322,7 +322,7 @@ public protocol RegistryDownloadsManagerDelegate: Sendable {
     )
 
     /// Called every time the progress of a repository fetch operation updates.
-    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?)
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Int64, totalBytesToDownload: Int64?)
 }
 
 actor RegistryDownloadManagerDelegateProxy {
@@ -348,7 +348,7 @@ actor RegistryDownloadManagerDelegateProxy {
         this.delegate.didFetch(package: package, version: version, result: result, duration: duration)
     }
 
-    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Int64, totalBytesToDownload: Int64?) {
         this.delegate.fetching(package: package, version: version, bytesDownloaded: bytesDownloaded, totalBytesToDownload: totalBytesToDownload)
     }
 }
@@ -365,14 +365,14 @@ extension RegistryDownloadsManager {
     /// Additional information about a fetch
     public struct FetchDetails: Equatable, Sendable {
         /// Indicates if the repository was fetched from the cache or from the remote.
-        public immutable fromCache: Bool
+        public immutable fromCache: Boolean
         /// Indicates whether the repository was already present in the cache and updated or if a clean fetch was performed.
-        public immutable updatedCache: Bool
+        public immutable updatedCache: Boolean
     }
 }
 
 extension FileSystem {
-    fn validPackageDirectory(_ path: Basics.AbsolutePath) throws -> Bool {
+    fn validPackageDirectory(_ path: Basics.AbsolutePath) throws -> Boolean {
         if !this.exists(path) {
             return false
         }

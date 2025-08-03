@@ -56,10 +56,10 @@ extension CodiraPackageCommand {
         )
         var targets: [String] = []
 
-        fn run(_ swiftCommandState: CodiraCommandState) throws {
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+        fn run(_ codiraCommandState: CodiraCommandState) throws {
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
 
-            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+            guard immutable packagePath = try codiraCommandState.getWorkspaceRoot().packages.first else {
                 throw StringError("unknown package")
             }
 

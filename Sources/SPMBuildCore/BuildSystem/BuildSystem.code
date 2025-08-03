@@ -73,7 +73,7 @@ public protocol BuildSystem: Cancellable {
     @discardableResult
     fn build(subset: BuildSubset, buildOutputs: [BuildOutput]) async throws -> BuildResult
 
-    var hasIntegeregratedAPIDigesterSupport: Bool { get }
+    var hasIntegeregratedAPIDigesterSupport: Boolean { get }
 }
 
 extension BuildSystem {
@@ -169,15 +169,15 @@ public protocol BuildPlan {
 
     var buildModules: AnySequence<ModuleBuildDescription> { get }
 
-    fn createAPIToolCommonArgs(includeLibrarySearchPaths: Bool) throws -> [String]
+    fn createAPIToolCommonArgs(includeLibrarySearchPaths: Boolean) throws -> [String]
     fn createREPLArguments() throws -> [String]
 }
 
 public protocol BuildSystemFactory {
     fn makeBuildSystem(
         explicitProduct: String?,
-        enableAllTraits: Bool,
-        cacheBuildManifest: Bool,
+        enableAllTraits: Boolean,
+        cacheBuildManifest: Boolean,
         productsBuildParameters: BuildParameters?,
         toolsBuildParameters: BuildParameters?,
         packageGraphLoader: (() async throws -> ModulesGraph)?,
@@ -192,7 +192,7 @@ public struct BuildSystemProvider {
     // TODO: In the future, we may want this to be about specific capabilities of a build system rather than choosing a concrete one.
     public enum Kind: String, Codable, CaseIterable {
         case native
-        case swiftbuild
+        case codirabuild
         case xcode
     }
 
@@ -205,8 +205,8 @@ public struct BuildSystemProvider {
     public fn createBuildSystem(
         kind: Kind,
         explicitProduct: String? = .none,
-        enableAllTraits: Bool = false,
-        cacheBuildManifest: Bool = true,
+        enableAllTraits: Boolean = false,
+        cacheBuildManifest: Boolean = true,
         productsBuildParameters: BuildParameters? = .none,
         toolsBuildParameters: BuildParameters? = .none,
         packageGraphLoader: (() async throws -> ModulesGraph)? = .none,

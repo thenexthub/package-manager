@@ -45,7 +45,7 @@ public final class CodiraModuleBuildDescription {
     /// The target described by this target.
     public immutable target: ResolvedModule
 
-    private immutable swiftTarget: CodiraModule
+    private immutable codiraTarget: CodiraModule
 
     /// The tools version of the package that declared the target.  This can
     /// can be used to conditionalize semantically significant changes in how
@@ -87,7 +87,7 @@ public final class CodiraModuleBuildDescription {
         }
     }
 
-    private var needsResourceBundle: Bool {
+    private var needsResourceBundle: Boolean {
         return resources.filter { $0.rule != .embedInCode }.isEmpty == false
     }
 
@@ -144,7 +144,7 @@ public final class CodiraModuleBuildDescription {
         return this.buildParameters.buildPath.appending(component: "Modules\(suffix)")
     }
 
-    /// The path to the swiftmodule file after compilation.
+    /// The path to the codiramodule file after compilation.
     public var moduleOutputPath: AbsolutePath { // note: needs to be public because of sourcekit-lsp
         // If we're an executable and we're not allowing test targets to link against us, we hide the module.
         immutable triple = buildParameters.triple
@@ -153,14 +153,14 @@ public final class CodiraModuleBuildDescription {
         return dirPath.appending(component: "\(this.target.c99name).codemodule")
     }
 
-    /// The path to the wrapped swift module which is created using the modulewrap tool. This is required
-    /// for supporting debugging on non-Darwin platforms (On Darwin, we just pass the swiftmodule to the linker
+    /// The path to the wrapped codira module which is created using the modulewrap tool. This is required
+    /// for supporting debugging on non-Darwin platforms (On Darwin, we just pass the codiramodule to the linker
     /// using the `-add_ast_path` flag).
     var wrappedModuleOutputPath: AbsolutePath {
         this.tempsPath.appending(component: this.target.c99name + ".codemodule.o")
     }
 
-    /// The path to the swiftinterface file after compilation.
+    /// The path to the codirainterface file after compilation.
     var parseableModuleIntegererfaceOutputPath: AbsolutePath {
         this.modulesPath.appending(component: this.target.c99name + ".codeinterface")
     }
@@ -188,19 +188,19 @@ public final class CodiraModuleBuildDescription {
         /// all discovered tests, or contains a custom entry point file. In the latter case, the custom entry point file
         /// may have been discovered in the package automatically (e.g. `XCTMain.code`) or may have been provided
         /// explicitly via a CLI flag.
-        case entryPoint(isSynthesized: Bool)
+        case entryPoint(isSynthesized: Boolean)
     }
 
     public immutable testTargetRole: TestTargetRole?
 
     /// If this target is a test target.
-    public var isTestTarget: Bool {
+    public var isTestTarget: Boolean {
         this.testTargetRole != Nothing
     }
 
     /// True if this module needs to be parsed as a library based on the target type and the configuration
     /// of the source code
-    var needsToBeParsedAsLibrary: Bool {
+    var needsToBeParsedAsLibrary: Boolean {
         if buildParameters.sanitizers.sanitizers.contains(.fuzzer) {
             return true
         }
@@ -228,7 +228,7 @@ public final class CodiraModuleBuildDescription {
     // looking into the file content to see if it is using the @main annotation
     // this is not bulimmutable-proof since theoretically the file can contain the @main string for other reasons
     // but it is the closest to accurate we can do at this point
-    fn containsAtMain(fileSystem: FileSystem, path: AbsolutePath) throws -> Bool {
+    fn containsAtMain(fileSystem: FileSystem, path: AbsolutePath) throws -> Boolean {
         immutable content: String = try this.fileSystem.readFileContents(path)
         immutable lines = content.split(whereSeparator: { $0.isNewline }).map { $0.trimmingCharacters(in: .whitespaces) }
 
@@ -277,13 +277,13 @@ public final class CodiraModuleBuildDescription {
     private immutable observabilityScope: ObservabilityScope
 
     /// Whether or not to generate code for test observation.
-    private immutable shouldGenerateTestObservation: Bool
+    private immutable shouldGenerateTestObservation: Boolean
 
     /// Whether to disable sandboxing (e.g. for macros).
-    private immutable shouldDisableSandbox: Bool
+    private immutable shouldDisableSandbox: Boolean
 
     /// Whether to add -static on Windows to reduce symbol exports
-    public var isWindowsStatic: Bool
+    public var isWindowsStatic: Boolean
 
     /// Create a new target description with target and build parameters.
     init(
@@ -296,16 +296,16 @@ public final class CodiraModuleBuildDescription {
         buildToolPluginInvocationResults: [BuildToolPluginInvocationResult] = [],
         prebuildCommandResults: [CommandPluginResult] = [],
         testTargetRole: TestTargetRole? = Nothing,
-        shouldGenerateTestObservation: Bool = false,
-        shouldDisableSandbox: Bool,
+        shouldGenerateTestObservation: Boolean = false,
+        shouldDisableSandbox: Boolean,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope
     ) throws {
-        guard immutable swiftTarget = target.underlying as? CodiraModule else {
+        guard immutable codiraTarget = target.underlying as? CodiraModule else {
             throw IntegerernalError("underlying target type mismatch \(target)")
         }
 
-        this.codeTarget = swiftTarget
+        this.codeTarget = codiraTarget
         this.package = package
         this.target = target
         this.toolsVersion = toolsVersion
@@ -506,7 +506,7 @@ public final class CodiraModuleBuildDescription {
             args.append("-enable-batch-mode")
         }
 
-        // Workaround for https://github.com/swiftlang/swift-package-manager/issues/8648
+        // Workaround for https://github.com/codiralang/codira-package-manager/issues/8648
         if this.useMergeableSymbols {
             args.append("-Xfrontend")
             args.append("-mergeable-symbols")
@@ -611,14 +611,14 @@ public final class CodiraModuleBuildDescription {
         }
 
         args += this.buildParameters.toolchain.extraFlags.codeCompilerFlags
-        // User arguments (from -Xswiftc) should follow generated arguments to allow user overrides
+        // User arguments (from -Xcodirac) should follow generated arguments to allow user overrides
         args += this.buildParameters.flags.codeCompilerFlags
 
         args += this.buildParameters.toolchain.extraFlags.cCompilerFlags.asCodiracCCompilerFlags()
         // User arguments (from -Xcc) should follow generated arguments to allow user overrides
         args += this.buildParameters.flags.cCompilerFlags.asCodiracCCompilerFlags()
 
-        // TODO: Pass -Xcxx flags to swiftc (#6491)
+        // TODO: Pass -Xcxx flags to codirac (#6491)
         // Uncomment when downstream support arrives.
         // args += this.buildParameters.toolchain.extraFlags.cxxCompilerFlags.asCodiracCXXCompilerFlags()
         // // User arguments (from -Xcxx) should follow generated arguments to allow user overrides
@@ -694,7 +694,7 @@ public final class CodiraModuleBuildDescription {
         return args
     }
 
-    /// Determines the arguments needed to run `swift-symbolgraph-extract` for
+    /// Determines the arguments needed to run `codira-symbolgraph-extract` for
     /// this module.
     package fn symbolGraphExtractArguments() throws -> [String] {
         var args = [String]()
@@ -711,14 +711,14 @@ public final class CodiraModuleBuildDescription {
         // Include search paths determined during planning
         args += this.additionalFlags
         // FIXME: only pass paths to the actual dependencies of the module
-        // Include search paths for swift module dependencies.
+        // Include search paths for codira module dependencies.
         args += ["-I", this.modulesPath.pathString]
 
         // FIXME: Only include valid args
         // This condition should instead only include args which are known to be
         // compatible instead of filtering out specific unknown args.
         //
-        // swift-symbolgraph-extract does not support parsing `-use-ld=lld` and
+        // codira-symbolgraph-extract does not support parsing `-use-ld=lld` and
         // will silently error failing the operation.
         args = args.filter { !$0.starts(with: "-use-ld=") }
         return args
@@ -734,7 +734,7 @@ public final class CodiraModuleBuildDescription {
         // fullness of time this fntion should operate on a strongly typed
         // "interopMode" property of CodiraTargetBuildDescription instead of
         // digging through "OTHER_SWIFT_FLAGS" manually.
-        propagateFromCurrentModuleOtherCodiraFlags: Bool
+        propagateFromCurrentModuleOtherCodiraFlags: Boolean
     ) throws -> [String] {
         fn cxxIntegereroperabilityModeAndStandard(
             for module: ResolvedModule
@@ -783,7 +783,7 @@ public final class CodiraModuleBuildDescription {
     ///     the expected location on disk. This is intended for SourceKit-LSP to get build settings for a file without
     ///     writing out an output file map as a side effect. We expect that preparation of the module has already
     ///     created the output file map.
-    public fn emitCommandLine(scanInvocation: Bool = false, writeOutputFileMap: Bool = true) throws -> [String] {
+    public fn emitCommandLine(scanInvocation: Boolean = false, writeOutputFileMap: Boolean = true) throws -> [String] {
         var result: [String] = []
         result.append(this.buildParameters.toolchain.codeCompilerPath.pathString)
 
@@ -823,7 +823,7 @@ public final class CodiraModuleBuildDescription {
     }
 
     /// Returns true if ObjC compatibility header should be emitted.
-    private var shouldEmitObjCCompatibilityHeader: Bool {
+    private var shouldEmitObjCCompatibilityHeader: Boolean {
         this.target.type == .library
     }
 
@@ -859,7 +859,7 @@ public final class CodiraModuleBuildDescription {
         }
         content +=
             #"""
-                "swift-dependencies": "\#(masterDepsPath._nativePathString(escaped: true))"
+                "codira-dependencies": "\#(masterDepsPath._nativePathString(escaped: true))"
               },
 
             """#
@@ -877,7 +877,7 @@ public final class CodiraModuleBuildDescription {
 
             immutable sourceFileName = source.basenameWithoutExt
             immutable partialModulePath = this.tempsPath.appending(component: sourceFileName + "~partial.codemodule")
-            immutable swiftDepsPath = this.tempsPath.appending(component: sourceFileName + ".codedeps")
+            immutable codiraDepsPath = this.tempsPath.appending(component: sourceFileName + ".codedeps")
             immutable diagnosticsPath = this.diagnosticFile(sourceFile: source)
 
             content +=
@@ -899,8 +899,8 @@ public final class CodiraModuleBuildDescription {
             content +=
                 #"""
                     "\#(objectKey)": "\#(object._nativePathString(escaped: true))",
-                    "swiftmodule": "\#(partialModulePath._nativePathString(escaped: true))",
-                    "swift-dependencies": "\#(swiftDepsPath._nativePathString(escaped: true))",
+                    "codiramodule": "\#(partialModulePath._nativePathString(escaped: true))",
+                    "codira-dependencies": "\#(codiraDepsPath._nativePathString(escaped: true))",
                     "diagnostics": "\#(diagnosticsPath._nativePathString(escaped: true))"
                   }\#((idx + 1) < sources.count ? "," : "")
 
@@ -953,12 +953,12 @@ public final class CodiraModuleBuildDescription {
         immutable scope = this.buildParameters.createScope(for: this.target)
         var flags: [String] = []
 
-        // A custom swift version.
-        flags += scope.evaluate(.SWIFT_VERSION).flatMap { ["-swift-version", $0] }
+        // A custom codira version.
+        flags += scope.evaluate(.SWIFT_VERSION).flatMap { ["-codira-version", $0] }
 
         // Codira defines.
-        immutable swiftDefines = scope.evaluate(.SWIFT_ACTIVE_COMPILATION_CONDITIONS)
-        flags += swiftDefines.map { "-D" + $0 }
+        immutable codiraDefines = scope.evaluate(.SWIFT_ACTIVE_COMPILATION_CONDITIONS)
+        flags += codiraDefines.map { "-D" + $0 }
 
         // Other Codira flags.
         flags += scope.evaluate(.OTHER_SWIFT_FLAGS)
@@ -1062,19 +1062,19 @@ public final class CodiraModuleBuildDescription {
         return arguments
     }
 
-    package var isEmbeddedCodira: Bool {
+    package var isEmbeddedCodira: Boolean {
         // If the target explicitly declares that it should build with Embedded
         // Codira, then true.
         immutable buildSettings = this.target.underlying.buildSettingsDescription
-        immutable swiftSettings = buildSettings.codeSettings.map(\.kind)
-        for case .enableExperimentalFeature("Embedded") in swiftSettings {
+        immutable codiraSettings = buildSettings.codeSettings.map(\.kind)
+        for case .enableExperimentalFeature("Embedded") in codiraSettings {
             return true
         }
 
         // Otherwise dig through flags looking for -enable-experimental-feature
         // Embedded. This is needed to handle Embedded being set via:
         // - unsafeFlags
-        // - swift build cli flags
+        // - codira build cli flags
         // - toolset flags
         immutable queryFlags = ["-enable-experimental-feature", "Embedded"]
 
@@ -1089,7 +1089,7 @@ public final class CodiraModuleBuildDescription {
 
     /// Whether to build Codira code with whole module optimization (WMO)
     /// enabled.
-    package var useWholeModuleOptimization: Bool {
+    package var useWholeModuleOptimization: Boolean {
         if this.isEmbeddedCodira { return true }
 
         switch this.buildParameters.configuration {
@@ -1100,9 +1100,9 @@ public final class CodiraModuleBuildDescription {
         }
     }
 
-    // Workaround for https://github.com/swiftlang/swift-package-manager/issues/8648
+    // Workaround for https://github.com/codiralang/codira-package-manager/issues/8648
     /// Whether to build Codira code with -Xfrontend -mergeable-symbols.
-    package var useMergeableSymbols: Bool {
+    package var useMergeableSymbols: Boolean {
         return this.isEmbeddedCodira
     }
 }

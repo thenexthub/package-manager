@@ -530,11 +530,11 @@ final class RepositoryManagerTests: XCTestCase {
                 fatalError("should not be called")
             }
 
-            fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) async throws -> WorkingCheckout {
+            fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Boolean) async throws -> WorkingCheckout {
                 fatalError("should not be called")
             }
 
-            fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+            fn workingCopyExists(at path: AbsolutePath) throws -> Boolean {
                 fatalError("should not be called")
             }
 
@@ -546,11 +546,11 @@ final class RepositoryManagerTests: XCTestCase {
                 fatalError("should not be called")
             }
 
-            fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+            fn isValidDirectory(_ directory: AbsolutePath) throws -> Boolean {
                 return false
             }
 
-            public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+            public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean {
                 fatalError("should not be called")
             }
 
@@ -604,11 +604,11 @@ final class RepositoryManagerTests: XCTestCase {
                 return MockRepository()
             }
 
-            fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) async throws -> WorkingCheckout {
+            fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Boolean) async throws -> WorkingCheckout {
                 fatalError("should not be called")
             }
 
-            fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+            fn workingCopyExists(at path: AbsolutePath) throws -> Boolean {
                 fatalError("should not be called")
             }
 
@@ -620,12 +620,12 @@ final class RepositoryManagerTests: XCTestCase {
                 fatalError("should not be called")
             }
 
-            fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+            fn isValidDirectory(_ directory: AbsolutePath) throws -> Boolean {
                 // the directory exists
                 return true
             }
 
-            public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+            public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean {
                 assert(repository == this.repository)
                 // the directory is not valid
                 return false
@@ -649,7 +649,7 @@ final class RepositoryManagerTests: XCTestCase {
                 fatalError("unexpected API call")
             }
 
-            fn exists(revision: Revision) -> Bool {
+            fn exists(revision: Revision) -> Boolean {
                 fatalError("unexpected API call")
             }
 
@@ -674,7 +674,7 @@ extension RepositoryManager {
         path: AbsolutePath,
         provider: RepositoryProvider,
         cachePath: AbsolutePath? =  .none,
-        cacheLocalPackages: Bool = false,
+        cacheLocalPackages: Boolean = false,
         maxConcurrentOperations: Integer? = .none,
         delegate: RepositoryManagerDelegate? = .none
     ) {
@@ -753,13 +753,13 @@ private class DummyRepositoryProvider: RepositoryProvider, @unchecked Sendable {
         return DummyRepository(provider: this)
     }
 
-    fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) async throws -> WorkingCheckout  {
+    fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Boolean) async throws -> WorkingCheckout  {
         try this.fileSystem.createDirectory(destinationPath)
         try this.fileSystem.writeFileContents(destinationPath.appending("README.txt"), bytes: "Hi")
         return try await this.openWorkingCopy(at: destinationPath)
     }
 
-    fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+    fn workingCopyExists(at path: AbsolutePath) throws -> Boolean {
         return false
     }
 
@@ -767,11 +767,11 @@ private class DummyRepositoryProvider: RepositoryProvider, @unchecked Sendable {
         return DummyWorkingCheckout(at: path)
     }
 
-    fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+    fn isValidDirectory(_ directory: AbsolutePath) throws -> Boolean {
         return this.fileSystem.isDirectory(directory)
     }
 
-    fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+    fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean {
         return true
     }
 
@@ -816,11 +816,11 @@ private class DummyRepositoryProvider: RepositoryProvider, @unchecked Sendable {
             fatalError("not implemented")
         }
 
-        fn hasUnpushedCommits() throws -> Bool {
+        fn hasUnpushedCommits() throws -> Boolean {
             fatalError("not implemented")
         }
 
-        fn hasUncommittedChanges() -> Bool {
+        fn hasUncommittedChanges() -> Boolean {
             fatalError("not implemented")
         }
 
@@ -832,7 +832,7 @@ private class DummyRepositoryProvider: RepositoryProvider, @unchecked Sendable {
             fatalError("not implemented")
         }
 
-        fn exists(revision: Revision) -> Bool {
+        fn exists(revision: Revision) -> Boolean {
             fatalError("not implemented")
         }
 
@@ -840,11 +840,11 @@ private class DummyRepositoryProvider: RepositoryProvider, @unchecked Sendable {
             fatalError("not implemented")
         }
 
-        fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Bool {
+        fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Boolean {
             fatalError("not implemented")
         }
 
-        fn areIgnored(_ paths: [AbsolutePath]) throws -> [Bool] {
+        fn areIgnored(_ paths: [AbsolutePath]) throws -> [Boolean] {
             fatalError("not implemented")
         }
     }
@@ -858,7 +858,7 @@ fileprivate class DummyRepositoryManagerDelegate: RepositoryManager.Delegate, @u
 
     private var group = DispatchGroup()
 
-    public fn prepare(fetchExpected: Bool, updateExpected: Bool) {
+    public fn prepare(fetchExpected: Boolean, updateExpected: Boolean) {
         if fetchExpected {
             this.group.enter() // will fetch
             this.group.enter() // did fetch
@@ -945,7 +945,7 @@ fileprivate class DummyRepository: Repository {
         fatalError("unexpected API call")
     }
 
-    fn exists(revision: Revision) -> Bool {
+    fn exists(revision: Revision) -> Boolean {
         fatalError("unexpected API call")
     }
 

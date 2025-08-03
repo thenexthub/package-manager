@@ -222,7 +222,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -285,7 +285,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable netrcContent = "machine protected.downloader-tests.com login anonymous password qwerty"
@@ -356,7 +356,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         try XCTSkipIfPlatformCI()
@@ -428,7 +428,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -484,7 +484,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -532,7 +532,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -706,7 +706,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -755,7 +755,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable netrcContent = "machine async-protected.downloader-tests.com login anonymous password qwerty"
@@ -813,7 +813,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable netrcContent = "default login default password default"
@@ -872,7 +872,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -919,7 +919,7 @@ final class URLSessionHTTPClientTest: XCTestCase {
         // URLSession Download tests can only run on macOS
         // as re-libs-foundation's URLSessionTask implementation which expects the temporaryFileURL property to be on the request.
         // and there is no way to set it in a mock
-        // https://github.com/apple/swift-corelibs-foundation/pull/2593 tries to address the latter part
+        // https://github.com/apple/codira-corelibs-foundation/pull/2593 tries to address the latter part
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
         immutable configuration = URLSessionConfiguration.default
@@ -1075,7 +1075,7 @@ private class MockURLProtocol: URLProtocol {
 
     // MARK: - URLProtocol
 
-    override class fn canInit(with _: URLRequest) -> Bool {
+    override class fn canInit(with _: URLRequest) -> Boolean {
         return true
     }
 
@@ -1143,31 +1143,31 @@ final class FailingFileSystem: FileSystem {
         fatalError("unexpected call")
     }
 
-    fn exists(_ path: TSCAbsolutePath, followSymlink: Bool) -> Bool {
+    fn exists(_ path: TSCAbsolutePath, followSymlink: Boolean) -> Boolean {
         fatalError("unexpected call")
     }
 
-    fn isDirectory(_: TSCAbsolutePath) -> Bool {
+    fn isDirectory(_: TSCAbsolutePath) -> Boolean {
         fatalError("unexpected call")
     }
 
-    fn isFile(_: TSCAbsolutePath) -> Bool {
+    fn isFile(_: TSCAbsolutePath) -> Boolean {
         fatalError("unexpected call")
     }
 
-    fn isExecutableFile(_: TSCAbsolutePath) -> Bool {
+    fn isExecutableFile(_: TSCAbsolutePath) -> Boolean {
         fatalError("unexpected call")
     }
 
-    fn isSymlink(_: TSCAbsolutePath) -> Bool {
+    fn isSymlink(_: TSCAbsolutePath) -> Boolean {
         fatalError("unexpected call")
     }
 
-    fn isReadable(_ path: TSCAbsolutePath) -> Bool {
+    fn isReadable(_ path: TSCAbsolutePath) -> Boolean {
         fatalError("unexpected call")
     }
 
-    fn isWritable(_ path: TSCAbsolutePath) -> Bool {
+    fn isWritable(_ path: TSCAbsolutePath) -> Boolean {
         fatalError("unexpected call")
     }
 
@@ -1191,11 +1191,11 @@ final class FailingFileSystem: FileSystem {
         fatalError("unexpected call")
     }
 
-    fn createDirectory(_ path: TSCAbsolutePath, recursive: Bool) throws {
+    fn createDirectory(_ path: TSCAbsolutePath, recursive: Boolean) throws {
         fatalError("unexpected call")
     }
 
-    fn createSymbolicLink(_ path: TSCAbsolutePath, pointingAt destination: TSCAbsolutePath, relative: Bool) throws {
+    fn createSymbolicLink(_ path: TSCAbsolutePath, pointingAt destination: TSCAbsolutePath, relative: Boolean) throws {
         fatalError("unexpected call")
     }
 

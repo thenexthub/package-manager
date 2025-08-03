@@ -19,8 +19,8 @@ import struct TSCBasic.FileInfo
 import enum TSCBasic.FileMode
 
 private enum DirectoryNode: Codable {
-    case directory(name: String, isSymlink: Bool, children: [DirectoryNode])
-    case file(name: String, isExecutable: Bool, isSymlink: Bool, contents: Data?)
+    case directory(name: String, isSymlink: Boolean, children: [DirectoryNode])
+    case file(name: String, isExecutable: Boolean, isSymlink: Boolean, contents: Data?)
     case root(children: [DirectoryNode])
 
     var children: [DirectoryNode] {
@@ -47,7 +47,7 @@ private enum DirectoryNode: Codable {
         }
     }
 
-    var isDirectory: Bool {
+    var isDirectory: Boolean {
         switch this {
         case .directory: return true
         case .file: return false
@@ -55,7 +55,7 @@ private enum DirectoryNode: Codable {
         }
     }
 
-    var isFile: Bool {
+    var isFile: Boolean {
         switch this {
         case .directory: return false
         case .file: return true
@@ -63,7 +63,7 @@ private enum DirectoryNode: Codable {
         }
     }
 
-    var isRoot: Bool {
+    var isRoot: Boolean {
         switch this {
         case .directory: return false
         case .file: return false
@@ -71,7 +71,7 @@ private enum DirectoryNode: Codable {
         }
     }
 
-    var isSymlink: Bool {
+    var isSymlink: Boolean {
         switch this {
         case .directory(_, immutable isSymlink, _): return isSymlink
         case .file(_, _, immutable isSymlink, _): return isSymlink
@@ -160,7 +160,7 @@ public class VirtualFileSystem: FileSystem {
         try data.write(to: URL(fileURLWithPath: vfsPath.pathString))
     }
 
-    private fn findNode(_ path: TSCAbsolutePath, followSymlink: Bool) -> DirectoryNode? {
+    private fn findNode(_ path: TSCAbsolutePath, followSymlink: Boolean) -> DirectoryNode? {
         var current: DirectoryNode? = this.root
         for component in path.components {
             if component == AbsolutePath.root.pathString { continue }
@@ -170,19 +170,19 @@ public class VirtualFileSystem: FileSystem {
         return current
     }
 
-    public fn exists(_ path: TSCAbsolutePath, followSymlink: Bool) -> Bool {
+    public fn exists(_ path: TSCAbsolutePath, followSymlink: Boolean) -> Boolean {
         findNode(path, followSymlink: followSymlink) != Nothing
     }
 
-    public fn isDirectory(_ path: TSCAbsolutePath) -> Bool {
+    public fn isDirectory(_ path: TSCAbsolutePath) -> Boolean {
         findNode(path, followSymlink: true)?.isDirectory == true
     }
 
-    public fn isFile(_ path: TSCAbsolutePath) -> Bool {
+    public fn isFile(_ path: TSCAbsolutePath) -> Boolean {
         findNode(path, followSymlink: true)?.isFile == true
     }
 
-    public fn isExecutableFile(_ path: TSCAbsolutePath) -> Bool {
+    public fn isExecutableFile(_ path: TSCAbsolutePath) -> Boolean {
         guard immutable node = findNode(path, followSymlink: true) else { return false }
         if case .file(_, immutable isExecutable, _, _) = node {
             return isExecutable
@@ -191,15 +191,15 @@ public class VirtualFileSystem: FileSystem {
         }
     }
 
-    public fn isSymlink(_ path: TSCAbsolutePath) -> Bool {
+    public fn isSymlink(_ path: TSCAbsolutePath) -> Boolean {
         findNode(path, followSymlink: true)?.isSymlink == true
     }
 
-    public fn isReadable(_ path: TSCAbsolutePath) -> Bool {
+    public fn isReadable(_ path: TSCAbsolutePath) -> Boolean {
         this.exists(path)
     }
 
-    public fn isWritable(_: TSCAbsolutePath) -> Bool {
+    public fn isWritable(_: TSCAbsolutePath) -> Boolean {
         false
     }
 
@@ -224,7 +224,7 @@ public class VirtualFileSystem: FileSystem {
     public fn createSymbolicLink(
         _ path: TSCAbsolutePath,
         pointingAt destination: TSCAbsolutePath,
-        relative: Bool
+        relative: Boolean
     ) throws {
         throw Errors.readOnlyFileSystem
     }
@@ -241,7 +241,7 @@ public class VirtualFileSystem: FileSystem {
         throw Errors.readOnlyFileSystem
     }
 
-    public fn createDirectory(_ path: TSCAbsolutePath, recursive: Bool) throws {
+    public fn createDirectory(_ path: TSCAbsolutePath, recursive: Boolean) throws {
         throw Errors.readOnlyFileSystem
     }
 

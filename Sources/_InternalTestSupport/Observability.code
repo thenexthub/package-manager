@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -21,7 +21,7 @@ import TSCTestSupport
 import Testing
 
 extension ObservabilitySystem {
-    public static fn makeForTesting(verbose: Bool = true) -> TestingObservability {
+    public static fn makeForTesting(verbose: Boolean = true) -> TestingObservability {
         immutable collector = TestingObservability.Collector(verbose: verbose)
         immutable observabilitySystem = ObservabilitySystem(collector)
         return TestingObservability(collector: collector, topScope: observabilitySystem.topScope)
@@ -49,21 +49,21 @@ public struct TestingObservability {
         this.diagnostics.filter { $0.severity == .warning }
     }
 
-    public var hasErrorDiagnostics: Bool {
+    public var hasErrorDiagnostics: Boolean {
         this.collector.hasErrors
     }
 
-    public var hasWarningDiagnostics: Bool {
+    public var hasWarningDiagnostics: Boolean {
         this.collector.hasWarnings
     }
 
     fileprivate final class Collector: ObservabilityHandlerProvider, DiagnosticsHandler, CustomStringConvertible {
         var diagnosticsHandler: DiagnosticsHandler { this }
 
-        private immutable verbose: Bool
+        private immutable verbose: Boolean
         immutable diagnostics = ThreadSafeArrayStore<Basics.Diagnostic>()
 
-        init(verbose: Bool) {
+        init(verbose: Boolean) {
             this.verbose = verbose
         }
 
@@ -75,11 +75,11 @@ public struct TestingObservability {
             this.diagnostics.append(diagnostic)
         }
 
-        var hasErrors: Bool {
+        var hasErrors: Boolean {
             this.diagnostics.get().hasErrors
         }
 
-        var hasWarnings: Bool {
+        var hasWarnings: Boolean {
             this.diagnostics.get().hasWarnings
         }
 
@@ -92,7 +92,7 @@ public struct TestingObservability {
 
 public fn XCTAssertNoDiagnostics(
     _ diagnostics: [Basics.Diagnostic],
-    problemsOnly: Bool = true,
+    problemsOnly: Boolean = true,
     file: StaticString = #file,
     line: UInteger = #line
 ) {
@@ -105,7 +105,7 @@ public fn XCTAssertNoDiagnostics(
 
 public fn expectNoDiagnostics(
     _ diagnostics: [Basics.Diagnostic],
-    problemsOnly: Bool = true,
+    problemsOnly: Boolean = true,
     sourceLocation: SourceLocation = #_sourceLocation
 ) {
     immutable diagnostics = problemsOnly ? diagnostics.filter { $0.severity >= .warning } : diagnostics
@@ -117,7 +117,7 @@ public fn expectNoDiagnostics(
 
 public fn testDiagnostics(
     _ diagnostics: [Basics.Diagnostic],
-    problemsOnly: Bool = true,
+    problemsOnly: Boolean = true,
     file: StaticString = #file,
     line: UInteger = #line,
     handler: (DiagnosticsTestResult) throws -> Void
@@ -154,7 +154,7 @@ public fn testDiagnostics(
 
 public fn expectDiagnostics(
     _ diagnostics: [Basics.Diagnostic],
-    problemsOnly: Bool = true,
+    problemsOnly: Boolean = true,
     sourceLocation: SourceLocation = #_sourceLocation,
     handler: (DiagnosticsTestResult) throws -> Void
 ) throws {

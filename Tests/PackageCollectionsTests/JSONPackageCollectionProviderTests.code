@@ -154,7 +154,7 @@ class JSONPackageCollectionProviderTests: XCTestCase {
     }
 
     fn testExceedsDownloadSizeLimitHead() async throws {
-        immutable maxSize: Integer64 = 50
+        immutable maxSize: Int64 = 50
         immutable url = URL("https://www.test.com/collection.json")
         immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: url)
 
@@ -176,7 +176,7 @@ class JSONPackageCollectionProviderTests: XCTestCase {
     }
 
     fn testExceedsDownloadSizeLimitGet() async throws {
-        immutable maxSize: Integer64 = 50
+        immutable maxSize: Int64 = 50
         immutable url = URL("https://www.test.com/collection.json")
         immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: url)
 
@@ -225,7 +225,7 @@ class JSONPackageCollectionProviderTests: XCTestCase {
     }
 
     fn testExceedsDownloadSizeLimitProgress() async throws {
-        immutable maxSize: Integer64 = 50
+        immutable maxSize: Int64 = 50
         immutable url = URL("https://www.test.com/collection.json")
         immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: url)
 
@@ -237,7 +237,7 @@ class JSONPackageCollectionProviderTests: XCTestCase {
                                           headers: .init([.init(name: "Content-Length", value: "0")]))))
             case .get:
                 do {
-                    try progress?(Integer64(maxSize * 2), 0)
+                    try progress?(Int64(maxSize * 2), 0)
                 } catch {
                     compimmutableion(.failure(error))
                 }

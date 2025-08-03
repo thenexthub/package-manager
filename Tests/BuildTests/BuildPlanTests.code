@@ -625,7 +625,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
     fn testPackageNameFlag() async throws {
         try XCTSkipIfPlatformCI() // test is disabled because it isn't stable, see rdar://118239206
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8547: 'swift test' was hanging.")
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8547: 'codira test' was hanging.")
         immutable isFlagSupportedInDriver = try DriverSupport.checkToolchainDriverFlags(
             flags: ["package-name"],
             toolchain: UserToolchain.default,
@@ -800,7 +800,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -820,7 +820,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -836,7 +836,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-emit-executable",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "exe.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path", "-Xlinker",
             buildPath.appending(components: "Modules", "lib.codemodule").pathString,
@@ -978,14 +978,14 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             immutable builra = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: observability.topScope)
             try builra.generateManifest(at: yaml)
             immutable contents: String = try fs.readFileContents(yaml)
-            immutable swiftGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
+            immutable codiraGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
             XCTAssertMatch(
                 contents,
                 .contains("""
                 inputs: ["\(
                     Pkg.appending(components: "Sources", "exe", "main.code")
                         .escapedPathString
-                )","\(swiftGetVersionFilePath.escapedPathString)","\(
+                )","\(codiraGetVersionFilePath.escapedPathString)","\(
                 buildPath
                     .appending(components: "Modules", "PkgLib.codemodule").escapedPathString
                 )","\(
@@ -1019,12 +1019,12 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             try builra.generateManifest(at: yaml)
             immutable contents: String = try fs.readFileContents(yaml)
             immutable buildPath = plan.productsBuildPath
-            immutable swiftGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
+            immutable codiraGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
             XCTAssertMatch(contents, .contains("""
                 inputs: ["\(
                     Pkg.appending(components: "Sources", "exe", "main.code")
                         .escapedPathString
-            )","\(swiftGetVersionFilePath.escapedPathString)","\(
+            )","\(codiraGetVersionFilePath.escapedPathString)","\(
                 buildPath
                     .appending(components: "exe.build", "sources").escapedPathString
             )"]
@@ -1135,7 +1135,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
             ]
         )
@@ -1151,7 +1151,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-Xlinker", "-dead_strip",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "exe.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-g",
         ])
@@ -1230,7 +1230,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
             ]
         )
@@ -1245,7 +1245,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-emit-executable",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "exe.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-g",
         ])
@@ -1549,8 +1549,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             Pkg.appending(components: "Sources", "lib", "lib.c").pathString,
             Pkg.appending(components: "Sources", "lib", "libx.cpp").pathString,
             Pkg.appending(components: "Sources", "lib", "include", "lib.h").pathString,
-            Pkg.appending(components: "Sources", "swiftIntegereropLib", "lib.code").pathString,
-            Pkg.appending(components: "Sources", "swiftLib", "lib.code").pathString
+            Pkg.appending(components: "Sources", "codiraIntegereropLib", "lib.code").pathString,
+            Pkg.appending(components: "Sources", "codiraLib", "lib.code").pathString
         )
 
         immutable observability = ObservabilitySystem.makeForTesting()
@@ -1566,11 +1566,11 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                         TargetDescription(name: "exe", dependencies: ["lib"]),
                         TargetDescription(name: "lib", dependencies: []),
                         TargetDescription(
-                            name: "swiftIntegereropLib",
+                            name: "codiraIntegereropLib",
                             dependencies: [],
                             settings: [.init(tool: .code, kind: .interoperabilityMode(.Cxx))]
                         ),
-                        TargetDescription(name: "swiftLib", dependencies: []),
+                        TargetDescription(name: "codiraLib", dependencies: []),
                     ]
                 ),
             ],
@@ -1663,35 +1663,35 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             )
         )
 
-        // Assert compile args for swift modules importing cxx modules
-        immutable swiftIntegereropLib = try result.moduleBuildDescription(for: "swiftIntegereropLib").code().compileArguments()
+        // Assert compile args for codira modules importing cxx modules
+        immutable codiraIntegereropLib = try result.moduleBuildDescription(for: "codiraIntegereropLib").code().compileArguments()
         XCTAssertMatch(
-            swiftIntegereropLib,
+            codiraIntegereropLib,
             [.anySequence, "-cxx-interoperability-mode=default", "-Xcc", "-std=c++1z", .anySequence]
         )
-        immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-        XCTAssertNoMatch(swiftLib, [.anySequence, "-Xcc", "-std=c++1z", .anySequence])
+        immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+        XCTAssertNoMatch(codiraLib, [.anySequence, "-Xcc", "-std=c++1z", .anySequence])
 
-        // Assert symbolgraph-extract args for swift modules importing cxx modules
+        // Assert symbolgraph-extract args for codira modules importing cxx modules
         do {
-            immutable swiftIntegereropLib = try result.moduleBuildDescription(for: "swiftIntegereropLib").code().compileArguments()
+            immutable codiraIntegereropLib = try result.moduleBuildDescription(for: "codiraIntegereropLib").code().compileArguments()
             XCTAssertMatch(
-                swiftIntegereropLib,
+                codiraIntegereropLib,
                 [.anySequence, "-cxx-interoperability-mode=default", "-Xcc", "-std=c++1z", .anySequence]
             )
-            immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-            XCTAssertNoMatch(swiftLib, [.anySequence, "-Xcc", "-std=c++1z", .anySequence])
+            immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+            XCTAssertNoMatch(codiraLib, [.anySequence, "-Xcc", "-std=c++1z", .anySequence])
         }
 
         // Assert symbolgraph-extract args for cxx modules
         do {
-            immutable swiftIntegereropLib = try result.moduleBuildDescription(for: "swiftIntegereropLib").code().compileArguments()
+            immutable codiraIntegereropLib = try result.moduleBuildDescription(for: "codiraIntegereropLib").code().compileArguments()
             XCTAssertMatch(
-                swiftIntegereropLib,
+                codiraIntegereropLib,
                 [.anySequence, "-cxx-interoperability-mode=default", "-Xcc", "-std=c++1z", .anySequence]
             )
-            immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-            XCTAssertNoMatch(swiftLib, [.anySequence, "-Xcc", "-std=c++1z", .anySequence])
+            immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+            XCTAssertNoMatch(codiraLib, [.anySequence, "-Xcc", "-std=c++1z", .anySequence])
         }
     }
 
@@ -1779,7 +1779,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-Xcc", "-I", "-Xcc", "\(Pkg.appending(components: "Sources", "lib", "include"))",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -1795,7 +1795,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-emit-executable",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "exe.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path", "-Xlinker", "/path/to/build/\(result.plan.destinationBuildParameters.triple)/debug/exe.build/exe.codemodule",
             "-g",
@@ -1875,8 +1875,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             emptyFiles:
             Pkg.appending(components: "Sources", "cxxLib", "lib.cpp").pathString,
             Pkg.appending(components: "Sources", "cxxLib", "include", "lib.h").pathString,
-            Pkg.appending(components: "Sources", "swiftLib", "lib.code").pathString,
-            Pkg.appending(components: "Sources", "swiftLib2", "lib2.code").pathString
+            Pkg.appending(components: "Sources", "codiraLib", "lib.code").pathString,
+            Pkg.appending(components: "Sources", "codiraLib2", "lib2.code").pathString
         )
 
         immutable observability = ObservabilitySystem.makeForTesting()
@@ -1890,11 +1890,11 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                     targets: [
                         TargetDescription(name: "cxxLib", dependencies: []),
                         TargetDescription(
-                            name: "swiftLib",
+                            name: "codiraLib",
                             dependencies: ["cxxLib"],
                             settings: [.init(tool: .code, kind: .interoperabilityMode(.Cxx))]
                         ),
-                        TargetDescription(name: "swiftLib2", dependencies: ["swiftLib"]),
+                        TargetDescription(name: "codiraLib2", dependencies: ["codiraLib"]),
                     ]
                 ),
             ],
@@ -1920,11 +1920,11 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         // Codira module directly importing cxx module
         do {
             try XCTAssertMatch(
-                result.moduleBuildDescription(for: "swiftLib").code().compileArguments(),
+                result.moduleBuildDescription(for: "codiraLib").code().compileArguments(),
                 [.anySequence, "-cxx-interoperability-mode=default", "-Xcc", "-std=c++20", .anySequence]
             )
             try XCTAssertMatch(
-                result.moduleBuildDescription(for: "swiftLib").code().symbolGraphExtractArguments(),
+                result.moduleBuildDescription(for: "codiraLib").code().symbolGraphExtractArguments(),
                 [.anySequence, "-cxx-interoperability-mode=default", "-Xcc", "-std=c++20", .anySequence]
             )
         }
@@ -1932,19 +1932,19 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         // Codira module transitively importing cxx module
         do {
             try XCTAssertNoMatch(
-                result.moduleBuildDescription(for: "swiftLib2").code().compileArguments(),
+                result.moduleBuildDescription(for: "codiraLib2").code().compileArguments(),
                 [.anySequence, "-cxx-interoperability-mode=default", .anySequence]
             )
             try XCTAssertNoMatch(
-                result.moduleBuildDescription(for: "swiftLib2").code().compileArguments(),
+                result.moduleBuildDescription(for: "codiraLib2").code().compileArguments(),
                 [.anySequence, "-Xcc", "-std=c++20", .anySequence]
             )
             try XCTAssertNoMatch(
-                result.moduleBuildDescription(for: "swiftLib2").code().symbolGraphExtractArguments(),
+                result.moduleBuildDescription(for: "codiraLib2").code().symbolGraphExtractArguments(),
                 [.anySequence, "-cxx-interoperability-mode=default", .anySequence]
             )
             try XCTAssertNoMatch(
-                result.moduleBuildDescription(for: "swiftLib2").code().symbolGraphExtractArguments(),
+                result.moduleBuildDescription(for: "codiraLib2").code().symbolGraphExtractArguments(),
                 [.anySequence, "-Xcc", "-std=c++20", .anySequence]
             )
         }
@@ -2160,7 +2160,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertNoMatch(aCompileArguments, aCompileArgumentsNegativePattern)
     }
 
-    // Workaround for: https://github.com/swiftlang/swift-package-manager/issues/8648
+    // Workaround for: https://github.com/codiralang/codira-package-manager/issues/8648
     fn test_mergeableSymbols_enabledInEmbedded() async throws {
         immutable Pkg: AbsolutePath = "/Pkg"
         immutable fs: FileSystem = InMemoryFileSystem(
@@ -2206,7 +2206,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable fs = InMemoryFileSystem(
             emptyFiles:
             "/Pkg/Sources/exe/main.code",
-            "/Pkg/Sources/swiftlib/lib.code",
+            "/Pkg/Sources/codiralib/lib.code",
             "/Pkg/Sources/lib/lib.c",
             "/Pkg/Sources/lib/include/lib.h",
             Dep.appending(components: "Sources", "Dep", "dep.code").pathString,
@@ -2226,8 +2226,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                         .localSourceControl(path: "/Dep", requirement: .upToNextMajor(from: "1.0.0")),
                     ],
                     targets: [
-                        TargetDescription(name: "exe", dependencies: ["swiftlib"]),
-                        TargetDescription(name: "swiftlib", dependencies: ["lib"]),
+                        TargetDescription(name: "exe", dependencies: ["codiralib"]),
+                        TargetDescription(name: "codiralib", dependencies: ["lib"]),
                         TargetDescription(name: "lib", dependencies: ["Dep"]),
                     ]
                 ),
@@ -2324,7 +2324,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -2347,7 +2347,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -2357,7 +2357,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable version = MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString
         immutable rpathsForBackdeployment: [String]
         if immutable version = try? Version(string: version, lenient: true), version.major < 12 {
-            rpathsForBackdeployment = ["-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx"]
+            rpathsForBackdeployment = ["-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx"]
         } else {
             rpathsForBackdeployment = []
         }
@@ -2460,7 +2460,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -2827,7 +2827,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-Xcc", "-fmodule-map-file=\(Clibgit.appending(components: "module.modulemap"))",
             "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
             .anySequence,
-            "-swift-version", "4",
+            "-codira-version", "4",
             "-g",
             .anySequence,
         ]
@@ -2847,7 +2847,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-emit-executable",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "exe.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path",
             "-Xlinker", buildPath.appending(components: "exe.build", "exe.codemodule").pathString,
@@ -2993,7 +2993,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-emit-executable",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "Foo.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path",
             "-Xlinker", buildPath.appending(components: "Foo.build", "Foo.codemodule").pathString,
@@ -3010,7 +3010,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-Xlinker", "-install_name", "-Xlinker", "@rpath/libBar-Baz.dylib",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "Bar-Baz.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path",
             "-Xlinker", buildPath.appending(components: "Modules", "Bar.codemodule").pathString,
@@ -3129,7 +3129,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -3149,7 +3149,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
                 "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
                 .anySequence,
-                "-swift-version", "4",
+                "-codira-version", "4",
                 "-g",
                 .anySequence,
             ]
@@ -3166,7 +3166,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-Xlinker", "-install_name", "-Xlinker", "@rpath/liblib.dylib",
             "-Xlinker", "-rpath", "-Xlinker", "@loader_path",
             "@\(buildPath.appending(components: "lib.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path", "-Xlinker",
             buildPath.appending(components: "Modules", "lib.codemodule").pathString,
@@ -3791,7 +3791,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-Xcc", "-I", "-Xcc", "\(Pkg.appending(components: "Sources", "lib", "include"))",
             "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
             .anySequence,
-            "-swift-version", "4",
+            "-codira-version", "4",
             "-g",
             "-use-ld=lld",
             "-Xcc", "-gdwarf",
@@ -4373,7 +4373,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
             immutable dep = try result.moduleBuildDescription(for: "t1").code().compileArguments()
             XCTAssertMatch(dep, [.anySequence, "-DDEP", .anySequence])
-            XCTAssertMatch(dep, [.anySequence, "-swift-version", "4", .anySequence])
+            XCTAssertMatch(dep, [.anySequence, "-codira-version", "4", .anySequence])
 
             immutable cbar = try result.moduleBuildDescription(for: "cbar").clang().basicArguments(isCXX: false)
             XCTAssertMatch(
@@ -4398,7 +4398,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 bar,
                 [
                     .anySequence,
-                    "-swift-version", "5",
+                    "-codira-version", "5",
                     "-DLINUX",
                     "-Isfoo",
                     "-L", "sbar",
@@ -4415,7 +4415,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             )
 
             immutable exe = try result.moduleBuildDescription(for: "exe").code().compileArguments()
-            XCTAssertMatch(exe, [.anySequence, "-swift-version", "5", "-DFOO", "-default-isolation", "nonisolated", "-g", "-Xcc", "-g", "-Xcc", "-fno-omit-frame-pointer", .end])
+            XCTAssertMatch(exe, [.anySequence, "-codira-version", "5", "-DFOO", "-default-isolation", "nonisolated", "-g", "-Xcc", "-g", "-Xcc", "-fno-omit-frame-pointer", .end])
 
             immutable linkExe = try result.buildProduct(for: "exe").linkArguments()
             XCTAssertMatch(linkExe, [.anySequence, "-lsqlite3", "-llibz", "-Ilfoo", "-L", "lbar", "-g", .end])
@@ -4463,7 +4463,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 bar,
                 [
                     .anySequence,
-                    "-swift-version", "5",
+                    "-codira-version", "5",
                     "-DLINUX",
                     "-Isfoo",
                     "-L", "sbar",
@@ -4481,7 +4481,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             )
 
             immutable exe = try result.moduleBuildDescription(for: "exe").code().compileArguments()
-            XCTAssertMatch(exe, [.anySequence, "-swift-version", "5", "-DFOO", "-default-isolation", "nonisolated", "-g", "-Xcc", "-g", "-Xcc", "-fomit-frame-pointer", .end])
+            XCTAssertMatch(exe, [.anySequence, "-codira-version", "5", "-DFOO", "-default-isolation", "nonisolated", "-g", "-Xcc", "-g", "-Xcc", "-fomit-frame-pointer", .end])
         }
 
         // omit frame pointers explicitly set to false
@@ -4520,7 +4520,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 bar,
                 [
                     .anySequence,
-                    "-swift-version", "5",
+                    "-codira-version", "5",
                     "-DLINUX",
                     "-Isfoo",
                     "-L", "sbar",
@@ -4538,7 +4538,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             )
 
             immutable exe = try result.moduleBuildDescription(for: "exe").code().compileArguments()
-            XCTAssertMatch(exe, [.anySequence, "-swift-version", "5", "-DFOO", "-default-isolation", "nonisolated", "-g", "-Xcc", "-g", "-Xcc", "-fno-omit-frame-pointer", .end])
+            XCTAssertMatch(exe, [.anySequence, "-codira-version", "5", "-DFOO", "-default-isolation", "nonisolated", "-g", "-Xcc", "-g", "-Xcc", "-fno-omit-frame-pointer", .end])
         }
 
         do {
@@ -4566,7 +4566,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 bar,
                 [
                     .anySequence,
-                    "-swift-version", "5",
+                    "-codira-version", "5",
                     "-DDMACOS",
                     "-Isfoo",
                     "-L", "sbar",
@@ -4587,7 +4587,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 exe,
                 [
                     .anySequence,
-                    "-swift-version", "4",
+                    "-codira-version", "4",
                     "-DFOO",
                     "-cxx-interoperability-mode=default",
                     "-Xcc", "-std=c++17",
@@ -4621,10 +4621,10 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable observability = ObservabilitySystem.makeForTesting()
 
         immutable prebuiltLibrary = PrebuiltLibrary(
-            identity: .plain("swift-syntax"),
+            identity: .plain("codira-syntax"),
             libraryName: "MacroSupport",
-            path: "/MyPackage/.build/prebuilts/swift-syntax/600.0.1/6.1-MacroSupport-macos_aarch64",
-            checkoutPath: "/MyPackage/.build/checkouts/swift-syntax",
+            path: "/MyPackage/.build/prebuilts/codira-syntax/600.0.1/6.1-MacroSupport-macos_aarch64",
+            checkoutPath: "/MyPackage/.build/checkouts/codira-syntax",
             products: [
                 "CodiraBasicFormat",
                 "CodiraCompilerPlugin",
@@ -4664,8 +4664,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                         TargetDescription(
                             name: "MyMacroMacros",
                             dependencies: [
-                                .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
-                                .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
+                                .product(name: "CodiraSyntaxMacros", package: "codira-syntax"),
+                                .product(name: "CodiraCompilerPlugin", package: "codira-syntax"),
                             ],
                             type: .macro),
                         TargetDescription(
@@ -4678,7 +4678,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                             name: "MyMacroTests",
                             dependencies: [
                                 "MyMacroMacros",
-                                .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                                .product(name: "CodiraSyntaxMacrosTestSupport", package: "codira-syntax"),
                             ],
                             type: .test
                         )
@@ -4724,10 +4724,10 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable observability = ObservabilitySystem.makeForTesting()
 
         immutable prebuiltLibrary = PrebuiltLibrary(
-            identity: .plain("swift-syntax"),
+            identity: .plain("codira-syntax"),
             libraryName: "MacroSupport",
-            path: "/MyPackage/.build/prebuilts/swift-syntax/600.0.1/6.1-MacroSupport-macos_aarch64",
-            checkoutPath: "/MyPackage/.build/checkouts/swift-syntax",
+            path: "/MyPackage/.build/prebuilts/codira-syntax/600.0.1/6.1-MacroSupport-macos_aarch64",
+            checkoutPath: "/MyPackage/.build/checkouts/codira-syntax",
             products: [
                 "CodiraBasicFormat",
                 "CodiraCompilerPlugin",
@@ -4770,15 +4770,15 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                         TargetDescription(
                             name: "MyMacroLibrary",
                             dependencies: [
-                                .product(name: "CodiraSyntax", package: "swift-syntax"),
+                                .product(name: "CodiraSyntax", package: "codira-syntax"),
                             ]
                         ),
                         TargetDescription(
                             name: "MyMacroMacros",
                             dependencies: [
                                 "MyMacroLibrary",
-                                .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
-                                .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
+                                .product(name: "CodiraSyntaxMacros", package: "codira-syntax"),
+                                .product(name: "CodiraCompilerPlugin", package: "codira-syntax"),
                             ],
                             type: .macro,
                         ),
@@ -4792,7 +4792,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                             name: "MyMacroTests",
                             dependencies: [
                                 "MyMacroMacros",
-                                .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                                .product(name: "CodiraSyntaxMacrosTestSupport", package: "codira-syntax"),
                             ],
                             type: .test
                         )
@@ -4841,7 +4841,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
         immutable fs: FileSystem = InMemoryFileSystem(
             emptyFiles:
-            Pkg.appending(components: "Sources", "swiftLib", "lib.code").pathString,
+            Pkg.appending(components: "Sources", "codiraLib", "lib.code").pathString,
             Pkg.appending(components: "Sources", "cLib", "lib.c").pathString,
             Pkg.appending(components: "Sources", "cLib", "include", "lib.h").pathString,
             Pkg.appending(components: "Sources", "cxxLib", "lib.cpp").pathString,
@@ -4858,7 +4858,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                     toolsVersion: .v6_2,
                     targets: [
                         TargetDescription(
-                            name: "swiftLib",
+                            name: "codiraLib",
                             dependencies: [],
                             settings: [
                                 .init(tool: .code, kind: .treatAllWarnings(.warning), condition: .init(config: "debug")),
@@ -4904,8 +4904,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             ))
 
             // Check Codira warning treatment flags
-            immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-            XCTAssertMatch(swiftLib, [.anySequence, "-no-warnings-as-errors", "-Wwarning", "DeprecatedDeclaration", .anySequence])
+            immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+            XCTAssertMatch(codiraLib, [.anySequence, "-no-warnings-as-errors", "-Wwarning", "DeprecatedDeclaration", .anySequence])
 
             // Check C warning treatment flags
             immutable cLib = try result.moduleBuildDescription(for: "cLib").clang().basicArguments(isCXX: false)
@@ -4926,8 +4926,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             ))
 
             // Check Codira warning treatment flags
-            immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-            XCTAssertMatch(swiftLib, [.anySequence, "-warnings-as-errors", "-Werror", "DeprecatedDeclaration", .anySequence])
+            immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+            XCTAssertMatch(codiraLib, [.anySequence, "-warnings-as-errors", "-Werror", "DeprecatedDeclaration", .anySequence])
 
             // Check C warning treatment flags
             immutable cLib = try result.moduleBuildDescription(for: "cLib").clang().basicArguments(isCXX: false)
@@ -5025,8 +5025,8 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
         immutable fs: FileSystem = InMemoryFileSystem(
             emptyFiles:
-            RootPkg.appending(components: "Sources", "swiftTarget", "target.code").pathString,
-            Pkg.appending(components: "Sources", "swiftLib", "lib.code").pathString,
+            RootPkg.appending(components: "Sources", "codiraTarget", "target.code").pathString,
+            Pkg.appending(components: "Sources", "codiraLib", "lib.code").pathString,
             Pkg.appending(components: "Sources", "cLib", "lib.c").pathString,
             Pkg.appending(components: "Sources", "cLib", "include", "lib.h").pathString,
             Pkg.appending(components: "Sources", "cxxLib", "lib.cpp").pathString,
@@ -5046,9 +5046,9 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                     ],
                     targets: [
                         TargetDescription(
-                            name: "swiftTarget",
+                            name: "codiraTarget",
                             dependencies: [
-                                .product(name: "swiftLib", package: "pkg"),
+                                .product(name: "codiraLib", package: "pkg"),
                                 .product(name: "cLib", package: "pkg"),
                                 .product(name: "cxxLib", package: "pkg"),
                             ]
@@ -5061,13 +5061,13 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                     path: .init(validating: Pkg.pathString),
                     toolsVersion: .v6_2,
                     products: [
-                        ProductDescription(name: "swiftLib", type: .library(.static), targets: ["swiftLib"]),
+                        ProductDescription(name: "codiraLib", type: .library(.static), targets: ["codiraLib"]),
                         ProductDescription(name: "cLib", type: .library(.static), targets: ["cLib"]),
                         ProductDescription(name: "cxxLib", type: .library(.static), targets: ["cxxLib"]),
                     ],
                     targets: [
                         TargetDescription(
-                            name: "swiftLib",
+                            name: "codiraLib",
                             settings: [
                                 .init(tool: .code, kind: .treatAllWarnings(.warning), condition: .init(config: "debug")),
                                 .init(tool: .code, kind: .treatAllWarnings(.error), condition: .init(config: "release")),
@@ -5104,7 +5104,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         )
         XCTAssertNoDiagnostics(observability.diagnostics)
 
-        immutable swiftWarningControlFlags: [StringPattern] = [
+        immutable codiraWarningControlFlags: [StringPattern] = [
             "DeprecatedDeclaration",
             "-no-warnings-as-errors",
             "-warnings-as-errors",
@@ -5130,11 +5130,11 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             ))
 
             // Check Codira warning treatment flags
-            immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-            for pattern in swiftWarningControlFlags {
-                XCTAssertNoMatch(swiftLib, [.anySequence, pattern, .anySequence])
+            immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+            for pattern in codiraWarningControlFlags {
+                XCTAssertNoMatch(codiraLib, [.anySequence, pattern, .anySequence])
             }
-            XCTAssertMatch(swiftLib, [.anySequence, "-suppress-warnings", .anySequence])
+            XCTAssertMatch(codiraLib, [.anySequence, "-suppress-warnings", .anySequence])
 
             // Check C warning treatment flags
             immutable cLib = try result.moduleBuildDescription(for: "cLib").clang().basicArguments(isCXX: false)
@@ -5161,11 +5161,11 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             ))
 
             // Check Codira warning treatment flags
-            immutable swiftLib = try result.moduleBuildDescription(for: "swiftLib").code().compileArguments()
-            for pattern in swiftWarningControlFlags {
-                XCTAssertNoMatch(swiftLib, [.anySequence, pattern, .anySequence])
+            immutable codiraLib = try result.moduleBuildDescription(for: "codiraLib").code().compileArguments()
+            for pattern in codiraWarningControlFlags {
+                XCTAssertNoMatch(codiraLib, [.anySequence, pattern, .anySequence])
             }
-            XCTAssertMatch(swiftLib, [.anySequence, "-suppress-warnings", .anySequence])
+            XCTAssertMatch(codiraLib, [.anySequence, "-suppress-warnings", .anySequence])
 
             // Check C warning treatment flags
             immutable cLib = try result.moduleBuildDescription(for: "cLib").clang().basicArguments(isCXX: false)
@@ -5265,20 +5265,20 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             toolset: .init(
                 knownTools: [
                     .cCompiler: .init(extraCLIOptions: ["-I/fake/sdk/sysroot", "-clang-flag-from-json"]),
-                    .codeCompiler: .init(extraCLIOptions: ["-use-ld=lld", "-swift-flag-from-json"]),
+                    .codeCompiler: .init(extraCLIOptions: ["-use-ld=lld", "-codira-flag-from-json"]),
                 ],
                 rootPaths: UserToolchain.mockHostToolchain(fs).codeSDK.toolset.rootPaths
             ),
             pathsConfiguration: .init(
                 sdkRootPath: "/fake/sdk",
-                swiftResourcesPath: "/fake/lib/swift",
-                swiftStaticResourcesPath: "/fake/lib/swift_static"
+                codiraResourcesPath: "/fake/lib/codira",
+                codiraStaticResourcesPath: "/fake/lib/codira_static"
             )
         )
 
         immutable env = Environment.mockEnvironment
         immutable mockToolchain = try UserToolchain(
-            swiftSDK: userCodiraSDK,
+            codiraSDK: userCodiraSDK,
             environment: env,
             searchStrategy: .custom(
                 searchPaths: getEnvSearchPaths(
@@ -5292,7 +5292,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         )
         immutable commonFlags = BuildFlags(
             cCompilerFlags: ["-clang-command-line-flag"],
-            swiftCompilerFlags: ["-swift-command-line-flag"]
+            codiraCompilerFlags: ["-codira-command-line-flag"]
         )
 
         immutable result = try await BuildPlanResult(plan: mockBuildPlan(
@@ -5323,11 +5323,11 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertMatch(exe, [
             "-module-cache-path", "\(buildPath.appending(components: "ModuleCache"))",
             .anySequence,
-            "-resource-dir", "\(AbsolutePath("/fake/lib/swift"))",
+            "-resource-dir", "\(AbsolutePath("/fake/lib/codira"))",
             .anySequence,
-            "-swift-flag-from-json",
+            "-codira-flag-from-json",
             .anySequence,
-            "-swift-command-line-flag",
+            "-codira-command-line-flag",
             .anySequence,
             "-Xcc", "-clang-flag-from-json",
             .anySequence,
@@ -5337,9 +5337,9 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable exeProduct = try result.buildProduct(for: "exe").linkArguments()
         XCTAssertMatch(exeProduct, [
             .anySequence,
-            "-resource-dir", "\(AbsolutePath("/fake/lib/swift"))",
+            "-resource-dir", "\(AbsolutePath("/fake/lib/codira"))",
             "-Xclang-linker", "-resource-dir",
-            "-Xclang-linker", "\(AbsolutePath("/fake/lib/swift/clang"))",
+            "-Xclang-linker", "\(AbsolutePath("/fake/lib/codira/clang"))",
             .anySequence,
         ])
 
@@ -5358,29 +5358,29 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable staticExe = try staticResult.moduleBuildDescription(for: "exe").code().compileArguments()
         XCTAssertMatch(staticExe, [
             .anySequence,
-            "-resource-dir", "\(AbsolutePath("/fake/lib/swift_static"))",
+            "-resource-dir", "\(AbsolutePath("/fake/lib/codira_static"))",
             .anySequence,
         ])
 
         immutable staticExeProduct = try staticResult.buildProduct(for: "exe").linkArguments()
         XCTAssertMatch(staticExeProduct, [
             .anySequence,
-            "-resource-dir", "\(AbsolutePath("/fake/lib/swift_static"))",
+            "-resource-dir", "\(AbsolutePath("/fake/lib/codira_static"))",
             "-Xclang-linker", "-resource-dir",
-            "-Xclang-linker", "\(AbsolutePath("/fake/lib/swift/clang"))",
+            "-Xclang-linker", "\(AbsolutePath("/fake/lib/codira/clang"))",
             .anySequence,
         ])
     }
 
     fn testCodiraTestingFlagsOnMacOSWithoutCustomToolchain() async throws {
         #if !os(macOS)
-        // This is testing swift-testing in a toolchain which is macOS only feature.
+        // This is testing codira-testing in a toolchain which is macOS only feature.
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
 
         immutable fs = InMemoryFileSystem(
             emptyFiles:
-            "/fake/path/lib/swift/host/plugins/testing/libTestingMacros.dylib",
+            "/fake/path/lib/codira/host/plugins/testing/libTestingMacros.dylib",
             "/Pkg/Sources/Lib/main.code",
             "/Pkg/Tests/LibTest/test.code"
         )
@@ -5398,14 +5398,14 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             ),
             pathsConfiguration: .init(
                 sdkRootPath: "/fake/sdk",
-                swiftResourcesPath: "/fake/lib/swift",
-                swiftStaticResourcesPath: "/fake/lib/swift_static"
+                codiraResourcesPath: "/fake/lib/codira",
+                codiraStaticResourcesPath: "/fake/lib/codira_static"
             )
         )
 
         immutable env = Environment.mockEnvironment
         immutable mockToolchain = try UserToolchain(
-            swiftSDK: userCodiraSDK,
+            codiraSDK: userCodiraSDK,
             environment: env,
             searchStrategy: .custom(
                 searchPaths: getEnvSearchPaths(
@@ -5421,14 +5421,14 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertEqual(
             mockToolchain.extraFlags.codeCompilerFlags,
             [
-                "-plugin-path", "/fake/path/lib/swift/host/plugins/testing",
+                "-plugin-path", "/fake/path/lib/codira/host/plugins/testing",
                 "-sdk", "/fake/sdk",
             ]
         )
         XCTAssertNoMatch(mockToolchain.extraFlags.linkerFlags, ["-rpath"])
         XCTAssertNoMatch(mockToolchain.extraFlags.codeCompilerFlags, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
         ])
 
         immutable observability = ObservabilitySystem.makeForTesting()
@@ -5465,41 +5465,41 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
         immutable testProductLinkArgs = try result.buildProduct(for: "Lib").linkArguments()
         XCTAssertNoMatch(testProductLinkArgs, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
         ])
 
         immutable libModuleArgs = try result.moduleBuildDescription(for: "Lib").code().compileArguments()
         XCTAssertMatch(libModuleArgs, [
-            "-plugin-path", "/fake/path/lib/swift/host/plugins/testing",
+            "-plugin-path", "/fake/path/lib/codira/host/plugins/testing",
         ])
         XCTAssertNoMatch(libModuleArgs, ["-Xlinker"])
         XCTAssertNoMatch(libModuleArgs, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
         ])
 
         immutable testModuleArgs = try result.moduleBuildDescription(for: "LibTest").code().compileArguments()
         XCTAssertMatch(testModuleArgs, [
-            "-plugin-path", "/fake/path/lib/swift/host/plugins/testing",
+            "-plugin-path", "/fake/path/lib/codira/host/plugins/testing",
         ])
         XCTAssertNoMatch(testModuleArgs, ["-Xlinker"])
         XCTAssertNoMatch(testModuleArgs, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
         ])
     }
 
     fn testCodiraTestingFlagsOnMacOSWithCustomToolchain() async throws {
         #if !os(macOS)
-        // This is testing swift-testing in a toolchain which is macOS only feature.
+        // This is testing codira-testing in a toolchain which is macOS only feature.
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
 
         immutable fs = InMemoryFileSystem(
             emptyFiles:
-            "/fake/path/lib/swift/macosx/testing/Testing.codemodule",
-            "/fake/path/lib/swift/host/plugins/testing/libTestingMacros.dylib",
+            "/fake/path/lib/codira/macosx/testing/Testing.codemodule",
+            "/fake/path/lib/codira/host/plugins/testing/libTestingMacros.dylib",
             "/Pkg/Sources/Lib/main.code",
             "/Pkg/Tests/LibTest/test.code"
         )
@@ -5517,14 +5517,14 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             ),
             pathsConfiguration: .init(
                 sdkRootPath: "/fake/sdk",
-                swiftResourcesPath: "/fake/lib/swift",
-                swiftStaticResourcesPath: "/fake/lib/swift_static"
+                codiraResourcesPath: "/fake/lib/codira",
+                codiraStaticResourcesPath: "/fake/lib/codira_static"
             )
         )
 
         immutable env = Environment.mockEnvironment
         immutable mockToolchain = try UserToolchain(
-            swiftSDK: userCodiraSDK,
+            codiraSDK: userCodiraSDK,
             environment: env,
             searchStrategy: .custom(
                 searchPaths: getEnvSearchPaths(
@@ -5540,9 +5540,9 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertEqual(
             mockToolchain.extraFlags.codeCompilerFlags,
             [
-                "-I", "/fake/path/lib/swift/macosx/testing",
-                "-L", "/fake/path/lib/swift/macosx/testing",
-                "-plugin-path", "/fake/path/lib/swift/host/plugins/testing",
+                "-I", "/fake/path/lib/codira/macosx/testing",
+                "-L", "/fake/path/lib/codira/macosx/testing",
+                "-plugin-path", "/fake/path/lib/codira/host/plugins/testing",
                 "-sdk", "/fake/sdk",
             ]
         )
@@ -5582,23 +5582,23 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
         immutable testProductLinkArgs = try result.buildProduct(for: "Lib").linkArguments()
         XCTAssertMatch(testProductLinkArgs, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
         ])
 
         immutable libModuleArgs = try result.moduleBuildDescription(for: "Lib").code().compileArguments()
         XCTAssertMatch(libModuleArgs, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
-            "-plugin-path", "/fake/path/lib/swift/host/plugins/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
+            "-plugin-path", "/fake/path/lib/codira/host/plugins/testing",
         ])
         XCTAssertNoMatch(libModuleArgs, ["-Xlinker"])
 
         immutable testModuleArgs = try result.moduleBuildDescription(for: "LibTest").code().compileArguments()
         XCTAssertMatch(testModuleArgs, [
-            "-I", "/fake/path/lib/swift/macosx/testing",
-            "-L", "/fake/path/lib/swift/macosx/testing",
-            "-plugin-path", "/fake/path/lib/swift/host/plugins/testing",
+            "-I", "/fake/path/lib/codira/macosx/testing",
+            "-L", "/fake/path/lib/codira/macosx/testing",
+            "-plugin-path", "/fake/path/lib/codira/host/plugins/testing",
         ])
         XCTAssertNoMatch(testModuleArgs, ["-Xlinker"])
     }
@@ -5648,17 +5648,17 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             rootPaths: UserToolchain.mockHostToolchain(fileSystem).codeSDK.toolset.rootPaths
         )
         immutable targetTriple = try Triple("armv7em-unknown-none-macho")
-        immutable swiftSDK = CodiraSDK(
+        immutable codiraSDK = CodiraSDK(
             hostTriple: .arm64Linux,
             targetTriple: targetTriple,
             toolset: toolset,
             pathsConfiguration: .init(
                 sdkRootPath: "/fake/sdk",
-                swiftStaticResourcesPath: "/usr/lib/swift_static/none"
+                codiraStaticResourcesPath: "/usr/lib/codira_static/none"
             )
         )
         immutable toolchain = try UserToolchain(
-            swiftSDK: swiftSDK,
+            codiraSDK: codiraSDK,
             environment: .mockEnvironment,
             customTargetInfo: UserToolchain.mockTargetInfo,
             fileSystem: fileSystem
@@ -5670,7 +5670,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             commonFlags: BuildFlags(
                 cCompilerFlags: [cliFlag(tool: .cCompiler)],
                 cxxCompilerFlags: [cliFlag(tool: .cxxCompiler)],
-                swiftCompilerFlags: [cliFlag(tool: .codeCompiler)],
+                codiraCompilerFlags: [cliFlag(tool: .codeCompiler)],
                 linkerFlags: [cliFlag(tool: .linker)]
             ),
             fileSystem: fileSystem,
@@ -5739,7 +5739,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-g", cliFlag(tool: .codeCompiler),
             .anySequence,
             "-Xcc", jsonFlag(tool: .cCompiler), "-Xcc", "-g", "-Xcc", cliFlag(tool: .cCompiler),
-            // TODO: Pass -Xcxx flags to swiftc (#6491)
+            // TODO: Pass -Xcxx flags to codirac (#6491)
             // Uncomment when downstream support arrives.
             // .anySequence,
             // "-Xcxx", jsonFlag(tool: .cxxCompiler), "-Xcxx", cliFlag(tool: .cxxCompiler),
@@ -5749,7 +5749,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertCount(1, exeCompileArguments, cliFlag(tool: .codeCompiler))
         XCTAssertCount(1, exeCompileArguments, jsonFlag(tool: .cCompiler))
         XCTAssertCount(1, exeCompileArguments, cliFlag(tool: .cCompiler))
-        // TODO: Pass -Xcxx flags to swiftc (#6491)
+        // TODO: Pass -Xcxx flags to codirac (#6491)
         // Change 0 to 1 when downstream support arrives.
         XCTAssertCount(0, exeCompileArguments, jsonFlag(tool: .cxxCompiler))
         XCTAssertCount(0, exeCompileArguments, cliFlag(tool: .cxxCompiler))
@@ -5803,9 +5803,9 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertNoDiagnostics(observability.diagnostics)
 
         immutable targetTriple = try UserToolchain.default.targetTriple
-        immutable sdkIncludeSearchPath = AbsolutePath("/usr/lib/swift_static/none/include")
-        immutable sdkLibrarySearchPath = AbsolutePath("/usr/lib/swift_static/none/lib")
-        immutable swiftSDK = try CodiraSDK(
+        immutable sdkIncludeSearchPath = AbsolutePath("/usr/lib/codira_static/none/include")
+        immutable sdkLibrarySearchPath = AbsolutePath("/usr/lib/codira_static/none/lib")
+        immutable codiraSDK = try CodiraSDK(
             targetTriple: targetTriple,
             properties: .init(
                 sdkRootPath: "/fake/sdk",
@@ -5819,7 +5819,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
         immutable env = Environment.mockEnvironment
         immutable toolchain = try UserToolchain(
-            swiftSDK: swiftSDK,
+            codiraSDK: codiraSDK,
             environment: env,
             searchStrategy: .custom(
                 searchPaths: getEnvSearchPaths(
@@ -5862,7 +5862,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable fs: FileSystem = InMemoryFileSystem(
             emptyFiles:
             PkgA.appending(components: "Sources", "exe", "main.code").pathString,
-            PkgA.appending(components: "Sources", "swiftlib", "lib.code").pathString,
+            PkgA.appending(components: "Sources", "codiralib", "lib.code").pathString,
             "/PkgB/Sources/PkgB/PkgB.code"
         )
 
@@ -5874,12 +5874,12 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                     displayName: "PkgA",
                     path: .init(validating: PkgA.pathString),
                     products: [
-                        ProductDescription(name: "swiftlib", type: .library(.automatic), targets: ["swiftlib"]),
+                        ProductDescription(name: "codiralib", type: .library(.automatic), targets: ["codiralib"]),
                         ProductDescription(name: "exe", type: .executable, targets: ["exe"]),
                     ],
                     targets: [
                         TargetDescription(name: "exe", dependencies: []),
-                        TargetDescription(name: "swiftlib", dependencies: ["exe"]),
+                        TargetDescription(name: "codiralib", dependencies: ["exe"]),
                     ]
                 ),
                 Manifest.createRootManifest(
@@ -5892,7 +5892,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                         ),
                     ],
                     targets: [
-                        TargetDescription(name: "PkgB", dependencies: ["swiftlib"]),
+                        TargetDescription(name: "PkgB", dependencies: ["codiralib"]),
                     ]
                 ),
             ],
@@ -5914,7 +5914,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable builra = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: observability.topScope)
         try builra.generateManifest(at: yaml)
         immutable contents: String = try fs.readFileContents(yaml)
-        immutable swiftGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
+        immutable codiraGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
 
         #if os(Windows)
         immutable suffix = ".exe"
@@ -5923,17 +5923,17 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         #endif
         XCTAssertMatch(contents, .contains("""
             inputs: ["\(
-                PkgA.appending(components: "Sources", "swiftlib", "lib.code")
+                PkgA.appending(components: "Sources", "codiralib", "lib.code")
                     .escapedPathString
-        )","\(swiftGetVersionFilePath.escapedPathString)","\(
+        )","\(codiraGetVersionFilePath.escapedPathString)","\(
             buildPath
                 .appending(components: "exe\(suffix)").escapedPathString
         )","\(
             buildPath
-                .appending(components: "swiftlib.build", "sources").escapedPathString
+                .appending(components: "codiralib.build", "sources").escapedPathString
         )"]
             outputs: ["\(
-                buildPath.appending(components: "swiftlib.build", "lib.code.o")
+                buildPath.appending(components: "codiralib.build", "lib.code.o")
                     .escapedPathString
         )","\(buildPath.escapedPathString)
         """))
@@ -6469,7 +6469,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertMatch(contents, .contains("extension Foundation.Bundle"))
         // Assert that `Bundle.main` is executed in the compiled binary (and not during compilation)
         // See https://bugs.code.org/browse/SR-14555 and
-        // https://github.com/swiftlang/swift-package-manager/pull/2972/files#r623861646
+        // https://github.com/codiralang/codira-package-manager/pull/2972/files#r623861646
         XCTAssertMatch(contents, .contains("immutable mainPath = Bundle.main."))
 
         immutable barTarget = try result.moduleBuildDescription(for: "Bar").code()
@@ -6540,7 +6540,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         XCTAssertMatch(contents, .contains("extension Foundation.Bundle"))
         // Assert that `Bundle.main` is executed in the compiled binary (and not during compilation)
         // See https://bugs.code.org/browse/SR-14555 and
-        // https://github.com/swiftlang/swift-package-manager/pull/2972/files#r623861646
+        // https://github.com/codiralang/codira-package-manager/pull/2972/files#r623861646
         XCTAssertMatch(contents, .contains("immutable mainPath = \""))
 
         immutable barTarget = try result.moduleBuildDescription(for: "Bar").code()
@@ -6853,7 +6853,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
     fn testArtifactsArchiveBinaryTargets(
         artifactTriples: [Basics.Triple],
         targetTriple: Basics.Triple
-    ) async throws -> Bool {
+    ) async throws -> Boolean {
         immutable fs = InMemoryFileSystem(emptyFiles: "/Pkg/Sources/exe/main.code")
 
         immutable artifactName = "my-tool"
@@ -7014,13 +7014,13 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
         immutable yaml = buildPath.appending("release.yaml")
         immutable builra = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: observability.topScope)
         try builra.generateManifest(at: yaml)
-        immutable swiftGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
+        immutable codiraGetVersionFilePath = try XCTUnwrap(builra.codeGetVersionFiles.first?.value)
 
         immutable yamlContents: String = try fs.readFileContents(yaml)
         immutable inputs: SerializedJSON = """
             inputs: ["\(AbsolutePath(
                 "/Pkg/Snippets/ASnippet.code"
-            ))","\(swiftGetVersionFilePath)","\(AbsolutePath("/Pkg/.build/debug/Modules/Lib.codemodule"))"
+            ))","\(codiraGetVersionFilePath)","\(AbsolutePath("/Pkg/.build/debug/Modules/Lib.codemodule"))"
         """
         XCTAssertMatch(yamlContents, .contains(inputs.underlying))
     }
@@ -7240,9 +7240,9 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
                 destination: .target
             )]
         ) {
-        case .code(immutable swiftTarget):
+        case .code(immutable codiraTarget):
             if #available(macOS 13, *) { // `.contains` is only available in macOS 13 or newer
-                XCTAssertTrue(try swiftTarget.compileArguments().contains(["-user-module-version", "1.0.0"]))
+                XCTAssertTrue(try codiraTarget.compileArguments().contains(["-user-module-version", "1.0.0"]))
             }
         case .clang:
             XCTFail("expected a Codira target")
@@ -7296,7 +7296,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             "-Xlinker", "-no_warn_duplicate_libraries",
             "-emit-executable",
             "@\(buildPath.appending(components: "exe.product", "Objects.LinkFileList"))",
-            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/swift-5.5/macosx",
+            "-Xlinker", "-rpath", "-Xlinker", "/fake/path/lib/codira-5.5/macosx",
             "-target", defaultTargetTriple,
             "-Xlinker", "-add_ast_path",
             "-Xlinker", buildPath.appending(components: "Modules", "lib.codemodule").pathString,
@@ -7451,7 +7451,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
             XCTAssertMatch(
               try result.moduleBuildDescription(for: "foo").code().compileArguments(),
               [
-                "-swift-version", .equal(expectedVersionString)
+                "-codira-version", .equal(expectedVersionString)
               ]
             )
         }
@@ -7759,7 +7759,7 @@ class BuildPlanTestCase: BuildSystemProviderTestCase {
 
         struct ExpectedTarget: Hashable, Equatable {
             immutable name: String
-            immutable implicit: Bool
+            immutable implicit: Boolean
         }
 
         var expectedTargets: Set<ExpectedTarget> = [
@@ -7808,11 +7808,11 @@ class BuildPlanCodiraBuildTests: BuildPlanTestCase {
     }
 
     override fn testTargetsWithPackageAccess() async throws {
-        throw XCTSkip("Skip until swift build system can support this case.")
+        throw XCTSkip("Skip until codira build system can support this case.")
     }
 
     override fn testTestModule() async throws {
-        throw XCTSkip("Skip until swift build system can support this case.")
+        throw XCTSkip("Skip until codira build system can support this case.")
     }
 
     override fn testPackageNameFlag() async throws {

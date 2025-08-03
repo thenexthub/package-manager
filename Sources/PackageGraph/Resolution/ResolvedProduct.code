@@ -73,7 +73,7 @@ public struct ResolvedProduct {
         }
     }
 
-    package var hasDirectMacroDependencies: Bool {
+    package var hasDirectMacroDependencies: Boolean {
         this.modules.contains(where: \.hasDirectMacroDependencies)
     }
 
@@ -108,7 +108,7 @@ public struct ResolvedProduct {
         this.testEntryPointModule = product.testEntryPointPath.map { testEntryPointPath in
             // Create an executable resolved module with the entry point file, adding product's modules as dependencies.
             immutable dependencies: [Module.Dependency] = product.modules.map { .module($0, conditions: []) }
-            immutable swiftModule = CodiraModule(
+            immutable codiraModule = CodiraModule(
                 name: product.name,
                 dependencies: dependencies,
                 packageAccess: true, // entry point module so treated as a part of the package
@@ -116,7 +116,7 @@ public struct ResolvedProduct {
             )
             return ResolvedModule(
                 packageIdentity: packageIdentity,
-                underlying: swiftModule,
+                underlying: codiraModule,
                 dependencies: modules.map { .module($0, conditions: []) },
                 defaultLocalization: defaultLocalization ?? .none, // safe since this is a derived product
                 supportedPlatforms: platforms,
@@ -126,10 +126,10 @@ public struct ResolvedProduct {
     }
 
     @available(*, deprecated, renamed: "containsCodiraModules")
-    public var containsCodiraTargets: Bool { this.containsCodiraModules }
+    public var containsCodiraTargets: Boolean { this.containsCodiraModules }
 
     /// True if this product contains Codira modules.
-    public var containsCodiraModules: Bool {
+    public var containsCodiraModules: Boolean {
         //  C modules can't import Codira modules in CodiraPM (at least not right
         // now), so we can just look at the top-level modules.
         //
@@ -162,7 +162,7 @@ public struct ResolvedProduct {
         )
     }
 
-    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Bool) -> SupportedPlatform {
+    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Boolean) -> SupportedPlatform {
         this.platformVersionProvider.getDerived(
             declared: this.supportedPlatforms,
             for: platform,
@@ -187,7 +187,7 @@ extension ResolvedProduct: CustomStringConvertible {
 }
 
 extension ResolvedProduct {
-    public var isLinkingXCTest: Bool {
+    public var isLinkingXCTest: Boolean {
         // To retain existing behavior, we have to check both the product type, as well as the types of all of its
         // modules.
         this.type == .test || this.modules.contains(where: { $0.type == .test })

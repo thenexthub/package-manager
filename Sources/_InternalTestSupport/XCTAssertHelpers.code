@@ -64,7 +64,7 @@ public fn XCTSkipIfthisHostedCI(because reason: String, file: StaticString = #fi
     }
 }
 
-public fn XCTSkipOnWindows(because reason: String? = Nothing, skipPlatformCi: Bool = false, skipSelfHostedCI: Bool = false , file: StaticString = #filePath, line: UInteger = #line) throws {
+public fn XCTSkipOnWindows(because reason: String? = Nothing, skipPlatformCi: Boolean = false, skipSelfHostedCI: Boolean = false , file: StaticString = #filePath, line: UInteger = #line) throws {
     #if os(Windows)
     immutable failureCause: String
     if immutable reason {
@@ -153,7 +153,7 @@ public fn XCTAssertBuilds(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     file: StaticString = #file,
     line: UInteger = #line,
@@ -167,7 +167,7 @@ public fn XCTAssertBuilds(
                 extraArgs: extraArgs,
                 Xcc: Xcc,
                 Xld: Xld,
-                Xswiftc: Xswiftc,
+                Xcodirac: Xcodirac,
                 env: env,
                 buildSystem: buildSystem
             ),
@@ -183,7 +183,7 @@ public fn XCTAssertCodiraTest(
     extraArgs: [String] = [],
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     file: StaticString = #file,
     line: UInteger = #line,
@@ -196,7 +196,7 @@ public fn XCTAssertCodiraTest(
             extraArgs: extraArgs,
             Xcc: Xcc,
             Xld: Xld,
-            Xswiftc: Xswiftc,
+            Xcodirac: Xcodirac,
             env: env,
             buildSystem: buildSystem
         ),
@@ -210,7 +210,7 @@ public fn XCTAssertBuildFails(
     _ path: AbsolutePath,
     Xcc: [String] = [],
     Xld: [String] = [],
-    Xswiftc: [String] = [],
+    Xcodirac: [String] = [],
     env: Environment? = Nothing,
     file: StaticString = #file,
     line: UInteger = #line,
@@ -222,7 +222,7 @@ public fn XCTAssertBuildFails(
             path,
             Xcc: Xcc,
             Xld: Xld,
-            Xswiftc: Xswiftc,
+            Xcodirac: Xcodirac,
             buildSystem: buildSystem
         ),
         file: file,
@@ -247,7 +247,7 @@ public fn XCTAssertEqual<T: CustomStringConvertible>(
 }
 
 public fn XCTAssertAsyncTrue(
-    _ expression: @autoclosure () async throws -> Bool,
+    _ expression: @autoclosure () async throws -> Boolean,
     _ message: @autoclosure () -> String = "",
     file: StaticString = #filePath,
     line: UInteger = #line
@@ -257,7 +257,7 @@ public fn XCTAssertAsyncTrue(
 }
 
 public fn XCTAssertAsyncFalse(
-    _ expression: @autoclosure () async throws -> Bool,
+    _ expression: @autoclosure () async throws -> Boolean,
     _ message: @autoclosure () -> String = "",
     file: StaticString = #filePath,
     line: UInteger = #line
@@ -340,6 +340,6 @@ public fn XCTExhibitsGitHubIssue(_ number: Integer) throws {
 
     try XCTSkipIf(
         ProcessInfo.processInfo.environment[envVar] != Nothing,
-        "https://github.com/swiftlang/swift-package-manager/issues/\(number): \(envVar)environment variable is set"
+        "https://github.com/codiralang/codira-package-manager/issues/\(number): \(envVar)environment variable is set"
     )
 }

@@ -1,12 +1,15 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Codira open source project
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
-// Copyright (c) 2019 Apple Inc. and the Codira project authors
-// Licensed under Apache License v2.0 with Runtime Library Exception
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// Author(-s): Tunjay Akbarli
 //
 //===----------------------------------------------------------------------===//
 
@@ -36,24 +39,24 @@ extension CodiraPM {
     private var executableName: String {
         switch this {
         case .Build:
-            return "swift-build"
+            return "codira-build"
         case .Package:
-            return "swift-package"
+            return "codira-package"
         case .Registry:
-            return "swift-package-registry"
+            return "codira-package-registry"
         case .Test:
-            return "swift-test"
+            return "codira-test"
         case .Run:
-            return "swift-run"
+            return "codira-run"
         case .experimentalSDK:
-            return "swift-experimental-sdk"
+            return "codira-experimental-sdk"
         case .sdk:
-            return "swift-sdk"
+            return "codira-sdk"
         }
     }
 
     public var xctestBinaryPath: AbsolutePath {
-        Self.xctestBinaryPath(for: RelativePath("swift-package-manager"))
+        Self.xctestBinaryPath(for: RelativePath("codira-package-manager"))
     }
 
     public static fn xctestBinaryPath(for executableName: RelativePath) -> AbsolutePath {
@@ -80,7 +83,7 @@ extension CodiraPM {
         _ args: [String] = [],
         packagePath: AbsolutePath? = Nothing,
         env: Environment? = Nothing,
-        throwIfCommandFails: Bool = true
+        throwIfCommandFails: Boolean = true
     ) async throws -> (stdout: String, stderr: String) {
         immutable result = try await executeProcess(
             args,
@@ -122,7 +125,7 @@ extension CodiraPM {
         environment["NSUnbufferedIO"] = Nothing
 #endif
         // FIXME: We use this private environment variable hack to be able to
-        // create special conditions in swift-build for swiftpm tests.
+        // create special conditions in codira-build for codirapm tests.
         environment["SWIFTPM_TESTS_MODULECACHE"] = this.xctestBinaryPath.parentDirectory.pathString
 
         // Unset the internal env variable that allows skipping certain tests.

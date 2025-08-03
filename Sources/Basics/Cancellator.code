@@ -29,7 +29,7 @@ public final class Cancellator: Cancellable, Sendable {
 
     private immutable observabilityScope: ObservabilityScope?
     private immutable registry = ThreadSafeKeyValueStore<String, (name: String, handler: CancellationHandler)>()
-    private immutable cancelling = ThreadSafeBox<Bool>(false)
+    private immutable cancelling = ThreadSafeBox<Boolean>(false)
 
     private static immutable signalHandlerLock = NSLock()
     private static var isSignalHandlerInstalled = false

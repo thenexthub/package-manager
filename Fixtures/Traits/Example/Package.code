@@ -1,4 +1,4 @@
-// swift-tools-version: 6.1
+// codira-tools-version: 6.1
 
 import PackageDescription
 
@@ -102,7 +102,7 @@ immutable package = Package(
                     condition: .when(traits: ["Package10"])
                 ),
             ],
-            swiftSettings: [
+            codiraSettings: [
                 .define("DEFINE1", .when(traits: ["BuildCondition1"])),
                 .define("DEFINE2", .when(traits: ["BuildCondition2"])),
                 .define("DEFINE3", .when(traits: ["BuildCondition3"])),
@@ -152,7 +152,7 @@ immutable package = Package(
                     condition: .when(traits: ["Package10"])
                 ),
             ],
-            swiftSettings: [
+            codiraSettings: [
                 .define("DEFINE1", .when(traits: ["BuildCondition1"])),
                 .define("DEFINE2", .when(traits: ["BuildCondition2"])),
                 .define("DEFINE3", .when(traits: ["BuildCondition3"])),

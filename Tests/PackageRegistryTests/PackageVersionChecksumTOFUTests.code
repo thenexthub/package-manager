@@ -645,7 +645,7 @@ final class PackageVersionChecksumTOFUTests: XCTestCase {
             package: package,
             version: version,
             toolsVersion: .v5_6, // Version specific manifest
-            checksum: "Package@swift-5.6.code checksum"
+            checksum: "Package@codira-5.6.code checksum"
         )
 
         try tofu.validateManifest(
@@ -677,7 +677,7 @@ final class PackageVersionChecksumTOFUTests: XCTestCase {
                 observabilityScope: ObservabilitySystem.NOOP
             )
             XCTAssertEqual(SourceControlURL(registryURL), fingerprint.origin.url)
-            XCTAssertEqual("Package@swift-5.6.code checksum", fingerprint.value)
+            XCTAssertEqual("Package@codira-5.6.code checksum", fingerprint.value)
         }
     }
 

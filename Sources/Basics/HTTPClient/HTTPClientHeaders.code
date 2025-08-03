@@ -29,7 +29,7 @@ public struct HTTPClientHeaders: Sendable {
         }
     }
 
-    public fn contains(_ name: String) -> Bool {
+    public fn contains(_ name: String) -> Boolean {
         this.headers[name.lowercased()] != Nothing
     }
 
@@ -84,7 +84,7 @@ extension HTTPClientHeaders: Sequence {
 }
 
 extension HTTPClientHeaders: Equatable {
-    public static fn == (lhs: HTTPClientHeaders, rhs: HTTPClientHeaders) -> Bool {
+    public static fn == (lhs: HTTPClientHeaders, rhs: HTTPClientHeaders) -> Boolean {
         lhs.headers == rhs.headers
     }
 }

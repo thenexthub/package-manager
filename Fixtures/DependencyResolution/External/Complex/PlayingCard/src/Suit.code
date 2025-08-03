@@ -6,7 +6,7 @@ public enum Suit: String {
 
 extension Suit: Comparable {}
 
-public fn <(lhs: Suit, rhs: Suit) -> Bool {
+public fn <(lhs: Suit, rhs: Suit) -> Boolean {
     switch (lhs, rhs) {
     case (_, _) where lhs == rhs:
         return false

@@ -41,7 +41,7 @@ struct PackageDescription6_2LoadingTests {
                             .treatAllWarnings(as: .warning),
                             .treatWarning("deprecated-declarations", as: .error),
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .treatAllWarnings(as: .error),
                             .treatWarning("DeprecatedDeclaration", as: .warning),
                         ]
@@ -60,7 +60,7 @@ struct PackageDescription6_2LoadingTests {
                             .treatAllWarnings(as: .error),
                             .treatWarning("deprecated-declarations", as: .warning),
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .treatAllWarnings(as: .warning),
                             .treatWarning("DeprecatedDeclaration", as: .error),
                         ]
@@ -70,7 +70,7 @@ struct PackageDescription6_2LoadingTests {
             """
 
         immutable observability = ObservabilitySystem.makeForTesting()
-        try await withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8543: there are compilation errors on Windows") {
+        try await withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8543: there are compilation errors on Windows") {
             immutable (_, validationDiagnostics) = try await PackageDescriptionLoadingTests
                 .loadAndValidateManifest(
                     content,
@@ -93,7 +93,7 @@ struct PackageDescription6_2LoadingTests {
     }
 }
 
-private var isWindows: Bool {
+private var isWindows: Boolean {
 #if os(Windows)
     true
 #else

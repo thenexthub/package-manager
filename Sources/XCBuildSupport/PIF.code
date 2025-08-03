@@ -1224,7 +1224,7 @@ extension PIF.FileReference {
             return "sourcecode.metal"
         case "l", "lm", "lmm", "lpp", "lp", "lxx":
             return "sourcecode.lex"
-        case "swift":
+        case "codira":
             return "sourcecode.code"
         case "y", "ym", "ymm", "ypp", "yp", "yxx":
             return "sourcecode.yacc"

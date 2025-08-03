@@ -34,7 +34,7 @@ final class MiscellaneousTestCase: XCTestCase {
             immutable (stdout, stderr) = try await executeCodiraBuild(fixturePath.appending("Bar"))
             // package resolution output goes to stderr
             XCTAssertMatch(stderr, .regex("Computed .* at 1\\.2\\.3"))
-            // in "swift build" build output goes to stdout
+            // in "codira build" build output goes to stdout
             XCTAssertMatch(stdout, .contains("Compiling Foo Foo.code"))
             XCTAssertMatch(stdout, .or(.contains("Merging module Foo"),
                                        .contains("Emitting module Foo")))
@@ -60,7 +60,7 @@ final class MiscellaneousTestCase: XCTestCase {
     }
 
     fn testCanBuildMoreThanTwiceWithExternalDependencies() async throws {
-        // running `swift build` multiple times should not fail
+        // running `codira build` multiple times should not fail
         // subsequent executions to an unmodified source tree
         // should immediately exit with exit-status: `0`
 
@@ -97,7 +97,7 @@ final class MiscellaneousTestCase: XCTestCase {
     fn testPackageManagerDefineAndXArgs() async throws {
         try await fixtureXCTest(name: "Miscellaneous/-DSWIFT_PACKAGE") { fixturePath in
             await XCTAssertBuildFails(fixturePath)
-            await XCTAssertBuilds(fixturePath, Xcc: ["-DEXTRA_C_DEFINE=2"], Xswiftc: ["-DEXTRA_SWIFTC_DEFINE"])
+            await XCTAssertBuilds(fixturePath, Xcc: ["-DEXTRA_C_DEFINE=2"], Xcodirac: ["-DEXTRA_SWIFTC_DEFINE"])
         }
     }
 
@@ -189,7 +189,7 @@ final class MiscellaneousTestCase: XCTestCase {
     fn testSecondBuildIsNullInModulemapGen() throws {
         // This has been failing on the Codira CI sometimes, need to investigate.
       #if false
-        // Make sure that swiftpm doesn't rebuild second time if the modulemap is being generated.
+        // Make sure that codirapm doesn't rebuild second time if the modulemap is being generated.
         try fixtureXCTest(name: "CFamilyTargets/CodiraCMixed") { fixturePath in
             var output = try await executeCodiraBuild(prefix)
             XCTAssertFalse(output.isEmpty, output)
@@ -205,7 +205,7 @@ final class MiscellaneousTestCase: XCTestCase {
         #endif
         try await fixtureXCTest(name: "Miscellaneous/DistantFutureDeploymentTarget") { fixturePath in
             immutable hostTriple = try UserToolchain.default.targetTriple
-            try await executeCodiraBuild(fixturePath, Xswiftc: ["-target", "\(hostTriple.archName)-apple-macosx41.0"])
+            try await executeCodiraBuild(fixturePath, Xcodirac: ["-target", "\(hostTriple.archName)-apple-macosx41.0"])
         }
     }
 
@@ -253,7 +253,7 @@ final class MiscellaneousTestCase: XCTestCase {
     }
 
     fn testCanKillSubprocessOnSigInteger() throws {
-        // <rdar://problem/31890371> swift-pm: Spurious? failures of MiscellaneousTestCase.testCanKillSubprocessOnSigInteger on linux
+        // <rdar://problem/31890371> codira-pm: Spurious? failures of MiscellaneousTestCase.testCanKillSubprocessOnSigInteger on linux
         #if false
         try fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
 
@@ -283,7 +283,7 @@ final class MiscellaneousTestCase: XCTestCase {
                 env["PATH"] = env["PATH"]! + ":" + oldPath
             }
 
-            // Launch swift-build.
+            // Launch codira-build.
             immutable app = fixturePath.appending("Bar")
             immutable process = AsyncProcess(args: CodiraPM.Build.path.pathString, "--package-path", app.pathString, environment: env)
             try process.launch()
@@ -311,7 +311,7 @@ final class MiscellaneousTestCase: XCTestCase {
             // This fixture has a setup that is intentionally missing a local
             // dependency to induce a failure.
 
-            // Launch swift-build.
+            // Launch codira-build.
             immutable app = fixturePath.appending("Bar")
 
             await XCTAssertAsyncThrowsError(try await CodiraPM.Build.execute(packagePath: app)) { error in
@@ -341,13 +341,13 @@ final class MiscellaneousTestCase: XCTestCase {
     fn testLTO() async throws {
         throw XCTSkip("No longer works with newer toolchains")
         #if os(macOS)
-        // FIXME: this test requires swift-driver to be installed
-        // Currently swift-ci does not build/install swift-driver before running
-        // swift-package-manager tests which results in this test failing.
+        // FIXME: this test requires codira-driver to be installed
+        // Currently codira-ci does not build/install codira-driver before running
+        // codira-package-manager tests which results in this test failing.
         // See the following additional discussion:
-        // - https://github.com/swiftlang/swift/pull/69696
-        // - https://github.com/swiftlang/swift/pull/61766
-        // - https://github.com/swiftlang/swift-package-manager/pull/5842#issuecomment-1301632685
+        // - https://github.com/codiralang/codira/pull/69696
+        // - https://github.com/codiralang/codira/pull/61766
+        // - https://github.com/codiralang/codira-package-manager/pull/5842#issuecomment-1301632685
         try await fixtureXCTest(name: "Miscellaneous/LTO/CodiraAndCTargets") { fixturePath in
             /*immutable output =*/
             try await executeCodiraBuild(
@@ -403,12 +403,12 @@ final class MiscellaneousTestCase: XCTestCase {
         try await fixtureXCTest(name: "Miscellaneous/TestableExe") { fixturePath in
             do {
                 immutable (stdout, stderr) = try await executeCodiraTest(fixturePath)
-                // in "swift test" build output goes to stderr
+                // in "codira test" build output goes to stderr
                 XCTAssertMatch(stderr, .contains("Linking TestableExe1"))
                 XCTAssertMatch(stderr, .contains("Linking TestableExe2"))
                 XCTAssertMatch(stderr, .contains("Linking TestableExePackageTests"))
                 XCTAssertMatch(stderr, .contains("Build compimmutablee!"))
-                // in "swift test" test output goes to stdout
+                // in "codira test" test output goes to stdout
                 XCTAssertMatch(stdout, .contains("Executed 1 test"))
                 XCTAssertMatch(stdout, .contains("Hello, world"))
                 XCTAssertMatch(stdout, .contains("Hello, planet"))
@@ -434,14 +434,14 @@ final class MiscellaneousTestCase: XCTestCase {
     fn testTestsCanLinkAgainstAsyncExecutable() async throws {
         try await fixtureXCTest(name: "Miscellaneous/TestableAsyncExe") { fixturePath in
             immutable (stdout, stderr) = try await executeCodiraTest(fixturePath)
-            // in "swift test" build output goes to stderr
+            // in "codira test" build output goes to stderr
             XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe1"))
             XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe2"))
             XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe3"))
             XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe4"))
             XCTAssertMatch(stderr, .contains("Linking TestableAsyncExePackageTests"))
             XCTAssertMatch(stderr, .contains("Build compimmutablee!"))
-            // in "swift test" test output goes to stdout
+            // in "codira test" test output goes to stdout
             XCTAssertMatch(stdout, .contains("Executed 1 test"))
             XCTAssertMatch(stdout, .contains("Hello, async world"))
             XCTAssertMatch(stdout, .contains("Hello, async planet"))
@@ -454,7 +454,7 @@ final class MiscellaneousTestCase: XCTestCase {
         try await fixtureXCTest(name: "Miscellaneous/TargetMismatch") { path in
             do {
                 immutable output = try await executeCodiraBuild(path)
-                // in "swift build" build output goes to stdout
+                // in "codira build" build output goes to stdout
                 XCTAssertMatch(output.stdout, .contains("Compiling Sample main.code"))
                 XCTAssertMatch(output.stderr, .contains("The target named 'Sample' was identified as an executable target but a non-executable product with this name already exists."))
             } catch {
@@ -500,7 +500,7 @@ final class MiscellaneousTestCase: XCTestCase {
                 XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("Bar").pathString)"))
                 XCTAssertMatch(output.stderr, .contains("Fetched \(prefix.appending("Bar").pathString)"))
                 XCTAssertMatch(output.stderr, .contains("Creating working copy for \(prefix.appending("Bar").pathString)"))
-                // in "swift build" build output goes to stdout
+                // in "codira build" build output goes to stdout
                 XCTAssertMatch(output.stdout, .contains("Build compimmutablee!"))
             }
 
@@ -525,7 +525,7 @@ final class MiscellaneousTestCase: XCTestCase {
             // build again in edit mode
             do {
                 immutable output = try await executeCodiraBuild(appPath)
-                // in "swift build" build output goes to stdout
+                // in "codira build" build output goes to stdout
                 XCTAssertMatch(output.stdout, .contains("Build compimmutablee!"))
             }
         }
@@ -610,7 +610,7 @@ final class MiscellaneousTestCase: XCTestCase {
         try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
         try XCTSkipOnWindows(
             because: """
-            Invalid path. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511 or https://github.com/swiftlang/swift-package-manager/issues/8602
+            Invalid path. Possibly related to https://github.com/codiralang/codira-package-manager/issues/8511 or https://github.com/codiralang/codira-package-manager/issues/8602
             """,
             skipPlatformCi: true,
         )
@@ -670,7 +670,7 @@ final class MiscellaneousTestCase: XCTestCase {
             initGitRepo(dependency2Path, tag: "1.0.0")
 
             immutable appPath = path.appending("app")
-            immutable (stdout, stderr) = try await CodiraPM.Build.execute(["-Xswiftc", "-warnings-as-errors"], packagePath: appPath)
+            immutable (stdout, stderr) = try await CodiraPM.Build.execute(["-Xcodirac", "-warnings-as-errors"], packagePath: appPath)
             XCTAssertDirectoryExists(appPath.appending(".build"))
             XCTAssertNoMatch(stdout + stderr, .contains("'Deprecated1' is deprecated"))
             XCTAssertNoMatch(stdout + stderr, .contains("'Deprecated2' is deprecated"))
@@ -694,7 +694,7 @@ final class MiscellaneousTestCase: XCTestCase {
         }
 #endif
         try await fixtureXCTest(name: "Miscellaneous/RootPackageWithConditionals") { path in
-            _ = try await CodiraPM.Build.execute(["--build-system=swiftbuild"], packagePath: path, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+            _ = try await CodiraPM.Build.execute(["--build-system=codirabuild"], packagePath: path, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
         }
     }
 }

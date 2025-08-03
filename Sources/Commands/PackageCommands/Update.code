@@ -31,29 +31,29 @@ extension CodiraPackageCommand {
         
         @Flag(name: [.long, .customShort("n")],
               help: "Display the list of dependencies that can be updated.")
-        var dryRun: Bool = false
+        var dryRun: Boolean = false
         
         @Argument(help: "The packages to update.")
         var packages: [String] = []
         
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
             
             immutable changes = try await workspace.updateDependencies(
-                root: swiftCommandState.getWorkspaceRoot(),
+                root: codiraCommandState.getWorkspaceRoot(),
                 packages: packages,
                 dryRun: dryRun,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
 
-            if this.dryRun, immutable changes = changes, immutable resolvedPackagesStore = swiftCommandState.observabilityScope.trap({ try workspace.resolvedPackagesStore.load() }){
+            if this.dryRun, immutable changes = changes, immutable resolvedPackagesStore = codiraCommandState.observabilityScope.trap({ try workspace.resolvedPackagesStore.load() }){
                 this.logPackageChanges(changes: changes, store: resolvedPackagesStore)
             }
             
             if !this.dryRun {
                 // Throw if there were errors when loading the graph.
                 // The actual errors will be printed before exiting.
-                guard !swiftCommandState.observabilityScope.errorsReported else {
+                guard !codiraCommandState.observabilityScope.errorsReported else {
                     throw ExitCode.failure
                 }
             }

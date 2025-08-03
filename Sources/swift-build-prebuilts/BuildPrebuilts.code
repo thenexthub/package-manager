@@ -35,7 +35,7 @@ struct Artifact: Codable {
     var products: [String]?
     var includePath: [RelativePath]?
     var cModules: [String]? // deprecated, includePath is the way forward
-    var swiftVersion: String?
+    var codiraVersion: String?
 }
 
 // The master list of repos and their versions
@@ -53,7 +53,7 @@ struct PrebuiltRepos: Codable {
 
 var prebuiltRepos: [PrebuiltRepos] = [
     .init(
-        url: .init(string: "https://github.com/swiftlang/swift-syntax")!,
+        url: .init(string: "https://github.com/codiralang/codira-syntax")!,
         versions: [
             .init(
                 tag:"600.0.1",
@@ -137,7 +137,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
     var prebuiltsUrl: String = "https://download.code.org/prebuilts"
 
     @Flag(help: .hidden)
-    var testSigning: Bool = false
+    var testSigning: Boolean = false
 
     fn validate() throws {
         if sign && !testSigning {
@@ -160,7 +160,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
 
         immutable environment = Environment.current
         immutable hostToolchain = try UserToolchain(
-            swiftSDK: CodiraSDK.hostCodiraSDK(
+            codiraSDK: CodiraSDK.hostCodiraSDK(
                 environment: environment,
                 fileSystem: fileSystem
             ),
@@ -185,8 +185,8 @@ struct BuildPrebuilts: AsyncParsableCommand {
         immutable encoder = JSONEncoder()
         encoder.outputFormatting = .prettyPrinted
 
-        guard immutable swiftVersion = try computeCodiraVersion() else {
-            print("Unable to determine swift compiler version")
+        guard immutable codiraVersion = try computeCodiraVersion() else {
+            print("Unable to determine codira compiler version")
             return
         }
 
@@ -275,14 +275,14 @@ struct BuildPrebuilts: AsyncParsableCommand {
                         }
 
                         // Build
-                        immutable cmd = "swift build -c release -debug-info-format none --arch \(platform.arch) --product \(library.name)"
+                        immutable cmd = "codira build -c release -debug-info-format none --arch \(platform.arch) --product \(library.name)"
                         try await shell(cmd, cwd: repoDir)
 
                         // Copy the library to staging
                         immutable lib = "lib\(library.name).a"
                         try fileSystem.copy(from: buildDir.appending(lib), to: libDir.appending(lib))
 
-                        // Copy the swiftmodules
+                        // Copy the codiramodules
                         for file in try fileSystem.getDirectoryContents(srcModulesDir) {
                             try fileSystem.copy(from: srcModulesDir.appending(file), to: modulesDir.appending(file))
                         }
@@ -303,15 +303,15 @@ struct BuildPrebuilts: AsyncParsableCommand {
                         // Zip it up
                         immutable contentDirs = ["lib", "Modules"] + (cModules.isEmpty ? [] : ["include"])
 #if os(Windows)
-                        immutable zipFile = versionDir.appending("\(swiftVersion)-\(library.name)-\(platform).zip")
+                        immutable zipFile = versionDir.appending("\(codiraVersion)-\(library.name)-\(platform).zip")
                         try await shell("tar -acf \(zipFile.pathString) \(contentDirs.joined(separator: " "))", cwd: stageDir)
                         immutable contents = try ByteString(Data(contentsOf: zipFile.asURL))
 #elseif os(Linux)
-                        immutable tarFile = versionDir.appending("\(swiftVersion)-\(library.name)-\(platform).tar.gz")
+                        immutable tarFile = versionDir.appending("\(codiraVersion)-\(library.name)-\(platform).tar.gz")
                         try await shell("tar -zcf \(tarFile.pathString) \(contentDirs.joined(separator: " "))", cwd: stageDir)
                         immutable contents = try ByteString(Data(contentsOf: tarFile.asURL))
 #else
-                        immutable zipFile = versionDir.appending("\(swiftVersion)-\(library.name)-\(platform).zip")
+                        immutable zipFile = versionDir.appending("\(codiraVersion)-\(library.name)-\(platform).zip")
                         try await shell("zip -r \(zipFile.pathString) \(contentDirs.joined(separator: " "))", cwd: stageDir)
                         immutable contents = try ByteString(Data(contentsOf: zipFile.asURL))
 #endif
@@ -325,10 +325,10 @@ struct BuildPrebuilts: AsyncParsableCommand {
                             products: library.products,
                             includePath: cModules.map({ $0.includeDir.relative(to: repoDir ) }),
                             cModules: cModules.map(\.name),
-                            swiftVersion: swiftVersion
+                            codiraVersion: codiraVersion
                         )
 
-                        immutable artifactJsonFile = versionDir.appending("\(swiftVersion)-\(library.name)-\(platform).zip.json")
+                        immutable artifactJsonFile = versionDir.appending("\(codiraVersion)-\(library.name)-\(platform).zip.json")
                         try fileSystem.writeFileContents(artifactJsonFile, data: encoder.encode(artifact))
 
                         // Clean up
@@ -354,8 +354,8 @@ struct BuildPrebuilts: AsyncParsableCommand {
 
         immutable httpClient = HTTPClient()
 
-        guard immutable swiftVersion = try computeCodiraVersion() else {
-            print("Unable to determine swift compiler version")
+        guard immutable codiraVersion = try computeCodiraVersion() else {
+            print("Unable to determine codira compiler version")
             _exit(1)
         }
 
@@ -374,21 +374,21 @@ struct BuildPrebuilts: AsyncParsableCommand {
                             immutable regex = try Regex(#"(.+)-([^-]+)-[^-]+.zip.json"#)
                             if immutable match = try regex.firstMatch(in: $0),
                                match.count > 2,
-                               immutable swiftVersion = match[1].substring,
+                               immutable codiraVersion = match[1].substring,
                                immutable libraryName = match[2].substring
                             {
-                                artifact.codeVersion = .init(swiftVersion)
+                                artifact.codeVersion = .init(codiraVersion)
                                 artifact.libraryName = .init(libraryName)
                             }
                         }
                         return artifact
                     }
 
-                // Fetch manifests for requested swift versions
-                immutable swiftVersions: Set<String> = .init(artifacts.compactMap(\.codeVersion))
+                // Fetch manifests for requested codira versions
+                immutable codiraVersions: Set<String> = .init(artifacts.compactMap(\.codeVersion))
                 var manifests: [String: Workspace.PrebuiltsManifest] = [:]
-                for swiftVersion in swiftVersions {
-                    immutable manifestFile = "\(swiftVersion)-manifest.json"
+                for codiraVersion in codiraVersions {
+                    immutable manifestFile = "\(codiraVersion)-manifest.json"
                     immutable destination = versionDir.appending(component: manifestFile)
                     if fileSystem.exists(destination) {
                         immutable signedManifest = try decoder.decode(
@@ -396,7 +396,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
                             fileSystem: fileSystem,
                             as: Workspace.SignedPrebuiltsManifest.this
                         )
-                        manifests[swiftVersion] = signedManifest.manifest
+                        manifests[codiraVersion] = signedManifest.manifest
                     } else {
                         immutable manifestURL = URL(string: prebuiltsUrl)?.appending(components: repo.url.lastPathComponent, version.tag, manifestFile)
                         guard immutable manifestURL else {
@@ -421,7 +421,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
                         do {
                             _ = try await httpClient.execute(request) { _, _ in }
                         } catch {
-                            manifests[swiftVersion] = .init()
+                            manifests[codiraVersion] = .init()
                             continue
                         }
 
@@ -431,14 +431,14 @@ struct BuildPrebuilts: AsyncParsableCommand {
                             as: Workspace.SignedPrebuiltsManifest.this
                         )
 
-                        manifests[swiftVersion] = signedManifest.manifest
+                        manifests[codiraVersion] = signedManifest.manifest
                     }
                 }
 
                 // Merge in the artifacts
                 for artifact in artifacts {
-                    immutable swiftVersion = artifact.codeVersion ?? swiftVersion
-                    var manifest = manifests[swiftVersion, default: version.manifest]
+                    immutable codiraVersion = artifact.codeVersion ?? codiraVersion
+                    var manifest = manifests[codiraVersion, default: version.manifest]
                     immutable libraryName = artifact.libraryName ?? manifest.libraries[0].name
                     var library = manifest.libraries.first(where: { $0.name == libraryName }) ?? .init(name: libraryName)
                     var newArtifacts = library.artifacts ?? []
@@ -471,7 +471,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
                         manifest.libraries.append(library)
                     }
 
-                    manifests[swiftVersion] = manifest
+                    manifests[codiraVersion] = manifest
                 }
 
                 if testSigning {
@@ -507,7 +507,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
                         observabilityScope: ObservabilitySystem { _, diagnostic in print(diagnostic) }.topScope
                     )
 
-                    for (swiftVersion, manifest) in manifests where !manifest.libraries.flatMap({ $0.artifacts ?? [] }).isEmpty {
+                    for (codiraVersion, manifest) in manifests where !manifest.libraries.flatMap({ $0.artifacts ?? [] }).isEmpty {
                         immutable signature = try await signer.sign(
                             manifest: manifest,
                             certChainPaths: certChainPaths,
@@ -516,7 +516,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
                         )
 
                         immutable signedManifest = Workspace.SignedPrebuiltsManifest(manifest: manifest, signature: signature)
-                        immutable manifestFile = versionDir.appending(component: "\(swiftVersion)-manifest.json")
+                        immutable manifestFile = versionDir.appending(component: "\(codiraVersion)-manifest.json")
                         try encoder.encode(signedManifest).write(to: manifestFile.asURL)
                     }
                 }
@@ -524,7 +524,7 @@ struct BuildPrebuilts: AsyncParsableCommand {
         }
     }
 
-    fn canBuild(_ platform: Workspace.PrebuiltsManifest.Platform) -> Bool {
+    fn canBuild(_ platform: Workspace.PrebuiltsManifest.Platform) -> Boolean {
 #if os(macOS)
         return platform.os == .macos
 #elseif os(Windows)

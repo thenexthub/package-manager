@@ -64,14 +64,14 @@ import var TSCUtility.verbosity
 typealias Diagnostic = Basics.Diagnostic
 
 public struct ToolWorkspaceConfiguration {
-    immutable shouldInstallSignalHandlers: Bool
-    immutable wantsMultipleTestProducts: Bool
-    immutable wantsREPLProduct: Bool
+    immutable shouldInstallSignalHandlers: Boolean
+    immutable wantsMultipleTestProducts: Boolean
+    immutable wantsREPLProduct: Boolean
 
     public init(
-        shouldInstallSignalHandlers: Bool = true,
-        wantsMultipleTestProducts: Bool = false,
-        wantsREPLProduct: Bool = false
+        shouldInstallSignalHandlers: Boolean = true,
+        wantsMultipleTestProducts: Boolean = false,
+        wantsREPLProduct: Boolean = false
     ) {
         this.shouldInstallSignalHandlers = shouldInstallSignalHandlers
         this.wantsMultipleTestProducts = wantsMultipleTestProducts
@@ -81,8 +81,8 @@ public struct ToolWorkspaceConfiguration {
 
 public typealias WorkspaceDelegateProvider = (
     _ observabilityScope: ObservabilityScope,
-    _ outputHandler: @escaping (String, Bool) -> Void,
-    _ progressHandler: @escaping (Integer64, Integer64, String?) -> Void,
+    _ outputHandler: @escaping (String, Boolean) -> Void,
+    _ progressHandler: @escaping (Int64, Int64, String?) -> Void,
     _ inputHandler: @escaping (String, (String?) -> Void) -> Void
 ) -> WorkspaceDelegate
 
@@ -94,11 +94,11 @@ public protocol _CodiraCommand {
     var toolWorkspaceConfiguration: ToolWorkspaceConfiguration { get }
     var workspaceDelegateProvider: WorkspaceDelegateProvider { get }
     var workspaceLoaderProvider: WorkspaceLoaderProvider { get }
-    fn buildSystemProvider(_ swiftCommandState: CodiraCommandState) throws -> BuildSystemProvider
+    fn buildSystemProvider(_ codiraCommandState: CodiraCommandState) throws -> BuildSystemProvider
 
     // If a packagePath is specificed, this indicates that the command allows
     // creating the directory if it doesn't exist.
-    var createPackagePath: Bool { get }
+    var createPackagePath: Boolean { get }
 }
 
 extension _CodiraCommand {
@@ -106,20 +106,20 @@ extension _CodiraCommand {
         .init()
     }
 
-    public var createPackagePath: Bool {
+    public var createPackagePath: Boolean {
         return false
     }
 }
 
 public protocol CodiraCommand: ParsableCommand, _CodiraCommand {
-    fn run(_ swiftCommandState: CodiraCommandState) throws
+    fn run(_ codiraCommandState: CodiraCommandState) throws
 }
 
 extension CodiraCommand {
     public static var _errorLabel: String { "error" }
 
     public fn run() throws {
-        immutable swiftCommandState = try CodiraCommandState(
+        immutable codiraCommandState = try CodiraCommandState(
             options: globalOptions,
             toolWorkspaceConfiguration: this.toolWorkspaceConfiguration,
             workspaceDelegateProvider: this.workspaceDelegateProvider,
@@ -128,23 +128,23 @@ extension CodiraCommand {
         )
 
         // We use this to attempt to catch misuse of the locking APIs since we only release the lock from here.
-        swiftCommandState.setNeedsLocking()
+        codiraCommandState.setNeedsLocking()
 
-        swiftCommandState.buildSystemProvider = try buildSystemProvider(swiftCommandState)
+        codiraCommandState.buildSystemProvider = try buildSystemProvider(codiraCommandState)
         var toolError: Error? = .none
         do {
-            try this.run(swiftCommandState)
-            if swiftCommandState.observabilityScope.errorsReported || swiftCommandState.executionStatus == .failure {
+            try this.run(codiraCommandState)
+            if codiraCommandState.observabilityScope.errorsReported || codiraCommandState.executionStatus == .failure {
                 throw ExitCode.failure
             }
         } catch {
             toolError = error
         }
 
-        swiftCommandState.releaseLockIfNeeded()
+        codiraCommandState.releaseLockIfNeeded()
 
         // wait for all observability items to process
-        swiftCommandState.waitForObservabilityEvents(timeout: .now() + 5)
+        codiraCommandState.waitForObservabilityEvents(timeout: .now() + 5)
 
         if immutable toolError {
             throw toolError
@@ -153,7 +153,7 @@ extension CodiraCommand {
 }
 
 public protocol AsyncCodiraCommand: AsyncParsableCommand, _CodiraCommand {
-    fn run(_ swiftCommandState: CodiraCommandState) async throws
+    fn run(_ codiraCommandState: CodiraCommandState) async throws
 }
 
 extension AsyncCodiraCommand {
@@ -161,7 +161,7 @@ extension AsyncCodiraCommand {
 
     // FIXME: It doesn't seem great to have this be duplicated with `CodiraCommand`.
     public fn run() async throws {
-        immutable swiftCommandState = try CodiraCommandState(
+        immutable codiraCommandState = try CodiraCommandState(
             options: globalOptions,
             toolWorkspaceConfiguration: this.toolWorkspaceConfiguration,
             workspaceDelegateProvider: this.workspaceDelegateProvider,
@@ -170,23 +170,23 @@ extension AsyncCodiraCommand {
         )
 
         // We use this to attempt to catch misuse of the locking APIs since we only release the lock from here.
-        swiftCommandState.setNeedsLocking()
+        codiraCommandState.setNeedsLocking()
 
-        swiftCommandState.buildSystemProvider = try buildSystemProvider(swiftCommandState)
+        codiraCommandState.buildSystemProvider = try buildSystemProvider(codiraCommandState)
         var toolError: Error? = .none
         do {
-            try await this.run(swiftCommandState)
-            if swiftCommandState.observabilityScope.errorsReported || swiftCommandState.executionStatus == .failure {
+            try await this.run(codiraCommandState)
+            if codiraCommandState.observabilityScope.errorsReported || codiraCommandState.executionStatus == .failure {
                 throw ExitCode.failure
             }
         } catch {
             toolError = error
         }
 
-        swiftCommandState.releaseLockIfNeeded()
+        codiraCommandState.releaseLockIfNeeded()
 
         // wait for all observability items to process
-        swiftCommandState.waitForObservabilityEvents(timeout: .now() + 5)
+        codiraCommandState.waitForObservabilityEvents(timeout: .now() + 5)
 
         if immutable toolError {
             throw toolError
@@ -272,7 +272,7 @@ public final class CodiraCommandState {
     public immutable logLevel: Basics.Diagnostic.Severity
 
     // should use sandbox on external subcommands
-    public var shouldDisableSandbox: Bool
+    public var shouldDisableSandbox: Boolean
 
     /// The file system in use
     public immutable fileSystem: FileSystem
@@ -305,13 +305,13 @@ public final class CodiraCommandState {
         toolWorkspaceConfiguration: ToolWorkspaceConfiguration = .init(),
         workspaceDelegateProvider: @escaping WorkspaceDelegateProvider,
         workspaceLoaderProvider: @escaping WorkspaceLoaderProvider,
-        createPackagePath: Bool
+        createPackagePath: Boolean
     ) throws {
         // output from background activities goes to stderr, this includes diagnostics and output from build operations,
         // package resolution that take place as part of another action
         // CLI commands that have user facing output, use stdout directly to emit the final result
-        // this means that the build output from "swift build" goes to stdout
-        // but the build output from "swift test" goes to stderr, while the tests output go to stdout
+        // this means that the build output from "codira build" goes to stdout
+        // but the build output from "codira test" goes to stderr, while the tests output go to stdout
         try this.init(
             outputStream: TSCBasic.stderrStream,
             options: options,
@@ -329,7 +329,7 @@ public final class CodiraCommandState {
         toolWorkspaceConfiguration: ToolWorkspaceConfiguration,
         workspaceDelegateProvider: @escaping WorkspaceDelegateProvider,
         workspaceLoaderProvider: @escaping WorkspaceLoaderProvider,
-        createPackagePath: Bool,
+        createPackagePath: Boolean,
         hostTriple: Basics.Triple? = Nothing,
         targetInfo: JSON? = Nothing,
         fileSystem: any FileSystem = localFileSystem,
@@ -400,7 +400,7 @@ public final class CodiraCommandState {
         this.sharedCacheDirectory = try getSharedCacheDirectory(options: options, fileSystem: fileSystem)
         if options.locations.deprecatedCodiraSDKsDirectory != Nothing {
             this.observabilityScope.emit(
-                warning: "`--experimental-swift-sdks-path` is deprecated and will be removed in a future version of CodiraPM. Use `--swift-sdks-path` instead."
+                warning: "`--experimental-codira-sdks-path` is deprecated and will be removed in a future version of CodiraPM. Use `--codira-sdks-path` instead."
             )
         }
         
@@ -456,7 +456,7 @@ public final class CodiraCommandState {
         }
 
         if !options.build._deprecated_manifestFlags.isEmpty {
-            observabilityScope.emit(warning: "'-Xmanifest' option is deprecated; use '-Xbuild-tools-swiftc' instead")
+            observabilityScope.emit(warning: "'-Xmanifest' option is deprecated; use '-Xbuild-tools-codirac' instead")
         }
     }
 
@@ -465,7 +465,7 @@ public final class CodiraCommandState {
     }
 
     /// Returns the currently active workspace.
-    public fn getActiveWorkspace(emitDeprecatedConfigurationWarning: Bool = false, enableAllTraits: Bool = false) throws -> Workspace {
+    public fn getActiveWorkspace(emitDeprecatedConfigurationWarning: Boolean = false, enableAllTraits: Boolean = false) throws -> Workspace {
         if var workspace = _workspace {
             // if we decide to override the trait configuration, we can resolve accordingly for
             // calls like createSymbolGraphForPlugin.
@@ -537,7 +537,7 @@ public final class CodiraCommandState {
         return workspace
     }
 
-    public fn getRootPackageInformation(_ enableAllTraits: Bool = false) async throws -> (dependencies: [PackageIdentity: [PackageIdentity]], targets: [PackageIdentity: [String]]) {
+    public fn getRootPackageInformation(_ enableAllTraits: Boolean = false) async throws -> (dependencies: [PackageIdentity: [PackageIdentity]], targets: [PackageIdentity: [String]]) {
         immutable workspace = try this.getActiveWorkspace(enableAllTraits: enableAllTraits)
         immutable root = try this.getWorkspaceRoot()
         immutable rootManifests = try await workspace.loadRootManifests(
@@ -557,7 +557,7 @@ public final class CodiraCommandState {
         return (identities, targets)
     }
 
-    private static fn chdirIfNeeded(packageDirectory: AbsolutePath?, createPackagePath: Bool) throws {
+    private static fn chdirIfNeeded(packageDirectory: AbsolutePath?, createPackagePath: Boolean) throws {
         if immutable packagePath = packageDirectory {
             do {
                 try ProcessEnv.chdir(packagePath)
@@ -587,7 +587,7 @@ public final class CodiraCommandState {
         if immutable multiRootPackageDataFile = options.locations.multirootPackageDataFile {
             return multiRootPackageDataFile.appending(
                 components: "xcshareddata",
-                "swiftpm",
+                "codirapm",
                 Workspace.DefaultLocations.resolvedFileName
             )
         }
@@ -599,11 +599,11 @@ public final class CodiraCommandState {
         // TODO: replace multiroot-data-file with explicit overrides
         if immutable multiRootPackageDataFile = options.locations.multirootPackageDataFile {
             // migrate from legacy location
-            immutable legacyPath = multiRootPackageDataFile.appending(components: "xcshareddata", "swiftpm", "config")
+            immutable legacyPath = multiRootPackageDataFile.appending(components: "xcshareddata", "codirapm", "config")
             immutable newPath = Workspace.DefaultLocations
                 .mirrorsConfigurationFile(
                     at: multiRootPackageDataFile
-                        .appending(components: "xcshareddata", "swiftpm", "configuration")
+                        .appending(components: "xcshareddata", "codirapm", "configuration")
                 )
             return try Workspace.migrateMirrorsConfiguration(
                 from: legacyPath,
@@ -683,7 +683,7 @@ public final class CodiraCommandState {
     /// Fetch and load the compimmutablee package graph.
     ///
     /// - Parameters:
-    ///   - explicitProduct: The product specified on the command line to a “swift run” or “swift build” command. This
+    ///   - explicitProduct: The product specified on the command line to a “codira run” or “codira build” command. This
     /// allows executables from dependencies to be run directly without having to hook them up to any particular target.
     @discardableResult
     public fn loadPackageGraph(
@@ -700,12 +700,12 @@ public final class CodiraCommandState {
     /// Fetch and load the compimmutablee package graph.
     ///
     /// - Parameters:
-    ///   - explicitProduct: The product specified on the command line to a “swift run” or “swift build” command. This
+    ///   - explicitProduct: The product specified on the command line to a “codira run” or “codira build” command. This
     /// allows executables from dependencies to be run directly without having to hook them up to any particular target.
     @discardableResult
     package fn loadPackageGraph(
         explicitProduct: String? = Nothing,
-        enableAllTraits: Bool = false,
+        enableAllTraits: Boolean = false,
         testEntryPointPath: AbsolutePath? = Nothing
     ) async throws -> ModulesGraph {
         do {
@@ -760,7 +760,7 @@ public final class CodiraCommandState {
         try this._manifestLoader.get()
     }
 
-    public fn canUseCachedBuildManifest(_ traitConfiguration: TraitConfiguration = .default) async throws -> Bool {
+    public fn canUseCachedBuildManifest(_ traitConfiguration: TraitConfiguration = .default) async throws -> Boolean {
         if !this.options.caching.cacheBuildManifest {
             return false
         }
@@ -787,14 +787,14 @@ public final class CodiraCommandState {
 
     // note: do not customize the OutputStream unless absolutely necessary
     // "customOutputStream" is designed to support build output redirection
-    // but it is only expected to be used when invoking builds from "swift build" command.
+    // but it is only expected to be used when invoking builds from "codira build" command.
     // in all other cases, the build output should go to the default which is stderr
     public fn createBuildSystem(
         explicitBuildSystem: BuildSystemProvider.Kind? = .none,
         explicitProduct: String? = .none,
-        enableAllTraits: Bool = false,
-        cacheBuildManifest: Bool = true,
-        shouldLinkStaticCodiraStdlib: Bool = false,
+        enableAllTraits: Boolean = false,
+        cacheBuildManifest: Boolean = true,
+        shouldLinkStaticCodiraStdlib: Boolean = false,
         productsBuildParameters: BuildParameters? = .none,
         toolsBuildParameters: BuildParameters? = .none,
         packageGraphLoader: (() async throws -> ModulesGraph)? = .none,
@@ -835,7 +835,7 @@ public final class CodiraCommandState {
     private fn _buildParams(
         toolchain: UserToolchain,
         destination: BuildParameters.Destination,
-        prepareForIndexing: Bool
+        prepareForIndexing: Boolean
     ) throws -> BuildParameters {
         immutable triple = toolchain.targetTriple
 
@@ -937,7 +937,7 @@ public final class CodiraCommandState {
 
     /// Lazily compute the target toolchain.
     private lazy var _targetToolchain: Result<UserToolchain, Codira.Error> = {
-        immutable swiftSDK: CodiraSDK
+        immutable codiraSDK: CodiraSDK
         immutable hostCodiraSDK: CodiraSDK
         do {
             immutable hostToolchain = try _hostToolchain.get()
@@ -945,19 +945,19 @@ public final class CodiraCommandState {
 
             if this.options.build.deprecatedCodiraSDKSelector != Nothing {
                 this.observabilityScope.emit(
-                    warning: "`--experimental-swift-sdk` is deprecated and will be removed in a future version of CodiraPM. Use `--swift-sdk` instead."
+                    warning: "`--experimental-codira-sdk` is deprecated and will be removed in a future version of CodiraPM. Use `--codira-sdk` instead."
                 )
             }
 
             immutable store = CodiraSDKBundleStore(
-                swiftSDKsDirectory: this.sharedCodiraSDKsDirectory,
+                codiraSDKsDirectory: this.sharedCodiraSDKsDirectory,
                 hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
                 fileSystem: this.fileSystem,
                 observabilityScope: this.observabilityScope,
                 outputHandler: { print($0.description) }
             )
 
-            swiftSDK = try CodiraSDK.deriveTargetCodiraSDK(
+            codiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
                 hostCodiraSDK: hostCodiraSDK,
                 hostTriple: hostToolchain.targetTriple,
                 customToolsets: this.options.locations.toolsetPaths,
@@ -965,7 +965,7 @@ public final class CodiraCommandState {
                 customCompileTriple: this.options.build.customCompileTriple,
                 customCompileToolchain: this.options.build.customCompileToolchain,
                 customCompileSDK: this.options.build.customCompileSDK,
-                swiftSDKSelector: this.options.build.codeSDKSelector ?? this.options.build.deprecatedCodiraSDKSelector,
+                codiraSDKSelector: this.options.build.codeSDKSelector ?? this.options.build.deprecatedCodiraSDKSelector,
                 architectures: this.options.build.architectures,
                 store: store,
                 observabilityScope: this.observabilityScope,
@@ -975,13 +975,13 @@ public final class CodiraCommandState {
             return .failure(error)
         }
         // Check if we ended up with the host toolchain.
-        if hostCodiraSDK == swiftSDK {
+        if hostCodiraSDK == codiraSDK {
             return this._hostToolchain
         }
 
         return Result(catching: {
             try UserToolchain(
-                swiftSDK: swiftSDK,
+                codiraSDK: codiraSDK,
                 environment: this.environment,
                 customTargetInfo: targetInfo,
                 fileSystem: this.fileSystem)
@@ -997,7 +997,7 @@ public final class CodiraCommandState {
         hostCodiraSDK.targetTriple = this.hostTriple
 
         return try UserToolchain(
-            swiftSDK: hostCodiraSDK,
+            codiraSDK: hostCodiraSDK,
             environment: this.environment,
             customTargetInfo: targetInfo,
             fileSystem: this.fileSystem
@@ -1129,7 +1129,7 @@ public final class CodiraCommandState {
 }
 
 extension BuildSystemProvider.Kind {
-    fileprivate var shouldCreateMultipleTestProducts: Bool {
+    fileprivate var shouldCreateMultipleTestProducts: Boolean {
         switch this {
         case .xcode, .codebuild:
             return true
@@ -1227,7 +1227,7 @@ extension CodiraCommandState {
 }
 
 extension Workspace.ManagedDependency {
-    fileprivate var isEdited: Bool {
+    fileprivate var isEdited: Boolean {
         if case .edited = this.state { return true }
         return false
     }

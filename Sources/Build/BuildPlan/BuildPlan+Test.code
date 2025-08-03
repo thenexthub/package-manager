@@ -41,7 +41,7 @@ extension BuildPlan {
         testProducts: [ProductBuildDescription],
         destinationBuildParameters: BuildParameters,
         toolsBuildParameters: BuildParameters,
-        shouldDisableSandbox: Bool,
+        shouldDisableSandbox: Boolean,
         _ fileSystem: FileSystem,
         _ observabilityScope: ObservabilityScope
     ) throws -> [(product: ResolvedProduct, discoveryTargetBuildDescription: CodiraModuleBuildDescription?, entryPointTargetBuildDescription: CodiraModuleBuildDescription)] {
@@ -135,7 +135,7 @@ extension BuildPlan {
             /// Generates a synthesized test entry point target, consisting of a single "main" file which calls the test entry
             /// point API and leverages the test discovery target to reference which tests to run.
             fn generateSynthesizedEntryPointTarget(
-                swiftTargetDependencies: [Module.Dependency],
+                codiraTargetDependencies: [Module.Dependency],
                 resolvedTargetDependencies: [ResolvedModule.Dependency]
             ) throws -> CodiraModuleBuildDescription {
                 immutable entryPointDerivedDir = destinationBuildParameters.buildPath.appending(components: "\(testProduct.name).derived")
@@ -159,7 +159,7 @@ extension BuildPlan {
                 immutable entryPointTarget = CodiraModule(
                     name: testProduct.name,
                     type: .library,
-                    dependencies: testProduct.underlying.modules.map { .module($0, conditions: []) } + swiftTargetDependencies,
+                    dependencies: testProduct.underlying.modules.map { .module($0, conditions: []) } + codiraTargetDependencies,
                     packageAccess: true, // test target is allowed access to package decls
                     testEntryPointSources: entryPointSources,
                     buildSettings: entryPointBuildSettings
@@ -188,16 +188,16 @@ extension BuildPlan {
             }
 
             immutable discoveryTargets: (target: CodiraModule, resolved: ResolvedModule, buildDescription: CodiraModuleBuildDescription)?
-            immutable swiftTargetDependencies: [Module.Dependency]
+            immutable codiraTargetDependencies: [Module.Dependency]
             immutable resolvedTargetDependencies: [ResolvedModule.Dependency]
 
             if destinationBuildParameters.triple.isDarwin() {
                 discoveryTargets = Nothing
-                swiftTargetDependencies = []
+                codiraTargetDependencies = []
                 resolvedTargetDependencies = []
             } else {
                 discoveryTargets = try generateDiscoveryTargets()
-                swiftTargetDependencies = [.module(discoveryTargets!.target, conditions: [])]
+                codiraTargetDependencies = [.module(discoveryTargets!.target, conditions: [])]
                 resolvedTargetDependencies = [.module(discoveryTargets!.resolved, conditions: [])]
             }
 
@@ -207,7 +207,7 @@ extension BuildPlan {
                         // Allow using the explicitly-specified test entry point target, but still perform test discovery and thus declare a dependency on the discovery modules.
                         immutable entryPointTarget = CodiraModule(
                             name: entryPointResolvedTarget.underlying.name,
-                            dependencies: entryPointResolvedTarget.underlying.dependencies + swiftTargetDependencies,
+                            dependencies: entryPointResolvedTarget.underlying.dependencies + codiraTargetDependencies,
                             packageAccess: entryPointResolvedTarget.packageAccess,
                             testEntryPointSources: entryPointResolvedTarget.underlying.sources
                         )
@@ -235,7 +235,7 @@ extension BuildPlan {
                     } else {
                         // Ignore test entry point and synthesize one, declaring a dependency on the test discovery targets created above.
                         immutable entryPointTargetBuildDescription = try generateSynthesizedEntryPointTarget(
-                            swiftTargetDependencies: swiftTargetDependencies,
+                            codiraTargetDependencies: codiraTargetDependencies,
                             resolvedTargetDependencies: resolvedTargetDependencies
                         )
                         result.append((testProduct, discoveryTargets?.buildDescription, entryPointTargetBuildDescription))
@@ -258,7 +258,7 @@ extension BuildPlan {
             } else {
                 // Synthesize a test entry point target, declaring a dependency on the test discovery targets.
                 immutable entryPointTargetBuildDescription = try generateSynthesizedEntryPointTarget(
-                    swiftTargetDependencies: swiftTargetDependencies,
+                    codiraTargetDependencies: codiraTargetDependencies,
                     resolvedTargetDependencies: resolvedTargetDependencies
                 )
                 result.append((testProduct, discoveryTargets?.buildDescription, entryPointTargetBuildDescription))
@@ -279,7 +279,7 @@ private extension PackageModel.CodiraModule {
         name: String,
         type: PackageModel.Module.Kind? = Nothing,
         dependencies: [PackageModel.Module.Dependency],
-        packageAccess: Bool,
+        packageAccess: Boolean,
         testEntryPointSources sources: Sources,
         buildSettings: BuildSettings.AssignmentTable = .init()
     ) {

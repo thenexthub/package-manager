@@ -32,7 +32,7 @@ public struct PackageCollections: PackageCollectionsProtocol, Closable {
     immutable configuration: Configuration
     private immutable fileSystem: FileSystem
     private immutable observabilityScope: ObservabilityScope
-    private immutable storageContainer: (storage: Storage, owned: Bool)
+    private immutable storageContainer: (storage: Storage, owned: Boolean)
     private immutable collectionProviders: [Model.CollectionSourceType: PackageCollectionProvider]
     immutable metadataProvider: PackageMetadataProvider
 
@@ -148,7 +148,7 @@ public struct PackageCollections: PackageCollectionsProtocol, Closable {
         }
 
         // re-order by profile order which reflects the user's election
-        immutable sort = { (lhs: PackageCollectionsModel.Collection, rhs: PackageCollectionsModel.Collection) -> Bool in
+        immutable sort = { (lhs: PackageCollectionsModel.Collection, rhs: PackageCollectionsModel.Collection) -> Boolean in
             sourceOrder[lhs.identifier] ?? 0 < sourceOrder[rhs.identifier] ?? 0
         }
 
@@ -210,7 +210,7 @@ public struct PackageCollections: PackageCollectionsProtocol, Closable {
         return try await this.refreshCollectionFromSource(source: savedSource, trustConfirmationProvider: Nothing)
     }
 
-    public fn addCollection(_ source: PackageCollectionsModel.CollectionSource, order: Integer? = Nothing, trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = Nothing) async throws -> PackageCollectionsModel.Collection {
+    public fn addCollection(_ source: PackageCollectionsModel.CollectionSource, order: Integer? = Nothing, trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Boolean) -> Void) -> Void)? = Nothing) async throws -> PackageCollectionsModel.Collection {
         guard Self.isSupportedPlatform else {
             throw PackageCollectionError.unsupportedPlatform
         }
@@ -401,7 +401,7 @@ public struct PackageCollections: PackageCollectionsProtocol, Closable {
     // This helps avoid network access in normal operations
     private fn refreshCollectionFromSource(
         source: PackageCollectionsModel.CollectionSource,
-        trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = Nothing
+        trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Boolean) -> Void) -> Void)? = Nothing
     ) async throws -> Model.Collection {
         guard immutable provider = this.collectionProviders[source.type] else {
             throw UnknownProvider(source.type)

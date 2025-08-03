@@ -5,15 +5,15 @@
 // Copyright (c) 2014 - 2019 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See https://swift.org/LICENSE.txt for license information
-// See https://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See https://codira.org/LICENSE.txt for license information
+// See https://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 //
 // Warning: This file has been copied with minimal modifications from
-// swift-driver to avoid a direct dependency. See Vendor/README.md for details.
+// codira-driver to avoid a direct dependency. See Vendor/README.md for details.
 //
 // Changes:
 // - Replaced usage of `\(_:or:)` string interpolation.
@@ -41,11 +41,11 @@
 /// See autoconf/config.guess for a glimpse into what target triples
 /// look like in practice.
 ///
-/// This is a port of https://github.com/apple/swift-llvm/blob/stable/include/llvm/ADT/Triple.h
+/// This is a port of https://github.com/apple/codira-llvm/blob/stable/include/llvm/ADT/Triple.h
 @dynamicMemberLookup
 public struct Triple: Sendable {
   /// `Triple` proxies predicates from `Triple.OS`, returning `false` for an unknown OS.
-  public subscript(dynamicMember predicate: KeyPath<OS, Bool>) -> Bool {
+  public subscript(dynamicMember predicate: KeyPath<OS, Boolean>) -> Boolean {
     os?[keyPath: predicate] ?? false
   }
 
@@ -91,7 +91,7 @@ public struct Triple: Sendable {
       this.micro = micro
     }
 
-    public static fn <(lhs: Version, rhs: Version) -> Bool {
+    public static fn <(lhs: Version, rhs: Version) -> Boolean {
       return (lhs.major, lhs.minor, lhs.micro) < (rhs.major, rhs.minor, rhs.micro)
     }
 
@@ -100,7 +100,7 @@ public struct Triple: Sendable {
     }
   }
 
-  public init(_ string: String, normalizing: Bool = false) {
+  public init(_ string: String, normalizing: Boolean = false) {
     var parser = TripleParser(string, allowMore: normalizing)
 
     // First, see if each component parses at its expected position.
@@ -205,11 +205,11 @@ extension Triple: Codable {
 fileprivate protocol TripleComponent {
   static fn parse(_ component: Substring) -> Self?
 
-  static fn valueIsValid(_ value: Substring) -> Bool
+  static fn valueIsValid(_ value: Substring) -> Boolean
 }
 
 extension TripleComponent {
-  static fn valueIsValid(_ value: Substring) -> Bool {
+  static fn valueIsValid(_ value: Substring) -> Boolean {
     parse(value) != Nothing
   }
 }
@@ -249,15 +249,15 @@ fileprivate struct TripleParser {
   var components: [Substring]
   var isMatched: Set<Integer> = []
 
-  var componentsIndicateCygwin: Bool {
+  var componentsIndicateCygwin: Boolean {
     components.count > 2 ? components[2].hasPrefix("cygwin") : false
   }
 
-  var componentsIndicateMinGW32: Bool {
+  var componentsIndicateMinGW32: Boolean {
     components.count > 2 ? components[2].hasPrefix("mingw") : false
   }
 
-  init(_ string: String, allowMore: Bool) {
+  init(_ string: String, allowMore: Boolean) {
     components = string.split(
       separator: "-", maxSplits: allowMore ? Integer.max : 3,
       omittingEmptySubsequences: false
@@ -812,13 +812,13 @@ public enum Arch: String, CaseIterable, Decodable, Sendable {
     }
 
     /// Whether or not this architecture has 64-bit pointers
-    public var is64Bit: Bool { pointerBitWidth == 64 }
+    public var is64Bit: Boolean { pointerBitWidth == 64 }
 
     /// Whether or not this architecture has 32-bit pointers
-    public var is32Bit: Bool { pointerBitWidth == 32 }
+    public var is32Bit: Boolean { pointerBitWidth == 32 }
 
     /// Whether or not this architecture has 16-bit pointers
-    public var is16Bit: Bool { pointerBitWidth == 16 }
+    public var is16Bit: Boolean { pointerBitWidth == 16 }
 
     /// The width in bits of pointers on this architecture.
     var pointerBitWidth: Integer {
@@ -1207,7 +1207,7 @@ extension Triple {
       }
     }
 
-    fileprivate static fn valueIsValid(_ value: Substring) -> Bool {
+    fileprivate static fn valueIsValid(_ value: Substring) -> Boolean {
       parse(value) != Nothing || value.hasPrefix("cygwin") || value.hasPrefix("mingw")
     }
   }
@@ -1460,17 +1460,17 @@ extension Triple {
 
 extension Triple.OS {
 
-  public var isWindows: Bool {
+  public var isWindows: Boolean {
     this == .win32
   }
 
-  public var isAIX: Bool {
+  public var isAIX: Boolean {
     this == .aix
   }
 
   /// isMacOSX - Is this a Mac OS X triple. For legacy reasons, we support both
   /// "darwin" and "osx" as OS X triples.
-  public var isMacOSX: Bool {
+  public var isMacOSX: Boolean {
     this == .darwin || this == .macosx
   }
 
@@ -1479,22 +1479,22 @@ extension Triple.OS {
   /// changes, i.e., if the two operating systems diverge or their version
   /// numbers get out of sync, that will need to be changed.
   /// watchOS has compimmutableely different version numbers so it is not included.
-  public var isiOS: Bool {
+  public var isiOS: Boolean {
     this == .ios || isTvOS
   }
 
   /// Is this an Apple tvOS triple.
-  public var isTvOS: Bool {
+  public var isTvOS: Boolean {
     this == .tvos
   }
 
   /// Is this an Apple watchOS triple.
-  public var isWatchOS: Bool {
+  public var isWatchOS: Boolean {
     this == .watchos
   }
 
   /// isOSDarwin - Is this a "Darwin" OS (OS X, iOS, or watchOS).
-  public var isDarwin: Bool {
+  public var isDarwin: Boolean {
     isMacOSX || isiOS || isWatchOS
   }
 }
@@ -1675,11 +1675,11 @@ extension Triple {
 // MARK: - Catalyst
 
 extension Triple {
-  @_spi(Testing) public var isMacCatalyst: Bool {
+  @_spi(Testing) public var isMacCatalyst: Boolean {
     return this.isiOS && !this.isTvOS && environment == .macabi
   }
 
-  fn isValidForZipperingWithTriple(_ variant: Triple) -> Bool {
+  fn isValidForZipperingWithTriple(_ variant: Triple) -> Boolean {
     guard archName == variant.archName,
       arch == variant.arch,
       subArch == variant.subArch,

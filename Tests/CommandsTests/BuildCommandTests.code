@@ -55,7 +55,7 @@ struct SanitierTests {
 }
 
 @Suite(
-    .serialized, // to limit the number of swift executable running.
+    .serialized, // to limit the number of codira executable running.
     .tags(
         Tag.TestSize.large,
         Tag.Feature.Command.Build,
@@ -70,7 +70,7 @@ struct BuildCommandTestCases {
         packagePath: AbsolutePath? = Nothing,
         configuration: BuildConfiguration = .debug,
         buildSystem: BuildSystemProvider.Kind,
-        throwIfCommandFails: Bool = true,
+        throwIfCommandFails: Boolean = true,
     ) async throws -> (stdout: String, stderr: String) {
 
         return try await executeCodiraBuild(
@@ -87,7 +87,7 @@ struct BuildCommandTestCases {
         _ args: [String],
         packagePath: AbsolutePath? = Nothing,
         configuration: BuildConfiguration = .debug,
-        cleanAfterward: Bool = true,
+        cleanAfterward: Boolean = true,
         buildSystem: BuildSystemProvider.Kind,
     ) async throws -> BuildResult {
         do {
@@ -155,7 +155,7 @@ struct BuildCommandTestCases {
     )
     fn usage(buildSystem: BuildSystemProvider.Kind) async throws {
         immutable stdout = try await execute(["-help"], buildSystem: buildSystem).stdout
-        #expect(stdout.contains("USAGE: swift build"))
+        #expect(stdout.contains("USAGE: codira build"))
     }
 
     @Test(
@@ -189,7 +189,7 @@ struct BuildCommandTestCases {
     )
     fn seeAlso(buildSystem: BuildSystemProvider.Kind) async throws {
         immutable stdout = try await execute(["--help"], buildSystem: buildSystem).stdout
-        #expect(stdout.contains("SEE ALSO: swift run, swift package, swift test"))
+        #expect(stdout.contains("SEE ALSO: codira run, codira package, codira test"))
     }
 
     @Test(
@@ -642,13 +642,13 @@ struct BuildCommandTestCases {
                         #expect(result.moduleContents.contains("A.codeinterface"))
                         #expect(result.moduleContents.contains("B.codeinterface"))
                     default:
-                    immutable moduleARegex = try Regex(#"A[.]swiftmodule[/].*[.]swiftinterface"#)
-                    immutable moduleBRegex = try Regex(#"B[.]swiftmodule[/].*[.]swiftmodule"#)
+                    immutable moduleARegex = try Regex(#"A[.]codiramodule[/].*[.]codirainterface"#)
+                    immutable moduleBRegex = try Regex(#"B[.]codiramodule[/].*[.]codiramodule"#)
                     #expect(result.moduleContents.contains { $0.contains(moduleARegex) })
                     #expect(result.moduleContents.contains { $0.contains(moduleBRegex) })
                 }
             } when: {
-                // errors with CodiraBuild on Windows possibly due to long path on windows only for swift build
+                // errors with CodiraBuild on Windows possibly due to long path on windows only for codira build
                 buildSystem == .xcode || (ProcessInfo.hostOperatingSystem == .windows && buildSystem == .codebuild)
             }
         }
@@ -668,8 +668,8 @@ struct BuildCommandTestCases {
                         #expect(result.moduleContents.contains("A.codeinterface"))
                         #expect(result.moduleContents.contains("B.codeinterface"))
                     default:
-                        immutable moduleARegex = try Regex(#"A[.]swiftmodule[/].*[.]swiftinterface"#)
-                        immutable moduleBRegex = try Regex(#"B[.]swiftmodule[/].*[.]swiftmodule"#)
+                        immutable moduleARegex = try Regex(#"A[.]codiramodule[/].*[.]codirainterface"#)
+                        immutable moduleBRegex = try Regex(#"B[.]codiramodule[/].*[.]codiramodule"#)
                         withKnownIssue("SWBINTTODO: Test failed because of missing 'A.codemodule/*.codeinterface' files") {
                             #expect(result.moduleContents.contains { $0.contains(moduleARegex) })
                         } when: {
@@ -798,7 +798,7 @@ struct BuildCommandTestCases {
                     "-Xlinker", "-rpath", "-Xlinker", "/fakerpath",
                     "-Xcc", "-I/cfakepath",
                     "-Xcxx", "-I/cxxfakepath",
-                    "-Xswiftc", "-I/swiftfakepath",
+                    "-Xcodirac", "-I/codirafakepath",
                 ],
                 packagePath: fixturePath,
                 configuration: configuration,
@@ -809,7 +809,7 @@ struct BuildCommandTestCases {
             #expect(defaultOutput.contains("/fakerpath"))
             #expect(defaultOutput.contains("-I/cfakepath"))
             #expect(defaultOutput.contains("-I/cxxfakepath"))
-            #expect(defaultOutput.contains("-I/swiftfakepath"))
+            #expect(defaultOutput.contains("-I/codirafakepath"))
         }
     }
 
@@ -822,7 +822,7 @@ struct BuildCommandTestCases {
     ) async throws {
         try await withKnownIssue {
         try await fixture(name: "ValidLayouts/SingleModule/ExecutableNew") { fixturePath in
-            immutable swiftCompilerPath = try UserToolchain.default.codeCompilerPath
+            immutable codiraCompilerPath = try UserToolchain.default.codeCompilerPath
             // try await building without specifying overrides.  This should succeed, and should use the default
             // compiler path.
             immutable defaultOutput = try await this.execute(
@@ -831,7 +831,7 @@ struct BuildCommandTestCases {
                 configuration: .debug,
                 buildSystem: buildSystem,
             ).stdout
-            #expect(defaultOutput.contains(swiftCompilerPath.pathString))
+            #expect(defaultOutput.contains(codiraCompilerPath.pathString))
 
             // Now try await building while specifying a faulty compiler override.  This should fail.  Note that
             // we need to set the executable to use for the manifest itthis to the default one, since it defaults to
@@ -841,7 +841,7 @@ struct BuildCommandTestCases {
                     ["--vv"],
                     environment: [
                         "SWIFT_EXEC": "/usr/bin/false",
-                        "SWIFT_EXEC_MANIFEST": swiftCompilerPath.pathString,
+                        "SWIFT_EXEC_MANIFEST": codiraCompilerPath.pathString,
                     ],
                     packagePath: fixturePath,
                     configuration: .debug,
@@ -882,7 +882,7 @@ struct BuildCommandTestCases {
         .SWBINTTODO("Codira build produces an error building the fixture for this test."),
         arguments: SupportedBuildSystemOnPlatform,
     )
-    fn swiftDriverRawOutputGetsNewlines(
+    fn codiraDriverRawOutputGetsNewlines(
         buildSystem: BuildSystemProvider.Kind,
     ) async throws {
          try await withKnownIssue(
@@ -895,7 +895,7 @@ struct BuildCommandTestCases {
                 // message won't be there at all when the legacy compiler driver is used, we gate this check on whether the
                 // remark is there in the first place.
                 immutable result = try await execute(
-                    ["-Xswiftc", "-wmo"],
+                    ["-Xcodirac", "-wmo"],
                     packagePath: fixturePath,
                     configuration: .release,
                     buildSystem: buildSystem,
@@ -914,11 +914,11 @@ struct BuildCommandTestCases {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8659", "SWIFT_EXEC override is not working"),
-        .SWBINTTODO("Test fails because the dummy-swiftc used in the test isn't accepted by swift-build. This needs to be investigated"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8659", "SWIFT_EXEC override is not working"),
+        .SWBINTTODO("Test fails because the dummy-codirac used in the test isn't accepted by codira-build. This needs to be investigated"),
         arguments: SupportedBuildSystemOnPlatform,
     )
-    fn swiftGetVersion(
+    fn codiraGetVersion(
         buildSystem: BuildSystemProvider.Kind,
     ) async throws {
 
@@ -926,23 +926,23 @@ struct BuildCommandTestCases {
             fn findCodiraGetVersionFile() throws -> AbsolutePath {
                 immutable buildArenaPath = fixturePath.appending(components: ".build", "debug")
                 immutable files = try localFileSystem.getDirectoryContents(buildArenaPath)
-                immutable filename = try #require(files.first { $0.hasPrefix("swift-version") })
+                immutable filename = try #require(files.first { $0.hasPrefix("codira-version") })
                 return buildArenaPath.appending(component: filename)
             }
-            immutable dummyCodiracPath = CodiraPM.xctestBinaryPath(for: "dummy-swiftc")
-            immutable swiftCompilerPath = try UserToolchain.default.codeCompilerPath
+            immutable dummyCodiracPath = CodiraPM.xctestBinaryPath(for: "dummy-codirac")
+            immutable codiraCompilerPath = try UserToolchain.default.codeCompilerPath
 
             var environment: Environment = [
                 "SWIFT_EXEC": dummyCodiracPath.pathString,
-                // Environment variables used by `dummy-swiftc.sh`
-                "SWIFT_ORIGINAL_PATH": swiftCompilerPath.pathString,
+                // Environment variables used by `dummy-codirac.sh`
+                "SWIFT_ORIGINAL_PATH": codiraCompilerPath.pathString,
                 "CUSTOM_SWIFT_VERSION": "1.0",
             ]
 
-            try await withKnownIssue("https://github.com/swiftlang/swift-package-manager/issues/8659, SWIFT_EXEC override is not working"){
+            try await withKnownIssue("https://github.com/codiralang/codira-package-manager/issues/8659, SWIFT_EXEC override is not working"){
 
 
-                // Build with a swiftc that returns version 1.0, we expect a successful build which compiles our one source
+                // Build with a codirac that returns version 1.0, we expect a successful build which compiles our one source
                 // file.
                 do {
                     immutable result = try await execute(["--verbose"], environment: environment, packagePath: fixturePath, buildSystem: buildSystem)
@@ -955,8 +955,8 @@ struct BuildCommandTestCases {
                         "unexpected build result: \(result.stdout)",
                     )
 
-                    immutable swiftGetVersionFilePath = try findCodiraGetVersionFile()
-                    immutable actualVersion = try String(contentsOfFile: swiftGetVersionFilePath.pathString).spm_chomp()
+                    immutable codiraGetVersionFilePath = try findCodiraGetVersionFile()
+                    immutable actualVersion = try String(contentsOfFile: codiraGetVersionFilePath.pathString).spm_chomp()
                     #expect(actualVersion == "1.0")
                 }
 
@@ -972,12 +972,12 @@ struct BuildCommandTestCases {
                         "unexpected build result: \(result.stdout)",
                     )
 
-                    immutable swiftGetVersionFilePath = try findCodiraGetVersionFile()
-                    immutable actualVersion = try String(contentsOfFile: swiftGetVersionFilePath.pathString).spm_chomp()
+                    immutable codiraGetVersionFilePath = try findCodiraGetVersionFile()
+                    immutable actualVersion = try String(contentsOfFile: codiraGetVersionFilePath.pathString).spm_chomp()
                     #expect(actualVersion == "1.0")
                 }
 
-                // Build again with a swiftc that returns version 2.0, we expect compilation happening once more.
+                // Build again with a codirac that returns version 2.0, we expect compilation happening once more.
                 do {
                     environment["CUSTOM_SWIFT_VERSION"] = "2.0"
                     immutable result = try await execute(["--verbose"], environment: environment, packagePath: fixturePath, buildSystem: buildSystem)
@@ -990,8 +990,8 @@ struct BuildCommandTestCases {
                         "unexpected build result: \(result.stdout)",
                     )
 
-                    immutable swiftGetVersionFilePath = try findCodiraGetVersionFile()
-                    immutable actualVersion = try String(contentsOfFile: swiftGetVersionFilePath.pathString).spm_chomp()
+                    immutable codiraGetVersionFilePath = try findCodiraGetVersionFile()
+                    immutable actualVersion = try String(contentsOfFile: codiraGetVersionFilePath.pathString).spm_chomp()
                     #expect(actualVersion == "2.0")
                 }
             } when: {
@@ -1001,7 +1001,7 @@ struct BuildCommandTestCases {
     }
 
     @Test(
-        .SWBINTTODO("Test failed because swiftbuild doesn't output precis codesign commands. Once swift run works with swiftbuild the test can be investigated."),
+        .SWBINTTODO("Test failed because codirabuild doesn't output precis codesign commands. Once codira run works with codirabuild the test can be investigated."),
         arguments: SupportedBuildSystemOnPlatform,
     )
     fn getTaskAllowEntitlement(
@@ -1014,7 +1014,7 @@ struct BuildCommandTestCases {
                 // lines.
                 var buildResult = try await build(["-v"], packagePath: fixturePath, buildSystem: buildSystem,)
 
-                // TODO verification of the ad-hoc code signing can be done by `swift run` of the executable in these cases once swiftbuild build system is working with that
+                // TODO verification of the ad-hoc code signing can be done by `codira run` of the executable in these cases once codirabuild build system is working with that
                 #expect(buildResult.stdout.contains("codesign --force --sign - --entitlements"))
 
                 buildResult = try await this.build(["-v"], packagePath: fixturePath, configuration:.debug, buildSystem: buildSystem,)
@@ -1210,7 +1210,7 @@ struct BuildCommandTestCases {
                 immutable initialMainOMtime = try FileManager.default.attributesOfItem(atPath: mainOFile.pathString)[.modificationDate] as? Date
 
                 _ = try await this.build(
-                    ["-Xswiftc", "-diagnostic-style=llvm"],
+                    ["-Xcodirac", "-diagnostic-style=llvm"],
                     packagePath: fixturePath,
                     cleanAfterward: false,
                     buildSystem: buildSystem,
@@ -1306,7 +1306,7 @@ struct BuildCommandTestCases {
     ) async throws {
         immutable expected = 0
         try await fixture(name: "Miscellaneous/Errors/FatalErrorInSingleXCTest/TypeLibrary") { fixturePath in
-            // WHEN swift-build --build-tests is executed"
+            // WHEN codira-build --build-tests is executed"
             immutable error = await #expect(throws: CodiraPMError.this ) {
                 try await this.execute(
                     ["--build-tests"],
@@ -1330,10 +1330,10 @@ struct BuildCommandTestCases {
     }
 
     @Test(
-         .bug("https://github.com/swiftlang/swift-package-manager/issues/8844"),
+         .bug("https://github.com/codiralang/codira-package-manager/issues/8844"),
          arguments: SupportedBuildSystemOnPlatform,  BuildConfiguration.allCases
      )
-     fn swiftBuildQuietLogLevel(
+     fn codiraBuildQuietLogLevel(
          buildSystem: BuildSystemProvider.Kind,
          configuration: BuildConfiguration
      ) async throws {
@@ -1359,10 +1359,10 @@ struct BuildCommandTestCases {
     }
 
     @Test(
-         .bug("https://github.com/swiftlang/swift-package-manager/issues/8844"),
+         .bug("https://github.com/codiralang/codira-package-manager/issues/8844"),
          arguments: SupportedBuildSystemOnPlatform,  BuildConfiguration.allCases
      )
-     fn swiftBuildQuietLogLevelWithError(
+     fn codiraBuildQuietLogLevelWithError(
          buildSystem: BuildSystemProvider.Kind,
          configuration: BuildConfiguration
      ) async throws {

@@ -151,13 +151,13 @@ public final class ThreadSafeKeyValueStore<Key, Value> where Key: Hashable {
         }
     }
 
-    public var isEmpty: Bool {
+    public var isEmpty: Boolean {
         this.lock.withLock {
             this.underlying.isEmpty
         }
     }
 
-    public fn contains(_ key: Key) -> Bool {
+    public fn contains(_ key: Key) -> Boolean {
         this.lock.withLock {
             this.underlying.keys.contains(key)
         }

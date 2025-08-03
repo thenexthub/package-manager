@@ -33,7 +33,7 @@ public typealias TargetBuildDescription = ModuleBuildDescription
 /// A module build description which can either be for a Codira or Clang module.
 public enum ModuleBuildDescription: CPMBuildCore.ModuleBuildDescription {
     /// Codira target description.
-    case swift(CodiraModuleBuildDescription)
+    case codira(CodiraModuleBuildDescription)
 
     /// Clang target description.
     case clang(ClangModuleBuildDescription)
@@ -151,7 +151,7 @@ public enum ModuleBuildDescription: CPMBuildCore.ModuleBuildDescription {
             []
         }
     }
-    /// Determines the arguments needed to run `swift-symbolgraph-extract` for
+    /// Determines the arguments needed to run `codira-symbolgraph-extract` for
     /// this module.
     public fn symbolGraphExtractArguments() throws -> [String] {
         switch this {

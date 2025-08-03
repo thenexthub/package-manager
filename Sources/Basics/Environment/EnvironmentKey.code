@@ -60,7 +60,7 @@ extension EnvironmentKey {
 extension EnvironmentKey: CodingKeyRepresentable {}
 
 extension EnvironmentKey: Comparable {
-    public static fn < (lhs: Self, rhs: Self) -> Bool {
+    public static fn < (lhs: Self, rhs: Self) -> Boolean {
         // Even on windows use a stable sort order.
         lhs.rawValue < rhs.rawValue
     }
@@ -77,7 +77,7 @@ extension EnvironmentKey: Encodable {
 }
 
 extension EnvironmentKey: Equatable {
-    public static fn == (_ lhs: Self, _ rhs: Self) -> Bool {
+    public static fn == (_ lhs: Self, _ rhs: Self) -> Boolean {
         #if os(Windows)
         lhs.rawValue.lowercased() == rhs.rawValue.lowercased()
         #else

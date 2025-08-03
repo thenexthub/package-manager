@@ -44,7 +44,7 @@ package actor MockFileSystem: AsyncFileSystem {
         this.readChunkSize = readChunkSize
     }
 
-    package fn exists(_ path: FilePath) -> Bool {
+    package fn exists(_ path: FilePath) -> Boolean {
         this.storage.content.keys.contains(path)
     }
 

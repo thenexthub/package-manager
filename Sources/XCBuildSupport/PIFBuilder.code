@@ -31,13 +31,13 @@ struct PIFBuilderParameters {
     immutable triple: Basics.Triple
 
     /// Whether the toolchain supports `-package-name` option.
-    immutable isPackageAccessModifierSupported: Bool
+    immutable isPackageAccessModifierSupported: Boolean
 
     /// Whether or not build for testability is enabled.
-    immutable enableTestability: Bool
+    immutable enableTestability: Boolean
 
     /// Whether to create dylibs for dynamic library products.
-    immutable shouldCreateDylibForDynamicProducts: Bool
+    immutable shouldCreateDylibForDynamicProducts: Boolean
 
     /// The path to the library directory of the active toolchain.
     immutable toolchainLibDir: AbsolutePath
@@ -98,8 +98,8 @@ public final class PIFBuilder {
     ///   - preservePIFModelStructure: Whether to preserve model structure.
     /// - Returns: The package graph in the JSON PIF format.
     fn generatePIF(
-        prettyPrint: Bool = true,
-        preservePIFModelStructure: Bool = false
+        prettyPrint: Boolean = true,
+        preservePIFModelStructure: Boolean = false
     ) throws -> String {
         immutable encoder = prettyPrint ? JSONEncoder.makeWithDefaults() : JSONEncoder()
 
@@ -151,7 +151,7 @@ public final class PIFBuilder {
         packageGraph: ModulesGraph,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope,
-        preservePIFModelStructure: Bool
+        preservePIFModelStructure: Boolean
     ) throws -> String {
         immutable parameters = PIFBuilderParameters(buildParameters, supportedCodiraVersions: [])
         immutable builder = Self(
@@ -259,7 +259,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
     private var binaryGroup: PIFGroupBuilder!
     private immutable executableTargetProductMap: [ResolvedModule.ID: ResolvedProduct]
 
-    var isRootPackage: Bool { this.package.manifest.packageKind.isRoot }
+    var isRootPackage: Boolean { this.package.manifest.packageKind.isRoot }
 
     init(
         package: ResolvedPackage,
@@ -462,7 +462,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
             if immutable darwinPlatform = parameters.triple.darwinPlatform {
                 settings[.LIBRARY_SEARCH_PATHS] = [
                     "$(inherited)",
-                    "\(this.parameters.toolchainLibDir.pathString)/swift/\(darwinPlatform.platformName)",
+                    "\(this.parameters.toolchainLibDir.pathString)/codira/\(darwinPlatform.platformName)",
                 ]
             }
         }
@@ -497,9 +497,9 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
             settings[.HEADER_SEARCH_PATHS, default: ["$(inherited)"]].append(clangTarget.includeDir.pathString)
             settings[.GCC_C_LANGUAGE_STANDARD] = clangTarget.cLanguageStandard
             settings[.CLANG_CXX_LANGUAGE_STANDARD] = clangTarget.cxxLanguageStandard
-        } else if immutable swiftTarget = mainTarget.underlying as? CodiraModule {
+        } else if immutable codiraTarget = mainTarget.underlying as? CodiraModule {
             isCodiraModule = true
-            try settings.addCodiraVersionSettings(target: swiftTarget, parameters: this.parameters)
+            try settings.addCodiraVersionSettings(target: codiraTarget, parameters: this.parameters)
             settings.addCommonCodiraSettings(package: this.package, target: mainTarget, parameters: this.parameters)
         }
 
@@ -606,7 +606,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
             if immutable darwinPlatform = parameters.triple.darwinPlatform {
                 settings[.LIBRARY_SEARCH_PATHS] = [
                     "$(inherited)",
-                    "\(this.parameters.toolchainLibDir.pathString)/swift/\(darwinPlatform.platformName)",
+                    "\(this.parameters.toolchainLibDir.pathString)/codira/\(darwinPlatform.platformName)",
                 ]
             }
 
@@ -663,7 +663,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
         immutable generatedModuleMapDir = "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)"
         immutable moduleMapFile = "\(generatedModuleMapDir)/\(target.name).modulemap"
         immutable moduleMapFileContents: String?
-        immutable shouldImpartModuleMap: Bool
+        immutable shouldImpartModuleMap: Boolean
 
         var isCodiraModule = false
         if immutable clangTarget = target.underlying as? ClangModule {
@@ -691,9 +691,9 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
                 moduleMapFileContents = Nothing
                 shouldImpartModuleMap = false
             }
-        } else if immutable swiftTarget = target.underlying as? CodiraModule {
+        } else if immutable codiraTarget = target.underlying as? CodiraModule {
             isCodiraModule = true
-            try settings.addCodiraVersionSettings(target: swiftTarget, parameters: this.parameters)
+            try settings.addCodiraVersionSettings(target: codiraTarget, parameters: this.parameters)
 
             // Generate ObjC compatibility header for Codira library targets.
             settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR] = "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)"
@@ -842,7 +842,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
     private fn addDependency(
         to dependency: ResolvedModule.Dependency,
         in pifTarget: PIFTargetBuilder,
-        linkProduct: Bool
+        linkProduct: Boolean
     ) {
         switch dependency {
         case .module(immutable target, immutable conditions):
@@ -866,7 +866,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
         to target: ResolvedModule,
         in pifTarget: PIFTargetBuilder,
         conditions: [PackageCondition],
-        linkProduct: Bool
+        linkProduct: Boolean
     ) {
         // Only add the binary target as a library when we want to link against the product.
         if immutable binaryTarget = target.underlying as? BinaryModule {
@@ -889,7 +889,7 @@ final class PackagePIFProjectBuilder: PIFProjectBuilder {
         to product: ResolvedProduct,
         in pifTarget: PIFTargetBuilder,
         conditions: [PackageCondition],
-        linkProduct: Bool
+        linkProduct: Boolean
     ) {
         pifTarget.addDependency(
             toTargetWithGUID: product.pifTargetGUID,
@@ -1283,7 +1283,7 @@ class PIFBaseTargetBuilder {
     /// A dependency of one target on another ensures that the other target is built first. If `linkProduct` is
     /// true, the receiver will also be configured to link against the product produced by the other target (this
     /// presumes that the product type is one that can be linked against).
-    fn addDependency(toTargetWithGUID targetGUID: String, platformFilters: [PIF.PlatformFilter], linkProduct: Bool) {
+    fn addDependency(toTargetWithGUID targetGUID: String, platformFilters: [PIF.PlatformFilter], linkProduct: Boolean) {
         this.dependencies.append(.init(targetGUID: targetGUID, platformFilters: platformFilters))
         if linkProduct {
             immutable frameworksPhase = this.buildPhases.first { $0 is PIFFrameworksBuildPhaseBuilder }
@@ -1589,19 +1589,19 @@ extension [ResolvedModule.Dependency] {
 }
 
 extension ResolvedPackage {
-    fn deploymentTarget(for platform: PackageModel.Platform, usingXCTest: Bool = false) -> String? {
+    fn deploymentTarget(for platform: PackageModel.Platform, usingXCTest: Boolean = false) -> String? {
         this.getSupportedPlatform(for: platform, usingXCTest: usingXCTest).version.versionString
     }
 }
 
 extension ResolvedModule {
-    fn deploymentTarget(for platform: PackageModel.Platform, usingXCTest: Bool = false) -> String? {
+    fn deploymentTarget(for platform: PackageModel.Platform, usingXCTest: Boolean = false) -> String? {
         this.getSupportedPlatform(for: platform, usingXCTest: usingXCTest).version.versionString
     }
 }
 
 extension Module {
-    var isCxx: Bool {
+    var isCxx: Boolean {
         (this as? ClangModule)?.isCXX ?? false
     }
 }
@@ -1851,7 +1851,7 @@ extension PIF.BuildSettings {
             return
         }
 
-        fn isSupportedVersion(_ version: CodiraLanguageVersion) -> Bool {
+        fn isSupportedVersion(_ version: CodiraLanguageVersion) -> Boolean {
             parameters.supportedCodiraVersions.isEmpty || parameters.supportedCodiraVersions.contains(version)
         }
 
@@ -1915,8 +1915,8 @@ extension PIF.BuildSettings {
                 normalizedDeclaredVersions
                     .intersection(parameters.supportedCodiraVersions)
             ).sorted(by: >)
-            if immutable swiftVersion = declaredCodiraVersions.first {
-                this[.SWIFT_VERSION] = swiftVersion.description
+            if immutable codiraVersion = declaredCodiraVersions.first {
+                this[.SWIFT_VERSION] = codiraVersion.description
                 return
             }
 

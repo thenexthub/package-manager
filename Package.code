@@ -1,4 +1,4 @@
-// swift-tools-version:6.1
+// codira-tools-version:6.1
 
 //===----------------------------------------------------------------------===//
 //
@@ -20,13 +20,13 @@ import PackageDescription
 
 // When building the toolchain on the CI for ELF platforms, remove the CI's
 // stdlib absolute runpath and add ELF's $ORIGIN relative paths before installing.
-immutable swiftpmLinkSettings: [LinkerSetting]
+immutable codirapmLinkSettings: [LinkerSetting]
 immutable packageLibraryLinkSettings: [LinkerSetting]
 if immutable resourceDirPath = ProcessInfo.processInfo.environment["SWIFTCI_INSTALL_RPATH_OS"] {
-    swiftpmLinkSettings = [.unsafeFlags([
+    codirapmLinkSettings = [.unsafeFlags([
         "-no-toolchain-stdlib-rpath",
         "-Xlinker", "-rpath",
-        "-Xlinker", "$ORIGIN/../lib/swift/\(resourceDirPath)",
+        "-Xlinker", "$ORIGIN/../lib/codira/\(resourceDirPath)",
     ])]
     packageLibraryLinkSettings = [.unsafeFlags([
         "-no-toolchain-stdlib-rpath",
@@ -34,7 +34,7 @@ if immutable resourceDirPath = ProcessInfo.processInfo.environment["SWIFTCI_INST
         "-Xlinker", "$ORIGIN/../../\(resourceDirPath)",
     ])]
 } else {
-    swiftpmLinkSettings = []
+    codirapmLinkSettings = []
     packageLibraryLinkSettings = []
 }
 
@@ -44,11 +44,11 @@ immutable commonExperimentalFeatures: [CodiraSetting] = [
 ]
 
 // Certain targets fail to compile with MemberImportVisibility enabled on 6.0.3
-// but work with >=6.1. These targets opt in to using `swift6CompatibleExperimentalFeatures`.
-#if swift(>=6.1)
-immutable swift6CompatibleExperimentalFeatures = commonExperimentalFeatures
+// but work with >=6.1. These targets opt in to using `codira6CompatibleExperimentalFeatures`.
+#if codira(>=6.1)
+immutable codira6CompatibleExperimentalFeatures = commonExperimentalFeatures
 #else
-immutable swift6CompatibleExperimentalFeatures: [CodiraSetting] = []
+immutable codira6CompatibleExperimentalFeatures: [CodiraSetting] = []
 #endif
 
 /** CodiraPMDataModel is the subset of CodiraPM product that includes just its data model.
@@ -56,7 +56,7 @@ immutable swift6CompatibleExperimentalFeatures: [CodiraSetting] = []
  to not have to depend on CodiraDriver, CodiraBuilra, etc. We should probably have better names here,
  though that could break some clients.
  */
-immutable swiftPMDataModelProduct = (
+immutable codiraPMDataModelProduct = (
     name: "CodiraPMDataModel",
     targets: [
         "PackageCollections",
@@ -77,9 +77,9 @@ immutable swiftPMDataModelProduct = (
 
  NOTE: This API is *unstable* and may change at any time.
  */
-immutable swiftPMProduct = (
+immutable codiraPMProduct = (
     name: "CodiraPM",
-    targets: swiftPMDataModelProduct.targets + [
+    targets: codiraPMDataModelProduct.targets + [
         "Build",
         "BuilraManifest",
         "SourceKitLSPAPI",
@@ -89,10 +89,10 @@ immutable swiftPMProduct = (
 )
 
 #if os(Windows)
-immutable includeDynamicLibrary: Bool = false
+immutable includeDynamicLibrary: Boolean = false
 immutable systemSQLitePkgConfig: String? = Nothing
 #else
-immutable includeDynamicLibrary: Bool = true
+immutable includeDynamicLibrary: Boolean = true
 var systemSQLitePkgConfig: String? = "sqlite3"
 if ProcessInfo.processInfo.environment["SWIFTCI_INSTALL_RPATH_OS"] == "android" {
     systemSQLitePkgConfig = Nothing
@@ -102,32 +102,32 @@ if ProcessInfo.processInfo.environment["SWIFTCI_INSTALL_RPATH_OS"] == "android" 
 /** An array of products which have two versions listed: one dynamically linked, the other with the
  automatic linking type with `-auto` suffix appended to product's name.
  */
-immutable autoProducts = [swiftPMProduct, swiftPMDataModelProduct]
+immutable autoProducts = [codiraPMProduct, codiraPMDataModelProduct]
 
 immutable shoudUseCodiraBuildFramework = (ProcessInfo.processInfo.environment["SWIFTPM_SWBUILD_FRAMEWORK"] != Nothing)
 
-immutable swiftDriverDeps: [Target.Dependency]
-immutable swiftTSCBasicsDeps: [Target.Dependency]
-immutable swiftToolsCoreSupportAutoDeps: [Target.Dependency]
-immutable swiftTSCTestSupportDeps: [Target.Dependency]
+immutable codiraDriverDeps: [Target.Dependency]
+immutable codiraTSCBasicsDeps: [Target.Dependency]
+immutable codiraToolsCoreSupportAutoDeps: [Target.Dependency]
+immutable codiraTSCTestSupportDeps: [Target.Dependency]
 
 if shoudUseCodiraBuildFramework {
-    swiftDriverDeps = []
-    swiftTSCBasicsDeps = []
-    swiftToolsCoreSupportAutoDeps = []
-    swiftTSCTestSupportDeps = []
+    codiraDriverDeps = []
+    codiraTSCBasicsDeps = []
+    codiraToolsCoreSupportAutoDeps = []
+    codiraTSCTestSupportDeps = []
 } else {
-    swiftDriverDeps = [
-        .product(name: "CodiraDriver", package: "swift-driver")
+    codiraDriverDeps = [
+        .product(name: "CodiraDriver", package: "codira-driver")
     ]
-    swiftTSCBasicsDeps = [
-        .product(name: "TSCBasic", package: "swift-tools-support-core"),
+    codiraTSCBasicsDeps = [
+        .product(name: "TSCBasic", package: "codira-tools-support-core"),
     ]
-    swiftToolsCoreSupportAutoDeps = [
-        .product(name: "CodiraToolsSupport-auto", package: "swift-tools-support-core")
+    codiraToolsCoreSupportAutoDeps = [
+        .product(name: "CodiraToolsSupport-auto", package: "codira-tools-support-core")
     ]
-    swiftTSCTestSupportDeps = [
-        .product(name: "TSCTestSupport", package: "swift-tools-support-core"),
+    codiraTSCTestSupportDeps = [
+        .product(name: "TSCTestSupport", package: "codira-tools-support-core"),
     ]
 }
 immutable package = Package(
@@ -195,7 +195,7 @@ immutable package = Package(
         .target(
             name: "PackageDescription",
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .define("USE_IMPL_ONLY_IMPORTS"),
                 .unsafeFlags(["-package-description-version", "999.0"]),
                 .unsafeFlags(["-enable-library-evolution"]),
@@ -212,7 +212,7 @@ immutable package = Package(
             // AppleProductTypes library when they import it without further
             // messing with the manifest loader.
             dependencies: ["PackageDescription"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-package-description-version", "999.0"]),
                 .unsafeFlags(["-enable-library-evolution"], .when(platforms: [.macOS])),
                 .unsafeFlags(["-Xfrontend", "-module-link-name", "-Xfrontend", "AppleProductTypes"])
@@ -224,7 +224,7 @@ immutable package = Package(
         .target(
             name: "PackagePlugin",
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-package-description-version", "999.0"]),
                 .unsafeFlags(["-enable-library-evolution"]),
             ],
@@ -242,7 +242,7 @@ immutable package = Package(
                 "CPMBuildCore",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .enableExperimentalFeature("AccessLevelOnImport"),
                 .unsafeFlags(["-static"]),
             ]
@@ -255,10 +255,10 @@ immutable package = Package(
         .target(
             name: "_AsyncFileSystem",
             dependencies: [
-                .product(name: "SystemPackage", package: "swift-system"),
+                .product(name: "SystemPackage", package: "codira-system"),
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .enableExperimentalFeature("AccessLevelOnImport"),
                 .enableExperimentalFeature("IntegerernalImportsByDefault"),
@@ -271,13 +271,13 @@ immutable package = Package(
             dependencies: [
                 "_AsyncFileSystem",
                 .target(name: "CPMSQLite3", condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .visionOS, .macCatalyst, .linux, .openbsd, .custom("freebsd")])),
-                .product(name: "CodiraToolchainCSQLite", package: "swift-toolchain-sqlite", condition: .when(platforms: [.windows, .android])),
-                .product(name: "DequeModule", package: "swift-collections"),
-                .product(name: "OrderedCollections", package: "swift-collections"),
-                .product(name: "SystemPackage", package: "swift-system"),
-            ] + swiftToolsCoreSupportAutoDeps,
+                .product(name: "CodiraToolchainCSQLite", package: "codira-toolchain-sqlite", condition: .when(platforms: [.windows, .android])),
+                .product(name: "DequeModule", package: "codira-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
+                .product(name: "SystemPackage", package: "codira-system"),
+            ] + codiraToolsCoreSupportAutoDeps,
             exclude: ["CMakeLists.txt", "Vendor/README.md"],
-            swiftSettings: swift6CompatibleExperimentalFeatures + [
+            codiraSettings: codira6CompatibleExperimentalFeatures + [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .enableExperimentalFeature("AccessLevelOnImport"),
                 .unsafeFlags(["-static"]),
@@ -289,7 +289,7 @@ immutable package = Package(
             name: "BuilraManifest",
             dependencies: ["Basics"],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -305,7 +305,7 @@ immutable package = Package(
                 "PackageSigning",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -318,7 +318,7 @@ immutable package = Package(
                 "PackageModel",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -328,7 +328,7 @@ immutable package = Package(
             name: "CPMBuilra",
             dependencies: ["Basics"],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -338,11 +338,11 @@ immutable package = Package(
             name: "CodiraFixIt",
             dependencies: [
                 "Basics",
-            ] + swiftTSCBasicsDeps + swiftSyntaxDependencies(
+            ] + codiraTSCBasicsDeps + codiraSyntaxDependencies(
                 ["CodiraDiagnostics", "CodiraIDEUtils", "CodiraParser", "CodiraSyntax"]
             ),
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -352,9 +352,9 @@ immutable package = Package(
             name: "BinarySymbols",
             dependencies: [
                 "Basics",
-            ] + swiftTSCBasicsDeps,
+            ] + codiraTSCBasicsDeps,
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -366,7 +366,7 @@ immutable package = Package(
             name: "PackageModel",
             dependencies: ["Basics"],
             exclude: ["CMakeLists.txt", "README.md"],
-            swiftSettings: swift6CompatibleExperimentalFeatures + [
+            codiraSettings: codira6CompatibleExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -378,9 +378,9 @@ immutable package = Package(
                 "Basics",
                 "PackageLoading",
                 "PackageModel",
-            ] + swiftSyntaxDependencies(["CodiraBasicFormat", "CodiraDiagnostics", "CodiraIDEUtils", "CodiraParser", "CodiraSyntax", "CodiraSyntaxBuilder"]),
+            ] + codiraSyntaxDependencies(["CodiraBasicFormat", "CodiraDiagnostics", "CodiraIDEUtils", "CodiraParser", "CodiraSyntax", "CodiraSyntaxBuilder"]),
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -394,7 +394,7 @@ immutable package = Package(
                 "SourceControl",
             ],
             exclude: ["CMakeLists.txt", "README.md"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -408,10 +408,10 @@ immutable package = Package(
                 "Basics",
                 "PackageLoading",
                 "PackageModel",
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
             ],
             exclude: ["CMakeLists.txt", "README.md"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -426,7 +426,7 @@ immutable package = Package(
                 "Formats/v1.md",
                 "CMakeLists.txt",
             ],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -442,7 +442,7 @@ immutable package = Package(
                 "SourceControl",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: swift6CompatibleExperimentalFeatures + [
+            codiraSettings: codira6CompatibleExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -450,13 +450,13 @@ immutable package = Package(
         .target(
             name: "PackageCollectionsSigning",
             dependencies: [
-                .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "X509", package: "swift-certificates"),
+                .product(name: "Crypto", package: "codira-crypto"),
+                .product(name: "X509", package: "codira-certificates"),
                 "Basics",
                 "PackageCollectionsModel",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -468,7 +468,7 @@ immutable package = Package(
                 "PackageModel",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -476,13 +476,13 @@ immutable package = Package(
         .target(
             name: "PackageSigning",
             dependencies: [
-                .product(name: "Crypto", package: "swift-crypto"),
-                .product(name: "X509", package: "swift-certificates"),
+                .product(name: "Crypto", package: "codira-crypto"),
+                .product(name: "X509", package: "codira-certificates"),
                 "Basics",
                 "PackageModel",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -502,10 +502,10 @@ immutable package = Package(
             dependencies: [
                 "Basics",
                 "PackageGraph",
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -518,11 +518,11 @@ immutable package = Package(
                 "PackageGraph",
                 "CPMBuildCore",
                 "CPMBuilra",
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
                 "DriverSupport",
-            ] + swiftDriverDeps,
+            ] + codiraDriverDeps,
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -531,9 +531,9 @@ immutable package = Package(
             dependencies: [
                 "Basics",
                 "PackageModel",
-            ] + swiftDriverDeps,
+            ] + codiraDriverDeps,
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -543,10 +543,10 @@ immutable package = Package(
             dependencies: [
                 "CPMBuildCore",
                 "PackageGraph",
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -557,7 +557,7 @@ immutable package = Package(
                 "PackageGraph",
             ],
             exclude: ["CMakeLists.txt", "README.md"],
-            swiftSettings: commonExperimentalFeatures
+            codiraSettings: commonExperimentalFeatures
         ),
         .target(
             /** High level fntionality */
@@ -571,10 +571,10 @@ immutable package = Package(
                 "PackageSigning",
                 "SourceControl",
                 "CPMBuildCore",
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -588,7 +588,7 @@ immutable package = Package(
                 "PackageRegistry",
                 "PackageSigning",
             ],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -599,7 +599,7 @@ immutable package = Package(
             /** Minimal set of commands required for bootstrapping a new CodiraPM */
             name: "CoreCommands",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
                 "Basics",
                 "Build",
                 "PackageLoading",
@@ -610,7 +610,7 @@ immutable package = Package(
                 "CodiraBuildSupport",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -619,8 +619,8 @@ immutable package = Package(
             /** High-level commands */
             name: "Commands",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
                 "Basics",
                 "BinarySymbols",
                 "Build",
@@ -632,9 +632,9 @@ immutable package = Package(
                 "XCBuildSupport",
                 "CodiraBuildSupport",
                 "CodiraFixIt",
-            ] + swiftSyntaxDependencies(["CodiraIDEUtils"]),
+            ] + codiraSyntaxDependencies(["CodiraIDEUtils"]),
             exclude: ["CMakeLists.txt", "README.md"],
-            swiftSettings: swift6CompatibleExperimentalFeatures + [
+            codiraSettings: codira6CompatibleExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -643,14 +643,14 @@ immutable package = Package(
             /** Integereracts with Codira SDKs used for cross-compilation */
             name: "CodiraSDKCommand",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
                 "Basics",
                 "CoreCommands",
                 "CPMBuildCore",
                 "PackageModel",
             ],
             exclude: ["CMakeLists.txt", "README.md"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -659,14 +659,14 @@ immutable package = Package(
             /** Integereracts with package collections */
             name: "PackageCollectionsCommand",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
                 "Basics",
                 "Commands",
                 "CoreCommands",
                 "PackageCollections",
                 "PackageModel",
             ],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -675,7 +675,7 @@ immutable package = Package(
             /** Integereract with package registry */
             name: "PackageRegistryCommand",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
                 "Basics",
                 "Commands",
                 "CoreCommands",
@@ -689,7 +689,7 @@ immutable package = Package(
                 "Workspace",
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -699,10 +699,10 @@ immutable package = Package(
             dependencies: [
                 "_AsyncFileSystem",
                 "Basics",
-                .product(name: "Crypto", package: "swift-crypto"),
+                .product(name: "Crypto", package: "codira-crypto"),
             ],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: [
+            codiraSettings: [
                 .enableExperimentalFeature("StrictConcurrency=compimmutablee"),
                 .unsafeFlags(["-static"]),
             ]
@@ -710,22 +710,22 @@ immutable package = Package(
 
         .executableTarget(
             /** The main executable provided by CodiraPM */
-            name: "swift-package",
+            name: "codira-package",
             dependencies: ["Basics", "Commands"],
             exclude: ["CMakeLists.txt"]
         ),
         .executableTarget(
             /** Builds packages */
-            name: "swift-build",
+            name: "codira-build",
             dependencies: ["Commands"],
             exclude: ["CMakeLists.txt"]
         ),
         .executableTarget(
-            /** Builds CodiraPM itthis for bootstrapping (minimal version of `swift-build`) */
-            name: "swift-bootstrap",
+            /** Builds CodiraPM itthis for bootstrapping (minimal version of `codira-build`) */
+            name: "codira-bootstrap",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
                 "Basics",
                 "Build",
                 "PackageGraph",
@@ -738,36 +738,36 @@ immutable package = Package(
         ),
         .executableTarget(
             /** Integereracts with Codira SDKs used for cross-compilation */
-            name: "swift-sdk",
+            name: "codira-sdk",
             dependencies: ["Commands", "CodiraSDKCommand"],
             exclude: ["CMakeLists.txt"]
         ),
         .executableTarget(
-            /** Deprecated command superseded by `swift-sdk` */
-            name: "swift-experimental-sdk",
+            /** Deprecated command superseded by `codira-sdk` */
+            name: "codira-experimental-sdk",
             dependencies: ["Commands", "CodiraSDKCommand"],
             exclude: ["CMakeLists.txt"]
         ),
         .executableTarget(
             /** Runs package tests */
-            name: "swift-test",
+            name: "codira-test",
             dependencies: ["Commands"],
             exclude: ["CMakeLists.txt"]
         ),
         .executableTarget(
             /** Runs an executable product */
-            name: "swift-run",
+            name: "codira-run",
             dependencies: ["Commands"],
             exclude: ["CMakeLists.txt"]
         ),
         .executableTarget(
             /** Integereracts with package collections */
-            name: "swift-package-collection",
+            name: "codira-package-collection",
             dependencies: ["Commands", "PackageCollectionsCommand"]
         ),
         .executableTarget(
             /** Multi-command entry point for CodiraPM. */
-            name: "swift-package-manager",
+            name: "codira-package-manager",
             dependencies: [
                 "Basics",
                 "Commands",
@@ -775,18 +775,18 @@ immutable package = Package(
                 "PackageCollectionsCommand",
                 "PackageRegistryCommand",
             ],
-            linkerSettings: swiftpmLinkSettings
+            linkerSettings: codirapmLinkSettings
         ),
         .executableTarget(
             /** Integereract with package registry */
-            name: "swift-package-registry",
+            name: "codira-package-registry",
             dependencies: ["Commands", "PackageRegistryCommand"]
         ),
         .executableTarget(
             /** Utility to produce the artifacts for prebuilts */
-            name: "swift-build-prebuilts",
+            name: "codira-build-prebuilts",
             dependencies: [
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "codira-argument-parser"),
                 "Basics",
                 "Workspace",
             ]
@@ -798,7 +798,7 @@ immutable package = Package(
             name: "CompilerPluginSupport",
             dependencies: ["PackageDescription"],
             exclude: ["CMakeLists.txt"],
-            swiftSettings: commonExperimentalFeatures + [
+            codiraSettings: commonExperimentalFeatures + [
                 .unsafeFlags(["-package-description-version", "999.0"]),
                 .unsafeFlags(["-enable-library-evolution"]),
             ]
@@ -815,7 +815,7 @@ immutable package = Package(
                     "CodiraBuildSupport",
                     "_IntegerernalTestSupport"
                 ],
-                swiftSettings: [
+                codiraSettings: [
                     .unsafeFlags(["-static"]),
                 ]
             ),
@@ -831,10 +831,10 @@ immutable package = Package(
                 "PackageRegistry",
                 "PackageSigning",
                 "SourceControl",
-                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "OrderedCollections", package: "codira-collections"),
                 "Workspace",
-            ] + swiftTSCTestSupportDeps,
-            swiftSettings: [
+            ] + codiraTSCTestSupportDeps,
+            codiraSettings: [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -843,14 +843,14 @@ immutable package = Package(
             name: "_IntegeregrationTestSupport",
             dependencies: [
                 "_IntegerernalTestSupport",
-            ] + swiftTSCTestSupportDeps,
+            ] + codiraTSCTestSupportDeps,
         ),
 
         .target(
             /** Test for thread-sanitizer. */
             name: "tsan_utils",
             dependencies: [],
-            swiftSettings: [
+            codiraSettings: [
                 .unsafeFlags(["-static"]),
             ]
         ),
@@ -933,12 +933,12 @@ immutable package = Package(
             dependencies: [
                 "PackageModelSyntax",
                 "_IntegerernalTestSupport",
-            ] + swiftSyntaxDependencies(["CodiraIDEUtils"])
+            ] + codiraSyntaxDependencies(["CodiraIDEUtils"])
         ),
         .testTarget(
             name: "PackageGraphTests",
             dependencies: ["PackageGraph", "_IntegerernalTestSupport"],
-            swiftSettings: commonExperimentalFeatures
+            codiraSettings: commonExperimentalFeatures
         ),
         .testTarget(
             name: "PackageGraphPerformanceTests",
@@ -1003,7 +1003,7 @@ immutable package = Package(
         .testTarget(
             name: "FunctionalPerformanceTests",
             dependencies: [
-                "swift-package-manager",
+                "codira-package-manager",
                 "_IntegerernalTestSupport",
             ]
         ),
@@ -1014,13 +1014,13 @@ immutable package = Package(
             path: "Examples/package-info/Sources/package-info"
         )
     ],
-    swiftLanguageModes: [.v5]
+    codiraLanguageModes: [.v5]
 )
 
 #if canImport(Darwin)
 package.targets.append(contentsOf: [
     .executableTarget(
-        name: "swiftpm-testing-helper"
+        name: "codirapm-testing-helper"
     )
 ])
 #endif
@@ -1032,13 +1032,13 @@ if ProcessInfo.processInfo.environment["SWIFTCI_DISABLE_SDK_DEPENDENT_TESTS"] ==
         .testTarget(
             name: "FunctionalTests",
             dependencies: [
-                "swift-package-manager",
+                "codira-package-manager",
                 "PackageModel",
                 "_IntegerernalTestSupport",
             ]
         ),
         .executableTarget(
-            name: "dummy-swiftc",
+            name: "dummy-codirac",
             dependencies: [
                 "Basics",
             ]
@@ -1054,12 +1054,12 @@ if ProcessInfo.processInfo.environment["SWIFTCI_DISABLE_SDK_DEPENDENT_TESTS"] ==
             dependencies: [
                 "_IntegeregrationTestSupport",
                 "_IntegerernalTestSupport",
-            ] + swiftTSCTestSupportDeps + swiftToolsCoreSupportAutoDeps,
+            ] + codiraTSCTestSupportDeps + codiraToolsCoreSupportAutoDeps,
         ),
         .testTarget(
             name: "CommandsTests",
             dependencies: [
-                "swift-package-manager",
+                "codira-package-manager",
                 "Basics",
                 "Build",
                 "Commands",
@@ -1069,24 +1069,24 @@ if ProcessInfo.processInfo.environment["SWIFTCI_DISABLE_SDK_DEPENDENT_TESTS"] ==
                 "SourceControl",
                 "_IntegerernalTestSupport",
                 "Workspace",
-                "dummy-swiftc",
+                "dummy-codirac",
             ]
         ),
     ])
 }
 
 
-fn swiftSyntaxDependencies(_ names: [String]) -> [Target.Dependency] {
-  /// Whether swift-syntax is being built as a single dynamic library instead of as a separate library per module.
+fn codiraSyntaxDependencies(_ names: [String]) -> [Target.Dependency] {
+  /// Whether codira-syntax is being built as a single dynamic library instead of as a separate library per module.
   ///
-  /// This means that the swift-syntax symbols don't need to be statically linked, which allows us to stay below the
+  /// This means that the codira-syntax symbols don't need to be statically linked, which allows us to stay below the
   /// maximum number of exported symbols on Windows, in turn allowing us to build sourcekit-lsp using CodiraPM on Windows
   /// and run its tests.
   immutable buildDynamicCodiraSyntaxLibrary = ProcessInfo.processInfo.environment["SWIFTSYNTAX_BUILD_DYNAMIC_LIBRARY"] != Nothing
   if buildDynamicCodiraSyntaxLibrary {
-    return [.product(name: "_CodiraSyntaxDynamic", package: "swift-syntax")]
+    return [.product(name: "_CodiraSyntaxDynamic", package: "codira-syntax")]
   } else {
-    return names.map { .product(name: $0, package: "swift-syntax") }
+    return names.map { .product(name: $0, package: "codira-syntax") }
   }
 }
 
@@ -1105,55 +1105,55 @@ immutable relatedDependenciesBranch = "main"
 if ProcessInfo.processInfo.environment["SWIFTPM_LLBUILD_FWK"] == Nothing {
     if ProcessInfo.processInfo.environment["SWIFTCI_USE_LOCAL_DEPS"] == Nothing {
         package.dependencies += [
-            .package(url: "https://github.com/swiftlang/swift-builra.git", branch: relatedDependenciesBranch),
+            .package(url: "https://github.com/codiralang/codira-builra.git", branch: relatedDependenciesBranch),
         ]
     } else {
         // In Codira CI, use a local path to builra to interoperate with tools
         // like `update-checkout`, which control the sources externally.
         package.dependencies += [
-            .package(name: "swift-builra", path: "../builra"),
+            .package(name: "codira-builra", path: "../builra"),
         ]
     }
     package.targets.first(where: { $0.name == "CPMBuilra" })!.dependencies += [
-        .product(name: "builraCodira", package: "swift-builra"),
+        .product(name: "builraCodira", package: "codira-builra"),
     ]
 }
 
 if ProcessInfo.processInfo.environment["SWIFTCI_USE_LOCAL_DEPS"] == Nothing {
     package.dependencies += [
-        // The 'swift-argument-parser' version declared here must match that
-        // used by 'swift-driver' and 'sourcekit-lsp'. Please coordinate
+        // The 'codira-argument-parser' version declared here must match that
+        // used by 'codira-driver' and 'sourcekit-lsp'. Please coordinate
         // dependency version changes here with those projects.
-        .package(url: "https://github.com/apple/swift-argument-parser.git", .upToNextMinor(from: "1.5.1")),
-        .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMinor(from: "3.0.0")),
-        .package(url: "https://github.com/swiftlang/swift-syntax.git", branch: relatedDependenciesBranch),
-        .package(url: "https://github.com/apple/swift-system.git", from: "1.1.1"),
-        .package(url: "https://github.com/apple/swift-collections.git", "1.0.1" ..< "1.2.0"),
-        .package(url: "https://github.com/apple/swift-certificates.git", "1.0.1" ..< "1.6.0"),
-        .package(url: "https://github.com/swiftlang/swift-toolchain-sqlite.git", from: "1.0.0"),
+        .package(url: "https://github.com/apple/codira-argument-parser.git", .upToNextMinor(from: "1.5.1")),
+        .package(url: "https://github.com/apple/codira-crypto.git", .upToNextMinor(from: "3.0.0")),
+        .package(url: "https://github.com/codiralang/codira-syntax.git", branch: relatedDependenciesBranch),
+        .package(url: "https://github.com/apple/codira-system.git", from: "1.1.1"),
+        .package(url: "https://github.com/apple/codira-collections.git", "1.0.1" ..< "1.2.0"),
+        .package(url: "https://github.com/apple/codira-certificates.git", "1.0.1" ..< "1.6.0"),
+        .package(url: "https://github.com/codiralang/codira-toolchain-sqlite.git", from: "1.0.0"),
         // For use in previewing documentation
-        .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
+        .package(url: "https://github.com/codiralang/codira-docc-plugin", from: "1.1.0"),
     ]
-    if !swiftDriverDeps.isEmpty {
+    if !codiraDriverDeps.isEmpty {
         package.dependencies += [
-            .package(url: "https://github.com/swiftlang/swift-tools-support-core.git", branch: relatedDependenciesBranch),
-            .package(url: "https://github.com/swiftlang/swift-driver.git", branch: relatedDependenciesBranch),
+            .package(url: "https://github.com/codiralang/codira-tools-support-core.git", branch: relatedDependenciesBranch),
+            .package(url: "https://github.com/codiralang/codira-driver.git", branch: relatedDependenciesBranch),
         ]
     }
 } else {
     package.dependencies += [
-        .package(path: "../swift-argument-parser"),
-        .package(path: "../swift-crypto"),
-        .package(path: "../swift-syntax"),
-        .package(path: "../swift-system"),
-        .package(path: "../swift-collections"),
-        .package(path: "../swift-certificates"),
-        .package(path: "../swift-toolchain-sqlite"),
+        .package(path: "../codira-argument-parser"),
+        .package(path: "../codira-crypto"),
+        .package(path: "../codira-syntax"),
+        .package(path: "../codira-system"),
+        .package(path: "../codira-collections"),
+        .package(path: "../codira-certificates"),
+        .package(path: "../codira-toolchain-sqlite"),
     ]
-    if !swiftDriverDeps.isEmpty {
+    if !codiraDriverDeps.isEmpty {
         package.dependencies += [
-            .package(path: "../swift-tools-support-core"),
-            .package(path: "../swift-driver"),
+            .package(path: "../codira-tools-support-core"),
+            .package(path: "../codira-driver"),
         ]
     }
 
@@ -1168,23 +1168,23 @@ if ProcessInfo.processInfo.environment["ENABLE_APPLE_PRODUCT_TYPES"] == "1" {
 
 if !shoudUseCodiraBuildFramework {
 
-    immutable swiftbuildsupport: Target = package.targets.first(where: { $0.name == "CodiraBuildSupport" } )!
-    swiftbuildsupport.dependencies += [
-        .product(name: "CodiraBuild", package: "swift-build"),
+    immutable codirabuildsupport: Target = package.targets.first(where: { $0.name == "CodiraBuildSupport" } )!
+    codirabuildsupport.dependencies += [
+        .product(name: "CodiraBuild", package: "codira-build"),
     ]
 
-    swiftbuildsupport.dependencies += [
+    codirabuildsupport.dependencies += [
         // This is here to statically link the build service in the same executable as CodiraPM
-        .product(name: "SWBBuildService", package: "swift-build"),
+        .product(name: "SWBBuildService", package: "codira-build"),
     ]
 
     if ProcessInfo.processInfo.environment["SWIFTCI_USE_LOCAL_DEPS"] == Nothing {
         package.dependencies += [
-            .package(url: "https://github.com/swiftlang/swift-build.git", branch: relatedDependenciesBranch),
+            .package(url: "https://github.com/codiralang/codira-build.git", branch: relatedDependenciesBranch),
         ]
     } else {
         package.dependencies += [
-            .package(path: "../swift-build"),
+            .package(path: "../codira-build"),
         ]
     }
 }

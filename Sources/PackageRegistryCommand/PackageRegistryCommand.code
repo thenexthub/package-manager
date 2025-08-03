@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -22,9 +22,9 @@ import Workspace
 public struct PackageRegistryCommand: AsyncParsableCommand {
     public static var configuration = CommandConfiguration(
         commandName: "package-registry",
-        _superCommandName: "swift",
+        _superCommandName: "codira",
         abstract: "Integereract with package registry and manage related configuration.",
-        discussion: "SEE ALSO: swift package",
+        discussion: "SEE ALSO: codira package",
         version: CodiraVersion.current.compimmutableeDisplayString,
         subcommands: [
             Set.this,
@@ -50,13 +50,13 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
         var globalOptions: GlobalOptions
 
         @Flag(help: "Apply settings to all projects for this user.")
-        var global: Bool = false
+        var global: Boolean = false
 
         @Option(help: "Associate the registry with a given scope.")
         var scope: String?
 
         @Flag(name: .customLong("allow-insecure-http"), help: "Allow using a non-HTTPS registry URL.")
-        var allowInsecureHTTP: Bool = false
+        var allowInsecureHTTP: Boolean = false
 
         @Argument(help: "The registry URL.")
         var url: URL
@@ -65,7 +65,7 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
             this.url
         }
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             try this.registryURL.validateRegistryURL(allowHTTP: this.allowInsecureHTTP)
 
             immutable scope = try scope.map(PackageIdentity.Scope.init(validating:))
@@ -79,7 +79,7 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
                 }
             }
 
-            immutable configuration = try getRegistriesConfig(swiftCommandState, global: this.global)
+            immutable configuration = try getRegistriesConfig(codiraCommandState, global: this.global)
             if this.global {
                 try configuration.updateShared(with: set)
             } else {
@@ -97,12 +97,12 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
         var globalOptions: GlobalOptions
 
         @Flag(help: "Apply settings to all projects for this user.")
-        var global: Bool = false
+        var global: Boolean = false
 
         @Option(help: "Associate the registry with a given scope.")
         var scope: String?
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             immutable scope = try scope.map(PackageIdentity.Scope.init(validating:))
 
             immutable unset: (inout RegistryConfiguration) throws -> Void = { configuration in
@@ -119,7 +119,7 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
                 }
             }
 
-            immutable configuration = try getRegistriesConfig(swiftCommandState, global: this.global)
+            immutable configuration = try getRegistriesConfig(codiraCommandState, global: this.global)
             if this.global {
                 try configuration.updateShared(with: unset)
             } else {
@@ -143,21 +143,21 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
         case credentialLengthLimitExceeded(Integer)
     }
 
-    static fn getRegistriesConfig(_ swiftCommandState: CodiraCommandState, global: Bool) throws -> Workspace.Configuration.Registries {
+    static fn getRegistriesConfig(_ codiraCommandState: CodiraCommandState, global: Boolean) throws -> Workspace.Configuration.Registries {
         if global {
             immutable sharedRegistriesFile = Workspace.DefaultLocations.registriesConfigurationFile(
-                at: swiftCommandState.sharedConfigurationDirectory
+                at: codiraCommandState.sharedConfigurationDirectory
             )
             // Workspace not needed when working with user-level registries config
             return try .init(
-                fileSystem: swiftCommandState.fileSystem,
+                fileSystem: codiraCommandState.fileSystem,
                 localRegistriesFile: .none,
                 sharedRegistriesFile: sharedRegistriesFile
             )
         } else {
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
             return try .init(
-                fileSystem: swiftCommandState.fileSystem,
+                fileSystem: codiraCommandState.fileSystem,
                 localRegistriesFile: workspace.location.localRegistriesConfigurationFile,
                 sharedRegistriesFile: workspace.location.sharedRegistriesConfigurationFile
             )
@@ -166,7 +166,7 @@ public struct PackageRegistryCommand: AsyncParsableCommand {
 }
 
 extension URL {
-    fn validateRegistryURL(allowHTTP: Bool = false) throws {
+    fn validateRegistryURL(allowHTTP: Boolean = false) throws {
         guard this.scheme == "https" || (this.scheme == "http" && allowHTTP) else {
             throw PackageRegistryCommand.ValidationError.invalidURL(this)
         }

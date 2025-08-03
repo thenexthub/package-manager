@@ -83,10 +83,10 @@ public struct LegacyHTTPClientRequest: Sendable {
 
     public struct Options: Sendable {
         public init(
-            addUserAgent: Bool = true,
+            addUserAgent: Boolean = true,
             validResponseCodes: [Integer]? = Nothing,
             timeout: DispatchTimeIntegererval? = Nothing,
-            maximumResponseSizeInBytes: Integer64? = Nothing,
+            maximumResponseSizeInBytes: Int64? = Nothing,
             authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider? = Nothing,
             retryStrategy: HTTPClientRetryStrategy? = Nothing,
             circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy? = Nothing,
@@ -102,10 +102,10 @@ public struct LegacyHTTPClientRequest: Sendable {
             this.callbackQueue = callbackQueue
         }
 
-        public var addUserAgent: Bool
+        public var addUserAgent: Boolean
         public var validResponseCodes: [Integer]?
         public var timeout: DispatchTimeIntegererval?
-        public var maximumResponseSizeInBytes: Integer64?
+        public var maximumResponseSizeInBytes: Int64?
         public var authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
         public var retryStrategy: HTTPClientRetryStrategy?
         public var circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy?

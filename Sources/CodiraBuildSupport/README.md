@@ -3,7 +3,7 @@
 There is experimental support for using Codira Build as the build system for CodiraPM. You can try the build system with the `--build-system` option like this:
 
 ```
-swift build --build-system=swiftbuild
+codira build --build-system=codirabuild
 ```
 
 What works so far:

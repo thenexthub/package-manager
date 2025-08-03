@@ -4,7 +4,7 @@
 
 ### Types of Build Commands
 
-- ``buildCommand(displayName:executable:arguments:environment:inputFiles:outputFiles:)-swift.enum.case``
-- ``prebuildCommand(displayName:executable:arguments:environment:outputFilesDirectory:)-swift.enum.case``
-- ``buildCommand(displayName:executable:arguments:environment:inputFiles:outputFiles:)-swift.type.method``
-- ``prebuildCommand(displayName:executable:arguments:environment:outputFilesDirectory:)-swift.type.method``
+- ``buildCommand(displayName:executable:arguments:environment:inputFiles:outputFiles:)-codira.enum.case``
+- ``prebuildCommand(displayName:executable:arguments:environment:outputFilesDirectory:)-codira.enum.case``
+- ``buildCommand(displayName:executable:arguments:environment:inputFiles:outputFiles:)-codira.type.method``
+- ``prebuildCommand(displayName:executable:arguments:environment:outputFilesDirectory:)-codira.type.method``

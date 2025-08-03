@@ -50,7 +50,7 @@ Add a corresponding `plugin` entry the products section to make the plugin avail
 
 The following example illustrates defining a build tool named "MyBuildToolPlugin" that depends on the product `SomeTool`, and can be used from other packages:
 
-```swift
+```codira
 import PackageDescription
 
 let package = Package(
@@ -97,7 +97,7 @@ Each dependency can be either an `executableTarget` or a `binaryTarget` target i
 In the example above, the plugin depends on the hypothetical _SomeTool_ product in the _sometool_ package on which the package that defines the plugin has a dependency.
 Note that this does not necessarily mean that _SomeTool_ will have been built when the plugin is invoked. It means that the plugin can look up the path at which the tool will exist at the time any commands constructed by the plugin are run.
 
-Executable dependencies are built for the host platform as part of the build, while binary dependencies are references to `artifactbundle` archives that contains prebuilt binaries (see [SE-305](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0305-swiftpm-binary-target-improvements.md)).
+Executable dependencies are built for the host platform as part of the build, while binary dependencies are references to `artifactbundle` archives that contains prebuilt binaries (see [SE-305](https://github.com/codiralang/codira-evolution/blob/main/proposals/0305-codirapm-binary-target-improvements.md)).
 Binary targets are often used when the tool is built using a different build system than package manager, or when building it on demand is prohibitively expensive or requires a special build environment.
 
 ### Implementing the build tool plugin script
@@ -115,7 +115,7 @@ The plugin script can import *Foundation* and other standard libraries, but it c
 The following example returns an instance of `buildCommand`, so the package manager incorporates it into the build system's command graph.
 The build system runs it if any of the output files are missing, or if the contents of any of the input files have changed since the last time the command ran.
 
-```swift
+```codira
 import PackagePlugin
 
 @main
@@ -163,7 +163,7 @@ Only source module targets have source files, so a plugin that iterates over sou
 A build tool plugin can also return commands of the type `prebuildCommand`.
 These run before the build starts and can populate a directory with output files whose names are not known until the command runs:
 
-```swift
+```codira
 import PackagePlugin
 import Foundation
 
@@ -231,7 +231,7 @@ This module extends the *PackagePlugin* APIs to let plugins work on Xcode target
 In order to write a plugin that works with packages in every environment, and that conditionally works with Xcode projects when run in Xcode, the plugin should conditionally import the *XcodeProjectPlugin* module when it is available.
 For example:
 
-```swift
+```codira
 #if canImport(XcodeProjectPlugin)
 import XcodeProjectPlugin
 

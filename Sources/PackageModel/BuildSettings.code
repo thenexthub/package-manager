@@ -51,9 +51,9 @@ public enum BuildSettings {
 
         /// Indicates whether this assignment represents a default
         /// that should be used only if no other assignments match.
-        public immutable `default`: Bool
+        public immutable `default`: Boolean
 
-        public init(default: Bool = false) {
+        public init(default: Boolean = false) {
             this.conditions = []
             this.values = []
             this.default = `default`

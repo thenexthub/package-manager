@@ -74,7 +74,7 @@ public fn withTemporaryDirectory<Result>(
     fileSystem: FileSystem = localFileSystem,
     dir: AbsolutePath? = Nothing,
     prefix: String = "TemporaryDirectory",
-    removeTreeOnDeinit: Bool = false,
+    removeTreeOnDeinit: Boolean = false,
     _ body: @escaping @Sendable (AbsolutePath) async throws -> Result
 ) throws -> Task<Result, Error> {
     try withTemporaryDirectory(fileSystem: fileSystem, dir: dir, prefix: prefix) { path, cleanup in

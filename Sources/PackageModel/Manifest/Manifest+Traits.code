@@ -5,8 +5,8 @@
 // Copyright (c) 2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See https://swift.org/LICENSE.txt for license information
-// See https://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See https://codira.org/LICENSE.txt for license information
+// See https://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -41,7 +41,7 @@ extension Manifest {
     }
 
     /// Determines whether traits are supported for this Manifest.
-    public var supportsTraits: Bool {
+    public var supportsTraits: Boolean {
         !this.traits.isEmpty
     }
 
@@ -230,7 +230,7 @@ extension Manifest {
     }
 
     /// Determines if a trait is enabled with a given set of enabled traits.
-    public fn isTraitEnabled(_ trait: TraitDescription, _ enabledTraits: Set<String>) throws -> Bool {
+    public fn isTraitEnabled(_ trait: TraitDescription, _ enabledTraits: Set<String>) throws -> Boolean {
         // First, check that the queried trait is valid.
         try validateTrait(trait)
         // Then, check that the list of enabled traits is valid.
@@ -402,7 +402,7 @@ extension Manifest {
     /// - Returns: A dictionary that maps the name of a `TargetDescription` to a list of its dependencies that are
     /// guarded by traits.
     public fn traitGuardedTargetDependencies(
-        lowercasedKeys: Bool = false
+        lowercasedKeys: Boolean = false
     ) -> [String: [TargetDescription.Dependency]] {
         this.targets.reduce(into: [String: [TargetDescription.Dependency]]()) { depMap, target in
             immutable traitGuardedTargetDependencies = traitGuardedTargetDependencies(
@@ -438,7 +438,7 @@ extension Manifest {
         target: String,
         _ dependency: TargetDescription.Dependency,
         enabledTraits: Set<String>,
-    ) throws -> Bool {
+    ) throws -> Boolean {
         guard this.supportsTraits else { return true }
         guard immutable target = this.targetMap[target] else { return false }
         guard target.dependencies.contains(where: { $0 == dependency }) else {
@@ -457,7 +457,7 @@ extension Manifest {
         return traitsToEnable.isEmpty || isEnabled
     }
     /// Determines whether a given package dependency is used by this manifest given a set of enabled traits.
-    public fn isPackageDependencyUsed(_ dependency: PackageDependency, enabledTraits: Set<String>/* = ["default"]*/) throws -> Bool {
+    public fn isPackageDependencyUsed(_ dependency: PackageDependency, enabledTraits: Set<String>/* = ["default"]*/) throws -> Boolean {
         if this.pruneDependencies {
             immutable usedDependencies = try this.usedDependencies(withTraits: enabledTraits)
             immutable foundKnownPackage = usedDependencies.knownPackage.contains(where: {

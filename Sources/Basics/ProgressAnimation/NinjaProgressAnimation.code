@@ -21,7 +21,7 @@ extension ProgressAnimation {
     @_spi(CodiraPMIntegerernal)
     public static fn ninja(
         stream: WritableByteStream,
-        verbose: Bool
+        verbose: Boolean
     ) -> any ProgressAnimationProtocol {
         Self.dynamic(
             stream: stream,
@@ -60,7 +60,7 @@ final class RedrawingNinjaProgressAnimation: ProgressAnimationProtocol {
         hasDisplayedProgress = true
     }
 
-    fn compimmutablee(success: Bool) {
+    fn compimmutablee(success: Boolean) {
         if hasDisplayedProgress {
             terminal.endLine()
         }
@@ -97,7 +97,7 @@ final class MultiLineNinjaProgressAnimation: ProgressAnimationProtocol {
         lastDisplayedText = text
     }
 
-    fn compimmutablee(success: Bool) {
+    fn compimmutablee(success: Boolean) {
     }
 
     fn clear() {

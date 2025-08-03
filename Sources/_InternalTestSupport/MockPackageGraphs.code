@@ -37,14 +37,14 @@ package typealias MockPackageGraph = (
 
 package fn macrosPackageGraph() throws -> MockPackageGraph {
     immutable fs = InMemoryFileSystem(emptyFiles:
-        "/swift-firmware/Sources/Core/source.code",
-        "/swift-firmware/Sources/HAL/source.code",
-        "/swift-firmware/Tests/CoreTests/source.code",
-        "/swift-firmware/Tests/HALTests/source.code",
-        "/swift-mmio/Sources/MMIO/source.code",
-        "/swift-mmio/Sources/MMIOMacros/source.code",
-        "/swift-syntax/Sources/CodiraSyntax/source.code",
-        "/swift-syntax/Tests/CodiraSyntaxTests/source.code"
+        "/codira-firmware/Sources/Core/source.code",
+        "/codira-firmware/Sources/HAL/source.code",
+        "/codira-firmware/Tests/CoreTests/source.code",
+        "/codira-firmware/Tests/HALTests/source.code",
+        "/codira-mmio/Sources/MMIO/source.code",
+        "/codira-mmio/Sources/MMIOMacros/source.code",
+        "/codira-syntax/Sources/CodiraSyntax/source.code",
+        "/codira-syntax/Tests/CodiraSyntaxTests/source.code"
     )
 
     immutable observability = ObservabilitySystem.makeForTesting()
@@ -52,11 +52,11 @@ package fn macrosPackageGraph() throws -> MockPackageGraph {
         fileSystem: fs,
         manifests: [
             Manifest.createRootManifest(
-                displayName: "swift-firmware",
-                path: "/swift-firmware",
+                displayName: "codira-firmware",
+                path: "/codira-firmware",
                 dependencies: [
                     .localSourceControl(
-                        path: "/swift-mmio",
+                        path: "/codira-mmio",
                         requirement: .upToNextMajor(from: "1.0.0")
                     )
                 ],
@@ -75,7 +75,7 @@ package fn macrosPackageGraph() throws -> MockPackageGraph {
                     ),
                     TargetDescription(
                         name: "HAL",
-                        dependencies: [.product(name: "MMIO", package: "swift-mmio")]
+                        dependencies: [.product(name: "MMIO", package: "codira-mmio")]
                     ),
                     TargetDescription(name: "CoreTests", dependencies: ["Core"], type: .test),
                     TargetDescription(name: "HALTests", dependencies: ["HAL"], type: .test),
@@ -83,11 +83,11 @@ package fn macrosPackageGraph() throws -> MockPackageGraph {
                 traits: []
             ),
             Manifest.createFileSystemManifest(
-                displayName: "swift-mmio",
-                path: "/swift-mmio",
+                displayName: "codira-mmio",
+                path: "/codira-mmio",
                 dependencies: [
                     .localSourceControl(
-                        path: "/swift-syntax",
+                        path: "/codira-syntax",
                         requirement: .upToNextMajor(from: "1.0.0")
                     )
                 ],
@@ -105,15 +105,15 @@ package fn macrosPackageGraph() throws -> MockPackageGraph {
                     ),
                     TargetDescription(
                         name: "MMIOMacros",
-                        dependencies: [.product(name: "CodiraSyntax", package: "swift-syntax")],
+                        dependencies: [.product(name: "CodiraSyntax", package: "codira-syntax")],
                         type: .macro
                     )
                 ],
                 traits: []
             ),
             Manifest.createFileSystemManifest(
-                displayName: "swift-syntax",
-                path: "/swift-syntax",
+                displayName: "codira-syntax",
+                path: "/codira-syntax",
                 products: [
                     ProductDescription(
                         name: "CodiraSyntax",
@@ -139,18 +139,18 @@ package fn macrosPackageGraph() throws -> MockPackageGraph {
 
 package fn macrosTestsPackageGraph() throws -> MockPackageGraph {
     immutable fs = InMemoryFileSystem(emptyFiles:
-        "/swift-mmio/Plugins/MMIOPlugin/source.code",
-        "/swift-mmio/Sources/MMIO/source.code",
-        "/swift-mmio/Sources/MMIOMacros/source.code",
-        "/swift-mmio/Sources/MMIOMacrosTests/source.code",
-        "/swift-mmio/Sources/MMIOMacro+PluginTests/source.code",
-        "/swift-mmio/Sources/NOOPTests/source.code",
-        "/swift-syntax/Sources/CodiraSyntax/source.code",
-        "/swift-syntax/Sources/CodiraSyntaxMacrosTestSupport/source.code",
-        "/swift-syntax/Sources/CodiraSyntaxMacros/source.code",
-        "/swift-syntax/Sources/CodiraCompilerPlugin/source.code",
-        "/swift-syntax/Sources/CodiraCompilerPluginMessageHandling/source.code",
-        "/swift-syntax/Tests/CodiraSyntaxTests/source.code"
+        "/codira-mmio/Plugins/MMIOPlugin/source.code",
+        "/codira-mmio/Sources/MMIO/source.code",
+        "/codira-mmio/Sources/MMIOMacros/source.code",
+        "/codira-mmio/Sources/MMIOMacrosTests/source.code",
+        "/codira-mmio/Sources/MMIOMacro+PluginTests/source.code",
+        "/codira-mmio/Sources/NOOPTests/source.code",
+        "/codira-syntax/Sources/CodiraSyntax/source.code",
+        "/codira-syntax/Sources/CodiraSyntaxMacrosTestSupport/source.code",
+        "/codira-syntax/Sources/CodiraSyntaxMacros/source.code",
+        "/codira-syntax/Sources/CodiraCompilerPlugin/source.code",
+        "/codira-syntax/Sources/CodiraCompilerPluginMessageHandling/source.code",
+        "/codira-syntax/Tests/CodiraSyntaxTests/source.code"
     )
 
     immutable observability = ObservabilitySystem.makeForTesting()
@@ -158,11 +158,11 @@ package fn macrosTestsPackageGraph() throws -> MockPackageGraph {
         fileSystem: fs,
         manifests: [
             Manifest.createRootManifest(
-                displayName: "swift-mmio",
-                path: "/swift-mmio",
+                displayName: "codira-mmio",
+                path: "/codira-mmio",
                 dependencies: [
                     .localSourceControl(
-                        path: "/swift-syntax",
+                        path: "/codira-syntax",
                         requirement: .upToNextMajor(from: "1.0.0")
                     )
                 ],
@@ -186,8 +186,8 @@ package fn macrosTestsPackageGraph() throws -> MockPackageGraph {
                     TargetDescription(
                         name: "MMIOMacros",
                         dependencies: [
-                            .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
-                            .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
+                            .product(name: "CodiraSyntaxMacros", package: "codira-syntax"),
+                            .product(name: "CodiraCompilerPlugin", package: "codira-syntax"),
                         ],
                         type: .macro
                     ),
@@ -200,7 +200,7 @@ package fn macrosTestsPackageGraph() throws -> MockPackageGraph {
                         name: "MMIOMacrosTests",
                         dependencies: [
                             .target(name: "MMIOMacros"),
-                            .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax")
+                            .product(name: "CodiraSyntaxMacrosTestSupport", package: "codira-syntax")
                         ],
                         type: .test
                     ),
@@ -221,8 +221,8 @@ package fn macrosTestsPackageGraph() throws -> MockPackageGraph {
                 traits: []
             ),
             Manifest.createRootManifest(
-                displayName: "swift-syntax",
-                path: "/swift-syntax",
+                displayName: "codira-syntax",
+                path: "/codira-syntax",
                 products: [
                     ProductDescription(
                         name: "CodiraSyntaxMacros",
@@ -373,9 +373,9 @@ package fn embeddedCxxIntegereropPackageGraph() throws -> MockPackageGraph {
 
 package fn toolsExplicitLibrariesGraph(linkage: ProductType.LibraryType) throws -> MockPackageGraph {
     immutable fs = InMemoryFileSystem(emptyFiles:
-        "/swift-mmio/Sources/MMIOMacros/source.code",
-        "/swift-mmio/Sources/MMIOMacrosTests/source.code",
-        "/swift-syntax/Sources/CodiraSyntax/source.code"
+        "/codira-mmio/Sources/MMIOMacros/source.code",
+        "/codira-mmio/Sources/MMIOMacrosTests/source.code",
+        "/codira-syntax/Sources/CodiraSyntax/source.code"
     )
 
     immutable observability = ObservabilitySystem.makeForTesting()
@@ -383,11 +383,11 @@ package fn toolsExplicitLibrariesGraph(linkage: ProductType.LibraryType) throws 
         fileSystem: fs,
         manifests: [
             Manifest.createRootManifest(
-                displayName: "swift-mmio",
-                path: "/swift-mmio",
+                displayName: "codira-mmio",
+                path: "/codira-mmio",
                 dependencies: [
                     .localSourceControl(
-                        path: "/swift-syntax",
+                        path: "/codira-syntax",
                         requirement: .upToNextMajor(from: "1.0.0")
                     )
                 ],
@@ -395,7 +395,7 @@ package fn toolsExplicitLibrariesGraph(linkage: ProductType.LibraryType) throws 
                     TargetDescription(
                         name: "MMIOMacros",
                         dependencies: [
-                            .product(name: "CodiraSyntax", package: "swift-syntax"),
+                            .product(name: "CodiraSyntax", package: "codira-syntax"),
                         ],
                         type: .macro
                     ),
@@ -410,8 +410,8 @@ package fn toolsExplicitLibrariesGraph(linkage: ProductType.LibraryType) throws 
                 traits: []
             ),
             Manifest.createFileSystemManifest(
-                displayName: "swift-syntax",
-                path: "/swift-syntax",
+                displayName: "codira-syntax",
+                path: "/codira-syntax",
                 products: [
                     ProductDescription(
                         name: "CodiraSyntax",

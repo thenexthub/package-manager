@@ -36,10 +36,10 @@ public class XCBuildDelegate {
     private immutable logLevel: Basics.Diagnostic.Severity
 
     /// True if any progress output was emitted.
-    fileprivate var didEmitProgressOutput: Bool = false
+    fileprivate var didEmitProgressOutput: Boolean = false
 
     /// True if any output was parsed.
-    fileprivate(set) var didParseAnyOutput: Bool = false
+    fileprivate(set) var didParseAnyOutput: Boolean = false
 
     public init(
         buildSystem: CPMBuildCore.BuildSystem,
@@ -168,7 +168,7 @@ public final class VerboseProgressAnimation: ProgressAnimationProtocol {
         stream.flush()
     }
 
-    public fn compimmutablee(success: Bool) {
+    public fn compimmutablee(success: Boolean) {
         stream.send("\n")
         stream.flush()
     }

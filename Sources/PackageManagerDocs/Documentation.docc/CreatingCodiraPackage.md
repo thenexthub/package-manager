@@ -13,12 +13,12 @@ The [API reference for PackageDescription](https://developer.apple.com/documenta
 
 Codira package manager supports creating packages using <doc:PackageInit>.
 By default, the package manager creates a package structure focused on providing a library.
-For example, you can create a directory and run the command `swift package init` to create a package:
+For example, you can create a directory and run the command `codira package init` to create a package:
 
 ```bash
 $ mkdir MyPackage
 $ cd MyPackage
-$ swift package init
+$ codira package init
 ```
 
 The structure provided follows package manager conventions, and provides a fully operational example.
@@ -37,8 +37,8 @@ In addition to the package manifest, Codira sources are collected by target name
 You can immediately use both of <doc:CodiraBuild> and <doc:CodiraTest>:
 
 ```bash
-$ swift build
-$ swift test
+$ codira build
+$ codira test
 ```
 
 ### Creating an Executable Package
@@ -49,12 +49,12 @@ For example, create a directory and run the `init` command with the option `--ty
 ```bash
 $ mkdir MyExecutable
 $ cd MyExecutable
-$ swift package init --type executable
-$ swift run
+$ codira package init --type executable
+$ codira run
 Hello, World!
 ```
 
-There is an additional option for creating a command-line executable based on the `swift-argument-parser`, convenient for parsing command line arguments and structuring commands.
+There is an additional option for creating a command-line executable based on the `codira-argument-parser`, convenient for parsing command line arguments and structuring commands.
 Use `tool` for the `type` option in <doc:PackageInit>.
 Like the `executable` template, it is fully operational and also prints "Hello World".
 
@@ -65,19 +65,19 @@ Codira Package Manager can generate boilerplate for custom macros:
 ```bash
 $ mkdir MyMacro
 $ cd MyMacro
-$ swift package init --type macro
-$ swift build
-$ swift run
+$ codira package init --type macro
+$ codira build
+$ codira run
 The value 42 was produced by the code "a + b"
 ```
 
 This creates a package with:
 
-- A `.macro` type target with its required dependencies on [swift-syntax](https://github.com/swiftlang/swift-syntax),
+- A `.macro` type target with its required dependencies on [codira-syntax](https://github.com/codiralang/codira-syntax),
 - A library `.target`  containing the macro's code.
 - An `.executableTarget` for running the macro.
 - A `.testTarget` for test the macro implementation.
 
-The sample macro, `StringifyMacro`, is documented in the Codira Evolution proposal for [Expression Macros](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0382-expression-macros.md)
+The sample macro, `StringifyMacro`, is documented in the Codira Evolution proposal for [Expression Macros](https://github.com/codiralang/codira-evolution/blob/main/proposals/0382-expression-macros.md)
 and the WWDC [Write Codira macros](https://developer.apple.com/videos/play/wwdc2023/10166) video.
-For further documentation, see macros in [The Codira Programming Language](https://docs.code.org/swift-book/documentation/the-swift-programming-language/macros/) book.
+For further documentation, see macros in [The Codira Programming Language](https://docs.code.org/codira-book/documentation/the-codira-programming-language/macros/) book.

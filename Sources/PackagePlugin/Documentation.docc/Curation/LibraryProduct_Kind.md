@@ -1,4 +1,4 @@
-# ``PackagePlugin/LibraryProduct/Kind-swift.enum``
+# ``PackagePlugin/LibraryProduct/Kind-codira.enum``
 
 ## Topics
 

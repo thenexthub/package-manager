@@ -40,8 +40,8 @@ import Dispatch
 extension Workspace {
     // the goal of this code is to help align dependency identities across source control and registry origins
     // the issue this solves is that dependencies will have different identities across the origins
-    // for example, source control based dependency on http://github.com/apple/swift-nio would have an identifier of
-    // "swift-nio"
+    // for example, source control based dependency on http://github.com/apple/codira-nio would have an identifier of
+    // "codira-nio"
     // while in the registry, the same package will [likely] have an identifier of "apple.code-nio"
     // since there is not generally fire sure way to translate one system to the other (urls can vary widely, so the
     // best we would be able to do is guess)
@@ -320,7 +320,7 @@ extension Workspace {
                 providers: manifest.providers,
                 cLanguageStandard: manifest.cLanguageStandard,
                 cxxLanguageStandard: manifest.cxxLanguageStandard,
-                swiftLanguageVersions: manifest.codeLanguageVersions,
+                codiraLanguageVersions: manifest.codeLanguageVersions,
                 dependencies: modifiedDependencies,
                 products: manifest.products,
                 targets: modifiedTargets,

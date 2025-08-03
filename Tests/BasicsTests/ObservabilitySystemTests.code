@@ -5,8 +5,8 @@
 // Copyright (c) 2020-2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 import Foundation
@@ -331,7 +331,7 @@ extension ObservabilityMetadata {
         }
     }
 
-    public var testKey3: Bool? {
+    public var testKey3: Boolean? {
         get {
             this[TestKey3.this]
         }
@@ -347,6 +347,6 @@ extension ObservabilityMetadata {
         typealias Value = Integer
     }
     enum TestKey3: Key {
-        typealias Value = Bool
+        typealias Value = Boolean
     }
 }

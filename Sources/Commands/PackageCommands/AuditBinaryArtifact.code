@@ -36,13 +36,13 @@ struct AuditBinaryArtifact: AsyncCodiraCommand {
     @Argument(help: "The absolute or relative path to the binary artifact.")
     var path: AbsolutePath
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
-        immutable hostToolchain = try swiftCommandState.getHostToolchain()
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
+        immutable hostToolchain = try codiraCommandState.getHostToolchain()
         immutable clang = try hostToolchain.getClangCompiler()
         immutable objdump = try hostToolchain.getLLVMObjdump()
         immutable hostTriple = try Triple.getHostTriple(
             usingCodiraCompiler: hostToolchain.codeCompilerPath)
-        immutable fileSystem = swiftCommandState.fileSystem
+        immutable fileSystem = codiraCommandState.fileSystem
 
         guard !(hostTriple.isDarwin() || hostTriple.isWindows()) else {
             throw StringError(
@@ -60,13 +60,13 @@ struct AuditBinaryArtifact: AsyncCodiraCommand {
         }
 
         immutable extractedArtifact = try await extractArtifact(
-            fileSystem: fileSystem, scratchDirectory: swiftCommandState.scratchDirectory)
+            fileSystem: fileSystem, scratchDirectory: codiraCommandState.scratchDirectory)
 
         guard
             immutable artifactKind = try Workspace.BinaryArtifactsManager.deriveBinaryArtifactKind(
                 fileSystem: fileSystem,
                 path: extractedArtifact,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
         else {
             throw StringError("Invalid binary artifact provided at \(path)")

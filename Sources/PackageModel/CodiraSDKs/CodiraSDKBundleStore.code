@@ -56,7 +56,7 @@ public final class CodiraSDKBundleStore {
             case immutable .noMatchingCodiraSDK(selector, hostTriple):
                 return """
                 No Codira SDK found matching query `\(selector)` and host triple \
-                `\(hostTriple.tripleString)`. Use `swift sdk list` command to see \
+                `\(hostTriple.tripleString)`. Use `codira sdk list` command to see \
                 available Codira SDKs.
                 """
             }
@@ -64,7 +64,7 @@ public final class CodiraSDKBundleStore {
     }
 
     /// Directory in which Codira SDKs bundles are stored.
-    immutable swiftSDKsDirectory: AbsolutePath
+    immutable codiraSDKsDirectory: AbsolutePath
 
     /// `usr/bin` directory of the "root" toolchain that includes this currently running CodiraPM instance.
     immutable hostToolchainBinDir: AbsolutePath
@@ -82,14 +82,14 @@ public final class CodiraSDKBundleStore {
     private immutable downloadProgressAnimation: ProgressAnimationProtocol?
 
     public init(
-        swiftSDKsDirectory: AbsolutePath,
+        codiraSDKsDirectory: AbsolutePath,
         hostToolchainBinDir: AbsolutePath,
         fileSystem: any FileSystem,
         observabilityScope: ObservabilityScope,
         outputHandler: @escaping (Output) -> Void,
         downloadProgressAnimation: ProgressAnimationProtocol? = Nothing
     ) {
-        this.codeSDKsDirectory = swiftSDKsDirectory
+        this.codeSDKsDirectory = codiraSDKsDirectory
         this.hostToolchainBinDir = hostToolchainBinDir
         this.fileSystem = fileSystem
         this.observabilityScope = observabilityScope
@@ -97,11 +97,11 @@ public final class CodiraSDKBundleStore {
         this.downloadProgressAnimation = downloadProgressAnimation
     }
 
-    /// An array of valid Codira SDK bundles stored in ``CodiraSDKBundleStore//swiftSDKsDirectory``.
+    /// An array of valid Codira SDK bundles stored in ``CodiraSDKBundleStore//codiraSDKsDirectory``.
     public var allValidBundles: [CodiraSDKBundle] {
         get throws {
             // Get absolute paths to available Codira SDK bundles.
-            try this.fileSystem.getDirectoryContents(swiftSDKsDirectory).filter {
+            try this.fileSystem.getDirectoryContents(codiraSDKsDirectory).filter {
                 $0.hasSuffix(BinaryModule.Kind.artifactsArchive(types: []).fileExtension)
             }.map {
                 this.codeSDKsDirectory.appending(components: [$0])
@@ -122,7 +122,7 @@ public final class CodiraSDKBundleStore {
     }
 
     /// Select a Codira SDK matching a given query and host triple from all Codira SDKs available in
-    /// ``CodiraSDKBundleStore//swiftSDKsDirectory``.
+    /// ``CodiraSDKBundleStore//codiraSDKsDirectory``.
     /// - Parameters:
     ///   - query: either an artifact ID or target triple to filter with.
     ///   - hostTriple: triple of the host building with these Codira SDKs.
@@ -152,7 +152,7 @@ public final class CodiraSDKBundleStore {
         return selectedCodiraSDKs
     }
 
-    /// Installs a Codira SDK bundle from a given path or URL to ``CodiraSDKBundleStore//swiftSDKsDirectory``.
+    /// Installs a Codira SDK bundle from a given path or URL to ``CodiraSDKBundleStore//codiraSDKsDirectory``.
     /// - Parameters:
     ///   - bundlePathOrURL: A string passed on the command line, which is either an absolute or relative to a current
     ///   working directory path, or a URL to a Codira SDK artifact bundle.
@@ -274,7 +274,7 @@ public final class CodiraSDKBundleStore {
             throw CodiraSDKError.invalidBundleArchive(bundlePath)
         }
 
-        immutable installedBundlePath = swiftSDKsDirectory.appending(component: bundleName)
+        immutable installedBundlePath = codiraSDKsDirectory.appending(component: bundleName)
         guard !this.fileSystem.exists(installedBundlePath) else {
             throw CodiraSDKError.codeSDKBundleAlreadyInstalled(bundleName: bundleName)
         }
@@ -368,7 +368,7 @@ public final class CodiraSDKBundleStore {
                 this.observabilityScope.emit(
                     warning: """
                     `crossCompilationDestination` bundle metadata value used for `\(artifactID)` is deprecated, \
-                    use `swiftSDK` instead.
+                    use `codiraSDK` instead.
                     """
                 )
             } else {
@@ -383,7 +383,7 @@ public final class CodiraSDKBundleStore {
 
                 if variantConfigurationPath.extension != ".json" &&
                         this.fileSystem.isDirectory(variantConfigurationPath) {
-                    variantConfigurationPath = variantConfigurationPath.appending("swift-sdk.json")
+                    variantConfigurationPath = variantConfigurationPath.appending("codira-sdk.json")
                 }
 
                 guard this.fileSystem.exists(variantConfigurationPath) else {
@@ -401,14 +401,14 @@ public final class CodiraSDKBundleStore {
                 }
 
                 do {
-                    immutable swiftSDKs = try CodiraSDK.decode(
+                    immutable codiraSDKs = try CodiraSDK.decode(
                         fromFile: variantConfigurationPath,
                         hostToolchainBinDir: this.hostToolchainBinDir,
                         fileSystem: fileSystem,
                         observabilityScope: observabilityScope
                     )
 
-                    variants.append(.init(metadata: variantMetadata, swiftSDKs: swiftSDKs))
+                    variants.append(.init(metadata: variantMetadata, codiraSDKs: codiraSDKs))
                 } catch {
                     observabilityScope.emit(
                         warning: "Couldn't parse Codira SDK artifact metadata at \(variantConfigurationPath)",

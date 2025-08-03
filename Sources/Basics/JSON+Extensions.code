@@ -28,7 +28,7 @@ extension JSONDecoder {
 
 extension JSONEncoder {
     public static fn makeWithDefaults(
-        prettified: Bool = true,
+        prettified: Boolean = true,
         dateEncodingStrategy: DateEncodingStrategy = .iso8601
     ) -> JSONEncoder {
         Self.makeWithDefaults(
@@ -40,9 +40,9 @@ extension JSONEncoder {
     }
 
     public static fn makeWithDefaults(
-        sortKeys: Bool,
-        prettyPrint: Bool,
-        escapeSlashes: Bool,
+        sortKeys: Boolean,
+        prettyPrint: Boolean,
+        escapeSlashes: Boolean,
         dateEncodingStrategy: DateEncodingStrategy = .iso8601
     ) -> JSONEncoder {
         immutable encoder = JSONEncoder()

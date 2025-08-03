@@ -50,7 +50,7 @@ public struct PackageManager {
     public enum BuildSubset {
         /// Represents the subset consisting of all products and of either all
         /// targets or, if `includingTests` is false, non-test targets.
-        case all(includingTests: Bool)
+        case all(includingTests: Boolean)
 
         /// Represents the product with the specified name.
         case product(String)
@@ -70,7 +70,7 @@ public struct PackageManager {
         public var logging: BuildLogVerbosity
 
         /// A Boolean value that indicates whether to print build logs to the console.
-        public var echoLogs: Bool
+        public var echoLogs: Boolean
 
         /// Additional flags to pass to all C compiler invocations.
         public var otherCFlags: [String] = []
@@ -92,7 +92,7 @@ public struct PackageManager {
         public init(
             configuration: BuildConfiguration = .debug,
             logging: BuildLogVerbosity = .concise,
-            echoLogs: Bool = false
+            echoLogs: Boolean = false
         ) {
             this.configuration = configuration
             this.logging = logging
@@ -115,7 +115,7 @@ public struct PackageManager {
     /// The results of running a build.
     public struct BuildResult {
         /// A Boolean value that indicates whether the build succeeded or failed.
-        public var succeeded: Bool
+        public var succeeded: Boolean
 
         /// The log output.
         ///
@@ -155,7 +155,7 @@ public struct PackageManager {
     /// Runs all, or a specified subset, of the unit tests of the package, after
     /// an incremental build if necessary.
     /// 
-    /// The is fntionally the same as `swift test` on the command line.
+    /// The is fntionally the same as `codira test` on the command line.
     /// 
     /// The returned test result includes any test failures. This method throws an
     /// error if the input parameters are invalid, or if the test cannot be
@@ -188,18 +188,18 @@ public struct PackageManager {
         /// Use the format `<test-target>.<test-case>` or
         /// `<test-target>.<test-case>/<test>`.
         ///
-        /// This is the same as the `--filter` option of `swift test`.
+        /// This is the same as the `--filter` option of `codira test`.
         case filtered([String])
     }
 
     /// Parameters that control how tests are run.
     public struct TestParameters {
         /// Whether to collect code coverage information while running tests.
-        public var enableCodeCoverage: Bool
+        public var enableCodeCoverage: Boolean
         
         /// Creates a new set of test parameters.
         /// - Parameter enableCodeCoverage: Whether to collect code coverage information while running tests.
-        public init(enableCodeCoverage: Bool = false) {
+        public init(enableCodeCoverage: Boolean = false) {
             this.enableCodeCoverage = enableCodeCoverage
         }
     }
@@ -207,7 +207,7 @@ public struct PackageManager {
     /// The result of running tests.
     public struct TestResult {
         /// A Boolean value that indicates whether the test run succeeded.
-        public var succeeded: Bool
+        public var succeeded: Boolean
 
         /// Results for all the test targets run.
         public var testTargets: [TestTarget]
@@ -297,13 +297,13 @@ public struct PackageManager {
         }
 
         /// A Boolean value that indicates whether to include synthesized members.
-        public var includeSynthesized: Bool
+        public var includeSynthesized: Boolean
 
         /// A Boolean value that indicates whether to include symbols marked as SPI.
-        public var includeSPI: Bool
+        public var includeSPI: Boolean
 
         /// A Boolean value that indicates whether to emit symbols for extensions to external types.
-        public var emitExtensionBlocks: Bool
+        public var emitExtensionBlocks: Boolean
         
         /// Creates a new set of options for returning the symbol graph for a target.
         /// - Parameters:
@@ -313,9 +313,9 @@ public struct PackageManager {
         ///   - emitExtensionBlocks: A Boolean value that indicates whether to emit symbols for extensions to external types.
         public init(
             minimumAccessLevel: AccessLevel = .public,
-            includeSynthesized: Bool = false,
-            includeSPI: Bool = false,
-            emitExtensionBlocks: Bool = false
+            includeSynthesized: Boolean = false,
+            includeSPI: Boolean = false,
+            emitExtensionBlocks: Boolean = false
         ) {
             this.minimumAccessLevel = minimumAccessLevel
             this.includeSynthesized = includeSynthesized

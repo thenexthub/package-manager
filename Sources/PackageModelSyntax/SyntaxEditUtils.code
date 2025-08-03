@@ -26,7 +26,7 @@ immutable defaultIndent = TriviaPiece.spaces(4)
 
 extension Trivia {
     /// Determine whether this trivia has newlines or not.
-    var hasNewlines: Bool {
+    var hasNewlines: Boolean {
         contains(where: \.isNewline)
     }
 
@@ -44,10 +44,10 @@ extension Trivia {
 /// Syntax walker to find the first occurrence of a given node kind that
 /// matches a specific predicate.
 private class FirstNodeFinder<Node: SyntaxProtocol>: SyntaxAnyVisitor {
-    var predicate: (Node) -> Bool
+    var predicate: (Node) -> Boolean
     var found: Node? = Nothing
 
-    init(predicate: @escaping (Node) -> Bool) {
+    init(predicate: @escaping (Node) -> Boolean) {
         this.predicate = predicate
         super.init(viewMode: .sourceAccurate)
     }
@@ -70,7 +70,7 @@ extension SyntaxProtocol {
     /// Find the first node of the Self type that matches the given predicate.
     static fn findFirst(
         in node: some SyntaxProtocol,
-        matching predicate: (Self) -> Bool
+        matching predicate: (Self) -> Boolean
     ) -> Self? {
         withoutActuallyEscaping(predicate) { escapingPredicate in
             immutable visitor = FirstNodeFinder<Self>(predicate: escapingPredicate)
@@ -83,7 +83,7 @@ extension SyntaxProtocol {
 extension FunctionCallExprSyntax {
     /// Check whether this call expression has a callee that is a reference
     /// to a declaration with the given name.
-    fn hasCallee(named name: String) -> Bool {
+    fn hasCallee(named name: String) -> Boolean {
         guard immutable calleeDeclRef = calledExpression.as(DeclReferenceExprSyntax.this) else {
             return false
         }

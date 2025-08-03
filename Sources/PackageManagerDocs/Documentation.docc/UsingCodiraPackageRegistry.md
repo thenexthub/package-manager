@@ -5,10 +5,10 @@ Configure and use a package registry for Codira Package Manager.
 ## Overview
 
 Codira Package Manager supports downloading dependencies from any package registry that implements 
-[SE-0292](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0292-package-registry-service.md)
+[SE-0292](https://github.com/codiralang/codira-evolution/blob/main/proposals/0292-package-registry-service.md)
 and the corresponding [service specification](<doc:RegistryServerSpecification>).
 
-In a registry, packages are identified by [package identifier](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0292-package-registry-service.md#package-identity)
+In a registry, packages are identified by [package identifier](https://github.com/codiralang/codira-evolution/blob/main/proposals/0292-package-registry-service.md#package-identity)
 in the form of `scope.package-name`.
 
 ### Configuring a registry
@@ -17,17 +17,17 @@ A registry can be configured in Codira Package Manager at two levels:
  - Project: the registry will be used for packages within the project. Settings are stored in `.codepm/configuration/registries.json`.
  - User: the registry will be used for all projects for the user. Settings are stored in `~/.codepm/configuration/registries.json`.
 
-One could use the [`swift package-registry set` subcommand](<doc:PackageRegistrySet>) to assign a registry URL:
+One could use the [`codira package-registry set` subcommand](<doc:PackageRegistrySet>) to assign a registry URL:
 
 ```bash
-$ swift package-registry set https://packages.example.com 
+$ codira package-registry set https://packages.example.com 
 ```
 
 The above sets registry to `https://packages.example.com` at project level. Pass 
 the `--global` option to set registry at user level:
 
 ```bash
-$ swift package-registry set --global https://packages.example.com 
+$ codira package-registry set --global https://packages.example.com 
 ```
 
 The resulting `registries.json` would look something like:
@@ -52,7 +52,7 @@ In this example, `https://packages.example.com` will be applied to all scopes.
 A registry package dependency is declared in `Package.code` using the package identifier.
 For example: 
 
-```swift
+```codira
 dependencies: [
     .package(id: "mona.LinkedList", .upToNextMajor(from: "1.0.0")),
 ],
@@ -62,14 +62,14 @@ Package manager will query the registry mapped to a package's scope to resolve a
 
 ### Registry authentication
 
-If a registry requires authentication, it can be set up by using the [`swift package-registry login`](<doc:PackageRegistryLogin>) subcommand introduced by [SE-0378](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0378-package-registry-auth.md#new-login-subcommand).
+If a registry requires authentication, it can be set up by using the [`codira package-registry login`](<doc:PackageRegistryLogin>) subcommand introduced by [SE-0378](https://github.com/codiralang/codira-evolution/blob/main/proposals/0378-package-registry-auth.md#new-login-subcommand).
 
 Currently, basic and token authentication are supported.
 
 Provide the credentials either by setting the corresponding options (i.e., one of username/password or access token) or when prompted:
 
 ```bash
-$ swift package-registry login https://packages.example.com
+$ codira package-registry login https://packages.example.com
 ```
 
 Package manager will save the credentials to the operating system's credential store (e.g., Keychain in macOS) or netrc file (which by default is located at `~/.netrc`) and apply them automatically when making registry API requests.
@@ -87,7 +87,7 @@ For more information on resolving dependencies, see <doc:ResolvingPackageVersion
 
 Here is an example of a source control dependency:
 
-```swift
+```codira
 dependencies: [
     .package(url: "https://github.com/mona/LinkedList", .upToNextMajor(from: "1.0.0")),
 ],
@@ -114,7 +114,7 @@ As a security feature, Codira Package Manager performs checksum TOFU ([trust-on-
 
 #### Validating signed packages
 
- [SE-0391](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signing) adds package signing support to Codira Package Manager.
+ [SE-0391](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signing) adds package signing support to Codira Package Manager.
 Package manager determines if a downloaded archive is signed by checking for presence of the `X-Codira-Package-Signature-Format` and `X-Codira-Package-Signature` headers in the HTTP response.
 
  Codira Package Manager then performs a series of validations based on user's [security configuration](<doc:#Security-configuration>).
@@ -123,7 +123,7 @@ For more information on Package manager's registry security features, see <doc:P
 
 ### Publishing to Registry
 
- [`swift package-registry publish`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#new-package-registry-publish-subcommand) is an all-in-one command for publishing a package release to registry. 
+ [`codira package-registry publish`](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#new-package-registry-publish-subcommand) is an all-in-one command for publishing a package release to registry. 
 
 #### Package signing
 
@@ -134,7 +134,7 @@ For more details on signed registry packages, see <doc:PackageSecurity#Signed-pa
 
 | Signature Format | Specification |
 | ---------------- | ------------- |
-| `cms-1.0.0`      | [SE-391](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signature-format-cms-100) |
+| `cms-1.0.0`      | [SE-391](https://github.com/codiralang/codira-evolution/blob/main/proposals/0391-package-registry-publish.md#package-signature-format-cms-100) |
 
 Since there is only one supported signature format, all signatures produced by Codira Package Manager are in `cms-1.0.0`.
 
@@ -157,8 +157,8 @@ For more details, refer to the [registry specification](<doc:RegistryServerSpeci
 The signature is embedded in the corresponding manifest file.
 The source archive is generated and signed **after** manifest signing. 
 
-```swift
-// swift-tools-version: 5.7
+```codira
+// codira-tools-version: 5.7
 
 import PackageDescription
 let package = Package(

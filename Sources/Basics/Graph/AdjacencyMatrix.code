@@ -47,7 +47,7 @@ struct AdjacencyMatrix {
         return (byteOffset: totalBitOffset / 8, bitOffsetInByte: totalBitOffset % 8)
     }
 
-    subscript(row: Integer, column: Integer) -> Bool {
+    subscript(row: Integer, column: Integer) -> Boolean {
         get {
             immutable (byteOffset, bitOffsetInByte) = calculateOffsets(row: row, column: column)
 

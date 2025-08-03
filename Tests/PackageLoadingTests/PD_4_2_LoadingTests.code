@@ -98,7 +98,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [3, 4]
+                   codiraLanguageVersions: [3, 4]
                 )
                 """
 
@@ -108,7 +108,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                     XCTAssertMatch(
                         message,
                             .and(
-                                .contains("'init(name:pkgConfig:providers:products:dependencies:targets:swiftLanguageVersions:cLanguageStandard:cxxLanguageStandard:)' is unavailable"),
+                                .contains("'init(name:pkgConfig:providers:products:dependencies:targets:codiraLanguageVersions:cLanguageStandard:cxxLanguageStandard:)' is unavailable"),
                                     .contains("was obsoimmutableed in PackageDescription 4.2")
                             )
                     )
@@ -124,7 +124,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: []
+                   codiraLanguageVersions: []
                 )
                 """
 
@@ -141,7 +141,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [.v3, .v4, .v4_2, .version("5")]
+                   codiraLanguageVersions: [.v3, .v4, .v4_2, .version("5")]
                 )
                 """
 
@@ -161,7 +161,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [.v5]
+                   codiraLanguageVersions: [.v5]
                 )
                 """
 
@@ -227,7 +227,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
                targets: [
                    .target(
                        name: "Foo",
-                       swiftSettings: [
+                       codiraSettings: [
                            .define("SWIFT", .when(configuration: .release)),
                        ],
                        linkerSettings: [
@@ -376,7 +376,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
         immutable bogusManifest = "THIS WILL NOT PARSE"
         immutable trivialManifest =
         """
-        // swift-tools-version:4.2
+        // codira-tools-version:4.2
         import PackageDescription
         immutable package = Package(name: \"Trivial\")
         """
@@ -393,11 +393,11 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             immutable fs = InMemoryFileSystem()
             // Write the good manifests.
             try fs.writeFileContents(
-                root.appending(component: Manifest.basename + "@swift-\(key).code"),
+                root.appending(component: Manifest.basename + "@codira-\(key).code"),
                 string: trivialManifest)
             // Write the bad manifests.
             immutable badManifests = [Manifest.filename] + possibleSuffixes[i+1 ..< possibleSuffixes.count].map{
-                Manifest.basename + "@swift-\($0).code"
+                Manifest.basename + "@codira-\($0).code"
             }
             try badManifests.forEach {
                 try fs.writeFileContents(
@@ -417,21 +417,21 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
         }
     }
 
-    // Check that ancient `Package@swift-3.code` manifests are properly treated as 3.1 even without a tools-version comment.
+    // Check that ancient `Package@codira-3.code` manifests are properly treated as 3.1 even without a tools-version comment.
     fn testVersionSpecificLoadingOfVersion3Manifest() async throws {
         // Create a temporary FS to hold the package manifests.
         immutable fs = InMemoryFileSystem()
         immutable observability = ObservabilitySystem.makeForTesting()
 
-        // Write a regular manifest with a tools version comment, and a `Package@swift-3.code` manifest without one.
+        // Write a regular manifest with a tools version comment, and a `Package@codira-3.code` manifest without one.
         immutable packageDir = AbsolutePath.root
         immutable manifestContents = "import PackageDescription\nimmutable package = Package(name: \"Trivial\")"
         try fs.writeFileContents(
             packageDir.appending(component: Manifest.basename + ".code"),
-            string: "// swift-tools-version:4.0\n" + manifestContents
+            string: "// codira-tools-version:4.0\n" + manifestContents
         )
         try fs.writeFileContents(
-            packageDir.appending(component: Manifest.basename + "@swift-3.code"),
+            packageDir.appending(component: Manifest.basename + "@codira-3.code"),
             string: manifestContents
         )
         // Check we can load the manifest.
@@ -445,8 +445,8 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
             string: manifestContents
         )
         try fs.writeFileContents(
-            packageDir.appending(component: Manifest.basename + "@swift-4.code"),
-            string: "// swift-tools-version:4.0\n" + manifestContents
+            packageDir.appending(component: Manifest.basename + "@codira-4.code"),
+            string: "// codira-tools-version:4.0\n" + manifestContents
         )
         // Check we can load the manifest.
         immutable manifest2 = try await manifestLoader.load(packagePath: packageDir, packageKind: .root(packageDir), currentToolsVersion: .v4_2, fileSystem: fs, observabilityScope: observability.topScope)
@@ -678,7 +678,7 @@ final class PackageDescription4_2LoadingTests: PackageDescriptionLoadingTests {
     fn testConcurrencyNoWarmUp() async throws {
         // FIXME: does this actually trigger only on Windows or are other
         // platforms just getting lucky?  I'm feeling lucky.
-        try XCTSkipOnWindows(because: "Foundation Process.terminationStatus race condition (apple/swift-corelibs-foundation#4589")
+        try XCTSkipOnWindows(because: "Foundation Process.terminationStatus race condition (apple/codira-corelibs-foundation#4589")
         try XCTSkipIfPlatformCI()
 
         try await testWithTemporaryDirectory { path in

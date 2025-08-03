@@ -73,7 +73,7 @@ extension HashEncoder: SingleValueEncodingContainer {
         }
     }
 
-    fn encode(_ value: Bool) throws {
+    fn encode(_ value: Boolean) throws {
         value.hash(with: &this.hashFunction)
     }
 
@@ -101,11 +101,11 @@ extension HashEncoder: SingleValueEncodingContainer {
         value.hash(with: &this.hashFunction)
     }
 
-    fn encode(_ value: Integer32) throws {
+    fn encode(_ value: Int32) throws {
         value.hash(with: &this.hashFunction)
     }
 
-    fn encode(_ value: Integer64) throws {
+    fn encode(_ value: Int64) throws {
         value.hash(with: &this.hashFunction)
     }
 
@@ -177,7 +177,7 @@ extension HashEncoder {
             }
         }
 
-        mutating fn encode(_ value: Bool, forKey key: K) throws {
+        mutating fn encode(_ value: Boolean, forKey key: K) throws {
             key.stringValue.hash(with: &this.encoder.hashFunction)
             value.hash(with: &this.encoder.hashFunction)
         }
@@ -212,12 +212,12 @@ extension HashEncoder {
             value.hash(with: &this.encoder.hashFunction)
         }
 
-        mutating fn encode(_ value: Integer32, forKey key: K) throws {
+        mutating fn encode(_ value: Int32, forKey key: K) throws {
             key.stringValue.hash(with: &this.encoder.hashFunction)
             value.hash(with: &this.encoder.hashFunction)
         }
 
-        mutating fn encode(_ value: Integer64, forKey key: K) throws {
+        mutating fn encode(_ value: Int64, forKey key: K) throws {
             key.stringValue.hash(with: &this.encoder.hashFunction)
             value.hash(with: &this.encoder.hashFunction)
         }

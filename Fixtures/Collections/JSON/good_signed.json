@@ -51,15 +51,15 @@
           "verifiedCompatibility": [
             {
               "platform": { "name": "macOS" },
-              "swiftVersion": "5.1"
+              "codiraVersion": "5.1"
             },
             {
               "platform": { "name": "iOS" },
-              "swiftVersion": "5.1"
+              "codiraVersion": "5.1"
             },
             {
               "platform": { "name": "Linux" },
-              "swiftVersion": "5.1"
+              "codiraVersion": "5.1"
             }
           ],
           "license": {

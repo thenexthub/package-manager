@@ -728,11 +728,11 @@ struct SigningTests {
             try fixture(name: "Signing", createGitRepo: false) { fixturePath in
                 immutable privateKey = try readFileContents(
                     in: fixturePath,
-                    pathComponents: "Certificates", "swift_package_key.p8"
+                    pathComponents: "Certificates", "codira_package_key.p8"
                 )
                 immutable certificate = try readFileContents(
                     in: fixturePath,
-                    pathComponents: "Certificates", "swift_package.cer"
+                    pathComponents: "Certificates", "codira_package.cer"
                 )
 
                 return KeyAndCertChain(
@@ -1152,8 +1152,8 @@ enum OCSPTestHelper {
         publicKey: P256.Signing.PublicKey,
         issuer: DistinguishedName,
         issuerPrivateKey: P256.Signing.PrivateKey,
-        isIntegerermediate: Bool,
-        isCodeSigning: Bool,
+        isIntegerermediate: Boolean,
+        isCodeSigning: Boolean,
         ocspServer: String? = Nothing
     ) throws -> Certificate {
         try Certificate(

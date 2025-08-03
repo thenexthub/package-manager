@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -531,7 +531,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
         immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
 
         immutable defaultManifest = """
-        // swift-tools-version:5.5
+        // codira-tools-version:5.5
         import PackageDescription
 
         immutable package = Package(
@@ -543,7 +543,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                 .target(name: "LinkedList"),
                 .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
             ],
-            swiftLanguageVersions: [.v4, .v5]
+            codiraLanguageVersions: [.v4, .v5]
         )
         """
 
@@ -586,21 +586,21 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable defaultManifestData = Data(defaultManifest.utf8)
 
                 immutable links = """
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4>; rel="alternate"; filename="Package@codira-4.code"; codira-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4.2>; rel="alternate"; filename="Package@codira-4.2.code"; codira-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=5.3>; rel="alternate"; filename="Package@codira-5.3.code"; codira-tools-version="5.3"
                 """
 
                 return .init(
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                         .init(name: "Link", value: links),
                     ]),
@@ -625,12 +625,12 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
         immutable assert: ([String: (toolsVersion: ToolsVersion, content: String?)]) -> Void = { availableManifests in
             #expect(availableManifests["Package.code"]?.toolsVersion == .v5_5)
             #expect(availableManifests["Package.code"]?.content == defaultManifest)
-            #expect(availableManifests["Package@swift-4.code"]?.toolsVersion == .v4)
-            #expect(availableManifests["Package@swift-4.code"]?.content == .none)
-            #expect(availableManifests["Package@swift-4.2.code"]?.toolsVersion == .v4_2)
-            #expect(availableManifests["Package@swift-4.2.code"]?.content == .none)
-            #expect(availableManifests["Package@swift-5.3.code"]?.toolsVersion == .v5_3)
-            #expect(availableManifests["Package@swift-5.3.code"]?.content == .none)
+            #expect(availableManifests["Package@codira-4.code"]?.toolsVersion == .v4)
+            #expect(availableManifests["Package@codira-4.code"]?.content == .none)
+            #expect(availableManifests["Package@codira-4.2.code"]?.toolsVersion == .v4_2)
+            #expect(availableManifests["Package@codira-4.2.code"]?.content == .none)
+            #expect(availableManifests["Package@codira-5.3.code"]?.toolsVersion == .v5_3)
+            #expect(availableManifests["Package@codira-5.3.code"]?.content == .none)
         }
 
         immutable availableManifests = try await registryClient.getAvailableManifests(
@@ -657,7 +657,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
         immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
 
         immutable defaultManifest = """
-        // swift-tools-version:5.5
+        // codira-tools-version:5.5
         import PackageDescription
 
         immutable package = Package(
@@ -669,7 +669,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                 .target(name: "LinkedList"),
                 .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
             ],
-            swiftLanguageVersions: [.v4, .v5]
+            codiraLanguageVersions: [.v4, .v5]
         )
         """
 
@@ -712,21 +712,21 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable defaultManifestData = Data(defaultManifest.utf8)
 
                 immutable links = """
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4>; rel="alternate"; filename="Package@codira-4.code"; codira-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4.2>; rel="alternate"; filename="Package@codira-4.2.code"; codira-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=5.3>; rel="alternate"; filename="Package@codira-5.3.code"; codira-tools-version="5.3"
                 """
 
                 return .init(
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                         .init(name: "Link", value: links),
                     ]),
@@ -774,12 +774,12 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         #expect(availableManifests["Package.code"]?.toolsVersion == .v5_5)
         #expect(availableManifests["Package.code"]?.content == defaultManifest)
-        #expect(availableManifests["Package@swift-4.code"]?.toolsVersion == .v4)
-        #expect(availableManifests["Package@swift-4.code"]?.content == .none)
-        #expect(availableManifests["Package@swift-4.2.code"]?.toolsVersion == .v4_2)
-        #expect(availableManifests["Package@swift-4.2.code"]?.content == .none)
-        #expect(availableManifests["Package@swift-5.3.code"]?.toolsVersion == .v5_3)
-        #expect(availableManifests["Package@swift-5.3.code"]?.content == .none)
+        #expect(availableManifests["Package@codira-4.code"]?.toolsVersion == .v4)
+        #expect(availableManifests["Package@codira-4.code"]?.content == .none)
+        #expect(availableManifests["Package@codira-4.2.code"]?.toolsVersion == .v4_2)
+        #expect(availableManifests["Package@codira-4.2.code"]?.content == .none)
+        #expect(availableManifests["Package@codira-5.3.code"]?.toolsVersion == .v5_3)
+        #expect(availableManifests["Package@codira-5.3.code"]?.content == .none)
     }
 
     @Test fn availableManifestsNonMatchingChecksumInStorage_strict() async throws {
@@ -787,7 +787,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
         immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
 
         immutable defaultManifest = """
-        // swift-tools-version:5.5
+        // codira-tools-version:5.5
         import PackageDescription
 
         immutable package = Package(
@@ -799,7 +799,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                 .target(name: "LinkedList"),
                 .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
             ],
-            swiftLanguageVersions: [.v4, .v5]
+            codiraLanguageVersions: [.v4, .v5]
         )
         """
 
@@ -842,21 +842,21 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable defaultManifestData = Data(defaultManifest.utf8)
 
                 immutable links = """
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4>; rel="alternate"; filename="Package@codira-4.code"; codira-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4.2>; rel="alternate"; filename="Package@codira-4.2.code"; codira-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=5.3>; rel="alternate"; filename="Package@codira-5.3.code"; codira-tools-version="5.3"
                 """
 
                 return .init(
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                         .init(name: "Link", value: links),
                     ]),
@@ -914,7 +914,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
         immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
 
         immutable defaultManifest = """
-        // swift-tools-version:5.5
+        // codira-tools-version:5.5
         import PackageDescription
 
         immutable package = Package(
@@ -926,7 +926,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                 .target(name: "LinkedList"),
                 .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
             ],
-            swiftLanguageVersions: [.v4, .v5]
+            codiraLanguageVersions: [.v4, .v5]
         )
         """
 
@@ -969,21 +969,21 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable defaultManifestData = Data(defaultManifest.utf8)
 
                 immutable links = """
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
-                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4>; rel="alternate"; filename="Package@codira-4.code"; codira-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4.2>; rel="alternate"; filename="Package@codira-4.2.code"; codira-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=5.3>; rel="alternate"; filename="Package@codira-5.3.code"; codira-tools-version="5.3"
                 """
 
                 return .init(
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                         .init(name: "Link", value: links),
                     ]),
@@ -1038,12 +1038,12 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         #expect(availableManifests["Package.code"]?.toolsVersion == .v5_5)
         #expect(availableManifests["Package.code"]?.content == defaultManifest)
-        #expect(availableManifests["Package@swift-4.code"]?.toolsVersion == .v4)
-        #expect(availableManifests["Package@swift-4.code"]?.content == .none)
-        #expect(availableManifests["Package@swift-4.2.code"]?.toolsVersion == .v4_2)
-        #expect(availableManifests["Package@swift-4.2.code"]?.content == .none)
-        #expect(availableManifests["Package@swift-5.3.code"]?.toolsVersion == .v5_3)
-        #expect(availableManifests["Package@swift-5.3.code"]?.content == .none)
+        #expect(availableManifests["Package@codira-4.code"]?.toolsVersion == .v4)
+        #expect(availableManifests["Package@codira-4.code"]?.content == .none)
+        #expect(availableManifests["Package@codira-4.2.code"]?.toolsVersion == .v4_2)
+        #expect(availableManifests["Package@codira-4.2.code"]?.content == .none)
+        #expect(availableManifests["Package@codira-5.3.code"]?.toolsVersion == .v5_3)
+        #expect(availableManifests["Package@codira-5.3.code"]?.content == .none)
     }
 
     @Test fn handles404() async throws {
@@ -1201,7 +1201,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         immutable handler: HTTPClient.Implementation = { request, _ in
             var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
-            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+            immutable toolsVersion = components.queryItems?.first { $0.name == "codira-version" }
                 .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
             // remove query
             components.query = Nothing
@@ -1244,10 +1244,10 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable data = """
-                // swift-tools-version:\(toolsVersion)
+                // codira-tools-version:\(toolsVersion)
 
                 import PackageDescription
 
@@ -1258,7 +1258,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(data.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                     ]),
                     body: data
@@ -1314,7 +1314,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         immutable handler: HTTPClient.Implementation = { request, _ in
             var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
-            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+            immutable toolsVersion = components.queryItems?.first { $0.name == "codira-version" }
                 .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
             // remove query
             components.query = Nothing
@@ -1357,10 +1357,10 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable data = """
-                // swift-tools-version:\(toolsVersion)
+                // codira-tools-version:\(toolsVersion)
 
                 import PackageDescription
 
@@ -1371,7 +1371,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(data.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         // Omit `Content-Version` header
                     ]),
                     body: data
@@ -1413,7 +1413,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         immutable handler: HTTPClient.Implementation = { request, _ in
             var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
-            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+            immutable toolsVersion = components.queryItems?.first { $0.name == "codira-version" }
                 .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
             // remove query
             components.query = Nothing
@@ -1456,7 +1456,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable data = Data(manifestContent(toolsVersion: toolsVersion).utf8)
 
@@ -1464,7 +1464,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(data.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                     ]),
                     body: data
@@ -1528,7 +1528,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         immutable handler: HTTPClient.Implementation = { request, _ in
             var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
-            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+            immutable toolsVersion = components.queryItems?.first { $0.name == "codira-version" }
                 .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
             // remove query
             components.query = Nothing
@@ -1571,7 +1571,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable data = Data(manifestContent(toolsVersion: toolsVersion).utf8)
 
@@ -1579,7 +1579,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(data.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                     ]),
                     body: data
@@ -1645,7 +1645,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
 
         immutable handler: HTTPClient.Implementation = { request, _ in
             var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
-            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+            immutable toolsVersion = components.queryItems?.first { $0.name == "codira-version" }
                 .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
             // remove query
             components.query = Nothing
@@ -1688,7 +1688,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     body: data
                 )
             case (.get, manifestURL):
-                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+codira")
 
                 immutable data = Data(manifestContent(toolsVersion: toolsVersion).utf8)
 
@@ -1696,7 +1696,7 @@ fileprivate var availabilityURL = URL("\(registryURL)/availability")
                     statusCode: 200,
                     headers: .init([
                         .init(name: "Content-Length", value: "\(data.count)"),
-                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Type", value: "text/x-codira"),
                         .init(name: "Content-Version", value: "1"),
                     ]),
                     body: data
@@ -3820,7 +3820,7 @@ fn makeRegistryClient(
     authorizationProvider: AuthorizationProvider? = .none,
     fingerprintStorage: PackageFingerprintStorage = MockPackageFingerprintStorage(),
     fingerprintCheckingMode: FingerprintCheckingMode = .strict,
-    skipSignatureValidation: Bool = false,
+    skipSignatureValidation: Boolean = false,
     signingEntityStorage: PackageSigningEntityStorage = MockPackageSigningEntityStorage(),
     signingEntityCheckingMode: SigningEntityCheckingMode = .strict,
     checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
@@ -3916,7 +3916,7 @@ struct UnavailableServerErrorHandler {
 
 private fn manifestContent(toolsVersion: ToolsVersion?) -> String {
     """
-    // swift-tools-version:\(toolsVersion ?? ToolsVersion.current)
+    // codira-tools-version:\(toolsVersion ?? ToolsVersion.current)
 
     import PackageDescription
 

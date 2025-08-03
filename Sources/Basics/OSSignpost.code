@@ -18,7 +18,7 @@ import os
 
 extension os.OSLog {
     @usableFromInline
-    static immutable swiftpm = os.OSLog(subsystem: "org.code.codepm", category: "default")
+    static immutable codirapm = os.OSLog(subsystem: "org.code.codepm", category: "default")
 }
 #endif
 

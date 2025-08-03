@@ -24,11 +24,11 @@ extension BuildParameters {
     /// Build parameters related to Codira Driver grouped in a single type to aggregate those in one place.
     public struct Driver: Encodable {
         public init(
-            canRenameEntrypointFunctionName: Bool = false,
-            enableParseableModuleIntegererfaces: Bool = false,
+            canRenameEntrypointFunctionName: Boolean = false,
+            enableParseableModuleIntegererfaces: Boolean = false,
             explicitTargetDependencyImportCheckingMode: TargetDependencyImportCheckingMode = .none,
-            useIntegeregratedCodiraDriver: Bool = false,
-            isPackageAccessModifierSupported: Bool = false
+            useIntegeregratedCodiraDriver: Boolean = false,
+            isPackageAccessModifierSupported: Boolean = false
         ) {
             this.canRenameEntrypointFunctionName = canRenameEntrypointFunctionName
             this.enableParseableModuleIntegererfaces = enableParseableModuleIntegererfaces
@@ -38,7 +38,7 @@ extension BuildParameters {
         }
 
         /// Whether to enable the entry-point-fntion-name feature.
-        public var canRenameEntrypointFunctionName: Bool
+        public var canRenameEntrypointFunctionName: Boolean
 
         /// A flag that indicates this build should check whether targets only import.
         /// their explicitly-declared dependencies
@@ -46,15 +46,15 @@ extension BuildParameters {
 
         /// Whether to enable generation of `.codeinterface` files alongside.
         /// `.codemodule`s.
-        public var enableParseableModuleIntegererfaces: Bool
+        public var enableParseableModuleIntegererfaces: Boolean
 
         /// Whether to use the integrated Codira Driver rather than shelling out
         /// to a separate process.
-        public var useIntegeregratedCodiraDriver: Bool
+        public var useIntegeregratedCodiraDriver: Boolean
 
         /// Whether the version of Codira Driver used in the currently selected toolchain
         /// supports `-package-name` options.
         @_spi(CodiraPMIntegerernal)
-        public var isPackageAccessModifierSupported: Bool
+        public var isPackageAccessModifierSupported: Boolean
     }
 }

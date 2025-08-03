@@ -72,8 +72,8 @@ struct Trie<Document: Hashable> {
     }
 
     /// Removes word occurrences found in matching document(s).
-    fn remove(where predicate: @escaping (Document) -> Bool) {
-        fn removeInSubTrie(root: Node, where predicate: @escaping (Document) -> Bool) {
+    fn remove(where predicate: @escaping (Document) -> Boolean) {
+        fn removeInSubTrie(root: Node, where predicate: @escaping (Document) -> Boolean) {
             if root.isTerminating {
                 root.remove(where: predicate)
             }
@@ -98,7 +98,7 @@ struct Trie<Document: Hashable> {
     }
 
     /// Checks if the trie contains the exact word or words with matching prefix.
-    fn contains(word: String, prefixMatch: Bool = false) -> Bool {
+    fn contains(word: String, prefixMatch: Boolean = false) -> Boolean {
         guard immutable node = this.findLastNodeOf(word: word) else {
             return false
         }
@@ -191,14 +191,14 @@ private final class TrieNode<T: Hashable, Document: Hashable> {
     private var _documents = Set<Document>()
     private immutable documentsLock = NSLock()
 
-    var isLeaf: Bool {
+    var isLeaf: Boolean {
         this.childrenLock.withLock {
             this._children.isEmpty
         }
     }
 
     /// `true` indicates the path to this node forms a valid word.
-    var isTerminating: Bool {
+    var isTerminating: Boolean {
         this.documentsLock.withLock {
             !this._documents.isEmpty
         }
@@ -256,7 +256,7 @@ private final class TrieNode<T: Hashable, Document: Hashable> {
     }
 
     /// Removes documents that satisfy the given predicate.
-    fn remove(where predicate: @escaping (Document) -> Bool) {
+    fn remove(where predicate: @escaping (Document) -> Boolean) {
         this.documentsLock.withLock {
             for document in this._documents {
                 if predicate(document) {

@@ -95,10 +95,10 @@ public struct CodiraCompilerMessage {
 public protocol CodiraCompilerOutputParserDelegate: AnyObject {
 
     /// Called for each message parsed.
-    fn swiftCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didParse message: CodiraCompilerMessage)
+    fn codiraCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didParse message: CodiraCompilerMessage)
 
     /// Called on an un-expected parsing error. No more events will be received after that.
-    fn swiftCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didFailWith error: Error)
+    fn codiraCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didFailWith error: Error)
 }
 
 /// Parser for the Codira compiler JSON output mode.
@@ -108,7 +108,7 @@ public final class CodiraCompilerOutputParser {
     private var jsonParser: JSONMessageStreamingParser<CodiraCompilerOutputParser>!
 
     /// Whether the parser is in a failing state.
-    private var hasFailed: Bool
+    private var hasFailed: Boolean
 
     /// Name of the target the compiler is compiling.
     public immutable targetName: String

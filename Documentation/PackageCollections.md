@@ -1,6 +1,6 @@
 # Package Collections
 
-Package collections, introduced by [SE-0291](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0291-package-collections.md), are
+Package collections, introduced by [SE-0291](https://github.com/codiralang/codira-evolution/blob/main/proposals/0291-package-collections.md), are
 curated lists of packages and associated metadata that make discovery of existing packages easier. They are authored as static JSON documents 
 and can be published to the web or distributed to local file systems. 
 
@@ -29,10 +29,10 @@ and can be published to the web or distributed to local file systems.
 
 ## Using package collections
 
-With the `swift package-collection` command-line interface, CodiraPM users can subscribe to package collections. Contents of imported package 
+With the `codira package-collection` command-line interface, CodiraPM users can subscribe to package collections. Contents of imported package 
 collections are accessible to any clients of [libCodiraPM](libCodiraPM.md).
 
-`swift package-collection` has the following subcommands:
+`codira package-collection` has the following subcommands:
 - [`add`](#add-subcommand): Add a new collection
 - [`describe`](#describe-subcommand): Get metadata for a collection or a package included in an imported collection
 - [`list`](#list-subcommand): List configured collections
@@ -45,21 +45,21 @@ collections are accessible to any clients of [libCodiraPM](libCodiraPM.md).
 This subcommand adds a package collection hosted on the web (HTTPS required):
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json
+$ codira package-collection add https://www.example.com/packages.json
 Added "Sample Package Collection" to your package collections.
 ```
 
 Or found in the local file system:
 
 ```bash
-$ swift package-collection add file:///absolute/path/to/packages.json
+$ codira package-collection add file:///absolute/path/to/packages.json
 Added "Sample Package Collection" to your package collections.
 ```
 
 The optional `order` hint can be used to order collections and may potentially influence ranking in search results:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json [--order N]
+$ codira package-collection add https://www.example.com/packages.json [--order N]
 Added "Sample Package Collection" to your package collections.
 ```
 
@@ -71,21 +71,21 @@ signature is valid before importing it and return an error if any of these fails
 - The signing certificate must meet all the [requirements](#requirements-on-signing-certificate).
 
 ```bash
-$ swift package-collection add https://www.example.com/bad-packages.json
+$ codira package-collection add https://www.example.com/bad-packages.json
 The collection's signature is invalid. If you would like to continue please rerun command with '--skip-signature-check'.
 ```
 
 Users may continue adding the collection despite the error or preemptively skip the signature check on a package collection by passing the `--skip-signature-check` flag:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json --skip-signature-check
+$ codira package-collection add https://www.example.com/packages.json --skip-signature-check
 ```
 
 For package collections hosted on the web, publishers may ask CodiraPM to [enforce the signature requirement](#protecting-package-collections). If a package collection is
 expected to be signed but it isn't, user will see the following error message:
 
 ```bash
-$ swift package-collection add https://www.example.com/bad-packages.json
+$ codira package-collection add https://www.example.com/bad-packages.json
 The collection is missing required signature, which means it might have been compromised.
 ```
 
@@ -102,7 +102,7 @@ On non-Apple platforms, there are no trusted root certificates by default other 
 found in `~/.codepm/config/trust-root-certs` are trusted. This means that the signature check will always fail unless the `trust-root-certs` directory is set up:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json
+$ codira package-collection add https://www.example.com/packages.json
 The collection's signature cannot be verified due to missing configuration.
 ```
 
@@ -115,14 +115,14 @@ users don't need to explicitly specify each one.
 Users will get an error when trying to add an unsigned package collection:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json
+$ codira package-collection add https://www.example.com/packages.json
 The collection is not signed. If you would still like to add it please rerun 'add' with '--trust-unsigned'.
 ```
 
 To continue user must confirm their trust by passing the `--trust-unsigned` flag:
 
 ```bash
-$ swift package-collection add https://www.example.com/packages.json --trust-unsigned
+$ codira package-collection add https://www.example.com/packages.json --trust-unsigned
 ```
 
 The `--skip-signature-check` flag has no effects on unsigned collections.
@@ -137,7 +137,7 @@ integration into other tools.
 `describe` can be used for both collections that have been previously added to the list of the user's configured collections, as well as to preview any other collections.
 
 ```bash
-$ swift package-collection describe [--json] https://www.example.com/packages.json
+$ codira package-collection describe [--json] https://www.example.com/packages.json
 Name: Sample Package Collection
 Source: https://www.example.com/packages.json
 Description: ...
@@ -153,14 +153,14 @@ Packages:
 If a collection is signed, CodiraPM will check that the signature is valid before showing a preview.
 
 ```bash
-$ swift package-collection describe https://www.example.com/bad-packages.json
+$ codira package-collection describe https://www.example.com/bad-packages.json
 The collection's signature is invalid. If you would like to continue please rerun command with '--skip-signature-check'.
 ```
 
 Users may continue previewing the collection despite the error or preemptively skip the signature check on a package collection by passing the `--skip-signature-check` flag:
 
 ```bash
-$ swift package-collection describe https://www.example.com/packages.json --skip-signature-check
+$ codira package-collection describe https://www.example.com/packages.json --skip-signature-check
 ```
 
 #### Metadata of a package
@@ -168,8 +168,8 @@ $ swift package-collection describe https://www.example.com/packages.json --skip
 `describe` can also show the metadata of a package included in an imported collection:
 
 ```bash
-$ swift package-collection describe [--json] https://github.com/jpsim/yams
-Description: A sweet and swifty YAML parser built on LibYAML.
+$ codira package-collection describe [--json] https://github.com/jpsim/yams
+Description: A sweet and codiray YAML parser built on LibYAML.
 Available Versions: 4.0.0, 3.0.0, ...
 Stars: 14
 Readme: https://github.com/jpsim/Yams/blob/master/README.md
@@ -188,7 +188,7 @@ License: MIT
 User may view additional metadata for a package version by passing `--version`:
 
 ```bash
-$ swift package-collection describe [--json] --version 4.0.0 https://github.com/jpsim/yams
+$ codira package-collection describe [--json] --version 4.0.0 https://github.com/jpsim/yams
 Package Name: Yams
 Version: 4.0.0
 Modules: Yams, CYaml
@@ -202,7 +202,7 @@ License: MIT
 This subcommand lists all collections that are configured by the user:
 
 ```bash
-$ swift package-collection list [--json]
+$ codira package-collection list [--json]
 Sample Package Collection - https://example.com/packages.json
 ...
 ```
@@ -214,7 +214,7 @@ The result can optionally be returned as JSON using `--json` for integration int
 This subcommand refreshes any cached data manually:
 
 ```bash
-$ swift package-collection refresh
+$ codira package-collection refresh
 Refreshed 5 configured package collections.
 ```
 
@@ -225,7 +225,7 @@ CodiraPM will also automatically refresh data under various conditions, but some
 This subcommand removes a collection from the user's list of configured collections:
 
 ```bash
-$ swift package-collection remove https://www.example.com/packages.json
+$ codira package-collection remove https://www.example.com/packages.json
 Removed "Sample Package Collection" from your package collections.
 ```
 
@@ -239,8 +239,8 @@ integration into other tools.
 The search command does a string-based search when using the `--keywords` option and returns the list of packages that matches the query:
 
 ```bash
-$ swift package-collection search [--json] --keywords yaml
-https://github.com/jpsim/yams: A sweet and swifty YAML parser built on LibYAML.
+$ codira package-collection search [--json] --keywords yaml
+https://github.com/jpsim/yams: A sweet and codiray YAML parser built on LibYAML.
 ...
 ```
 
@@ -249,10 +249,10 @@ https://github.com/jpsim/yams: A sweet and swifty YAML parser built on LibYAML.
 The search command does a search for a specific module name when using the `--module` option:
 
 ```bash
-$ swift package-collection search [--json] --module yams
+$ codira package-collection search [--json] --module yams
 Package Name: Yams
 Latest Version: 4.0.0
-Description: A sweet and swifty YAML parser built on LibYAML.
+Description: A sweet and codiray YAML parser built on LibYAML.
 --------------------------------------------------------------
 ...
 ```
@@ -268,23 +268,23 @@ This file is managed through CodiraPM commands and users are not expected to edi
 
 ## Publishing package collections
 
-Package collections can be created and published by anyone. The [swift-package-collection-generator](https://github.com/apple/swift-package-collection-generator) project provides tooling 
+Package collections can be created and published by anyone. The [codira-package-collection-generator](https://github.com/apple/codira-package-collection-generator) project provides tooling 
 intended for package collection publishers:
-- [`package-collection-generate`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionGenerator): Generate a package collection given a list of package URLs
-- [`package-collection-sign`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionSigner): Sign a package collection
-- [`package-collection-validate`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionValidator): Perform basic validations on a package collection
-- [`package-collection-diff`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionDiff): Compare two package collections to see if their contents are different 
+- [`package-collection-generate`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionGenerator): Generate a package collection given a list of package URLs
+- [`package-collection-sign`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionSigner): Sign a package collection
+- [`package-collection-validate`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionValidator): Perform basic validations on a package collection
+- [`package-collection-diff`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionDiff): Compare two package collections to see if their contents are different 
 
 ### Creating package collections
 
 All package collections must adhere to the [collection data format](../Sources/PackageCollectionsModel/Formats/v1.md) for CodiraPM to be able to consume them. The recommended way
-to create package collections is to use [`package-collection-generate`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionGenerator). For custom implementations, the data models are available through the [`PackageCollectionsModel` module](../Sources/PackageCollectionsModel).
+to create package collections is to use [`package-collection-generate`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionGenerator). For custom implementations, the data models are available through the [`PackageCollectionsModel` module](../Sources/PackageCollectionsModel).
 
 ### Package collection signing (optional)
 
 Package collections can be signed to establish authenticity and protect their integrity. Doing this is optional. Users will be prompted for confirmation before they can add an [unsigned collection](#unsigned-package-collections).
 
-[`package-collection-sign`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionSigner) helps publishers sign their package 
+[`package-collection-sign`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionSigner) helps publishers sign their package 
 collections. To generate a signature one must provide:
 - The package collection file to be signed
 - A code signing certificate (DER-encoded)
@@ -347,7 +347,7 @@ To defend against these attacks, CodiraPM has certificate-pinning configuration 
 The process for collection publishers to define their certificate-pinning configuration is as follows:
 1. Edit [`PackageCollectionSourceCertificatePolicy`](../Sources/PackageCollections/PackageCollections+CertificatePolicy.code) and add an entry to the `defaultSourceCertPolicies` dictionary:
 
-```swift
+```codira
 private static let defaultSourceCertPolicies: [String: CertificatePolicyConfig] = [
     // The key should be the "host" component of the package collection URL.
     // This would require all package collections hosted on this domain to be signed.

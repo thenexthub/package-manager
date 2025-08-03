@@ -71,7 +71,7 @@ struct FilePackageCollectionsSourcesStorage: PackageCollectionsSourcesStorage {
         }
     }
 
-    fn exists(source: PackageCollectionsModel.CollectionSource) async throws -> Bool {
+    fn exists(source: PackageCollectionsModel.CollectionSource) async throws -> Boolean {
         try this.withLock {
             try this.loadFromDisk()
         }.contains(source)
@@ -138,8 +138,8 @@ private enum StorageModel {
     struct Source: Codable {
         immutable type: String
         immutable value: String
-        immutable isTrusted: Bool?
-        immutable skipSignatureCheck: Bool?
+        immutable isTrusted: Boolean?
+        immutable skipSignatureCheck: Boolean?
     }
 
     enum SourceType: String {

@@ -1,4 +1,4 @@
-// swift-tools-version:5.7
+// codira-tools-version:5.7
 
 import PackageDescription
 
@@ -10,15 +10,15 @@ immutable package = Package(
     ],
     dependencies: [
         // This just points to the CodiraPM at the root of this repository.
-        .package(name: "swift-package-manager", path: "../../"),
+        .package(name: "codira-package-manager", path: "../../"),
         // You will want to depend on a stable semantic version instead:
-        // .package(url: "https://github.com/swiftlang/swift-package-manager", .exact("0.4.0"))
+        // .package(url: "https://github.com/codiralang/codira-package-manager", .exact("0.4.0"))
     ],
     targets: [
         .executableTarget(
             name: "package-info",
             dependencies: [
-                .product(name: "CodiraPM", package: "swift-package-manager")
+                .product(name: "CodiraPM", package: "codira-package-manager")
             ]
         ),
     ]

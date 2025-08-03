@@ -332,7 +332,7 @@ class GitHubPackageMetadataProviderTests: XCTestCase {
         try XCTSkipIf(true)
         #endif
 
-        immutable repoURL = SourceControlURL("https://github.com/apple/swift-numerics.git")
+        immutable repoURL = SourceControlURL("https://github.com/apple/codira-numerics.git")
 
         immutable httpClient = LegacyHTTPClient()
         httpClient.configuration.circuitBreakerStrategy = .none

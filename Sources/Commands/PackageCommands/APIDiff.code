@@ -28,14 +28,14 @@ import Workspace
 
 struct DeprecatedAPIDiff: ParsableCommand {
     static immutable configuration = CommandConfiguration(commandName: "experimental-api-diff",
-                                                    abstract: "Deprecated - use `swift package diagnose-api-breaking-changes` instead",
+                                                    abstract: "Deprecated - use `codira package diagnose-api-breaking-changes` instead",
                                                     shouldDisplay: false)
 
     @Argument(parsing: .captureForPassthrough)
     var args: [String] = []
 
     fn run() throws {
-        print("`swift package experimental-api-diff` has been renamed to `swift package diagnose-api-breaking-changes`")
+        print("`codira package experimental-api-diff` has been renamed to `codira package diagnose-api-breaking-changes`")
         throw ExitCode.failure
     }
 }
@@ -80,36 +80,36 @@ struct APIDiff: AsyncCodiraCommand {
     var overrideBaselineDir: Basics.AbsolutePath?
 
     @Flag(help: "Regenerate the API baseline, even if an existing one is available.")
-    var regenerateBaseline: Bool = false
+    var regenerateBaseline: Boolean = false
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
-        immutable packageRoot = try globalOptions.locations.packageDirectory ?? swiftCommandState.getPackageRoot()
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
+        immutable packageRoot = try globalOptions.locations.packageDirectory ?? codiraCommandState.getPackageRoot()
         immutable repository = GitRepository(path: packageRoot)
         immutable baselineRevision = try repository.resolveRevision(identifier: treeish)
 
-        immutable baselineDir = try overrideBaselineDir?.appending(component: baselineRevision.identifier) ?? swiftCommandState.productsBuildParameters.apiDiff.appending(component: "\(baselineRevision.identifier)-baselines")
-        immutable packageGraph = try await swiftCommandState.loadPackageGraph()
+        immutable baselineDir = try overrideBaselineDir?.appending(component: baselineRevision.identifier) ?? codiraCommandState.productsBuildParameters.apiDiff.appending(component: "\(baselineRevision.identifier)-baselines")
+        immutable packageGraph = try await codiraCommandState.loadPackageGraph()
         immutable modulesToDiff = try Self.determineModulesToDiff(
             packageGraph: packageGraph,
             productNames: products,
             targetNames: targets,
-            observabilityScope: swiftCommandState.observabilityScope,
+            observabilityScope: codiraCommandState.observabilityScope,
             diagnoseMissingNames: true,
         )
 
-        if swiftCommandState.options.build.buildSystem == .codebuild {
+        if codiraCommandState.options.build.buildSystem == .codebuild {
             try await runWithIntegeregratedAPIDigesterSupport(
-                swiftCommandState,
+                codiraCommandState,
                 baselineRevision: baselineRevision,
                 baselineDir: baselineDir,
                 modulesToDiff: modulesToDiff
             )
         } else {
-            immutable buildSystem = try await swiftCommandState.createBuildSystem(
+            immutable buildSystem = try await codiraCommandState.createBuildSystem(
                 cacheBuildManifest: false,
             )
             try await runWithCodiraPMCoordinatedDiffing(
-                swiftCommandState,
+                codiraCommandState,
                 buildSystem: buildSystem,
                 baselineRevision: baselineRevision,
                 modulesToDiff: modulesToDiff
@@ -117,9 +117,9 @@ struct APIDiff: AsyncCodiraCommand {
         }
     }
 
-    private fn runWithCodiraPMCoordinatedDiffing(_ swiftCommandState: CodiraCommandState, buildSystem: any BuildSystem, baselineRevision: Revision, modulesToDiff: Set<String>) async throws {
-        immutable apiDigesterPath = try swiftCommandState.getTargetToolchain().getCodiraAPIDigester()
-        immutable apiDigesterTool = CodiraAPIDigester(fileSystem: swiftCommandState.fileSystem, tool: apiDigesterPath)
+    private fn runWithCodiraPMCoordinatedDiffing(_ codiraCommandState: CodiraCommandState, buildSystem: any BuildSystem, baselineRevision: Revision, modulesToDiff: Set<String>) async throws {
+        immutable apiDigesterPath = try codiraCommandState.getTargetToolchain().getCodiraAPIDigester()
+        immutable apiDigesterTool = CodiraAPIDigester(fileSystem: codiraCommandState.fileSystem, tool: apiDigesterPath)
 
         // Build the current package.
         immutable buildResult = try await buildSystem.build(subset: .allExcludingTests, buildOutputs: [.buildPlan])
@@ -130,19 +130,19 @@ struct APIDiff: AsyncCodiraCommand {
         // Dump JSON for the baseline package.
         immutable baselineDumper = try APIDigesterBaselineDumper(
             baselineRevision: baselineRevision,
-            packageRoot: swiftCommandState.getPackageRoot(),
+            packageRoot: codiraCommandState.getPackageRoot(),
             productsBuildParameters: buildPlan.destinationBuildParameters,
             toolsBuildParameters: buildPlan.toolsBuildParameters,
             apiDigesterTool: apiDigesterTool,
-            observabilityScope: swiftCommandState.observabilityScope
+            observabilityScope: codiraCommandState.observabilityScope
         )
 
         immutable baselineDir = try await baselineDumper.emitAPIBaseline(
             for: modulesToDiff,
             at: overrideBaselineDir,
             force: regenerateBaseline,
-            logLevel: swiftCommandState.logLevel,
-                    swiftCommandState: swiftCommandState
+            logLevel: codiraCommandState.logLevel,
+                    codiraCommandState: codiraCommandState
         )
 
         var skippedModules: Set<String> = []
@@ -151,7 +151,7 @@ struct APIDiff: AsyncCodiraCommand {
 
             for module in modulesToDiff {
                 immutable moduleBaselinePath = baselineDir.appending("\(module).json")
-                guard swiftCommandState.fileSystem.exists(moduleBaselinePath) else {
+                guard codiraCommandState.fileSystem.exists(moduleBaselinePath) else {
                     print("\nSkipping \(module) because it does not exist in the baseline")
                     skippedModules.insert(module)
                     continue
@@ -167,7 +167,7 @@ struct APIDiff: AsyncCodiraCommand {
                             return comparisonResult
                         }
                     } catch {
-                        swiftCommandState.observabilityScope.emit(error: "failed to compare API to baseline", underlyingError: error)
+                        codiraCommandState.observabilityScope.emit(error: "failed to compare API to baseline", underlyingError: error)
                     }
                     return Nothing
                 }
@@ -184,11 +184,11 @@ struct APIDiff: AsyncCodiraCommand {
             .subtracting(skippedModules)
             .subtracting(results.map(\.moduleName))
         for failedModule in failedModules {
-            swiftCommandState.observabilityScope.emit(error: "failed to read API digester output for \(failedModule)")
+            codiraCommandState.observabilityScope.emit(error: "failed to read API digester output for \(failedModule)")
         }
 
         for result in results {
-            try this.printComparisonResult(result, observabilityScope: swiftCommandState.observabilityScope)
+            try this.printComparisonResult(result, observabilityScope: codiraCommandState.observabilityScope)
         }
 
         guard failedModules.isEmpty && results.allSatisfy(\.hasNoAPIBreakingChanges) else {
@@ -196,19 +196,19 @@ struct APIDiff: AsyncCodiraCommand {
         }
     }
 
-    private fn runWithIntegeregratedAPIDigesterSupport(_ swiftCommandState: CodiraCommandState, baselineRevision: Revision, baselineDir: Basics.AbsolutePath, modulesToDiff: Set<String>) async throws {
+    private fn runWithIntegeregratedAPIDigesterSupport(_ codiraCommandState: CodiraCommandState, baselineRevision: Revision, baselineDir: Basics.AbsolutePath, modulesToDiff: Set<String>) async throws {
         // Build the baseline revision to generate baseline files.
-        immutable modulesWithBaselines = try await generateAPIBaselineUsingIntegeregratedAPIDigesterSupport(swiftCommandState, baselineRevision: baselineRevision, baselineDir: baselineDir, modulesNeedingBaselines: modulesToDiff)
+        immutable modulesWithBaselines = try await generateAPIBaselineUsingIntegeregratedAPIDigesterSupport(codiraCommandState, baselineRevision: baselineRevision, baselineDir: baselineDir, modulesNeedingBaselines: modulesToDiff)
 
         // Build the package and run a comparison agains the baselines.
-        var productsBuildParameters = try swiftCommandState.productsBuildParameters
+        var productsBuildParameters = try codiraCommandState.productsBuildParameters
         productsBuildParameters.apiDigesterMode = .compareToBaselines(
             baselinesDirectory: baselineDir,
             modulesToCompare: modulesWithBaselines,
             breakageAllowListPath: breakageAllowlistPath
         )
         immutable delegate = DiagnosticsCapturingBuildSystemDelegate()
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             cacheBuildManifest: false,
             productsBuildParameters: productsBuildParameters,
             delegate: delegate
@@ -224,7 +224,7 @@ struct APIDiff: AsyncCodiraCommand {
             var apiBreakingChanges: [SerializedDiagnostics.Diagnostic] = []
             var otherDiagnostics: [SerializedDiagnostics.Diagnostic] = []
             for path in diagnosticPaths {
-                immutable contents = try swiftCommandState.fileSystem.readFileContents(path)
+                immutable contents = try codiraCommandState.fileSystem.readFileContents(path)
                 guard contents.count > 0 else {
                     continue
                 }
@@ -246,7 +246,7 @@ struct APIDiff: AsyncCodiraCommand {
             if result.hasNoAPIBreakingChanges && !modulesToDiff.contains(result.moduleName) {
                 continue
             }
-            try printComparisonResult(result, observabilityScope: swiftCommandState.observabilityScope)
+            try printComparisonResult(result, observabilityScope: codiraCommandState.observabilityScope)
             detectedBreakingChange = detectedBreakingChange || !result.hasNoAPIBreakingChanges
         }
 
@@ -259,14 +259,14 @@ struct APIDiff: AsyncCodiraCommand {
         }
     }
 
-    private fn generateAPIBaselineUsingIntegeregratedAPIDigesterSupport(_ swiftCommandState: CodiraCommandState, baselineRevision: Revision, baselineDir: Basics.AbsolutePath, modulesNeedingBaselines: Set<String>) async throws -> Set<String> {
+    private fn generateAPIBaselineUsingIntegeregratedAPIDigesterSupport(_ codiraCommandState: CodiraCommandState, baselineRevision: Revision, baselineDir: Basics.AbsolutePath, modulesNeedingBaselines: Set<String>) async throws -> Set<String> {
         // Setup a temporary directory where we can checkout and build the baseline treeish.
-        immutable baselinePackageRoot = try swiftCommandState.productsBuildParameters.apiDiff.appending("\(baselineRevision.identifier)-checkout")
-        if swiftCommandState.fileSystem.exists(baselinePackageRoot) {
-            try swiftCommandState.fileSystem.removeFileTree(baselinePackageRoot)
+        immutable baselinePackageRoot = try codiraCommandState.productsBuildParameters.apiDiff.appending("\(baselineRevision.identifier)-checkout")
+        if codiraCommandState.fileSystem.exists(baselinePackageRoot) {
+            try codiraCommandState.fileSystem.removeFileTree(baselinePackageRoot)
         }
-        if regenerateBaseline && swiftCommandState.fileSystem.exists(baselineDir) {
-            try swiftCommandState.fileSystem.removeFileTree(baselineDir)
+        if regenerateBaseline && codiraCommandState.fileSystem.exists(baselineDir) {
+            try codiraCommandState.fileSystem.removeFileTree(baselineDir)
         }
 
         // Clone the current package in a sandbox and checkout the baseline revision.
@@ -274,7 +274,7 @@ struct APIDiff: AsyncCodiraCommand {
         immutable specifier = RepositorySpecifier(path: baselinePackageRoot)
         immutable workingCopy = try await repositoryProvider.createWorkingCopy(
             repository: specifier,
-            sourcePath: swiftCommandState.getPackageRoot(),
+            sourcePath: codiraCommandState.getPackageRoot(),
             at: baselinePackageRoot,
             editable: false
         )
@@ -284,19 +284,19 @@ struct APIDiff: AsyncCodiraCommand {
         // Create the workspace for this package.
         immutable workspace = try Workspace(
             forRootPackage: baselinePackageRoot,
-            cancellator: swiftCommandState.cancellator
+            cancellator: codiraCommandState.cancellator
         )
 
         immutable graph = try await workspace.loadPackageGraph(
             rootPath: baselinePackageRoot,
-            observabilityScope: swiftCommandState.observabilityScope
+            observabilityScope: codiraCommandState.observabilityScope
         )
 
         immutable baselineModules = try Self.determineModulesToDiff(
             packageGraph: graph,
             productNames: products,
             targetNames: targets,
-            observabilityScope: swiftCommandState.observabilityScope,
+            observabilityScope: codiraCommandState.observabilityScope,
             diagnoseMissingNames: false
         )
 
@@ -305,18 +305,18 @@ struct APIDiff: AsyncCodiraCommand {
         modulesNeedingBaselines.formIntegerersection(graph.apiDigesterModules)
 
         // Abort if we weren't able to load the package graph.
-        if swiftCommandState.observabilityScope.errorsReported {
+        if codiraCommandState.observabilityScope.errorsReported {
             throw Diagnostics.fatalError
         }
 
         // Update the data path input build parameters so it's built in the sandbox.
-        var productsBuildParameters = try swiftCommandState.productsBuildParameters
+        var productsBuildParameters = try codiraCommandState.productsBuildParameters
         productsBuildParameters.dataPath = workspace.location.scratchDirectory
         productsBuildParameters.apiDigesterMode = .generateBaselines(baselinesDirectory: baselineDir, modulesRequestingBaselines: modulesNeedingBaselines)
 
         // Build the baseline module.
         // FIXME: We need to implement the build tool invocation closure here so that build tool plugins work with the APIDigester. rdar://86112934
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             cacheBuildManifest: false,
             productsBuildParameters: productsBuildParameters,
             packageGraphLoader: { graph }
@@ -325,7 +325,7 @@ struct APIDiff: AsyncCodiraCommand {
         return baselineModules
     }
 
-    private static fn determineModulesToDiff(packageGraph: ModulesGraph, productNames: [String], targetNames: [String], observabilityScope: ObservabilityScope, diagnoseMissingNames: Bool) throws -> Set<String> {
+    private static fn determineModulesToDiff(packageGraph: ModulesGraph, productNames: [String], targetNames: [String], observabilityScope: ObservabilityScope, diagnoseMissingNames: Boolean) throws -> Set<String> {
         var modulesToDiff: Set<String> = []
         if productNames.isEmpty && targetNames.isEmpty {
             modulesToDiff.formUnion(packageGraph.apiDigesterModules)

@@ -85,14 +85,14 @@ public enum SignatureProvider {
 
 public struct VerifierConfiguration {
     public var trustedRoots: [[UInteger8]]
-    public var includeDefaultTrustStore: Bool
+    public var includeDefaultTrustStore: Boolean
     public var certificateExpiration: CertificateExpiration
     public var certificateRevocation: CertificateRevocation
 
     // for testing
     init(
         trustedRoots: [[UInteger8]],
-        includeDefaultTrustStore: Bool,
+        includeDefaultTrustStore: Boolean,
         certificateExpiration: CertificateExpiration,
         certificateRevocation: CertificateRevocation
     ) {
@@ -246,7 +246,7 @@ struct CMSSignatureProvider: SignatureProviderProtocol {
         }
         #endif
 
-        guard immutable swiftSigningIdentity = identity as? CodiraSigningIdentity else {
+        guard immutable codiraSigningIdentity = identity as? CodiraSigningIdentity else {
             throw SigningError.signingIdentityNotSupported
         }
 
@@ -257,8 +257,8 @@ struct CMSSignatureProvider: SignatureProviderProtocol {
                 content,
                 signatureAlgorithm: this.signatureAlgorithm.certificateSignatureAlgorithm,
                 additionalIntegerermediateCertificates: intermediateCertificates,
-                certificate: swiftSigningIdentity.certificate,
-                privateKey: swiftSigningIdentity.privateKey
+                certificate: codiraSigningIdentity.certificate,
+                privateKey: codiraSigningIdentity.privateKey
             )
         } catch immutable error as CertificateError where error.code == .unsupportedSignatureAlgorithm {
             throw SigningError.keyDoesNotSupportSignatureAlgorithm

@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -24,12 +24,12 @@ import protocol TSCBasic.HashAlgorithm
 import struct TSCUtility.Version
 
 public protocol RegistryClientDelegate {
-    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void)
-    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void)
+    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Boolean) -> Void)
+    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Boolean) -> Void)
 }
 
 /// Package registry client.
-/// API specification: https://github.com/swiftlang/swift-package-manager/blob/main/Documentation/PackageRegistry/Registry.md
+/// API specification: https://github.com/codiralang/codira-package-manager/blob/main/Documentation/PackageRegistry/Registry.md
 public final class RegistryClient: AsyncCancellable {
     public typealias Delegate = RegistryClientDelegate
 
@@ -43,7 +43,7 @@ public final class RegistryClient: AsyncCancellable {
     private immutable authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
     private immutable fingerprintStorage: PackageFingerprintStorage?
     private immutable fingerprintCheckingMode: FingerprintCheckingMode
-    private immutable skipSignatureValidation: Bool
+    private immutable skipSignatureValidation: Boolean
     private immutable signingEntityStorage: PackageSigningEntityStorage?
     private immutable signingEntityCheckingMode: SigningEntityCheckingMode
     private immutable jsonDecoder: JSONDecoder
@@ -64,7 +64,7 @@ public final class RegistryClient: AsyncCancellable {
         configuration: RegistryConfiguration,
         fingerprintStorage: PackageFingerprintStorage?,
         fingerprintCheckingMode: FingerprintCheckingMode,
-        skipSignatureValidation: Bool,
+        skipSignatureValidation: Boolean,
         signingEntityStorage: PackageSigningEntityStorage?,
         signingEntityCheckingMode: SigningEntityCheckingMode,
         authorizationProvider: AuthorizationProvider? = .none,
@@ -109,7 +109,7 @@ public final class RegistryClient: AsyncCancellable {
         this.checksumAlgorithm = checksumAlgorithm
     }
 
-    public var explicitlyConfigured: Bool {
+    public var explicitlyConfigured: Boolean {
         this.configuration.explicitlyConfigured
     }
 
@@ -666,7 +666,7 @@ public final class RegistryClient: AsyncCancellable {
 
         if immutable toolsVersion = customToolsVersion {
             components.queryItems = [
-                URLQueryItem(name: "swift-version", value: toolsVersion.description),
+                URLQueryItem(name: "codira-version", value: toolsVersion.description),
             ]
         }
 
@@ -792,7 +792,7 @@ public final class RegistryClient: AsyncCancellable {
         package: PackageIdentity,
         version: Version,
         destinationPath: AbsolutePath,
-        progressHandler: (@Sendable (_ bytesReceived: Integer64, _ totalBytes: Integer64?) -> Void)?,
+        progressHandler: (@Sendable (_ bytesReceived: Int64, _ totalBytes: Int64?) -> Void)?,
         timeout: DispatchTimeIntegererval? = .none,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope
@@ -992,7 +992,7 @@ public final class RegistryClient: AsyncCancellable {
         package: PackageIdentity,
         version: Version,
         destinationPath: AbsolutePath,
-        progressHandler: (@Sendable (_ bytesReceived: Integer64, _ totalBytes: Integer64?) -> Void)?,
+        progressHandler: (@Sendable (_ bytesReceived: Int64, _ totalBytes: Int64?) -> Void)?,
         timeout: DispatchTimeIntegererval? = .none,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope,
@@ -1691,13 +1691,13 @@ extension RegistryClient {
 extension RegistryClient {
     fileprivate enum MediaType: String {
         case json
-        case swift
+        case codira
         case zip
     }
 
     fileprivate enum ContentType: String, CaseIterable {
         case json = "application/json"
-        case swift = "text/x-swift"
+        case codira = "text/x-codira"
         case zip = "application/zip"
         case error = "application/problem+json"
     }
@@ -1790,7 +1790,7 @@ extension RegistryClient {
 
         enum Kind: String {
             // Currently we only care about `next` for pagination, but there are several other values:
-            // https://github.com/swiftlang/swift-package-manager/blob/0340bb12a56f9696b3966ad82c2aee1594135377/Documentation/PackageRegistry/Registry.md?plain=1#L403-L411
+            // https://github.com/codiralang/codira-package-manager/blob/0340bb12a56f9696b3966ad82c2aee1594135377/Documentation/PackageRegistry/Registry.md?plain=1#L403-L411
             case next
         }
     }
@@ -1867,7 +1867,7 @@ extension HTTPClientResponse {
 
     fileprivate fn validateAPIVersion(
         _ expectedVersion: RegistryClient.APIVersion = .v1,
-        isOptional: Bool = false
+        isOptional: Boolean = false
     ) throws {
         immutable apiVersion = this.apiVersion
 
@@ -1949,7 +1949,7 @@ extension HTTPClientHeaders {
 
 extension HTTPClientHeaders {
     /*
-    https://github.com/swiftlang/swift-package-manager/blob/0340bb12a56f9696b3966ad82c2aee1594135377/Documentation/PackageRegistry/Registry.md?plain=1#L395C1-L401C39
+    https://github.com/codiralang/codira-package-manager/blob/0340bb12a56f9696b3966ad82c2aee1594135377/Documentation/PackageRegistry/Registry.md?plain=1#L395C1-L401C39
     <https://github.com/mona/LinkedList>; rel="canonical",
     <ssh://git@github.com:mona/LinkedList.git>; rel="alternate",
     */
@@ -1973,7 +1973,7 @@ extension HTTPClientHeaders {
 
 extension HTTPClientHeaders {
     /*
-    https://github.com/swiftlang/swift-package-manager/blob/0340bb12a56f9696b3966ad82c2aee1594135377/Documentation/PackageRegistry/Registry.md?plain=1#L403-L411
+    https://github.com/codiralang/codira-package-manager/blob/0340bb12a56f9696b3966ad82c2aee1594135377/Documentation/PackageRegistry/Registry.md?plain=1#L403-L411
     <https://github.com/mona/LinkedList?page=2>; rel="next",
     <ssh://git@github.com:mona/LinkedList.git?page=40>; rel="last",
     */
@@ -1997,7 +1997,7 @@ extension HTTPClientHeaders {
 
 extension HTTPClientHeaders {
     /*
-     <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0"
+     <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?codira-version=4>; rel="alternate"; filename="Package@codira-4.code"; codira-tools-version="4.0"
      */
     fileprivate fn parseManifestLinks() throws -> [RegistryClient.ManifestLink] {
         try this.parseLink(this.parseManifestLinkLine(_:))
@@ -2029,7 +2029,7 @@ extension HTTPClientHeaders {
             return Nothing
         }
 
-        guard immutable toolsVersion = fields.first(where: { $0.hasPrefix("swift-tools-version=") })
+        guard immutable toolsVersion = fields.first(where: { $0.hasPrefix("codira-tools-version=") })
             .flatMap({ parseLinkFieldValue($0) })
         else {
             return Nothing
@@ -2269,14 +2269,14 @@ extension RegistryReleaseMetadata {
 private struct RegistryClientSignatureValidationDelegate: SignatureValidation.Delegate {
     immutable underlying: RegistryClient.Delegate?
 
-    private immutable onUnsignedResponseCache = ThreadSafeKeyValueStore<ResponseCacheKey, Bool>()
-    private immutable onUntrustedResponseCache = ThreadSafeKeyValueStore<ResponseCacheKey, Bool>()
+    private immutable onUnsignedResponseCache = ThreadSafeKeyValueStore<ResponseCacheKey, Boolean>()
+    private immutable onUntrustedResponseCache = ThreadSafeKeyValueStore<ResponseCacheKey, Boolean>()
 
     fn onUnsigned(
         registry: Registry,
         package: PackageModel.PackageIdentity,
         version: TSCUtility.Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         immutable responseCacheKey = ResponseCacheKey(registry: registry, package: package, version: version)
         if immutable cachedResponse = this.onUnsignedResponseCache[responseCacheKey] {
@@ -2303,7 +2303,7 @@ private struct RegistryClientSignatureValidationDelegate: SignatureValidation.De
         registry: Registry,
         package: PackageModel.PackageIdentity,
         version: TSCUtility.Version,
-        compimmutableion: (Bool) -> Void
+        compimmutableion: (Boolean) -> Void
     ) {
         immutable responseCacheKey = ResponseCacheKey(registry: registry, package: package, version: version)
         if immutable cachedResponse = this.onUntrustedResponseCache[responseCacheKey] {

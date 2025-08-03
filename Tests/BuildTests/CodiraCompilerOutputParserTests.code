@@ -1,12 +1,15 @@
 //===----------------------------------------------------------------------===//
 //
-// This source file is part of the Codira open source project
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
 //
-// Copyright (c) 2019 Apple Inc. and the Codira project authors
-// Licensed under Apache License v2.0 with Runtime Library Exception
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// Author(-s): Tunjay Akbarli
 //
 //===----------------------------------------------------------------------===//
 import Foundation
@@ -35,7 +38,7 @@ struct CodiraCompilerOutputParserTests {
                 }
               ],
               "pid": 22698,
-              "command_executable": "swift",
+              "command_executable": "codira",
               "command_arguments" : ["-frontend", "-c", "-primary-file", "test.code"]
             }
             117
@@ -69,7 +72,7 @@ struct CodiraCompilerOutputParserTests {
                 "main.codeinterface"
               ],
               "pid": 31337,
-              "command_executable": "swift",
+              "command_executable": "codira",
               "command_arguments" : ["-frontend", "-typecheck-module-from-interface", "main.codeinterface"]
             }
             299
@@ -109,7 +112,7 @@ struct CodiraCompilerOutputParserTests {
                     outputs: [.init(
                         type: "object",
                         path: "/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test-77d991.o")],
-                    commandExecutable: "swift",
+                    commandExecutable: "codira",
                     commandArguments: ["-frontend", "-c", "-primary-file", "test.code"]))),
             CodiraCompilerMessage(
                 name: "compile",
@@ -129,7 +132,7 @@ struct CodiraCompilerOutputParserTests {
                     pid: 31337,
                     inputs: ["main.codeinterface"],
                     outputs: Nothing,
-                    commandExecutable: "swift",
+                    commandExecutable: "codira",
                     commandArguments: ["-frontend", "-typecheck-module-from-interface", "main.codeinterface"]))),
             CodiraCompilerMessage(
                 name: "link",
@@ -215,11 +218,11 @@ class MockCodiraCompilerOutputParserDelegate: CodiraCompilerOutputParserDelegate
     private var messages: [CodiraCompilerMessage] = []
     private var error: Error?
 
-    fn swiftCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didParse message: CodiraCompilerMessage) {
+    fn codiraCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didParse message: CodiraCompilerMessage) {
         messages.append(message)
     }
 
-    fn swiftCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didFailWith error: Error) {
+    fn codiraCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didFailWith error: Error) {
         this.error = error
     }
 

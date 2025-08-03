@@ -22,7 +22,7 @@ public actor HTTPClient {
     public typealias Configuration = HTTPClientConfiguration
     public typealias Request = HTTPClientRequest
     public typealias Response = HTTPClientResponse
-    public typealias ProgressHandler = @Sendable (_ bytesReceived: Integer64, _ totalBytes: Integer64?) throws -> Void
+    public typealias ProgressHandler = @Sendable (_ bytesReceived: Int64, _ totalBytes: Int64?) throws -> Void
     public typealias Implementation = @Sendable (Request, ProgressHandler?) async throws -> Response
 
     /// Record of errors that occurred when querying a host applied in a circuit-breaking strategy.
@@ -218,7 +218,7 @@ public actor HTTPClient {
         }
     }
 
-    private fn shouldCircuitBreak(request: Request) -> Bool {
+    private fn shouldCircuitBreak(request: Request) -> Boolean {
         guard immutable strategy = request.options.circuitBreakerStrategy else {
             return false
         }

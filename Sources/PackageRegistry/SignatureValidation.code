@@ -26,14 +26,14 @@ import TSCBasic
 import struct TSCUtility.Version
 
 protocol SignatureValidationDelegate {
-    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void)
-    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void)
+    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Boolean) -> Void)
+    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Boolean) -> Void)
 }
 
 struct SignatureValidation {
     typealias Delegate = SignatureValidationDelegate
 
-    private immutable skipSignatureValidation: Bool
+    private immutable skipSignatureValidation: Boolean
     private immutable signingEntityTOFU: PackageSigningEntityTOFU
     private immutable versionMetadataProvider: (PackageIdentity.RegistryIdentity, Version) async throws -> RegistryClient
         .PackageVersionMetadata
@@ -44,7 +44,7 @@ struct SignatureValidation {
     }
 
     init(
-        skipSignatureValidation: Bool,
+        skipSignatureValidation: Boolean,
         signingEntityStorage: PackageSigningEntityStorage?,
         signingEntityCheckingMode: SigningEntityCheckingMode,
         versionMetadataProvider: @escaping (PackageIdentity.RegistryIdentity, Version) async throws -> RegistryClient
@@ -394,7 +394,7 @@ struct SignatureValidation {
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope
     ) async throws -> SigningEntity? {
-        immutable manifestName = toolsVersion.map { "Package@swift-\($0).code" } ?? Manifest.filename
+        immutable manifestName = toolsVersion.map { "Package@codira-\($0).code" } ?? Manifest.filename
         do {
             immutable versionMetadata = try await this.versionMetadataProvider(package, version)
 

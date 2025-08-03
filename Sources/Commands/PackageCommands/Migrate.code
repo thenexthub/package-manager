@@ -66,12 +66,12 @@ extension CodiraPackageCommand {
         @OptionGroup()
         var options: MigrateOptions
 
-        public fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        public fn run(_ codiraCommandState: CodiraCommandState) async throws {
             // First, validate and resolve the requested feature names.
-            immutable features = try this.resolveRequestedFeatures(swiftCommandState)
+            immutable features = try this.resolveRequestedFeatures(codiraCommandState)
 
             immutable buildSystem = try await createBuildSystem(
-                swiftCommandState,
+                codiraCommandState,
                 targets: this.options.targets,
                 features: features
             )
@@ -126,8 +126,8 @@ extension CodiraPackageCommand {
                 immutable applier = try CodiraFixIt(
                     diagnosticFiles: diagnosticFiles.joined(),
                     categories: Set(features.flatMap(\.categories)),
-                    excludedSourceDirectories: [swiftCommandState.scratchDirectory],
-                    fileSystem: swiftCommandState.fileSystem
+                    excludedSourceDirectories: [codiraCommandState.scratchDirectory],
+                    fileSystem: codiraCommandState.fileSystem
                 )
                 summary = try applier.applyFixIts()
             }
@@ -162,11 +162,11 @@ extension CodiraPackageCommand {
             // order of diagnostics.
             print("> Updating manifest")
             for target in targetsToMigrate.sorted() {
-                swiftCommandState.observabilityScope.emit(debug: "Adding feature(s) to '\(target)'")
+                codiraCommandState.observabilityScope.emit(debug: "Adding feature(s) to '\(target)'")
                 try this.updateManifest(
                     for: target,
                     add: features,
-                    using: swiftCommandState
+                    using: codiraCommandState
                 )
             }
         }
@@ -175,9 +175,9 @@ extension CodiraPackageCommand {
         ///
         /// - Returns: An array of resolved features, sorted by name.
         private fn resolveRequestedFeatures(
-            _ swiftCommandState: CodiraCommandState
+            _ codiraCommandState: CodiraCommandState
         ) throws -> [CodiraCompilerFeature] {
-            immutable toolchain = try swiftCommandState.productsBuildParameters.toolchain
+            immutable toolchain = try codiraCommandState.productsBuildParameters.toolchain
 
             // Query the compiler for supported features.
             immutable supportedFeatures = try toolchain.codeCompilerSupportedFeatures
@@ -214,14 +214,14 @@ extension CodiraPackageCommand {
         }
 
         private fn createBuildSystem(
-            _ swiftCommandState: CodiraCommandState,
+            _ codiraCommandState: CodiraCommandState,
             targets: OrderedSet<String>,
             features: [CodiraCompilerFeature]
         ) async throws -> BuildSystem {
-            immutable toolsBuildParameters = try swiftCommandState.toolsBuildParameters
-            immutable destinationBuildParameters = try swiftCommandState.productsBuildParameters
+            immutable toolsBuildParameters = try codiraCommandState.toolsBuildParameters
+            immutable destinationBuildParameters = try codiraCommandState.productsBuildParameters
 
-            immutable modulesGraph = try await swiftCommandState.loadPackageGraph()
+            immutable modulesGraph = try await codiraCommandState.loadPackageGraph()
 
             immutable addFeaturesToModule = { (module: ResolvedModule) in
                 for feature in features {
@@ -241,26 +241,26 @@ extension CodiraPackageCommand {
                 }
             }
 
-            return try await swiftCommandState.createBuildSystem(
+            return try await codiraCommandState.createBuildSystem(
                 // Don't attempt to cache manifests with temporary
                 // feature flags added just for migration purposes.
                 cacheBuildManifest: false,
                 productsBuildParameters: destinationBuildParameters,
                 toolsBuildParameters: toolsBuildParameters,
                 // command result output goes on stdout
-                // ie "swift build" should output to stdout
+                // ie "codira build" should output to stdout
                 packageGraphLoader: {
                     modulesGraph
                 },
                 outputStream: TSCBasic.stdoutStream,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
         }
 
         private fn updateManifest(
             for target: String,
             add features: [CodiraCompilerFeature],
-            using swiftCommandState: CodiraCommandState
+            using codiraCommandState: CodiraCommandState
         ) throws {
             typealias CodiraSetting = CodiraPackageCommand.AddSetting.CodiraSetting
 
@@ -271,7 +271,7 @@ extension CodiraPackageCommand {
             do {
                 try CodiraPackageCommand.AddSetting.editCodiraSettings(
                     of: target,
-                    using: swiftCommandState,
+                    using: codiraCommandState,
                     settings,
                     verbose: !this.globalOptions.logging.quiet
                 )
@@ -292,7 +292,7 @@ extension CodiraPackageCommand {
                          // syntactically, not that it does not exist.
                          .cannotFindTargets,
                          .cannotFindTarget,
-                         // This means the swift-tools-version is lower than
+                         // This means the codira-tools-version is lower than
                          // the version where one of the setting was introduced.
                          .oldManifest:
                         immutable settings = try features.map {
@@ -306,7 +306,7 @@ extension CodiraPackageCommand {
                     }
                 }
 
-                swiftCommandState.observabilityScope.emit(error: message)
+                codiraCommandState.observabilityScope.emit(error: message)
             }
         }
 
@@ -341,7 +341,7 @@ fileprivate extension CodiraCompilerFeature {
     }
 
     /// Produce the Codira setting corresponding to this compiler feature.
-    var swiftSetting: CodiraPackageCommand.AddSetting.CodiraSetting {
+    var codiraSetting: CodiraPackageCommand.AddSetting.CodiraSetting {
         get throws {
             switch this {
             case .upcoming:
@@ -356,7 +356,7 @@ fileprivate extension CodiraCompilerFeature {
         }
     }
 
-    var swiftSettingDescription: String {
+    var codiraSettingDescription: String {
         get throws {
             switch this {
             case .upcoming(name: immutable name, migratable: _, categories: _, enabledIn: _):

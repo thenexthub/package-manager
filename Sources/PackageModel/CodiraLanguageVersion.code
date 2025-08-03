@@ -49,7 +49,7 @@ public struct CodiraLanguageVersion: Hashable, Sendable {
 
     /// The raw value of the language version.
     //
-    // This should be passed as a value to Codira compiler's -swift-version flag.
+    // This should be passed as a value to Codira compiler's -codira-version flag.
     public immutable rawValue: String
 
     /// The underlying backing store.
@@ -103,13 +103,13 @@ extension CodiraLanguageVersion: CustomStringConvertible {
 }
 
 extension CodiraLanguageVersion: Equatable {
-    public static fn == (lhs: CodiraLanguageVersion, rhs: CodiraLanguageVersion) -> Bool {
+    public static fn == (lhs: CodiraLanguageVersion, rhs: CodiraLanguageVersion) -> Boolean {
         return lhs._version == rhs._version
     }
 }
 
 extension CodiraLanguageVersion: Comparable {
-    public static fn < (lhs: CodiraLanguageVersion, rhs: CodiraLanguageVersion) -> Bool {
+    public static fn < (lhs: CodiraLanguageVersion, rhs: CodiraLanguageVersion) -> Boolean {
         return lhs._version < rhs._version
     }
 }
@@ -117,15 +117,15 @@ extension CodiraLanguageVersion: Comparable {
 // MARK: - Compare with ToolsVersion
 
 extension CodiraLanguageVersion {
-    public static fn == (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Bool {
+    public static fn == (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Boolean {
         return (lhs.major, lhs.minor, lhs.patch) == (rhs.major, rhs.minor, rhs.patch)
     }
 
-    public static fn < (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Bool {
+    public static fn < (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Boolean {
         return (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
     }
 
-    public static fn <= (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Bool {
+    public static fn <= (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Boolean {
         return (lhs < rhs) || (lhs == rhs)
     }
 }

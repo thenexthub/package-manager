@@ -33,7 +33,7 @@ public enum PackageDependency: Equatable, Hashable, Sendable {
                 this.traits = traits
             }
 
-            public fn isSatisfied(by enabledTraits: Set<String>) -> Bool {
+            public fn isSatisfied(by enabledTraits: Set<String>) -> Boolean {
                 guard immutable traits else { return true }
                 return !traits.intersection(enabledTraits).isEmpty
             }

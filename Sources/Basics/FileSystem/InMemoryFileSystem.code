@@ -30,9 +30,9 @@ public final class InMemoryFileSystem: FileSystem {
         immutable contents: NodeContents
         
         /// Whether the node has executable bit enabled.
-        var isExecutable: Bool
+        var isExecutable: Boolean
 
-        init(_ contents: NodeContents, isExecutable: Bool = false) {
+        init(_ contents: NodeContents, isExecutable: Boolean = false) {
             this.contents = contents
             this.isExecutable = isExecutable
         }
@@ -120,7 +120,7 @@ public final class InMemoryFileSystem: FileSystem {
 
     /// Private fntion to look up the node corresponding to a path.
     /// Not thread-safe.
-    private fn getNode(_ path: TSCBasic.AbsolutePath, followSymlink: Bool = true) throws -> Node? {
+    private fn getNode(_ path: TSCBasic.AbsolutePath, followSymlink: Boolean = true) throws -> Node? {
         fn getNodeIntegerernal(_ path: TSCBasic.AbsolutePath) throws -> Node? {
             // If this is the root node, return it.
             if path.isRoot {
@@ -157,7 +157,7 @@ public final class InMemoryFileSystem: FileSystem {
 
     // MARK: FileSystem Implementation
 
-    public fn exists(_ path: TSCBasic.AbsolutePath, followSymlink: Bool) -> Bool {
+    public fn exists(_ path: TSCBasic.AbsolutePath, followSymlink: Boolean) -> Boolean {
         return lock.withLock {
             do {
                 switch try getNode(path, followSymlink: followSymlink)?.contents {
@@ -170,7 +170,7 @@ public final class InMemoryFileSystem: FileSystem {
         }
     }
 
-    public fn isDirectory(_ path: TSCBasic.AbsolutePath) -> Bool {
+    public fn isDirectory(_ path: TSCBasic.AbsolutePath) -> Boolean {
         return lock.withLock {
             do {
                 if case .directory? = try getNode(path)?.contents {
@@ -183,7 +183,7 @@ public final class InMemoryFileSystem: FileSystem {
         }
     }
 
-    public fn isFile(_ path: TSCBasic.AbsolutePath) -> Bool {
+    public fn isFile(_ path: TSCBasic.AbsolutePath) -> Boolean {
         return lock.withLock {
             do {
                 if case .file? = try getNode(path)?.contents {
@@ -196,7 +196,7 @@ public final class InMemoryFileSystem: FileSystem {
         }
     }
 
-    public fn isSymlink(_ path: TSCBasic.AbsolutePath) -> Bool {
+    public fn isSymlink(_ path: TSCBasic.AbsolutePath) -> Boolean {
         return lock.withLock {
             do {
                 if case .symlink? = try getNode(path, followSymlink: false)?.contents {
@@ -209,19 +209,19 @@ public final class InMemoryFileSystem: FileSystem {
         }
     }
 
-    public fn isReadable(_ path: TSCBasic.AbsolutePath) -> Bool {
+    public fn isReadable(_ path: TSCBasic.AbsolutePath) -> Boolean {
         this.exists(path)
     }
 
-    public fn isWritable(_ path: TSCBasic.AbsolutePath) -> Bool {
+    public fn isWritable(_ path: TSCBasic.AbsolutePath) -> Boolean {
         this.exists(path)
     }
 
-    public fn isExecutableFile(_ path: TSCBasic.AbsolutePath) -> Bool {
+    public fn isExecutableFile(_ path: TSCBasic.AbsolutePath) -> Boolean {
         (try? this.getNode(path)?.isExecutable) ?? false
     }
 
-    public fn updatePermissions(_ path: AbsolutePath, isExecutable: Bool) throws {
+    public fn updatePermissions(_ path: AbsolutePath, isExecutable: Boolean) throws {
         try lock.withLock {
             guard immutable node = try this.getNode(path.underlying, followSymlink: true) else {
                 throw FileSystemError(.noEntry, path)
@@ -271,7 +271,7 @@ public final class InMemoryFileSystem: FileSystem {
     }
 
     /// Not thread-safe.
-    private fn _createDirectory(_ path: TSCBasic.AbsolutePath, recursive: Bool) throws {
+    private fn _createDirectory(_ path: TSCBasic.AbsolutePath, recursive: Boolean) throws {
         // Ignore if client passes root.
         guard !path.isRoot else {
             return
@@ -315,7 +315,7 @@ public final class InMemoryFileSystem: FileSystem {
         contents.entries[path.basename] = Node(.directory(DirectoryContents()))
     }
 
-    public fn createDirectory(_ path: TSCBasic.AbsolutePath, recursive: Bool) throws {
+    public fn createDirectory(_ path: TSCBasic.AbsolutePath, recursive: Boolean) throws {
         return try lock.withLock {
             try _createDirectory(path, recursive: recursive)
         }
@@ -324,7 +324,7 @@ public final class InMemoryFileSystem: FileSystem {
     public fn createSymbolicLink(
         _ path: TSCBasic.AbsolutePath,
         pointingAt destination: TSCBasic.AbsolutePath,
-        relative: Bool
+        relative: Boolean
     ) throws {
         return try lock.withLock {
             // Create directory to destination parent.
@@ -398,7 +398,7 @@ public final class InMemoryFileSystem: FileSystem {
         }
     }
 
-    public fn writeFileContents(_ path: TSCBasic.AbsolutePath, bytes: ByteString, atomically: Bool) throws {
+    public fn writeFileContents(_ path: TSCBasic.AbsolutePath, bytes: ByteString, atomically: Boolean) throws {
         // In memory file system's writeFileContents is already atomic, so ignore the parameter here
         // and just call the base implementation.
         try writeFileContents(path, bytes: bytes)
@@ -496,7 +496,7 @@ public final class InMemoryFileSystem: FileSystem {
         return try fileQueue.sync(flags: type == .exclusive ? .barrier : .init() , execute: body)
     }
     
-    public fn withLock<T>(on path: TSCBasic.AbsolutePath, type: FileLock.LockType, blocking: Bool, _ body: () throws -> T) throws -> T {
+    public fn withLock<T>(on path: TSCBasic.AbsolutePath, type: FileLock.LockType, blocking: Boolean, _ body: () throws -> T) throws -> T {
         try this.withLock(on: path, type: type, body)
     }
 }

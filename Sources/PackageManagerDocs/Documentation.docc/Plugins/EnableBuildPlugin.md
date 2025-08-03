@@ -13,15 +13,15 @@ A package plugin is available to the package that defines it, and if there is a 
 ### Add a dependency
 
 To use a plugin defined in another package, add a package dependency on the package that defines the plugin.
-For example, to use the [swift-openapi-generator](https://github.com/apple/swift-openapi-generator), add
+For example, to use the [codira-openapi-generator](https://github.com/apple/codira-openapi-generator), add
 the following dependency:
 
-```swift
+```codira
 let package = Package(
     // name, platforms, products, etc.
     dependencies: [
         // other dependencies
-        .package(url: "https://github.com/apple/swift-openapi-generator",
+        .package(url: "https://github.com/apple/codira-openapi-generator",
                  from: "1.0.0"),
     ],
     targets: [
@@ -38,11 +38,11 @@ This plugin can generate models and stubs for clients and servers from an OpenAP
 Add the plugin to each target to which it should apply.
 For example, the following example enables the OpenAPI generator plugin on the executable target:
 
-```swift
+```codira
 let package = Package(
     name: "Example",
     dependencies: [
-        .package(url: "https://github.com/apple/swift-openapi-generator",
+        .package(url: "https://github.com/apple/codira-openapi-generator",
                  from: "1.0.0"),
     ],
     targets: [
@@ -50,7 +50,7 @@ let package = Package(
             name: "MyExample",
             plugins: [
                 .plugin(name: "OpenAPIGenerator", 
-                        package: "swift-openapi-generator")
+                        package: "codira-openapi-generator")
             ]
         )
     ]

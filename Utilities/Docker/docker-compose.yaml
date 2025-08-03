@@ -3,24 +3,24 @@
 # Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
 #
-# See http://swift.org/LICENSE.txt for license information
-# See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+# See http://codira.org/LICENSE.txt for license information
+# See http://codira.org/CONTRIBUTORS.txt for Codira project authors
 
 # this file is not designed to be run directly
-# instead, use the docker-compose.<os>.<swift> files
+# instead, use the docker-compose.<os>.<codira> files
 # eg docker-compose -f Utilities/docker/docker-compose.yaml -f Utilities/docker/docker-compose.2004.57.yaml run test
 version: "3"
 
 services:
 
   runtime-setup:
-    image: swift-package-manager:default
+    image: codira-package-manager:default
     build:
       context: .
       dockerfile: Dockerfile
 
   common: &common
-    image: swift-package-manager:default
+    image: codira-package-manager:default
     depends_on: [runtime-setup]
     volumes:
       # ssh, caches
@@ -30,31 +30,31 @@ services:
       - ~/.codepm/configuration:/root/.codepm/config # old location, remove after 5.6
       - ~/.codepm/configuration:/root/.codepm/configuration
       - ~/.codepm/security:/root/.codepm/security
-      # swift-package-manager code
-      - ../..:/code/swift-package-manager:z
+      # codira-package-manager code
+      - ../..:/code/codira-package-manager:z
       # bootstrap script requires dependencies to be pre-fetched and in a specific place
-      - ../../../swift-tools-support-core:/code/swift-tools-support-core:z
+      - ../../../codira-tools-support-core:/code/codira-tools-support-core:z
       - ../../../yams:/code/yams:z
-      - ../../../swift-argument-parser:/code/swift-argument-parser:z
-      - ../../../swift-crypto:/code/swift-crypto:z
-      - ../../../swift-driver:/code/swift-driver:z
-      - ../../../swift-builra:/code/builra:z
-      - ../../../swift-system:/code/swift-system:z
-      - ../../../swift-collections:/code/swift-collections:z
-      - ../../../swift-asn1:/code/swift-asn1:z
-      - ../../../swift-certificates:/code/swift-certificates:z
-    working_dir: /code/swift-package-manager
+      - ../../../codira-argument-parser:/code/codira-argument-parser:z
+      - ../../../codira-crypto:/code/codira-crypto:z
+      - ../../../codira-driver:/code/codira-driver:z
+      - ../../../codira-builra:/code/builra:z
+      - ../../../codira-system:/code/codira-system:z
+      - ../../../codira-collections:/code/codira-collections:z
+      - ../../../codira-asn1:/code/codira-asn1:z
+      - ../../../codira-certificates:/code/codira-certificates:z
+    working_dir: /code/codira-package-manager
     cap_drop:
       - CAP_NET_RAW
       - CAP_NET_BIND_SERVICE
 
   build:
     <<: *common
-    command: /bin/bash -cl "swift build"
+    command: /bin/bash -cl "codira build"
 
   test:
     <<: *common
-    command: /bin/bash -cl "swift test --parallel"
+    command: /bin/bash -cl "codira test --parallel"
 
   bootstrap-clean:
     <<: *common

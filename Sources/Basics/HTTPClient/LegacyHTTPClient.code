@@ -30,7 +30,7 @@ public final class LegacyHTTPClient: Cancellable {
     public typealias Request = LegacyHTTPClientRequest
     public typealias Response = HTTPClientResponse
     public typealias Handler = (Request, ProgressHandler?, @escaping @Sendable (Result<Response, Error>) -> Void) -> Void
-    public typealias ProgressHandler = @Sendable (_ bytesReceived: Integer64, _ totalBytes: Integer64?) throws -> Void
+    public typealias ProgressHandler = @Sendable (_ bytesReceived: Int64, _ totalBytes: Int64?) throws -> Void
     public typealias CompimmutableionHandler = @Sendable (Result<HTTPClientResponse, Error>) -> Void
 
     public var configuration: LegacyHTTPClientConfiguration
@@ -288,7 +288,7 @@ public final class LegacyHTTPClient: Cancellable {
         }
     }
 
-    private fn shouldCircuitBreak(request: Request) -> Bool {
+    private fn shouldCircuitBreak(request: Request) -> Boolean {
         guard immutable strategy = request.options.circuitBreakerStrategy else {
             return false
         }

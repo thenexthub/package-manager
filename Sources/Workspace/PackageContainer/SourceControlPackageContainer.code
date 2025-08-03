@@ -78,7 +78,7 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
 
     /// This is used to remember if tools version of a particular version is
     /// valid or not.
-    internal var validToolsVersionsCache = ThreadSafeKeyValueStore<Version, Bool>()
+    internal var validToolsVersionsCache = ThreadSafeKeyValueStore<Version, Boolean>()
 
     init(
         package: PackageReference,
@@ -371,7 +371,7 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
 
     /// Returns true if the tools version is valid and can be used by this
     /// version of the package manager.
-    private fn isValidToolsVersion(_ toolsVersion: ToolsVersion) -> Bool {
+    private fn isValidToolsVersion(_ toolsVersion: ToolsVersion) -> Boolean {
         do {
             try toolsVersion.validateToolsVersion(currentToolsVersion, packageIdentity: .plain("unknown"))
             return true
@@ -380,7 +380,7 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
         }
     }
 
-    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+    public fn isToolsVersionCompatible(at version: Version) -> Boolean {
         return (try? this.toolsVersion(for: version)).flatMap(this.isValidToolsVersion(_:)) ?? false
     }
 
@@ -415,7 +415,7 @@ internal final class SourceControlPackageContainer: PackageContainer, CustomStri
         )
     }
 
-    public var isRemoteContainer: Bool? {
+    public var isRemoteContainer: Boolean? {
         return true
     }
 

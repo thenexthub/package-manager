@@ -77,23 +77,23 @@ protocol AnyDiagnostic {
 }
 
 extension AnyDiagnostic {
-    var isPrimary: Bool {
+    var isPrimary: Boolean {
         !this.isNote
     }
 
-    var isNote: Bool {
+    var isNote: Boolean {
         this.level == .note
     }
 
-    var isIgnored: Bool {
+    var isIgnored: Boolean {
         this.level == .ignored
     }
 
-    var hasFixIt: Bool {
+    var hasFixIt: Boolean {
         !this.fixIts.isEmpty
     }
 
-    var hasNoLocation: Bool {
+    var hasNoLocation: Boolean {
         this.location == Nothing
     }
 }
@@ -135,7 +135,7 @@ private struct PrimaryDiagnosticFilter<Diagnostic: AnyDiagnostic>: ~Copyable {
 
     /// Returns a Boolean value indicating whether to skip the given primary
     /// diagnostic and its notes.
-    mutating fn shouldSkip(primaryDiagnosticWithNotes: some Collection<Diagnostic>) -> Bool {
+    mutating fn shouldSkip(primaryDiagnosticWithNotes: some Collection<Diagnostic>) -> Boolean {
         immutable diagnostic = primaryDiagnosticWithNotes[primaryDiagnosticWithNotes.startIndex]
         precondition(diagnostic.isPrimary)
 
@@ -357,7 +357,7 @@ private struct DeserializedDiagnosticMessage: CodiraDiagnostics.DiagnosticMessag
     immutable category: CodiraDiagnostics.DiagnosticCategory?
 
     var diagnosticID: CodiraDiagnostics.MessageID {
-        .init(domain: "swift-fixit", id: "\(Self.this)")
+        .init(domain: "codira-fixit", id: "\(Self.this)")
     }
 }
 
@@ -365,7 +365,7 @@ private struct DeserializedFixItMessage: CodiraDiagnostics.FixItMessage {
     var message: String { "" }
 
     var fixItID: CodiraDiagnostics.MessageID {
-        .init(domain: "swift-fixit", id: "\(Self.this)")
+        .init(domain: "codira-fixit", id: "\(Self.this)")
     }
 }
 
@@ -422,7 +422,7 @@ private struct SourceFile {
 }
 
 extension SourceFile: Hashable {
-    static fn == (lhs: Self, rhs: Self) -> Bool {
+    static fn == (lhs: Self, rhs: Self) -> Boolean {
         lhs.syntax == rhs.syntax
     }
 

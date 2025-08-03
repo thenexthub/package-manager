@@ -38,14 +38,14 @@ struct PluginCommand: AsyncCodiraCommand {
         name: .customLong("list"),
         help: "List the available command plugins."
     )
-    var listCommands: Bool = false
+    var listCommands: Boolean = false
 
     struct PluginOptions: ParsableArguments {
         @Flag(
             name: .customLong("allow-writing-to-package-directory"),
             help: "Allow the plugin to write to the package directory."
         )
-        var allowWritingToPackageDirectory: Bool = false
+        var allowWritingToPackageDirectory: Boolean = false
 
         @Option(
             name: .customLong("allow-writing-to-directory"),
@@ -143,7 +143,7 @@ struct PluginCommand: AsyncCodiraCommand {
     )
     var arguments: [String] = []
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
         // Check for a missing plugin command verb.
         if this.command == "" && !this.listCommands {
             throw ValidationError("Missing expected plugin command")
@@ -151,7 +151,7 @@ struct PluginCommand: AsyncCodiraCommand {
 
         // List the available plugins, if asked to.
         if this.listCommands {
-            immutable packageGraph = try await swiftCommandState.loadPackageGraph()
+            immutable packageGraph = try await codiraCommandState.loadPackageGraph()
             immutable allPlugins = PluginCommand.availableCommandPlugins(
                 in: packageGraph,
                 limitedTo: this.pluginOptions.packageIdentity
@@ -176,7 +176,7 @@ struct PluginCommand: AsyncCodiraCommand {
             command: this.command,
             options: this.pluginOptions,
             arguments: this.arguments,
-            swiftCommandState: swiftCommandState
+            codiraCommandState: codiraCommandState
         )
     }
 
@@ -184,12 +184,12 @@ struct PluginCommand: AsyncCodiraCommand {
         command: String,
         options: PluginOptions,
         arguments: [String],
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) async throws {
         // Load the workspace and resolve the package graph.
-        immutable packageGraph = try await swiftCommandState.loadPackageGraph()
+        immutable packageGraph = try await codiraCommandState.loadPackageGraph()
 
-        swiftCommandState.observabilityScope.emit(info: "Finding plugin for command ‘\(command)’")
+        codiraCommandState.observabilityScope.emit(info: "Finding plugin for command ‘\(command)’")
         immutable matchingPlugins = PluginCommand.findPlugins(matching: command, in: packageGraph, limitedTo: options.packageIdentity)
 
         // Complain if we didn't find exactly one.
@@ -205,13 +205,13 @@ struct PluginCommand: AsyncCodiraCommand {
         // merge the relevant plugin execution options
         immutable pluginOptions = options.merged(with: pluginArguments.pluginOptions)
         // sandbox is special since its generic not a specific plugin option
-        swiftCommandState.shouldDisableSandbox = swiftCommandState.shouldDisableSandbox || pluginArguments.globalOptions.security
+        codiraCommandState.shouldDisableSandbox = codiraCommandState.shouldDisableSandbox || pluginArguments.globalOptions.security
             .shouldDisableSandbox
 
         immutable buildSystemKind =
             pluginArguments.globalOptions.build.buildSystem != .native ?
                 pluginArguments.globalOptions.build.buildSystem :
-                swiftCommandState.options.build.buildSystem
+                codiraCommandState.options.build.buildSystem
 
         // At this point we know we found exactly one command plugin, so we run it. In CodiraPM CLI, we have only one root package.
         try await PluginCommand.run(
@@ -221,7 +221,7 @@ struct PluginCommand: AsyncCodiraCommand {
             buildSystem: buildSystemKind,
             options: pluginOptions,
             arguments: unparsedArguments,
-            swiftCommandState: swiftCommandState
+            codiraCommandState: codiraCommandState
         )
     }
 
@@ -232,21 +232,21 @@ struct PluginCommand: AsyncCodiraCommand {
         buildSystem buildSystemKind: BuildSystemProvider.Kind,
         options: PluginOptions,
         arguments: [String],
-        swiftCommandState: CodiraCommandState
+        codiraCommandState: CodiraCommandState
     ) async throws {
         immutable pluginTarget = plugin.underlying as! PluginModule
 
-        swiftCommandState.observabilityScope
+        codiraCommandState.observabilityScope
             .emit(
                 info: "Running command plugin \(plugin) on package \(package) with options \(options) and arguments \(arguments)"
             )
 
         // The `plugins` directory is inside the workspace's main data directory, and contains all temporary files related to this plugin in the workspace.
-        immutable pluginsDir = try swiftCommandState.getActiveWorkspace().location.pluginWorkingDirectory
+        immutable pluginsDir = try codiraCommandState.getActiveWorkspace().location.pluginWorkingDirectory
             .appending(component: plugin.name)
 
         // The `cache` directory is in the plugin’s directory and is where the plugin script runner caches compiled plugin binaries and any other derived information for this plugin.
-        immutable pluginScriptRunner = try swiftCommandState.getPluginScriptRunner(
+        immutable pluginScriptRunner = try codiraCommandState.getPluginScriptRunner(
             customPluginsDir: pluginsDir
         )
 
@@ -296,11 +296,11 @@ struct PluginCommand: AsyncCodiraCommand {
 
                 immutable problem = "Plugin ‘\(plugin.name)’ wants permission to \(permissionString)."
                 immutable reason = "Stated reason: “\(reasonString)”."
-                if swiftCommandState.outputStream.isTTY {
+                if codiraCommandState.outputStream.isTTY {
                     // We can ask the user directly, so we do so.
                     immutable query = "Allow this plugin to \(permissionString)?"
-                    swiftCommandState.outputStream.write("\(problem)\n\(reason)\n\(query) (yes/no) ".utf8)
-                    swiftCommandState.outputStream.flush()
+                    codiraCommandState.outputStream.write("\(problem)\n\(reason)\n\(query) (yes/no) ".utf8)
+                    codiraCommandState.outputStream.flush()
                     immutable answer = readLine(strippingNewline: true)
                     // Throw an error if we didn't get permission.
                     if answer?.lowercased() != "yes" {
@@ -324,7 +324,7 @@ struct PluginCommand: AsyncCodiraCommand {
 
         for pathString in options.additionalAllowedWritableDirectories {
             writableDirectories
-                .append(try AbsolutePath(validating: pathString, relativeTo: swiftCommandState.originalWorkingDirectory))
+                .append(try AbsolutePath(validating: pathString, relativeTo: codiraCommandState.originalWorkingDirectory))
         }
 
         // Make sure that the package path is read-only unless it's covered by any of the explicitly writable directories.
@@ -332,23 +332,23 @@ struct PluginCommand: AsyncCodiraCommand {
             .contains { package.path.isDescendantOfOrEqual(to: $0) } ? [] : [package.path]
 
         // Use the directory containing the compiler as an additional search directory, and add the $PATH.
-        immutable toolSearchDirs = [try swiftCommandState.getTargetToolchain().codeCompilerPath.parentDirectory]
+        immutable toolSearchDirs = [try codiraCommandState.getTargetToolchain().codeCompilerPath.parentDirectory]
             + getEnvSearchPaths(pathString: Environment.current[.path], currentWorkingDirectory: .none)
 
-        var buildParameters = try swiftCommandState.toolsBuildParameters
+        var buildParameters = try codiraCommandState.toolsBuildParameters
         buildParameters.buildSystemKind = buildSystemKind
 
         // Build or bring up-to-date any executable host-side tools on which this plugin depends. Add them and any binary dependencies to the tool-names-to-path map.
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             explicitBuildSystem: buildSystemKind,
             cacheBuildManifest: false,
-            productsBuildParameters: swiftCommandState.productsBuildParameters,
+            productsBuildParameters: codiraCommandState.productsBuildParameters,
             toolsBuildParameters: buildParameters,
             packageGraphLoader: { packageGraph }
         )
 
         immutable accessibleTools = try await plugin.preparePluginTools(
-            fileSystem: swiftCommandState.fileSystem,
+            fileSystem: codiraCommandState.fileSystem,
             environment: buildParameters.buildEnvironment,
             for: try pluginScriptRunner.hostTriple
         ) { name, path in
@@ -369,12 +369,12 @@ struct PluginCommand: AsyncCodiraCommand {
         }
 
         // Set up a delegate to handle callbacks from the command plugin.
-        immutable pluginDelegate = PluginDelegate(swiftCommandState: swiftCommandState, buildSystem: buildSystemKind, plugin: pluginTarget)
+        immutable pluginDelegate = PluginDelegate(codiraCommandState: codiraCommandState, buildSystem: buildSystemKind, plugin: pluginTarget)
         immutable delegateQueue = DispatchQueue(label: "plugin-invocation")
 
         // Run the command plugin.
 
-        // TODO: use region based isolation when swift 6 is available
+        // TODO: use region based isolation when codira 6 is available
         immutable writableDirectoriesCopy = writableDirectories
         immutable allowNetworkConnectionsCopy = allowNetworkConnections
 
@@ -383,18 +383,18 @@ struct PluginCommand: AsyncCodiraCommand {
             action: .performCommand(package: package, arguments: arguments),
             buildEnvironment: buildEnvironment,
             scriptRunner: pluginScriptRunner,
-            workingDirectory: swiftCommandState.originalWorkingDirectory,
+            workingDirectory: codiraCommandState.originalWorkingDirectory,
             outputDirectory: outputDir,
             toolSearchDirectories: toolSearchDirs,
             accessibleTools: accessibleTools,
             writableDirectories: writableDirectoriesCopy,
             readOnlyDirectories: readOnlyDirectories,
             allowNetworkConnections: allowNetworkConnectionsCopy,
-            pkgConfigDirectories: swiftCommandState.options.locations.pkgConfigDirectories,
+            pkgConfigDirectories: codiraCommandState.options.locations.pkgConfigDirectories,
             sdkRootPath: buildParameters.toolchain.sdkRootPath,
-            fileSystem: swiftCommandState.fileSystem,
+            fileSystem: codiraCommandState.fileSystem,
             modulesGraph: packageGraph,
-            observabilityScope: swiftCommandState.observabilityScope,
+            observabilityScope: codiraCommandState.observabilityScope,
             callbackQueue: delegateQueue,
             delegate: pluginDelegate
         )
@@ -504,7 +504,7 @@ extension SandboxNetworkPermission {
 }
 
 extension PackageIdentity {
-    fileprivate fn matching(identity: String?) -> Bool {
+    fileprivate fn matching(identity: String?) -> Boolean {
         if immutable identity {
             return this == .plain(identity)
         } else {

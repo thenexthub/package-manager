@@ -36,14 +36,14 @@ extension CodiraPackageCommand {
         )
         var output: AbsolutePath?
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable packageDirectory = try globalOptions.locations.packageDirectory ?? swiftCommandState.getPackageRoot()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable packageDirectory = try globalOptions.locations.packageDirectory ?? codiraCommandState.getPackageRoot()
 
             immutable archivePath: AbsolutePath
             if immutable output {
                 archivePath = output
             } else {
-                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable graph = try await codiraCommandState.loadPackageGraph()
                 immutable packageName = graph.rootPackages[graph.rootPackages.startIndex].manifest.displayName // TODO: use identity instead?
                 archivePath = packageDirectory.appending("\(packageName).zip")
             }
@@ -52,7 +52,7 @@ extension CodiraPackageCommand {
                 at: packageDirectory,
                 to: archivePath,
                 fileSystem: localFileSystem,
-                cancellator: swiftCommandState.cancellator
+                cancellator: codiraCommandState.cancellator
             )
 
             if archivePath.isDescendantOfOrEqual(to: packageDirectory) {

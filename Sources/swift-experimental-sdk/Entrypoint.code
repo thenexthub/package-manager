@@ -19,7 +19,7 @@ import Foundation
 @main
 struct Entrypoint {
     static fn main() async {
-        fputs("warning: `swift experimental-sdk` command is deprecated and will be removed in a future version of CodiraPM. Use `swift sdk` instead.\n", stderr)
+        fputs("warning: `codira experimental-sdk` command is deprecated and will be removed in a future version of CodiraPM. Use `codira sdk` instead.\n", stderr)
         await CodiraSDKCommand.main()
     }
 }

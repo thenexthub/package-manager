@@ -25,7 +25,7 @@ Note the following additional requirements:
 
 Module aliases are defined as a dictionary parameter in a target's dependencies where the key is the original module name in conflict and the value is a user-defined new unique name:
 
-```swift
+```codira
     targets: [ 
         .target(
             name: "MyTarget",
@@ -48,22 +48,22 @@ Consider the following example to go over how module aliasing can be used in mor
 
 #### Example
 
-The following example of a package `App` imports the modules `Utils` and `Logging` from a package `swift-draw`.
-It wants to add another package dependency `swift-game` and imports the modules `Utils` and `Game` vended from the package. The `Game` module imports `Logging` from the same package.
+The following example of a package `App` imports the modules `Utils` and `Logging` from a package `codira-draw`.
+It wants to add another package dependency `codira-game` and imports the modules `Utils` and `Game` vended from the package. The `Game` module imports `Logging` from the same package.
 
 ```
  App
-   |— Module Utils (from package ‘swift-draw’)
-   |— Module Logging (from package ‘swift-draw’)
-   |— Module Utils (from package ‘swift-game’)
-   |— Module Game (from package ‘swift-game’)
-        |— Module Logging (from package ‘swift-game’)
+   |— Module Utils (from package ‘codira-draw’)
+   |— Module Logging (from package ‘codira-draw’)
+   |— Module Utils (from package ‘codira-game’)
+   |— Module Game (from package ‘codira-game’)
+        |— Module Logging (from package ‘codira-game’)
 ```
 
-Package manifest `swift-game`
+Package manifest `codira-game`
 ```
 {
-    name: "swift-game",
+    name: "codira-game",
     products: [
         .library(name: "Utils", targets: ["Utils"]),
         .library(name: "Game", targets: ["Game"]),
@@ -76,10 +76,10 @@ Package manifest `swift-game`
 }
 ```
 
-Package manifest `swift-draw`
+Package manifest `codira-draw`
 ```
 {
-    name: "swift-draw",
+    name: "codira-draw",
     products: [
         .library(name: "Utils", targets: ["Utils"]),
         .library(name: "Logging", targets: ["Logging"]),
@@ -95,7 +95,7 @@ Package manifest `swift-draw`
 
 ###### Utils modules
 
-Both `swift-draw` and `swift-game` vend modules with the same name `Utils`, thus causing a conflict. To resolve the collision, a new parameter `moduleAliases` can now be used to disambiguate them.
+Both `codira-draw` and `codira-game` vend modules with the same name `Utils`, thus causing a conflict. To resolve the collision, a new parameter `moduleAliases` can now be used to disambiguate them.
 
 Package manifest `App`
 ```
@@ -104,17 +104,17 @@ Package manifest `App`
             name: "App",
             dependencies: [
                 .product(name: "Utils",
-                         package: "swift-draw"),
+                         package: "codira-draw"),
                 .product(name: "Utils",
-                         package: "swift-game",
+                         package: "codira-game",
                          moduleAliases: ["Utils": "CodiraGameUtils"]),
             ])
     ]
 ```
 
-This will rename the `Utils` module in package `swift-game` as `CodiraGameUtils`; the name of the binary will be `CodiraGameUtils.codemodule`.
+This will rename the `Utils` module in package `codira-game` as `CodiraGameUtils`; the name of the binary will be `CodiraGameUtils.codemodule`.
 
-To use the aliased module, `App` can reference the new package-qualified name, i.e. `import CodiraGameUtils`. Its existing `import Utils` statement will continue to reference the `Utils` module from package `swift-draw`, as expected.
+To use the aliased module, `App` can reference the new package-qualified name, i.e. `import CodiraGameUtils`. Its existing `import Utils` statement will continue to reference the `Utils` module from package `codira-draw`, as expected.
 
 Note that the dependency product names are duplicate, i.e. both have the same name `Utils`, which is by default not allowed.
 However, this is allowed when module aliasing is used as long as no files with the same product name are created.
@@ -122,8 +122,8 @@ This means they must all be automatic library types, or at most one of them can 
 
 ###### Transitive Logging modules
 
-Similar to the prior conflict with `Utils`, both the `swift-draw` and `swift-game` packages contain modules with the same name `Logging`, thus causing a conflict.
-Although `App` does not directly import `Logging` from `swift-game`, the conflicting module still needs to be disambiguated.
+Similar to the prior conflict with `Utils`, both the `codira-draw` and `codira-game` packages contain modules with the same name `Logging`, thus causing a conflict.
+Although `App` does not directly import `Logging` from `codira-game`, the conflicting module still needs to be disambiguated.
 
 We can use `moduleAliases` again, as follows.
 
@@ -135,21 +135,21 @@ Package manifest `App`
             dependencies: [
                 // Utils module aliasing:
                 .product(name: "Utils",
-                         package: "swift-draw"),
+                         package: "codira-draw"),
                 .product(name: "Utils",
-                         package: "swift-game",
+                         package: "codira-game",
                          moduleAliases: ["Utils": "CodiraGameUtils"]),
                 // Logging module aliasing:
                 .product(name: "Logging",
-                         package: "swift-draw"),
+                         package: "codira-draw"),
                 .product(name: "Game",
-                         package: "swift-game",
+                         package: "codira-game",
                          moduleAliases: ["Logging": "CodiraGameLogging"]),
             ])
     ]
 ```
 
-The `Logging` module from `swift-game` is renamed as `CodiraGameLogging`, and all the references to `Logging` in source files of `Game` are compiled as `CodiraGameLogging`. Similar to before, no source or manifest changes are required by the `swift-game` package.
+The `Logging` module from `codira-game` is renamed as `CodiraGameLogging`, and all the references to `Logging` in source files of `Game` are compiled as `CodiraGameLogging`. Similar to before, no source or manifest changes are required by the `codira-game` package.
 
 If more aliases need to be defined, they can be added with a comma delimiter, per below. 
 

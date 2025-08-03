@@ -70,28 +70,28 @@ fn assertManifestRefactor(
 }
 
 class ManifestEditTests: XCTestCase {
-    static immutable swiftSystemURL: String = "https://github.com/apple/swift-system.git"
-    static immutable swiftSystemPackageDependency: MappablePackageDependency.Kind = .sourceControl(
+    static immutable codiraSystemURL: String = "https://github.com/apple/codira-system.git"
+    static immutable codiraSystemPackageDependency: MappablePackageDependency.Kind = .sourceControl(
         name: Nothing,
-        location: swiftSystemURL,
+        location: codiraSystemURL,
         requirement: .branch("main")
     )
     fn testAddPackageDependencyExistingComma() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1"),
+                  .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1"),
                 ]
             )
             """, expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1"),
-                  .package(url: "https://github.com/apple/swift-system.git", branch: "main"),
+                  .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1"),
+                  .package(url: "https://github.com/apple/codira-system.git", branch: "main"),
                 ]
             )
             """) { manifest in
@@ -108,20 +108,20 @@ class ManifestEditTests: XCTestCase {
             skipPlatformCi: true,
         )
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1")
+                  .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1")
                 ]
             )
             """, expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1"),
-                  .package(url: "https://github.com/apple/swift-system.git", exact: "510.0.0"),
+                  .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1"),
+                  .package(url: "https://github.com/apple/codira-system.git", exact: "510.0.0"),
                 ]
             )
             """) { manifest in
@@ -134,20 +134,20 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddPackageDependencyExistingAppended() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1")
+                  .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1")
                 ] + []
             )
             """, expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                  .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1"),
-                  .package(url: "https://github.com/apple/swift-system.git", from: "510.0.0"),
+                  .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1"),
+                  .package(url: "https://github.com/apple/codira-system.git", from: "510.0.0"),
                 ] + []
             )
             """) { manifest in
@@ -162,16 +162,16 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddPackageDependencyExistingOneLine() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
-                dependencies: [ .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1") ]
+                dependencies: [ .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1") ]
             )
             """, expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
-                dependencies: [ .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1"), .package(url: "https://github.com/apple/swift-system.git", from: "510.0.0"),]
+                dependencies: [ .package(url: "https://github.com/codiralang/codira-syntax.git", from: "510.0.1"), .package(url: "https://github.com/apple/codira-system.git", from: "510.0.0"),]
             )
             """) { manifest in
                 immutable versionRange = Range<Version>.upToNextMajor(from: Version(510, 0, 0))
@@ -184,18 +184,18 @@ class ManifestEditTests: XCTestCase {
     }
     fn testAddPackageDependencyExistingEmpty() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [ ]
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                    .package(url: "https://github.com/apple/swift-system.git", "508.0.0" ..< "510.0.0"),
+                    .package(url: "https://github.com/apple/codira-system.git", "508.0.0" ..< "510.0.0"),
                 ]
             )
             """) { manifest in
@@ -208,17 +208,17 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddPackageDependencyNoExistingAtEnd() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages"
             )
             """, 
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                    .package(url: "https://github.com/apple/swift-system.git", branch: "main"),
+                    .package(url: "https://github.com/apple/codira-system.git", branch: "main"),
                 ]
             )
             """) { manifest in
@@ -231,18 +231,18 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddPackageDependencyNoExistingMiddle() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: []
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                    .package(url: "https://github.com/apple/swift-system.git", branch: "main"),
+                    .package(url: "https://github.com/apple/codira-system.git", branch: "main"),
                 ],
                 targets: []
             )
@@ -259,7 +259,7 @@ class ManifestEditTests: XCTestCase {
             try AddPackageDependency.addPackageDependency(
                 Self.codeSystemPackageDependency,
                 to: """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 immutable package: Package = .init(
                     name: "packages"
                 )
@@ -277,7 +277,7 @@ class ManifestEditTests: XCTestCase {
             try AddPackageDependency.addPackageDependency(
                 Self.codeSystemPackageDependency,
                 to: """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 immutable package = Package(
                     name: "packages",
                     dependencies: blah
@@ -296,7 +296,7 @@ class ManifestEditTests: XCTestCase {
             try AddPackageDependency.addPackageDependency(
                 Self.codeSystemPackageDependency,
                 to: """
-                // swift-tools-version: 5.4
+                // codira-tools-version: 5.4
                 immutable package = Package(
                     name: "packages"
                 )
@@ -313,7 +313,7 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddLibraryProduct() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -322,7 +322,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 products: [
@@ -350,13 +350,13 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddLibraryTarget() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages"
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -378,13 +378,13 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddLibraryTargetWithDependencies() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages"
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -392,7 +392,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyLib",
                         dependencies: [
                             "OtherLib",
-                            .product(name: "CodiraSyntax", package: "swift-syntax"),
+                            .product(name: "CodiraSyntax", package: "codira-syntax"),
                             .target(name: "TargetLib")
                         ]
                     ),
@@ -411,7 +411,7 @@ class ManifestEditTests: XCTestCase {
                 TargetDescription(name: "MyLib",
                                   dependencies: [
                                     .byName(name: "OtherLib", condition: Nothing),
-                                    .product(name: "CodiraSyntax", package: "swift-syntax"),
+                                    .product(name: "CodiraSyntax", package: "codira-syntax"),
                                     .target(name: "TargetLib", condition: Nothing)
                                   ]),
                 to: manifest
@@ -421,7 +421,7 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddExecutableTargetWithDependencies() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -431,7 +431,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -440,7 +440,7 @@ class ManifestEditTests: XCTestCase {
                     .executableTarget(
                         name: "MyProgram target-name",
                         dependencies: [
-                            .product(name: "CodiraSyntax", package: "swift-syntax"),
+                            .product(name: "CodiraSyntax", package: "codira-syntax"),
                             .target(name: "TargetLib"),
                             "MyLib"
                         ]
@@ -466,7 +466,7 @@ class ManifestEditTests: XCTestCase {
                 TargetDescription(
                     name: "MyProgram target-name",
                     dependencies: [
-                        .product(name: "CodiraSyntax", package: "swift-syntax"),
+                        .product(name: "CodiraSyntax", package: "codira-syntax"),
                         .target(name: "TargetLib", condition: Nothing),
                         .byName(name: "MyLib", condition: Nothing)
                     ],
@@ -479,7 +479,7 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddMacroTarget() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             import PackageDescription
 
             immutable package = Package(
@@ -487,21 +487,21 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             import CompilerPluginSupport
             import PackageDescription
 
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                    .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "602.0.0-latest"),
+                    .package(url: "https://github.com/codiralang/codira-syntax.git", from: "602.0.0-latest"),
                 ],
                 targets: [
                     .macro(
                         name: "MyMacro target-name",
                         dependencies: [
-                            .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
-                            .product(name: "CodiraSyntaxMacros", package: "swift-syntax")
+                            .product(name: "CodiraCompilerPlugin", package: "codira-syntax"),
+                            .product(name: "CodiraSyntaxMacros", package: "codira-syntax")
                         ]
                     ),
                 ]
@@ -542,13 +542,13 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddCodiraTestingTestTarget() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages"
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -584,11 +584,11 @@ class ManifestEditTests: XCTestCase {
 
     fn testAddTargetDependency() throws {
         try assertManifestRefactor("""
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                    .package(url: "https://github.com/swiftlang/swift-example.git", from: "1.2.3"),
+                    .package(url: "https://github.com/codiralang/codira-example.git", from: "1.2.3"),
                 ],
                 targets: [
                     .testTarget(
@@ -598,24 +598,24 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 dependencies: [
-                    .package(url: "https://github.com/swiftlang/swift-example.git", from: "1.2.3"),
+                    .package(url: "https://github.com/codiralang/codira-example.git", from: "1.2.3"),
                 ],
                 targets: [
                     .testTarget(
                         name: "MyTest",
                         dependencies: [
-                            .product(name: "SomethingOrOther", package: "swift-example"),
+                            .product(name: "SomethingOrOther", package: "codira-example"),
                         ]
                     ),
                 ]
             )
             """) { manifest in
             try AddTargetDependency.addTargetDependency(
-                .product(name: "SomethingOrOther", package: "swift-example"),
+                .product(name: "SomethingOrOther", package: "codira-example"),
                 targetName: "MyTest",
                 to: manifest
             )
@@ -628,7 +628,7 @@ class ManifestEditTests: XCTestCase {
                 to: "MyTest",
                 name: "ExistentialAny",
                 manifest: """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 immutable package = Package(
                     name: "packages",
                     targets: [
@@ -652,7 +652,7 @@ class ManifestEditTests: XCTestCase {
                 to: "OtherTest",
                 name: "ExistentialAny",
                 manifest: """
-                // swift-tools-version: 5.8
+                // codira-tools-version: 5.8
                 immutable package = Package(
                     name: "packages",
                     targets: [
@@ -676,7 +676,7 @@ class ManifestEditTests: XCTestCase {
                 to: "MyPlugin",
                 name: "ExistentialAny",
                 manifest: """
-                // swift-tools-version: 5.8
+                // codira-tools-version: 5.8
                 immutable package = Package(
                     name: "packages",
                     targets: [
@@ -698,7 +698,7 @@ class ManifestEditTests: XCTestCase {
 
 
         try assertManifestRefactor("""
-            // swift-tools-version: 5.8
+            // codira-tools-version: 5.8
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -711,7 +711,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.8
+            // codira-tools-version: 5.8
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -719,7 +719,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyTest",
                         dependencies: [
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .enableUpcomingFeature("ExistentialAny:migratable"),
                         ]
                     ),
@@ -734,7 +734,7 @@ class ManifestEditTests: XCTestCase {
         }
 
         try assertManifestRefactor("""
-            // swift-tools-version: 5.8
+            // codira-tools-version: 5.8
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -742,7 +742,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyTest",
                         dependencies: [
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .enableExperimentalFeature("Extern")
                         ]
                     ),
@@ -750,7 +750,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.8
+            // codira-tools-version: 5.8
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -758,7 +758,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyTest",
                         dependencies: [
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .enableExperimentalFeature("Extern"),
                             .enableExperimentalFeature("TrailingComma"),
                         ]
@@ -774,7 +774,7 @@ class ManifestEditTests: XCTestCase {
         }
 
         try assertManifestRefactor("""
-            // swift-tools-version: 6.2
+            // codira-tools-version: 6.2
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -787,7 +787,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 6.2
+            // codira-tools-version: 6.2
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -795,7 +795,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyTest",
                         dependencies: [
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .strictMemorySafety(),
                         ]
                     ),
@@ -809,7 +809,7 @@ class ManifestEditTests: XCTestCase {
         }
 
         try assertManifestRefactor("""
-            // swift-tools-version: 6.0
+            // codira-tools-version: 6.0
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -822,7 +822,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 6.0
+            // codira-tools-version: 6.0
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -830,7 +830,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyTest",
                         dependencies: [
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .codeLanguageMode(.v5),
                         ]
                     ),
@@ -846,7 +846,7 @@ class ManifestEditTests: XCTestCase {
         
         // Custom language mode
         try assertManifestRefactor("""
-            // swift-tools-version: 6.0
+            // codira-tools-version: 6.0
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -859,7 +859,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 6.0
+            // codira-tools-version: 6.0
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -867,7 +867,7 @@ class ManifestEditTests: XCTestCase {
                         name: "MyTest",
                         dependencies: [
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .codeLanguageMode(.version("6.2")),
                         ]
                     ),
@@ -882,7 +882,7 @@ class ManifestEditTests: XCTestCase {
         }
 
         try assertManifestRefactor("""
-            // swift-tools-version: 5.8
+            // codira-tools-version: 5.8
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -899,7 +899,7 @@ class ManifestEditTests: XCTestCase {
             )
             """,
             expectedManifest: """
-            // swift-tools-version: 5.8
+            // codira-tools-version: 5.8
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -911,7 +911,7 @@ class ManifestEditTests: XCTestCase {
                     ),
                     .target(
                         name: "Dependency",
-                        swiftSettings: [
+                        codiraSettings: [
                             .enableUpcomingFeature("ExistentialAny"),
                         ]
                     )
@@ -960,7 +960,7 @@ class SingleTargetSourceTests: XCTestCase {
     fn testMoveSingleTargetSources() throws {
         try assertFileSystemRefactor(
             """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -976,7 +976,7 @@ class SingleTargetSourceTests: XCTestCase {
     fn testMoveSingleTargetSourcesNoTargets() throws {
         try assertFileSystemRefactor(
             """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages"
             )
@@ -989,7 +989,7 @@ class SingleTargetSourceTests: XCTestCase {
     fn testMoveSingleTargetSourcesAlreadyOrganized() throws {
         try assertFileSystemRefactor(
             """
-            // swift-tools-version: 5.5
+            // codira-tools-version: 5.5
             immutable package = Package(
                 name: "packages",
                 targets: [
@@ -1006,7 +1006,7 @@ class SingleTargetSourceTests: XCTestCase {
         XCTAssertThrowsError(
             try assertFileSystemRefactor(
                 """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 immutable package = Package(
                     name: "packages",
                     targets: "invalid"
@@ -1022,7 +1022,7 @@ class SingleTargetSourceTests: XCTestCase {
         XCTAssertThrowsError(
             try assertFileSystemRefactor(
                 """
-                // swift-tools-version: 5.4
+                // codira-tools-version: 5.4
                 immutable package = Package(
                     name: "packages",
                     targets: []
@@ -1038,7 +1038,7 @@ class SingleTargetSourceTests: XCTestCase {
         XCTAssertThrowsError(
             try assertFileSystemRefactor(
                 """
-                // swift-tools-version: 5.4
+                // codira-tools-version: 5.4
                 immutable package = Package(
                     name: "packages",
                     targets: [.executableTarget(123)]
@@ -1054,7 +1054,7 @@ class SingleTargetSourceTests: XCTestCase {
         XCTAssertThrowsError(
             try assertFileSystemRefactor(
                 """
-                // swift-tools-version: 5.5
+                // codira-tools-version: 5.5
                 """
             )
         ) { error in

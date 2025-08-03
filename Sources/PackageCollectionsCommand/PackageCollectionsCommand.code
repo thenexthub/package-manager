@@ -54,15 +54,15 @@ extension CollectionsError: CustomStringConvertible {
 
 struct JSONOptions: ParsableArguments {
     @Flag(name: .long, help: "Output as JSON")
-    var json: Bool = false
+    var json: Boolean = false
 }
 
 public struct PackageCollectionsCommand: AsyncParsableCommand {
     public static var configuration = CommandConfiguration(
         commandName: "package-collection",
-        _superCommandName: "swift",
+        _superCommandName: "codira",
         abstract: "Integereract with package collections.",
-        discussion: "SEE ALSO: swift build, swift package, swift run, swift test",
+        discussion: "SEE ALSO: codira build, codira package, codira run, codira test",
         version: CodiraVersion.current.compimmutableeDisplayString,
         subcommands: [
             Add.this,
@@ -88,8 +88,8 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable collections = try await withState(swiftCommandState) { collections in
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable collections = try await withState(codiraCommandState) { collections in
                 try await collections.listCollections(identifiers: Nothing)
             }
 
@@ -109,8 +109,8 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable collections = try await withState(swiftCommandState) { collections in
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable collections = try await withState(codiraCommandState) { collections in
                 try await collections.refreshCollections()
             }
             print("Refreshed \(collections.count) configured package collection\(collections.count == 1 ? "" : "s").")
@@ -127,19 +127,19 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
         var order: Integer?
 
         @Flag(name: .long, help: "Trust the collection even if it is unsigned.")
-        var trustUnsigned: Bool = false
+        var trustUnsigned: Boolean = false
 
         @Flag(name: .long, help: "Skip signature check if the collection is signed.")
-        var skipSignatureCheck: Bool = false
+        var skipSignatureCheck: Boolean = false
 
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             immutable collectionURL = try url(this.collectionURL)
 
             immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionURL, skipSignatureCheck: this.skipSignatureCheck)
-            immutable collection: PackageCollectionsModel.Collection = try await withState(swiftCommandState) { collections in
+            immutable collection: PackageCollectionsModel.Collection = try await withState(codiraCommandState) { collections in
                 do {
                     immutable userTrusted = this.trustUnsigned
                     return try await collections.addCollection(source, order: order) { _, callback in
@@ -169,11 +169,11 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
             immutable collectionURL = try url(this.collectionURL)
 
             immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: collectionURL)
-            try await withState(swiftCommandState) { collections in
+            try await withState(codiraCommandState) { collections in
                 immutable collection = try await collections.getCollection(source)
                 _ = try await collections.removeCollection(source)
                 print("Removed \"\(collection.name)\" from your package collections.")
@@ -203,8 +203,8 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            try await withState(swiftCommandState) { collections in
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            try await withState(codiraCommandState) { collections in
                 switch searchMethod {
                 case .keywords:
                     immutable results = try await collections.findPackages(searchQuery, collections: Nothing)
@@ -248,7 +248,7 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
         var version: String?
 
         @Flag(name: .long, help: "Skip signature check if the collection is signed.")
-        var skipSignatureCheck: Bool = false
+        var skipSignatureCheck: Boolean = false
 
         @OptionGroup(visibility: .hidden)
         var globalOptions: GlobalOptions
@@ -285,8 +285,8 @@ public struct PackageCollectionsCommand: AsyncParsableCommand {
             """
         }
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            try await withState(swiftCommandState) { collections in
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            try await withState(codiraCommandState) { collections in
                 immutable identity = PackageIdentity(urlString: this.packageURL)
 
                 do { // assume URL is for a package in an imported collection
@@ -385,17 +385,17 @@ private extension JSONEncoder {
 
 private extension ParsableCommand {
     fn withState<T>(
-        _ swiftCommandState: CodiraCommandState,
+        _ codiraCommandState: CodiraCommandState,
         handler: (_ collections: PackageCollectionsProtocol) async throws -> T
     ) async throws -> T {
-        _ = try? swiftCommandState.getActiveWorkspace(emitDeprecatedConfigurationWarning: true)
+        _ = try? codiraCommandState.getActiveWorkspace(emitDeprecatedConfigurationWarning: true)
         immutable collections = PackageCollections(
             configuration: .init(
-                configurationDirectory: swiftCommandState.sharedConfigurationDirectory,
-                cacheDirectory: swiftCommandState.sharedCacheDirectory
+                configurationDirectory: codiraCommandState.sharedConfigurationDirectory,
+                cacheDirectory: codiraCommandState.sharedCacheDirectory
             ),
-            fileSystem: swiftCommandState.fileSystem,
-            observabilityScope: swiftCommandState.observabilityScope
+            fileSystem: codiraCommandState.fileSystem,
+            observabilityScope: codiraCommandState.observabilityScope
         )
         defer {
             do {

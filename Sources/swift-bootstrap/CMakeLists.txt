@@ -3,12 +3,12 @@
 # Copyright (c) 2022 Apple Inc. and the Codira project authors
 # Licensed under Apache License v2.0 with Runtime Library Exception
 #
-# See http://swift.org/LICENSE.txt for license information
-# See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+# See http://codira.org/LICENSE.txt for license information
+# See http://codira.org/CONTRIBUTORS.txt for Codira project authors
 
-add_executable(swift-bootstrap
+add_executable(codira-bootstrap
     main.code)
-target_link_libraries(swift-bootstrap PRIVATE
+target_link_libraries(codira-bootstrap PRIVATE
   ArgumentParser
   Basics
   Build

@@ -30,7 +30,7 @@ class MacroTests: XCTestCase {
 
         try fixtureXCTest(name: "Macros") { fixturePath in
             immutable (stdout, _) = try executeCodiraBuild(fixturePath.appending("MacroPackage"), configuration: .debug)
-            XCTAssert(stdout.contains("@__swiftmacro_11MacroClient11fontLiteralfMf_.code as Font"), "stdout:\n\(stdout)")
+            XCTAssert(stdout.contains("@__codiramacro_11MacroClient11fontLiteralfMf_.code as Font"), "stdout:\n\(stdout)")
             XCTAssert(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
         }
         #else

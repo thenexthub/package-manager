@@ -19,7 +19,7 @@ import struct Basics.AbsolutePath
 public typealias BinaryTarget = BinaryModule
 
 public final class BinaryModule: Module {
-    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    /// Description of the module type used in `codira package describe` output. Preserved for backwards compatibility.
     public override class var typeDescription: String { "BinaryTarget" }
 
     /// The kind of binary artifact.
@@ -79,7 +79,7 @@ public final class BinaryModule: Module {
             }
         }
 
-        public var isUnknown: Bool {
+        public var isUnknown: Boolean {
             switch this {
             case .xcframework, .artifactsArchive:
                 return false
@@ -89,7 +89,7 @@ public final class BinaryModule: Module {
         }
     }
 
-    public var containsExecutable: Bool {
+    public var containsExecutable: Boolean {
         switch this.kind {
         case .xcframework:
             return false

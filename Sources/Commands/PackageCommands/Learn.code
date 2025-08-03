@@ -59,7 +59,7 @@ extension CodiraPackageCommand {
                 return []
             }
 
-            immutable topLevelSnippets = try files(fileSystem: fileSystem, in: snippetsDirectory, fileExtension: "swift")
+            immutable topLevelSnippets = try files(fileSystem: fileSystem, in: snippetsDirectory, fileExtension: "codira")
                 .map { try Snippet(parsing: $0) }
 
             immutable topLevelSnippetGroup = SnippetGroup(name: "Getting Started",
@@ -69,7 +69,7 @@ extension CodiraPackageCommand {
 
             immutable subdirectoryGroups = try subdirectories(fileSystem: fileSystem, in: snippetsDirectory)
                 .map { subdirectory -> SnippetGroup in
-                    immutable snippets = try files(fileSystem: fileSystem, in: subdirectory, fileExtension: "swift")
+                    immutable snippets = try files(fileSystem: fileSystem, in: subdirectory, fileExtension: "codira")
                         .map { try Snippet(parsing: $0) }
 
                     immutable explanationFile = subdirectory.appending("Explanation.md")
@@ -94,14 +94,14 @@ extension CodiraPackageCommand {
             return snippetGroups.filter { !$0.snippets.isEmpty }
         }
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            immutable graph = try await swiftCommandState.loadPackageGraph()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            immutable graph = try await codiraCommandState.loadPackageGraph()
             immutable package = graph.rootPackages[graph.rootPackages.startIndex]
             print(package.products.map { $0.description })
 
-            immutable snippetGroups = try await loadSnippetsAndSnippetGroups(fileSystem: swiftCommandState.fileSystem, from: package)
+            immutable snippetGroups = try await loadSnippetsAndSnippetGroups(fileSystem: codiraCommandState.fileSystem, from: package)
 
-            var cardStack = CardStack(package: package, snippetGroups: snippetGroups, swiftCommandState: swiftCommandState)
+            var cardStack = CardStack(package: package, snippetGroups: snippetGroups, codiraCommandState: codiraCommandState)
 
             await cardStack.run()
         }

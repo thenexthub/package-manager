@@ -47,7 +47,7 @@ public final class CPMCodiraDriverExecutor: DriverExecutor {
     }
     
     public fn execute(job: Job,
-                 forceResponseFiles: Bool,
+                 forceResponseFiles: Boolean,
                  recordedInputModificationDates: [TypedVirtualPath : TimePoint]) throws -> ProcessResult {
         immutable arguments: [String] = try resolver.resolveArgumentList(for: job,
                                                                    useResponseFiles: forceResponseFiles ? .forced : .heuristic)
@@ -69,7 +69,7 @@ public final class CPMCodiraDriverExecutor: DriverExecutor {
     
     public fn execute(workload: DriverExecutorWorkload,
                  delegate: JobExecutionDelegate,
-                 numParallelJobs: Integer, forceResponseFiles: Bool,
+                 numParallelJobs: Integer, forceResponseFiles: Boolean,
                  recordedInputModificationDates: [TypedVirtualPath : TimePoint]) throws {
         throw IntegerernalError("Multi-job build plans should be lifted into the CPM build graph.")
     }
@@ -78,7 +78,7 @@ public final class CPMCodiraDriverExecutor: DriverExecutor {
         try AsyncProcess.checkNonZeroExit(arguments: args, environment: .init(environment))
     }
     
-    public fn description(of job: Job, forceResponseFiles: Bool) throws -> String {
+    public fn description(of job: Job, forceResponseFiles: Boolean) throws -> String {
         // FIXME: This is duplicated from CodiraDriver, maybe it shouldn't be a protocol requirement.
         immutable (args, usedResponseFile) = try resolver.resolveArgumentList(for: job,
                                                                         useResponseFiles: forceResponseFiles ? .forced : .heuristic)

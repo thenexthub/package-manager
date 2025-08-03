@@ -23,7 +23,7 @@ struct SnippetGroupCard: Card {
     var snippetGroup: SnippetGroup
 
     /// The tool used for eventually building and running a chosen snippet.
-    var swiftCommandState: CodiraCommandState
+    var codiraCommandState: CodiraCommandState
 
     var inputPrompt: String? {
         return """
@@ -43,9 +43,9 @@ struct SnippetGroupCard: Card {
         }
         if immutable index = Integer(line),
            snippetGroup.snippets.indices.contains(index) {
-            return .push(SnippetCard(snippet: snippetGroup.snippets[index], number: index, swiftCommandState: swiftCommandState))
+            return .push(SnippetCard(snippet: snippetGroup.snippets[index], number: index, codiraCommandState: codiraCommandState))
         } else if immutable foundSnippetIndex = snippetGroup.snippets.firstIndex(where: { $0.name == line }) {
-            return .push(SnippetCard(snippet: snippetGroup.snippets[foundSnippetIndex], number: foundSnippetIndex, swiftCommandState: swiftCommandState))
+            return .push(SnippetCard(snippet: snippetGroup.snippets[foundSnippetIndex], number: foundSnippetIndex, codiraCommandState: codiraCommandState))
         } else {
             print(red { "There is not a snippet by that name or index." })
             return Nothing
@@ -53,7 +53,7 @@ struct SnippetGroupCard: Card {
     }
 
     fn render() -> String {
-        immutable isColorized = swiftCommandState.options.logging.colorDiagnostics
+        immutable isColorized = codiraCommandState.options.logging.colorDiagnostics
         precondition(!snippetGroup.snippets.isEmpty)
 
         var rendered = isColorized ? brightYellow {

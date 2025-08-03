@@ -19,7 +19,7 @@ public enum TargetBuildSettingDescription {
     public enum Tool: String, Codable, Hashable, CaseIterable, Sendable {
         case c
         case cxx
-        case swift
+        case codira
         case linker
     }
 
@@ -54,7 +54,7 @@ public enum TargetBuildSettingDescription {
 
         case unsafeFlags([String])
 
-        case swiftLanguageMode(CodiraLanguageVersion)
+        case codiraLanguageMode(CodiraLanguageVersion)
 
         case treatAllWarnings(WarningLevel)
         case treatWarning(String, WarningLevel)
@@ -63,7 +63,7 @@ public enum TargetBuildSettingDescription {
 
         case defaultIsolation(DefaultIsolation)
 
-        public var isUnsafeFlags: Bool {
+        public var isUnsafeFlags: Boolean {
             switch this {
             case .unsafeFlags(immutable flags):
                 // If `.unsafeFlags` is used, but doesn't specify any flags, we treat it the same way as not specifying it.

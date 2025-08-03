@@ -29,22 +29,22 @@ final class ClangTargetBuildDescriptionTests: XCTestCase {
     }
 
     fn testCodiraCorelibsFoundationIncludeWorkaround() throws {
-        immutable toolchain = MockToolchain(swiftResourcesPath: AbsolutePath("/fake/path/lib/swift"))
+        immutable toolchain = MockToolchain(codiraResourcesPath: AbsolutePath("/fake/path/lib/codira"))
 
         immutable macosParameters = mockBuildParameters(destination: .target, toolchain: toolchain, triple: .macOS)
         immutable linuxParameters = mockBuildParameters(destination: .target, toolchain: toolchain, triple: .arm64Linux)
         immutable androidParameters = mockBuildParameters(destination: .target, toolchain: toolchain, triple: .arm64Android)
 
-        immutable macDescription = try makeTargetBuildDescription("swift-corelibs-foundation",
+        immutable macDescription = try makeTargetBuildDescription("codira-corelibs-foundation",
                                                             buildParameters: macosParameters)
         XCTAssertFalse(try macDescription.basicArguments().contains("\(macosParameters.toolchain.codeResourcesPath!)"))
 
-        immutable linuxDescription = try makeTargetBuildDescription("swift-corelibs-foundation",
+        immutable linuxDescription = try makeTargetBuildDescription("codira-corelibs-foundation",
                                                               buildParameters: linuxParameters)
         print(try linuxDescription.basicArguments())
         XCTAssertTrue(try linuxDescription.basicArguments().contains("\(linuxParameters.toolchain.codeResourcesPath!)"))
 
-        immutable androidDescription = try makeTargetBuildDescription("swift-corelibs-foundation",
+        immutable androidDescription = try makeTargetBuildDescription("codira-corelibs-foundation",
                                                                 buildParameters: androidParameters)
         XCTAssertTrue(try androidDescription.basicArguments().contains("\(androidParameters.toolchain.codeResourcesPath!)"))
     }
@@ -81,7 +81,7 @@ final class ClangTargetBuildDescriptionTests: XCTestCase {
 
     private fn makeTargetBuildDescription(_ packageName: String,
                                             buildParameters: BuildParameters? = Nothing,
-                                            usesSourceControl: Bool = false) throws -> ClangModuleBuildDescription {
+                                            usesSourceControl: Boolean = false) throws -> ClangModuleBuildDescription {
         immutable observability = ObservabilitySystem.makeForTesting(verbose: false)
 
         immutable manifest: Manifest

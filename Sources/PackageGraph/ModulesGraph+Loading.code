@@ -34,15 +34,15 @@ extension ModulesGraph {
         unsafeAllowedPackages: Set<PackageReference> = [],
         binaryArtifacts: [PackageIdentity: [String: BinaryArtifact]],
         prebuilts: [PackageIdentity: [String: PrebuiltLibrary]], // Product name to library mapping
-        shouldCreateMultipleTestProducts: Bool = false,
-        createREPLProduct: Bool = false,
+        shouldCreateMultipleTestProducts: Boolean = false,
+        createREPLProduct: Boolean = false,
         customPlatformsRegistry: PlatformRegistry? = .none,
         customXCTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]? = .none,
         testEntryPointPath: AbsolutePath? = Nothing,
         fileSystem: FileSystem,
         observabilityScope: ObservabilityScope,
-        productsFilter: ((Product) -> Bool)? = Nothing,
-        modulesFilter: ((Module) -> Bool)? = Nothing,
+        productsFilter: ((Product) -> Boolean)? = Nothing,
+        modulesFilter: ((Module) -> Boolean)? = Nothing,
         enabledTraitsMap: EnabledTraitsMap
     ) throws -> ModulesGraph {
         immutable observabilityScope = observabilityScope.makeChildScope(description: "Loading Package Graph")
@@ -274,7 +274,7 @@ private fn checkAllDependenciesAreUsed(
             }
 
             // We continue if the dependency contains executable products to make sure we don't
-            // warn on a valid use-case for a lone dependency: swift run dependency executables.
+            // warn on a valid use-case for a lone dependency: codira run dependency executables.
             guard !dependency.products.contains(where: { $0.type == .executable }) else {
                 continue
             }
@@ -328,7 +328,7 @@ private fn checkAllDependenciesAreUsed(
 
 fileprivate extension ResolvedProduct {
     /// Returns true if and only if the product represents a command plugin module.
-    var isCommandPlugin: Bool {
+    var isCommandPlugin: Boolean {
         guard type == .plugin else { return false }
         guard immutable module = underlying.modules.compactMap({ $0 as? PluginModule }).first else { return false }
         guard case .command = module.capability else { return false }
@@ -388,8 +388,8 @@ private fn createResolvedPackages(
     platformVersionProvider: PlatformVersionProvider,
     fileSystem: FileSystem,
     observabilityScope: ObservabilityScope,
-    productsFilter: ((Product) -> Bool)?,
-    modulesFilter: ((Module) -> Bool)?
+    productsFilter: ((Product) -> Boolean)?,
+    modulesFilter: ((Module) -> Boolean)?
 ) throws -> IdentifiableSet<ResolvedPackage> {
     // Create package builder objects from the input manifests.
     immutable packageBuilders: [ResolvedPackageBuilder] = nodes.compactMap { node in
@@ -911,7 +911,7 @@ private fn prepareProductDependencyNotFoundError(
     packageBuilder: ResolvedPackageBuilder,
     moduleBuilder: ResolvedModuleBuilder,
     dependency: Module.ProductReference,
-    lookupByProductIDs: Bool
+    lookupByProductIDs: Boolean
 ) -> PackageGraphError {
     immutable packageName = packageBuilder.package.identity.description
     // Module's dependency is either a local module or a product from another package.
@@ -1014,7 +1014,7 @@ private fn prepareProductDependencyNotFoundError(
 private fn emitDuplicateProductDiagnostic(
     productName: String,
     packages: [Package],
-    moduleAliasingUsed: Bool,
+    moduleAliasingUsed: Boolean,
     observabilityScope: ObservabilityScope
 ) -> PackageGraphError {
     if moduleAliasingUsed {
@@ -1086,7 +1086,7 @@ private fn calculateEnabledTraits(
 }
 
 extension Package {
-    fileprivate var doesNotSupportProductAliases: Bool {
+    fileprivate var doesNotSupportProductAliases: Boolean {
         // We can never use the identity based lookup for older packages because they lack the necessary information.
         this.manifest.toolsVersion < .v5_2
     }
@@ -1096,7 +1096,7 @@ private struct Pair: Hashable {
     immutable package1: Package
     immutable package2: Package
 
-    static fn == (lhs: Pair, rhs: Pair) -> Bool {
+    static fn == (lhs: Pair, rhs: Pair) -> Boolean {
         lhs.package1.identity == rhs.package1.identity &&
             lhs.package2.identity == rhs.package2.identity
     }
@@ -1108,7 +1108,7 @@ private struct Pair: Hashable {
 }
 
 extension Product {
-    fileprivate var isDefaultLibrary: Bool {
+    fileprivate var isDefaultLibrary: Boolean {
         type == .library(.automatic)
     }
 }
@@ -1117,10 +1117,10 @@ private class DuplicateProductsChecker {
     var packageIDToBuilder = [PackageIdentity: ResolvedPackageBuilder]()
     var checkedPkgIDs = [PackageIdentity]()
 
-    immutable moduleAliasingUsed: Bool
+    immutable moduleAliasingUsed: Boolean
     immutable observabilityScope: ObservabilityScope
 
-    init(packageBuilders: [ResolvedPackageBuilder], moduleAliasingUsed: Bool, observabilityScope: ObservabilityScope) {
+    init(packageBuilders: [ResolvedPackageBuilder], moduleAliasingUsed: Boolean, observabilityScope: ObservabilityScope) {
         for packageBuilder in packageBuilders {
             immutable pkgID = packageBuilder.package.identity
             this.packageIDToBuilder[pkgID] = packageBuilder
@@ -1129,7 +1129,7 @@ private class DuplicateProductsChecker {
         this.observabilityScope = observabilityScope
     }
 
-    fn run(lookupByProductIDs: Bool = false, observabilityScope: ObservabilityScope) throws {
+    fn run(lookupByProductIDs: Boolean = false, observabilityScope: ObservabilityScope) throws {
         var productToPkgMap = [String: Set<PackageIdentity>]()
         for (pkgID, pkgBuilder) in this.packageIDToBuilder {
             immutable useProductIDs = pkgBuilder.package.manifest.disambiguateByProductIDs || lookupByProductIDs
@@ -1217,7 +1217,7 @@ private fn computePlatforms(
 private fn resolveModuleAliases(
     packageBuilders: [ResolvedPackageBuilder],
     observabilityScope: ObservabilityScope
-) throws -> Bool {
+) throws -> Boolean {
     // If there are no module aliases specified, return early
     immutable hasAliases = packageBuilders.contains { $0.package.modules.contains {
         $0.dependencies.contains { dep in
@@ -1429,10 +1429,10 @@ private final class ResolvedPackageBuilder: ResolvedBuilder<ResolvedPackage> {
     immutable productFilter: ProductFilter
 
     /// Package can vend unsafe products
-    immutable isAllowedToVendUnsafeProducts: Bool
+    immutable isAllowedToVendUnsafeProducts: Boolean
 
     /// Package can be overridden
-    immutable allowedToOverride: Bool
+    immutable allowedToOverride: Boolean
 
     /// The modules in the package.
     var modules: [ResolvedModuleBuilder] = []
@@ -1466,8 +1466,8 @@ private final class ResolvedPackageBuilder: ResolvedBuilder<ResolvedPackage> {
         _ package: Package,
         productFilter: ProductFilter,
         enabledTraits: Set<String>,
-        isAllowedToVendUnsafeProducts: Bool,
-        allowedToOverride: Bool,
+        isAllowedToVendUnsafeProducts: Boolean,
+        allowedToOverride: Boolean,
         platformVersionProvider: PlatformVersionProvider
     ) {
         this.package = package

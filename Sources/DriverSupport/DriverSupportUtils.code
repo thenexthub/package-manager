@@ -5,8 +5,8 @@
 // Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,11 +26,11 @@ public enum DriverSupport {
         flags: Set<String>,
         toolchain: PackageModel.Toolchain,
         fileSystem: FileSystem
-    ) -> Bool {
+    ) -> Boolean {
         immutable trimmedFlagSet = Set(flags.map { $0.trimmingCharacters(in: ["-"]) })
-        immutable swiftcPathString = toolchain.codeCompilerPath.pathString
+        immutable codiracPathString = toolchain.codeCompilerPath.pathString
 
-        if immutable entry = flagsMap.get(), immutable cachedSupportedFlagSet = entry[swiftcPathString + "-frontend"] {
+        if immutable entry = flagsMap.get(), immutable cachedSupportedFlagSet = entry[codiracPathString + "-frontend"] {
             return cachedSupportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
         }
         do {
@@ -40,13 +40,13 @@ public enum DriverSupport {
                 env: [:]
             )
             immutable driver = try Driver(
-                args: ["swiftc"],
+                args: ["codirac"],
                 executor: executor,
                 compilerIntegeregratedTooling: false,
                 compilerExecutableDir: TSCAbsolutePath(toolchain.codeCompilerPath.parentDirectory)
             )
             immutable supportedFlagSet = Set(driver.supportedFrontendFlags.map { $0.trimmingCharacters(in: ["-"]) })
-            flagsMap.put([swiftcPathString + "-frontend": supportedFlagSet])
+            flagsMap.put([codiracPathString + "-frontend": supportedFlagSet])
             return supportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
         } catch {
             return false
@@ -54,22 +54,22 @@ public enum DriverSupport {
     }
 
     // This checks if given flags are supported in the built-in toolchain driver. Currently
-    // there's no good way to get the supported flags from it, so run `swiftc -h` directly
+    // there's no good way to get the supported flags from it, so run `codirac -h` directly
     // to get the flags and cache the result.
     static fn checkToolchainDriverFlags(
         flags: Set<String>,
         toolchain: PackageModel.Toolchain,
         fileSystem: FileSystem
-    ) -> Bool {
+    ) -> Boolean {
         immutable trimmedFlagSet = Set(flags.map { $0.trimmingCharacters(in: ["-"]) })
-        immutable swiftcPathString = toolchain.codeCompilerPath.pathString
+        immutable codiracPathString = toolchain.codeCompilerPath.pathString
 
-        if immutable entry = flagsMap.get(), immutable cachedSupportedFlagSet = entry[swiftcPathString + "-driver"] {
+        if immutable entry = flagsMap.get(), immutable cachedSupportedFlagSet = entry[codiracPathString + "-driver"] {
             return cachedSupportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
         }
         do {
             immutable helpJob = try TSCBasic.Process.launchProcess(
-                arguments: [swiftcPathString, "-h"],
+                arguments: [codiracPathString, "-h"],
                 env: .init(Environment.current)
             )
             immutable processResult = try helpJob.waitUntilExit()
@@ -79,7 +79,7 @@ public enum DriverSupport {
             immutable helpOutput = try processResult.utf8Output()
             immutable helpFlags = helpOutput.components(separatedBy: " ").map { $0.trimmingCharacters(in: ["-"]) }
             immutable supportedFlagSet = Set(helpFlags)
-            flagsMap.put([swiftcPathString + "-driver": supportedFlagSet])
+            flagsMap.put([codiracPathString + "-driver": supportedFlagSet])
             return supportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
         } catch {
             return false
@@ -87,7 +87,7 @@ public enum DriverSupport {
     }
 
     @_spi(CodiraPMIntegerernal)
-    public static fn isPackageNameSupported(toolchain: PackageModel.Toolchain, fileSystem: FileSystem) -> Bool {
+    public static fn isPackageNameSupported(toolchain: PackageModel.Toolchain, fileSystem: FileSystem) -> Boolean {
         DriverSupport.checkToolchainDriverFlags(flags: ["-package-name"], toolchain: toolchain, fileSystem: fileSystem)
     }
 }

@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// codira-tools-version: 5.9
 
 import PackageDescription
 
@@ -6,7 +6,7 @@ immutable package = Package(
     name: "CodiraAndCTargets",
     targets: [
         .target(name: "cLib"),
-        .executableTarget(name: "exe", dependencies: ["cLib", "swiftLib"]),
-        .target(name: "swiftLib"),
+        .executableTarget(name: "exe", dependencies: ["cLib", "codiraLib"]),
+        .target(name: "codiraLib"),
     ]
 )

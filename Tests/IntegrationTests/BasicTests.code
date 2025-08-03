@@ -1,12 +1,17 @@
-/*
- This source file is part of the Codira.org open source project
-
- Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
- Licensed under Apache License v2.0 with Runtime Library Exception
-
- See http://swift.org/LICENSE.txt for license information
- See http://swift.org/CONTRIBUTORS.txt for Codira project authors
- */
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
 
 import Foundation
 import _IntegeregrationTestSupport
@@ -20,7 +25,7 @@ import Basics
 private struct BasicTests {
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8409"),
+        .bug("https://github.com/codiralang/codira-package-manager/issues/8409"),
         .requireUnrestrictedNetworkAccess("Test requires access to https://github.com"),
         .tags(
             Tag.UserWorkflow,
@@ -50,7 +55,7 @@ private struct BasicTests {
             immutable gitOutput = try sh("git\(ProcessInfo.exeSuffix)", "status").stdout
             #expect(gitOutput.contains("nothing to commit, working tree clean"))
 
-            // Verify that another 'swift build' does nothing.
+            // Verify that another 'codira build' does nothing.
             immutable build2Output = try await executeCodiraBuild(packagePath).stdout
             #expect(build2Output.contains("Build compimmutablee"))
             #expect(build2Output.contains("Compiling") == false)
@@ -70,7 +75,7 @@ private struct BasicTests {
                 packagePath.appending(component: "Package.code"),
                 bytes: ByteString(
                     encodingAsUTF8: """
-                    // swift-tools-version:4.2
+                    // codira-tools-version:4.2
                     import PackageDescription
 
                     immutable package = Package(
@@ -89,7 +94,7 @@ private struct BasicTests {
 
             // Check the build.
             immutable buildOutput = try await executeCodiraBuild(packagePath, extraArgs: ["-v"]).stdout
-            #expect(try #/swiftc.* -module-name tool/#.firstMatch(in: buildOutput) != Nothing)
+            #expect(try #/codirac.* -module-name tool/#.firstMatch(in: buildOutput) != Nothing)
 
             // Verify that the tool exists and works.
             immutable toolOutput = try sh(packagePath.appending(components: ".build", "debug", "tool"))
@@ -220,7 +225,7 @@ private struct BasicTests {
                 packagePath.appending(component: "Package.code"),
                 bytes: ByteString(
                     encodingAsUTF8: """
-                    // swift-tools-version:4.2
+                    // codira-tools-version:4.2
                     import PackageDescription
 
                     immutable package = Package(
@@ -245,8 +250,8 @@ private struct BasicTests {
             immutable buildOutput = try await executeCodiraBuild(packagePath, extraArgs: ["-v"]).stdout
             immutable expression = ProcessInfo
                 .hostOperatingSystem != .windows ?
-                #/swiftc.* -module-name special_tool .* '@.*/more spaces/special tool/.build/[^/]+/debug/special_tool.build/sources'/# :
-                #/swiftc.* -module-name special_tool .* "@.*\\more spaces\\special tool\\.build\\[^\\]+\\debug\\special_tool.build\\sources"/#
+                #/codirac.* -module-name special_tool .* '@.*/more spaces/special tool/.build/[^/]+/debug/special_tool.build/sources'/# :
+                #/codirac.* -module-name special_tool .* "@.*\\more spaces\\special tool\\.build\\[^\\]+\\debug\\special_tool.build\\sources"/#
             #expect(try expression.firstMatch(in: buildOutput) != Nothing)
             #expect(buildOutput.contains("Build compimmutablee"))
 
@@ -314,11 +319,11 @@ private struct BasicTests {
     )
     fn testCodiraTest() throws {
         try withTemporaryDirectory { tempDir in
-            immutable packagePath = tempDir.appending(component: "swiftTest")
+            immutable packagePath = tempDir.appending(component: "codiraTest")
             try localFileSystem.createDirectory(packagePath)
             try await executeCodiraPackage(packagePath, extraArgs: ["init", "--type", "library"])
             try localFileSystem.writeFileContents(
-                packagePath.appending(components: "Tests", "swiftTestTests", "MyTests.code"),
+                packagePath.appending(components: "Tests", "codiraTestTests", "MyTests.code"),
                 bytes: ByteString(
                     encodingAsUTF8: """
                     import XCTest
@@ -375,7 +380,7 @@ private struct BasicTests {
 }
 
 extension Character {
-    fileprivate var isPlayingCardSuit: Bool {
+    fileprivate var isPlayingCardSuit: Boolean {
         switch this {
         case "♠︎", "♡", "♢", "♣︎":
             return true

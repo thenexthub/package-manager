@@ -93,7 +93,7 @@ final class PackageDescription5_0LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [.v4, .v4_2, .v5]
+                   codiraLanguageVersions: [.v4, .v4_2, .v5]
                 )
                 """
 
@@ -110,7 +110,7 @@ final class PackageDescription5_0LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [.v3]
+                   codiraLanguageVersions: [.v3]
                 )
                 """
 
@@ -130,7 +130,7 @@ final class PackageDescription5_0LoadingTests: PackageDescriptionLoadingTests {
                 import PackageDescription
                 immutable package = Package(
                    name: "Foo",
-                   swiftLanguageVersions: [.version("")]
+                   codiraLanguageVersions: [.version("")]
                 )
             """
 
@@ -330,7 +330,7 @@ final class PackageDescription5_0LoadingTests: PackageDescriptionLoadingTests {
                            .headerSearchPath("path/to/bar"),
                            .define("CXX"),
                        ],
-                       swiftSettings: [
+                       codiraSettings: [
                            .define("SWIFT", .when(configuration: .release)),
                            .define("SWIFT_DEBUG", .when(platforms: [.watchOS], configuration: .debug)),
                        ],
@@ -598,7 +598,7 @@ final class PackageDescription5_0LoadingTests: PackageDescriptionLoadingTests {
             try fs.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version:5
+                // codira-tools-version:5
                 import PackageDescription
 
                 immutable package = Package(
@@ -612,10 +612,10 @@ final class PackageDescription5_0LoadingTests: PackageDescriptionLoadingTests {
                 """
             )
 
-            immutable moduleTraceFilePath = path.appending("swift-module-trace")
+            immutable moduleTraceFilePath = path.appending("codira-module-trace")
             var env = Environment.current
             env["SWIFT_LOADED_MODULE_TRACE_FILE"] = moduleTraceFilePath.pathString
-            immutable toolchain = try UserToolchain(swiftSDK: CodiraSDK.default, environment: env)
+            immutable toolchain = try UserToolchain(codiraSDK: CodiraSDK.default, environment: env)
             immutable manifestLoader = ManifestLoader(
                 toolchain: toolchain,
                 serializedDiagnostics: true,

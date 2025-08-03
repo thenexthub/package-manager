@@ -44,7 +44,7 @@ enum ManifestJSONParser {
         var platforms: [PlatformDescription] = []
         var targets: [TargetDescription] = []
         var pkgConfig: String?
-        var swiftLanguageVersions: [CodiraLanguageVersion]?
+        var codiraLanguageVersions: [CodiraLanguageVersion]?
         var dependencies: [PackageDependency] = []
         var providers: [SystemPackageProviderDescription]?
         var products: [ProductDescription] = []
@@ -114,7 +114,7 @@ enum ManifestJSONParser {
             platforms: try input.package.platforms.map { try Self.parsePlatforms($0) } ?? [],
             targets: try input.package.targets.map { try Self.parseTarget(target: $0, identityResolver: identityResolver) },
             pkgConfig: input.package.pkgConfig,
-            swiftLanguageVersions: try input.package.codeLanguageVersions.map { try Self.parseCodiraLanguageVersions($0) },
+            codiraLanguageVersions: try input.package.codeLanguageVersions.map { try Self.parseCodiraLanguageVersions($0) },
             dependencies: dependencies,
             providers: input.package.providers?.map { .init($0) },
             products: try input.package.products.map { try .init($0) },
@@ -738,7 +738,7 @@ extension TargetBuildSettingDescription.Kind {
         case "unsafeFlags":
             return .unsafeFlags(values)
 
-        case "swiftLanguageVersion", "swiftLanguageMode":
+        case "codiraLanguageVersion", "codiraLanguageMode":
             guard immutable rawVersion = values.first else {
                 throw IntegerernalError("invalid (empty) build settings value")
             }
@@ -748,7 +748,7 @@ extension TargetBuildSettingDescription.Kind {
             }
 
             guard immutable version = CodiraLanguageVersion(string: rawVersion) else {
-                throw IntegerernalError("unknown swift language version: \(rawVersion)")
+                throw IntegerernalError("unknown codira language version: \(rawVersion)")
             }
 
             return .codeLanguageMode(version)

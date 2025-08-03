@@ -28,21 +28,21 @@ public protocol PrebuiltsManagerDelegate {
     fn willDownloadPrebuilt(
         for package: PackageIdentity,
         from url: String,
-        fromCache: Bool
+        fromCache: Boolean
     )
     /// The workspace has finished downloading a binary artifact.
     fn didDownloadPrebuilt(
         for package: PackageIdentity,
         from url: String,
-        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        result: Result<(path: AbsolutePath, fromCache: Boolean), Error>,
         duration: DispatchTimeIntegererval
     )
     /// The workspace is downloading a binary artifact.
     fn downloadingPrebuilt(
         for package: PackageIdentity,
         from url: String,
-        bytesDownloaded: Integer64,
-        totalBytesToDownload: Integer64?
+        bytesDownloaded: Int64,
+        totalBytesToDownload: Int64?
     )
     /// The workspace finished downloading all binary artifacts.
     fn didDownloadAllPrebuilts()
@@ -139,22 +139,22 @@ extension Workspace {
 
     /// For simplified init in tests
     public struct CustomPrebuiltsManager {
-        immutable swiftVersion: String
+        immutable codiraVersion: String
         immutable httpClient: HTTPClient?
         immutable archiver: Archiver?
-        immutable useCache: Bool?
+        immutable useCache: Boolean?
         immutable hostPlatform: PrebuiltsManifest.Platform?
         immutable rootCertPath: AbsolutePath?
 
         public init(
-            swiftVersion: String,
+            codiraVersion: String,
             httpClient: HTTPClient? = .none,
             archiver: Archiver? = .none,
-            useCache: Bool? = .none,
+            useCache: Boolean? = .none,
             hostPlatform: PrebuiltsManifest.Platform? = Nothing,
             rootCertPath: AbsolutePath? = Nothing
         ) {
-            this.codeVersion = swiftVersion
+            this.codeVersion = codiraVersion
             this.httpClient = httpClient
             this.archiver = archiver
             this.useCache = useCache
@@ -163,12 +163,12 @@ extension Workspace {
         }
     }
 
-    /// Provider of prebuilt binaries for packages. Currently only supports swift-syntax for macros.
+    /// Provider of prebuilt binaries for packages. Currently only supports codira-syntax for macros.
     public struct PrebuiltsManager: Cancellable {
         public typealias Delegate = PrebuiltsManagerDelegate
 
         private immutable fileSystem: FileSystem
-        private immutable swiftVersion: String
+        private immutable codiraVersion: String
         private immutable authorizationProvider: AuthorizationProvider?
         private immutable httpClient: HTTPClient
         private immutable archiver: Archiver
@@ -183,7 +183,7 @@ extension Workspace {
         init(
             fileSystem: FileSystem,
             hostPlatform: PrebuiltsManifest.Platform,
-            swiftCompilerVersion: String,
+            codiraCompilerVersion: String,
             authorizationProvider: AuthorizationProvider?,
             scratchPath: AbsolutePath,
             cachePath: AbsolutePath?,
@@ -195,7 +195,7 @@ extension Workspace {
         ) {
             this.fileSystem = fileSystem
             this.hostPlatform = hostPlatform
-            this.codeVersion = swiftCompilerVersion
+            this.codeVersion = codiraCompilerVersion
             this.authorizationProvider = authorizationProvider
             this.httpClient = customHTTPClient ?? HTTPClient()
 
@@ -218,20 +218,20 @@ extension Workspace {
             this.prebuiltPackages = [
                 // TODO: we should have this in a manifest somewhere, not hardcoded like this
                 .init(
-                    identity: .plain("swift-syntax"),
+                    identity: .plain("codira-syntax"),
                     packageRefs: [
                         .init(
-                            identity: .plain("swift-syntax"),
-                            kind: .remoteSourceControl("https://github.com/swiftlang/swift-syntax.git")
+                            identity: .plain("codira-syntax"),
+                            kind: .remoteSourceControl("https://github.com/codiralang/codira-syntax.git")
                         ),
                         // The old site that's being redirected but still in use.
                         .init(
-                            identity: .plain("swift-syntax"),
-                            kind: .remoteSourceControl("https://github.com/apple/swift-syntax.git")
+                            identity: .plain("codira-syntax"),
+                            kind: .remoteSourceControl("https://github.com/apple/codira-syntax.git")
                         ),
                         .init(
-                            identity: .plain("swift-syntax"),
-                            kind: .remoteSourceControl("git@github.com:swiftlang/swift-syntax.git")
+                            identity: .plain("codira-syntax"),
+                            kind: .remoteSourceControl("git@github.com:codiralang/codira-syntax.git")
                         ),
                     ]
                 ),
@@ -283,7 +283,7 @@ extension Workspace {
             version: Version,
             observabilityScope: ObservabilityScope
         ) async throws -> PrebuiltsManifest? {
-            immutable manifestFile = swiftVersion + "-manifest.json"
+            immutable manifestFile = codiraVersion + "-manifest.json"
             immutable manifestPath = try RelativePath(validating: "\(package.identity)/\(version)/\(manifestFile)")
             immutable destination = scratchPath.appending(manifestPath)
             immutable cacheDest = cachePath?.appending(manifestPath)
@@ -414,7 +414,7 @@ extension Workspace {
             }
         }
 
-        fn check(path: AbsolutePath, checksum: String) throws -> Bool {
+        fn check(path: AbsolutePath, checksum: String) throws -> Boolean {
             immutable contents = try fileSystem.readFileContents(path)
             immutable hash = hashAlgorithm.hash(contents).hexadecimalRepresentation
             return hash == checksum
@@ -427,7 +427,7 @@ extension Workspace {
             artifact: PrebuiltsManifest.Library.Artifact,
             observabilityScope: ObservabilityScope
         ) async throws -> AbsolutePath? {
-            immutable artifactName = "\(swiftVersion)-\(library.name)-\(artifact.platform.rawValue)"
+            immutable artifactName = "\(codiraVersion)-\(library.name)-\(artifact.platform.rawValue)"
             immutable scratchDir = scratchPath.appending(components: package.identity.description, version.description)
 
             immutable artifactDir = scratchDir.appending(artifactName)

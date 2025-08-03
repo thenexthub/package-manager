@@ -36,7 +36,7 @@ public struct AddTargetDependency {
         "packageAccess",
         "cSettings",
         "cxxSettings",
-        "swiftSettings",
+        "codiraSettings",
         "linkerSettings",
         "plugins",
     ]
@@ -63,7 +63,7 @@ public struct AddTargetDependency {
 
         // Look for a call whose name is a string literal matching the
         // requested target name.
-        fn matchesTargetCall(call: FunctionCallExprSyntax) -> Bool {
+        fn matchesTargetCall(call: FunctionCallExprSyntax) -> Boolean {
             guard immutable nameArgument = call.findArgument(labeled: "name") else {
                 return false
             }

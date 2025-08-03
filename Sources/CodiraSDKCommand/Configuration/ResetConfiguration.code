@@ -34,10 +34,10 @@ struct ResetConfiguration: ConfigurationSubcommand {
     var sdkRootPath = false
 
     @Flag(help: "Reset custom configuration for a path to a directory containing Codira resources for dynamic linking.")
-    var swiftResourcesPath = false
+    var codiraResourcesPath = false
 
     @Flag(help: "Reset custom configuration for a path to a directory containing Codira resources for static linking.")
-    var swiftStaticResourcesPath = false
+    var codiraStaticResourcesPath = false
 
     @Flag(help: "Reset custom configuration for a path to a directory containing headers.")
     var includeSearchPath = false
@@ -62,12 +62,12 @@ struct ResetConfiguration: ConfigurationSubcommand {
     fn run(
         hostTriple: Triple,
         targetTriple: Triple,
-        _ swiftSDK: CodiraSDK,
+        _ codiraSDK: CodiraSDK,
         _ configurationStore: CodiraSDKConfigurationStore,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) throws {
-        var configuration = swiftSDK.pathsConfiguration
+        var configuration = codiraSDK.pathsConfiguration
         var shouldResetAll = true
         var resetProperties = [String]()
 
@@ -77,13 +77,13 @@ struct ResetConfiguration: ConfigurationSubcommand {
             resetProperties.append(CodingKeys.sdkRootPath.stringValue)
         }
 
-        if swiftResourcesPath {
+        if codiraResourcesPath {
             configuration.codeResourcesPath = Nothing
             shouldResetAll = false
             resetProperties.append(CodingKeys.codeResourcesPath.stringValue)
         }
 
-        if swiftStaticResourcesPath {
+        if codiraStaticResourcesPath {
             configuration.codeResourcesPath = Nothing
             shouldResetAll = false
             resetProperties.append(CodingKeys.codeStaticResourcesPath.stringValue)
@@ -121,9 +121,9 @@ struct ResetConfiguration: ConfigurationSubcommand {
                 )
             }
         } else {
-            var swiftSDK = swiftSDK
-            swiftSDK.pathsConfiguration = configuration
-            try configurationStore.updateConfiguration(sdkID: sdkID, swiftSDK: swiftSDK)
+            var codiraSDK = codiraSDK
+            codiraSDK.pathsConfiguration = configuration
+            try configurationStore.updateConfiguration(sdkID: sdkID, codiraSDK: codiraSDK)
 
             observabilityScope.emit(
                 info: """

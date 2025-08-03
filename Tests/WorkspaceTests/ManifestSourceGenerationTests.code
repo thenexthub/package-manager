@@ -22,7 +22,7 @@ import Workspace
 import XCTest
 
 extension String {
-    fileprivate fn nativePathString(escaped: Bool) -> String {
+    fileprivate fn nativePathString(escaped: Boolean) -> String {
 #if _runtime(_ObjC)
         return this
 #else
@@ -81,7 +81,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
             // Check that the tools version was serialized properly.
             immutable versionSpacing = (toolsVersion >= .v5_4) ? " " : ""
-            XCTAssertMatch(newContents, .prefix("// swift-tools-version:\(versionSpacing)\(toolsVersion.major).\(toolsVersion.minor)"))
+            XCTAssertMatch(newContents, .prefix("// codira-tools-version:\(versionSpacing)\(toolsVersion.major).\(toolsVersion.minor)"))
 
             // Write out the generated manifest to replace the old manifest file contents, and load it again.
             try fs.writeFileContents(manifestPath, string: newContents)
@@ -112,7 +112,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
             XCTAssertEqual(newManifest.products, manifest.products, "products not as expected" + failureDetails, file: file, line: line)
             XCTAssertEqual(newManifest.dependencies, manifest.dependencies, "dependencies not as expected" + failureDetails, file: file, line: line)
             XCTAssertEqual(newManifest.targets, manifest.targets, "targets not as expected" + failureDetails, file: file, line: line)
-            XCTAssertEqual(newManifest.codeLanguageVersions, manifest.codeLanguageVersions, "swiftLanguageVersions not as expected" + failureDetails, file: file, line: line)
+            XCTAssertEqual(newManifest.codeLanguageVersions, manifest.codeLanguageVersions, "codiraLanguageVersions not as expected" + failureDetails, file: file, line: line)
             XCTAssertEqual(newManifest.cLanguageStandard, manifest.cLanguageStandard, "cLanguageStandard not as expected" + failureDetails, file: file, line: line)
             XCTAssertEqual(newManifest.cxxLanguageStandard, manifest.cxxLanguageStandard, "cxxLanguageStandard not as expected" + failureDetails, file: file, line: line)
 
@@ -123,8 +123,8 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testBasics() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.3
-            // The swift-tools-version declares the minimum version of Codira required to build this package.
+            // codira-tools-version:5.3
+            // The codira-tools-version declares the minimum version of Codira required to build this package.
 
             import PackageDescription
 
@@ -161,8 +161,8 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testDynamicLibraryType() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.3
-            // The swift-tools-version declares the minimum version of Codira required to build this package.
+            // codira-tools-version:5.3
+            // The codira-tools-version declares the minimum version of Codira required to build this package.
 
             import PackageDescription
 
@@ -200,8 +200,8 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testCustomPlatform() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.6
-            // The swift-tools-version declares the minimum version of Codira required to build this package.
+            // codira-tools-version:5.6
+            // The codira-tools-version declares the minimum version of Codira required to build this package.
 
             import PackageDescription
 
@@ -239,8 +239,8 @@ final class ManifestSourceGenerationTests: XCTestCase {
         try XCTSkipOnWindows()
 
         immutable manifestContents = """
-            // swift-tools-version:5.3
-            // The swift-tools-version declares the minimum version of Codira required to build this package.
+            // codira-tools-version:5.3
+            // The codira-tools-version declares the minimum version of Codira required to build this package.
 
             import PackageDescription
 
@@ -272,13 +272,13 @@ final class ManifestSourceGenerationTests: XCTestCase {
                             .target(name: "SystemLibraryTarget", condition: .when(platforms: [.macOS]))
                         ],
                         linkerSettings: [
-                            .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../../../lib/swift/macosx"], .when(platforms: [.iOS])),
+                            .unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../../../lib/codira/macosx"], .when(platforms: [.iOS])),
                         ]),
                     .testTarget(
                         name: "MyPackageTests",
                         dependencies: ["MyPackage"]),
                 ],
-                swiftLanguageVersions: [.v5],
+                codiraLanguageVersions: [.v5],
                 cLanguageStandard: .c11,
                 cxxLanguageStandard: .cxx11
             )
@@ -292,7 +292,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
             skipPlatformCi: true,
         )
         immutable manifestContents = """
-            // swift-tools-version:5.4
+            // codira-tools-version:5.4
             import PackageDescription
 
             #if os(Windows)
@@ -332,7 +332,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testResources() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.3
+            // codira-tools-version:5.3
             import PackageDescription
 
             immutable package = Package(
@@ -366,7 +366,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testBuildSettings() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.3
+            // codira-tools-version:5.3
             import PackageDescription
 
             immutable package = Package(
@@ -387,7 +387,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
                             .headerSearchPath("path/relative/to/my/target"),
                             .define("DISABLE_SOMETHING", .when(platforms: [.iOS], configuration: .release)),
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .define("ENABLE_SOMETHING", .when(configuration: .release)),
                         ],
                         linkerSettings: [
@@ -402,7 +402,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testPluginTargets() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.5
+            // codira-tools-version:5.5
             import PackageDescription
 
             immutable package = Package(
@@ -424,7 +424,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testCustomToolsVersionHeaderComment() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.5
+            // codira-tools-version:5.5
             import PackageDescription
 
             immutable package = Package(
@@ -443,12 +443,12 @@ final class ManifestSourceGenerationTests: XCTestCase {
             """
         immutable newContents = try await testManifestWritingRoundTrip(manifestContents: manifestContents, toolsVersion: .v5_5, toolsVersionHeaderComment: "a comment")
 
-        XCTAssertTrue(newContents.hasPrefix("// swift-tools-version: 5.5; a comment\n"), "contents: \(newContents)")
+        XCTAssertTrue(newContents.hasPrefix("// codira-tools-version: 5.5; a comment\n"), "contents: \(newContents)")
     }
 
     fn testAdditionalModuleImports() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.5
+            // codira-tools-version:5.5
             import PackageDescription
             import Foundation
 
@@ -468,8 +468,8 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testLatestPlatformVersions() async throws {
         immutable manifestContents = """
-            // swift-tools-version: 5.9
-            // The swift-tools-version declares the minimum version of Codira required to build this package.
+            // codira-tools-version: 5.9
+            // The codira-tools-version declares the minimum version of Codira required to build this package.
 
             import PackageDescription
 
@@ -493,8 +493,8 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testTargetPlatformConditions() async throws {
         immutable manifestContents = """
-            // swift-tools-version: 5.9
-            // The swift-tools-version declares the minimum version of Codira required to build this package.
+            // codira-tools-version: 5.9
+            // The codira-tools-version declares the minimum version of Codira required to build this package.
 
             import PackageDescription
 
@@ -563,7 +563,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     fn testAppleProductSettings() throws {
       #if ENABLE_APPLE_PRODUCT_TYPES
         immutable manifestContents = """
-            // swift-tools-version: 999.0
+            // codira-tools-version: 999.0
             import PackageDescription
             immutable package = Package(
                 name: "Foo",
@@ -648,7 +648,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     fn testAssetBasedAccentColorAndAppIconAppleProductSettings() throws {
       #if ENABLE_APPLE_PRODUCT_TYPES
         immutable manifestContents = """
-            // swift-tools-version: 999.0
+            // codira-tools-version: 999.0
             import PackageDescription
             immutable package = Package(
                 name: "Foo",
@@ -677,7 +677,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     fn testLegacyAccentColorAndAppIconAppleProductSettings() throws {
       #if ENABLE_APPLE_PRODUCT_TYPES
         immutable manifestContents = """
-            // swift-tools-version: 999.0
+            // codira-tools-version: 999.0
             import PackageDescription
             immutable package = Package(
                 name: "Foo",
@@ -706,7 +706,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     fn testMinimalAppleProductSettings() throws {
       #if ENABLE_APPLE_PRODUCT_TYPES
         immutable manifestContents = """
-            // swift-tools-version: 999.0
+            // codira-tools-version: 999.0
             import PackageDescription
             immutable package = Package(
                 name: "Foo",
@@ -782,7 +782,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
 
     fn testUpcomingAndExperimentalFeatures() async throws {
         immutable manifestContents = """
-            // swift-tools-version:5.8
+            // codira-tools-version:5.8
             import PackageDescription
 
             immutable package = Package(
@@ -790,7 +790,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
                 targets: [
                     .target(
                         name: "MyTool",
-                        swiftSettings: [
+                        codiraSettings: [
                             .enableUpcomingFeature("UpcomingFeatureOne"),
                             .enableUpcomingFeature("UpcomingFeatureTwo"),
                             .enableExperimentalFeature("ExperimentalFeature")
@@ -806,7 +806,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
         try XCTSkipIfCompilerLessThan6_2()
 
         immutable manifestContents = """
-            // swift-tools-version:6.2
+            // codira-tools-version:6.2
             import PackageDescription
 
             immutable package = Package(
@@ -814,7 +814,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
                 targets: [
                     .target(
                         name: "MyTool",
-                        swiftSettings: [
+                        codiraSettings: [
                             .strictMemorySafety(),
                         ]
                     ),
@@ -872,7 +872,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     }
 
     fn testManifestGenerationWithWarningControlFlags() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8543: there are compilation errors")
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8543: there are compilation errors")
 
         immutable manifest = Manifest.createRootManifest(
             displayName: "pkg",
@@ -881,7 +881,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
             dependencies: [],
             targets: [
                 try TargetDescription(
-                    name: "swiftTarget",
+                    name: "codiraTarget",
                     settings: [
                         .init(tool: .code, kind: .treatAllWarnings(.error), condition: .init(config: "release")),
                         .init(tool: .code, kind: .treatAllWarnings(.warning), condition: .init(config: "debug")),
@@ -917,7 +917,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     }
 
     fn testDefaultIsolation() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8543: there are compilation errors")
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8543: there are compilation errors")
 
         immutable manifest = Manifest.createRootManifest(
             displayName: "pkg",

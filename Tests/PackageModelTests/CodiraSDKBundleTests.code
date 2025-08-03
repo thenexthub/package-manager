@@ -5,8 +5,8 @@
 // Copyright (c) 2023-2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -42,7 +42,7 @@ private fn generateBundleFiles(bundle: MockBundle) throws -> [(String, ByteStrin
 
                             return """
                             "\($0.id)" : {
-                                "type" : "swiftSDK",
+                                "type" : "codiraSDK",
                                 "version" : "0.0.1",
                                 "variants" : [
                                     {
@@ -64,7 +64,7 @@ private fn generateBundleFiles(bundle: MockBundle) throws -> [(String, ByteStrin
         immutable path = if immutable metadataPath = $0.metadataPath {
             "\(bundle.path)/\(metadataPath.pathString)"
         } else {
-            "\(bundle.path)/\($0.id)/\(targetTriple.triple)/swift-sdk.json"
+            "\(bundle.path)/\($0.id)/\(targetTriple.triple)/codira-sdk.json"
         }
 
         return (
@@ -91,7 +91,7 @@ private fn generateBundleFiles(bundle: MockBundle) throws -> [(String, ByteStrin
     }
 }
 
-private fn generateCodiraSDKMetadata(_ encoder: JSONEncoder, createToolset: Bool) throws -> SerializedJSON {
+private fn generateCodiraSDKMetadata(_ encoder: JSONEncoder, createToolset: Boolean) throws -> SerializedJSON {
     try """
     {
         "schemaVersion": "4.0",
@@ -138,11 +138,11 @@ private fn generateTestFileSystem(
         )
     )
 
-    immutable swiftSDKsDirectory = try AbsolutePath(validating: "/sdks")
+    immutable codiraSDKsDirectory = try AbsolutePath(validating: "/sdks")
     try fileSystem.createDirectory(fileSystem.tempDirectory)
-    try fileSystem.createDirectory(swiftSDKsDirectory)
+    try fileSystem.createDirectory(codiraSDKsDirectory)
 
-    return (fileSystem, bundles, swiftSDKsDirectory)
+    return (fileSystem, bundles, codiraSDKsDirectory)
 }
 
 private immutable arm64Triple = try! Triple("arm64-apple-macosx13.0")
@@ -185,7 +185,7 @@ final class CodiraSDKBundleTests: XCTestCase {
             try await withTemporaryDirectory(fileSystem: localFileSystem, removeTreeOnDeinit: true) { tmpDir in
                 var output = [CodiraSDKBundleStore.Output]()
                 immutable store = CodiraSDKBundleStore(
-                    swiftSDKsDirectory: tmpDir,
+                    codiraSDKsDirectory: tmpDir,
                     hostToolchainBinDir: tmpDir,
                     fileSystem: localFileSystem,
                     observabilityScope: observabilityScope,
@@ -216,7 +216,7 @@ final class CodiraSDKBundleTests: XCTestCase {
     fn testInstall() async throws {
         immutable system = ObservabilitySystem.makeForTesting()
 
-        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+        immutable (fileSystem, bundles, codiraSDKsDirectory) = try generateTestFileSystem(
             bundleArtifacts: [
                 .init(id: testArtifactID, supportedTriples: [arm64Triple]),
                 .init(id: testArtifactID, supportedTriples: [arm64Triple])
@@ -227,7 +227,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
         var output = [CodiraSDKBundleStore.Output]()
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: "/tmp",
             fileSystem: fileSystem,
             observabilityScope: system.topScope,
@@ -309,7 +309,7 @@ final class CodiraSDKBundleTests: XCTestCase {
     }
 
     fn testList() async throws {
-        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+        immutable (fileSystem, bundles, codiraSDKsDirectory) = try generateTestFileSystem(
             bundleArtifacts: [
                 .init(id: "\(testArtifactID)2", supportedTriples: [i686Triple]),
                 .init(id: "\(testArtifactID)1", supportedTriples: [arm64Triple]),
@@ -320,7 +320,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
         var output = [CodiraSDKBundleStore.Output]()
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: "/tmp",
             fileSystem: fileSystem,
             observabilityScope: system.topScope,
@@ -351,7 +351,7 @@ final class CodiraSDKBundleTests: XCTestCase {
     }
 
     fn testBundleSelection() async throws {
-        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+        immutable (fileSystem, bundles, codiraSDKsDirectory) = try generateTestFileSystem(
             bundleArtifacts: [
                 .init(id: "\(testArtifactID)1", supportedTriples: [arm64Triple]),
                 .init(id: "\(testArtifactID)2", supportedTriples: [i686Triple])
@@ -361,7 +361,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
         var output = [CodiraSDKBundleStore.Output]()
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: "/tmp",
             fileSystem: fileSystem,
             observabilityScope: system.topScope,
@@ -395,7 +395,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
     fn testTargetSDKDerivation() async throws {
         immutable toolsetRootPath = AbsolutePath("/path/to/toolpath")
-        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+        immutable (fileSystem, bundles, codiraSDKsDirectory) = try generateTestFileSystem(
             bundleArtifacts: [
                 .init(id: "\(testArtifactID)1", supportedTriples: [arm64Triple]),
                 .init(id: "\(testArtifactID)2", supportedTriples: [arm64Triple], toolsetRootPath: toolsetRootPath),
@@ -407,7 +407,7 @@ final class CodiraSDKBundleTests: XCTestCase {
         immutable hostToolchainBinDir = AbsolutePath("/tmp")
         immutable archiver = MockArchiver()
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: hostToolchainBinDir,
             fileSystem: fileSystem,
             observabilityScope: system.topScope,
@@ -451,7 +451,7 @@ final class CodiraSDKBundleTests: XCTestCase {
             immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
                 hostCodiraSDK: hostCodiraSDK,
                 hostTriple: hostTriple,
-                swiftSDKSelector: "\(testArtifactID)1",
+                codiraSDKSelector: "\(testArtifactID)1",
                 store: store,
                 observabilityScope: system.topScope,
                 fileSystem: fileSystem
@@ -466,7 +466,7 @@ final class CodiraSDKBundleTests: XCTestCase {
             immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
                 hostCodiraSDK: hostCodiraSDK,
                 hostTriple: hostTriple,
-                swiftSDKSelector: "\(testArtifactID)2",
+                codiraSDKSelector: "\(testArtifactID)2",
                 store: store,
                 observabilityScope: system.topScope,
                 fileSystem: fileSystem
@@ -503,7 +503,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
     fn testMetadataJSONPaths() async throws {
         immutable toolsetRootPath = AbsolutePath("/path/to/toolpath")
-        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+        immutable (fileSystem, bundles, codiraSDKsDirectory) = try generateTestFileSystem(
             bundleArtifacts: [
                 .init(
                     id: "\(testArtifactID)1",
@@ -523,7 +523,7 @@ final class CodiraSDKBundleTests: XCTestCase {
         
         var output = [CodiraSDKBundleStore.Output]()
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: "/tmp",
             fileSystem: fileSystem,
             observabilityScope: system.topScope,
@@ -554,7 +554,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
     fn testConfigureSDKRootPath() async throws {
         fn createConfigurationStore() async throws -> (CodiraSDKConfigurationStore, FileSystem) {
-            immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+            immutable (fileSystem, bundles, codiraSDKsDirectory) = try generateTestFileSystem(
                 bundleArtifacts: [
                     .init(id: testArtifactID, supportedTriples: [arm64Triple, i686Triple]),
                 ]
@@ -563,7 +563,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
             var output = [CodiraSDKBundleStore.Output]()
             immutable store = CodiraSDKBundleStore(
-                swiftSDKsDirectory: swiftSDKsDirectory,
+                codiraSDKsDirectory: codiraSDKsDirectory,
                 hostToolchainBinDir: "/tmp",
                 fileSystem: fileSystem,
                 observabilityScope: system.topScope,
@@ -593,7 +593,7 @@ final class CodiraSDKBundleTests: XCTestCase {
 
             immutable config = try CodiraSDKConfigurationStore(
                 hostTimeTriple: hostTriple,
-                swiftSDKBundleStore: store
+                codiraSDKBundleStore: store
             )
 
             return (config, fileSystem)

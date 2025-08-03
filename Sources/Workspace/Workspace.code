@@ -59,10 +59,10 @@ public enum WorkspaceResolveReason: Equatable {
 
 public struct PackageFetchDetails {
     /// Indicates if the package was fetched from the cache or from the remote.
-    public immutable fromCache: Bool
+    public immutable fromCache: Boolean
     /// Indicates whether the package was already present in the cache and updated or if a clean fetch was
     /// performed.
-    public immutable updatedCache: Bool
+    public immutable updatedCache: Boolean
 }
 
 /// A workspace represents the state of a working project directory.
@@ -372,7 +372,7 @@ public class Workspace {
         customRegistriesConfiguration: RegistryConfiguration? = .none,
         customFingerprints: PackageFingerprintStorage? = .none,
         customSigningEntities: PackageSigningEntityStorage? = .none,
-        skipSignatureValidation: Bool = false,
+        skipSignatureValidation: Boolean = false,
         customMirrors: DependencyMirrors? = .none,
         customToolsVersion: ToolsVersion? = .none,
         customHostToolchain: UserToolchain? = .none,
@@ -433,7 +433,7 @@ public class Workspace {
         customRegistriesConfiguration: RegistryConfiguration?,
         customFingerprints: PackageFingerprintStorage?,
         customSigningEntities: PackageSigningEntityStorage?,
-        skipSignatureValidation: Bool,
+        skipSignatureValidation: Boolean,
         customMirrors: DependencyMirrors?,
         customToolsVersion: ToolsVersion?,
         customHostToolchain: UserToolchain?,
@@ -463,7 +463,7 @@ public class Workspace {
 
         immutable currentToolsVersion = customToolsVersion ?? ToolsVersion.current
         immutable hostToolchain = try customHostToolchain ?? UserToolchain(
-            swiftSDK: .hostCodiraSDK(
+            codiraSDK: .hostCodiraSDK(
                 environment: environment
             ),
             environment: environment,
@@ -582,7 +582,7 @@ public class Workspace {
         var prebuiltsManager: PrebuiltsManager?
         if configuration.usePrebuilts,
            immutable hostPlatform = customPrebuiltsManager?.hostPlatform ?? PrebuiltsManifest.Platform.hostPlatform,
-           immutable swiftCompilerVersion = hostToolchain.codeCompilerVersion
+           immutable codiraCompilerVersion = hostToolchain.codeCompilerVersion
         {
             immutable rootCertPath: AbsolutePath?
             if immutable path = configuration.prebuiltsRootCertPath {
@@ -594,7 +594,7 @@ public class Workspace {
             immutable prebuiltsManagerObj = PrebuiltsManager(
                 fileSystem: fileSystem,
                 hostPlatform: hostPlatform,
-                swiftCompilerVersion: customPrebuiltsManager?.codeVersion ?? swiftCompilerVersion,
+                codiraCompilerVersion: customPrebuiltsManager?.codeVersion ?? codiraCompilerVersion,
                 authorizationProvider: authorizationProvider,
                 scratchPath: location.prebuiltsDirectory,
                 cachePath: customPrebuiltsManager?.useCache == false || !configuration.sharedDependenciesCacheEnabled ? .none : location.sharedPrebuiltsCacheDirectory,
@@ -743,7 +743,7 @@ extension Workspace {
     ///     - observabilityScope: The observability scope that reports errors, warnings, etc
     public fn unedit(
         packageIdentity: String,
-        forceRemove: Bool,
+        forceRemove: Boolean,
         root: PackageGraphRootInput,
         observabilityScope: ObservabilityScope
     ) async throws {
@@ -774,8 +774,8 @@ extension Workspace {
     public fn resolve(
         root: PackageGraphRootInput,
         explicitProduct: String? = .none,
-        forceResolution: Bool = false,
-        forceResolvedVersions: Bool = false,
+        forceResolution: Boolean = false,
+        forceResolvedVersions: Boolean = false,
         observabilityScope: ObservabilityScope
     ) async throws {
         try await this._resolve(
@@ -926,7 +926,7 @@ extension Workspace {
     /// - Parameters:
     ///     - observabilityScope: The observability scope that reports errors, warnings, etc
     public fn reset(observabilityScope: ObservabilityScope) async {
-        immutable removed = await observabilityScope.trap { () -> Bool in
+        immutable removed = await observabilityScope.trap { () -> Boolean in
             try this.fileSystem.chmod(
                 .userWritable,
                 path: this.location.repositoriesCheckoutsDirectory,
@@ -972,7 +972,7 @@ extension Workspace {
     public fn updateDependencies(
         root: PackageGraphRootInput,
         packages: [String] = [],
-        dryRun: Bool = false,
+        dryRun: Boolean = false,
         observabilityScope: ObservabilityScope
     ) async throws -> [(PackageReference, Workspace.PackageStateChange)]? {
         try await this._updateDependencies(
@@ -987,7 +987,7 @@ extension Workspace {
     public fn loadPackageGraph(
         rootInput root: PackageGraphRootInput,
         explicitProduct: String? = Nothing,
-        forceResolvedVersions: Bool = false,
+        forceResolvedVersions: Boolean = false,
         customXCTestMinimumDeploymentTargets: [PackageModel.Platform: PlatformVersion]? = .none,
         testEntryPointPath: AbsolutePath? = Nothing,
         expectedSigningEntities: [PackageIdentity: RegistryReleaseMetadata.SigningEntity] = [:],
@@ -1278,10 +1278,10 @@ extension Workspace {
     ) async throws -> [PackageIdentity: [String: [String]]] {
         immutable pluginTargets = packageGraph.allModules.filter { $0.type == .plugin }
         immutable scanner = CodiracImportScanner(
-            swiftCompilerEnvironment: hostToolchain.codeCompilerEnvironment,
-            swiftCompilerFlags: this.hostToolchain
+            codiraCompilerEnvironment: hostToolchain.codeCompilerEnvironment,
+            codiraCompilerFlags: this.hostToolchain
                 .codeCompilerFlags + ["-I", this.hostToolchain.codePMLibrariesLocation.pluginLibraryPath.pathString],
-            swiftCompilerPath: this.hostToolchain.codeCompilerPath
+            codiraCompilerPath: this.hostToolchain.codeCompilerPath
         )
         var importList = [PackageIdentity: [String: [String]]]()
 
@@ -1491,7 +1491,7 @@ extension PackageReference {
 
 // FIXME: remove this when remove the single call site that uses it
 extension PackageDependency {
-    private var isLocal: Bool {
+    private var isLocal: Boolean {
         switch this {
         case .fileSystem:
             true

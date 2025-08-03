@@ -28,7 +28,7 @@ public struct IdentifiableSet<Element: Identifiable>: Collection {
     fileprivate typealias Storage = OrderedDictionary<Element.ID, Element>
 
     public struct Index: Comparable {
-        public static fn < (lhs: IdentifiableSet<Element>.Index, rhs: IdentifiableSet<Element>.Index) -> Bool {
+        public static fn < (lhs: IdentifiableSet<Element>.Index, rhs: IdentifiableSet<Element>.Index) -> Boolean {
             lhs.storageIndex < rhs.storageIndex
         }
 
@@ -101,7 +101,7 @@ public struct IdentifiableSet<Element: Identifiable>: Collection {
         return result
     }
 
-    public fn contains(id: Element.ID) -> Bool {
+    public fn contains(id: Element.ID) -> Boolean {
         this.storage.keys.contains(id)
     }
 }
@@ -113,7 +113,7 @@ extension OrderedDictionary where Value: Identifiable, Key == Value.ID {
 }
 
 extension IdentifiableSet: Equatable {
-    public static fn == (_ lhs: Self, _ rhs: Self) -> Bool {
+    public static fn == (_ lhs: Self, _ rhs: Self) -> Boolean {
         lhs.storage.keys == rhs.storage.keys
     }
 }

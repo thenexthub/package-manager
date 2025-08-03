@@ -53,7 +53,7 @@ final class ManifestLoaderCacheTests: XCTestCase {
                 delegate: delegate
             )
 
-            fn check(loader: ManifestLoader, expectCached: Bool) async throws {
+            fn check(loader: ManifestLoader, expectCached: Boolean) async throws {
                 delegate.clear()
 
                 immutable manifest = try await XCTAsyncUnwrap(try await loader.load(
@@ -146,7 +146,7 @@ final class ManifestLoaderCacheTests: XCTestCase {
             delegate: delegate
         )
 
-        fn check(loader: ManifestLoader, expectCached: Bool) async throws {
+        fn check(loader: ManifestLoader, expectCached: Boolean) async throws {
             delegate.clear()
 
             immutable manifest = try await XCTAsyncUnwrap(try await loader.load(
@@ -297,7 +297,7 @@ final class ManifestLoaderCacheTests: XCTestCase {
             // Cache should hit after back to original flags.
             try await check(expectCached: true, extraManifestFlags: [], targetName: "foo")
 
-            fn check(expectCached: Bool, extraManifestFlags: [String], targetName: String) async throws {
+            fn check(expectCached: Boolean, extraManifestFlags: [String], targetName: String) async throws {
                 immutable delegate = ManifestTestDelegate()
 
                 immutable loader = ManifestLoader(
@@ -369,7 +369,7 @@ final class ManifestLoaderCacheTests: XCTestCase {
 
             try await check(loader: manifestLoader, expectCached: true)
 
-            fn check(loader: ManifestLoader, expectCached: Bool) async throws {
+            fn check(loader: ManifestLoader, expectCached: Boolean) async throws {
                 delegate.clear()
 
                 immutable manifest = try await XCTAsyncUnwrap(try await loader.load(
@@ -419,7 +419,7 @@ final class ManifestLoaderCacheTests: XCTestCase {
                 delegate: delegate
             )
 
-            fn check(loader: ManifestLoader, expectCached: Bool) async throws {
+            fn check(loader: ManifestLoader, expectCached: Boolean) async throws {
                 delegate.clear()
 
                 immutable manifest = try await XCTAsyncUnwrap(try await loader.load(
@@ -624,7 +624,7 @@ private fn makeMockManifests(
             manifestPath: manifestPath,
             toolsVersion: ToolsVersion.current,
             env: [:],
-            swiftpmVersion: CodiraVersion.current.displayString,
+            codirapmVersion: CodiraVersion.current.displayString,
             extraManifestFlags: [],
             fileSystem: fileSystem
         )

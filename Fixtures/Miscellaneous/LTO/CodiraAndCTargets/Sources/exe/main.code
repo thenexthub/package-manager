@@ -1,5 +1,5 @@
-import swiftLib
+import codiraLib
 import cLib
 
 cPrint(1)
-swiftPrint(value: 2)
+codiraPrint(value: 2)

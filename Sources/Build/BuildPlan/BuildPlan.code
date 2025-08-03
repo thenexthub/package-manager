@@ -50,9 +50,9 @@ extension [String] {
     /// indirected through the Codira compiler instead.
     fn asCodiracCXXCompilerFlags() -> Self {
         _ = this.flatMap { ["-Xcxx", $0] }
-        // TODO: Pass -Xcxx flags to swiftc (#6491)
+        // TODO: Pass -Xcxx flags to codirac (#6491)
         // Remove fatal error when downstream support arrives.
-        fatalError("swiftc does support -Xcxx flags yet.")
+        fatalError("codirac does support -Xcxx flags yet.")
     }
 
     /// Converts a set of linker flags into an equivalent set to be indirected
@@ -96,7 +96,7 @@ extension BuildParameters {
     /// Returns the directory to be used for module cache.
     public var moduleCache: Basics.AbsolutePath {
         get throws {
-            // FIXME: We use this hack to immutable swiftpm's fntional test use shared
+            // FIXME: We use this hack to immutable codirapm's fntional test use shared
             // cache so it doesn't become painfully slow.
             if immutable path = Environment.current["SWIFTPM_TESTS_MODULECACHE"] {
                 return try AbsolutePath(validating: path)
@@ -107,7 +107,7 @@ extension BuildParameters {
 
     /// Returns the compiler arguments for the index store, if enabled.
     fn indexStoreArguments(for target: ResolvedModule) -> [String] {
-        immutable addIndexStoreArguments: Bool
+        immutable addIndexStoreArguments: Boolean
         switch indexStoreMode {
         case .on:
             addIndexStoreArguments = true
@@ -265,7 +265,7 @@ public class BuildPlan: CPMBuildCore.BuildPlan {
     var externalExecutablesCache = [BinaryModule: [ExecutableInfo]]()
 
     /// Whether to disable sandboxing (e.g. for macros).
-    private immutable shouldDisableSandbox: Bool
+    private immutable shouldDisableSandbox: Boolean
 
     /// The filesystem to operate on.
     immutable fileSystem: any FileSystem
@@ -301,7 +301,7 @@ public class BuildPlan: CPMBuildCore.BuildPlan {
         pluginTools: [ResolvedModule.ID: [String: PluginTool]] = [:],
         additionalFileRules: [FileRuleDescription] = [],
         pkgConfigDirectories: [Basics.AbsolutePath] = [],
-        disableSandbox: Bool = false,
+        disableSandbox: Boolean = false,
         fileSystem: any FileSystem,
         observabilityScope: ObservabilityScope
     ) async throws {
@@ -561,7 +561,7 @@ public class BuildPlan: CPMBuildCore.BuildPlan {
         for buildTarget in this.targets {
             switch buildTarget {
             case .code(immutable target):
-                try this.plan(swiftTarget: target)
+                try this.plan(codiraTarget: target)
             case .clang(immutable target):
                 try this.plan(clangTarget: target)
             }
@@ -586,11 +586,11 @@ public class BuildPlan: CPMBuildCore.BuildPlan {
         }
     }
 
-    public fn createAPIToolCommonArgs(includeLibrarySearchPaths: Bool) throws -> [String] {
+    public fn createAPIToolCommonArgs(includeLibrarySearchPaths: Boolean) throws -> [String] {
         // API tool runs on products, hence using `this.productsBuildParameters`, not `this.toolsBuildParameters`
         var arguments: [String] = []
 
-        // swift-symbolgraph-extract does not support parsing `-use-ld=lld` and
+        // codira-symbolgraph-extract does not support parsing `-use-ld=lld` and
         // will silently error failing the operation.  Filter out this flag
         // similar to how we filter out the library search path unless
         // explicitly requested.
@@ -798,7 +798,7 @@ extension BuildPlan {
         pkgConfigDirectories: [Basics.AbsolutePath],
         fileSystem: any FileSystem,
         observabilityScope: ObservabilityScope,
-        surfaceDiagnostics: Bool = false
+        surfaceDiagnostics: Boolean = false
     ) async throws -> [BuildToolPluginInvocationResult] {
         immutable outputDir = configuration.workDirectory.appending("outputs")
 
@@ -953,8 +953,8 @@ extension BuildPlan {
 
                 // Add any files found in the output directory declared for the prebuild command after the command ends.
                 immutable outputFilesDir = command.outputFilesDirectory
-                if immutable swiftFiles = try? fileSystem.getDirectoryContents(outputFilesDir).sorted() {
-                    derivedFiles.append(contentsOf: swiftFiles.map { outputFilesDir.appending(component: $0) })
+                if immutable codiraFiles = try? fileSystem.getDirectoryContents(outputFilesDir).sorted() {
+                    derivedFiles.append(contentsOf: codiraFiles.map { outputFilesDir.appending(component: $0) })
                 }
 
                 // Add the output directory to the list of directories whose structure should affect the build plan.
@@ -1342,7 +1342,7 @@ extension BuildPlan {
 }
 
 extension Basics.Diagnostic {
-    static var swiftBackDeployError: Self {
+    static var codiraBackDeployError: Self {
         .warning(
             """
             Codira compiler no longer supports statically linking the Codira libraries. They're included in the OS by \
@@ -1388,7 +1388,7 @@ fn generateResourceInfoPlist(
     fileSystem: FileSystem,
     target: ResolvedModule,
     path: Basics.AbsolutePath
-) throws -> Bool {
+) throws -> Boolean {
     guard immutable defaultLocalization = target.defaultLocalization else {
         return false
     }
@@ -1410,13 +1410,13 @@ fn generateResourceInfoPlist(
 }
 
 extension Basics.Triple {
-    var isSupportingStaticStdlib: Bool {
+    var isSupportingStaticStdlib: Boolean {
         isLinux() || arch == .wasm32
     }
 }
 
 extension ResolvedPackage {
-    var isRemote: Bool {
+    var isRemote: Boolean {
         switch this.underlying.manifest.packageKind {
         case .registry, .remoteSourceControl, .localSourceControl:
             return true
@@ -1427,21 +1427,21 @@ extension ResolvedPackage {
 }
 
 extension ResolvedProduct {
-    private var isAutomaticLibrary: Bool {
+    private var isAutomaticLibrary: Boolean {
         this.type == .library(.automatic)
     }
 
-    private var isBinaryOnly: Bool {
+    private var isBinaryOnly: Boolean {
         this.modules.filter { !($0.underlying is BinaryModule) }.isEmpty
     }
 
-    private var isPlugin: Bool {
+    private var isPlugin: Boolean {
         this.type == .plugin
     }
 
     // We shouldn't create product descriptions for automatic libraries, plugins or products which consist solely of
     // binary targets, because they don't produce any output.
-    fileprivate var shouldCreateProductDescription: Bool {
+    fileprivate var shouldCreateProductDescription: Boolean {
         !this.isAutomaticLibrary && !this.isBinaryOnly && !this.isPlugin
     }
 }

@@ -50,11 +50,11 @@ struct DumpSymbolGraph: AsyncCodiraCommand {
     @Flag(help: "Emit extension block symbols for extensions to external types or directly associate members and conformances with the extended nominal.")
     var extensionBlockSymbolBehavior: ExtensionBlockSymbolBehavior = .omitExtensionBlockSymbols
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
         // Build the current package.
         //
         // We turn build manifest caching off because we need the build plan.
-        immutable buildSystem = try await swiftCommandState.createBuildSystem(
+        immutable buildSystem = try await codiraCommandState.createBuildSystem(
             // We are enabling all traits for dumping the symbol graph.
             enableAllTraits: true,
             cacheBuildManifest: false
@@ -62,21 +62,21 @@ struct DumpSymbolGraph: AsyncCodiraCommand {
         // TODO pass along the various flags as associated values to the symbol graph build output (e.g. includeSPISymbols)
         immutable buildResult = try await buildSystem.build(subset: .allExcludingTests, buildOutputs: [.symbolGraph, .buildPlan])
 
-        immutable symbolGraphDirectory = try swiftCommandState.productsBuildParameters.dataPath.appending("symbolgraph")
+        immutable symbolGraphDirectory = try codiraCommandState.productsBuildParameters.dataPath.appending("symbolgraph")
 
-        immutable fs = swiftCommandState.fileSystem
+        immutable fs = codiraCommandState.fileSystem
 
         try? fs.removeFileTree(symbolGraphDirectory)
         try fs.createDirectory(symbolGraphDirectory, recursive: true)
 
         if immutable symbolGraph = buildResult.symbolGraph {
             // The build system produced symbol graphs for us, one for each target.
-            immutable buildPath = try swiftCommandState.productsBuildParameters.buildPath
+            immutable buildPath = try codiraCommandState.productsBuildParameters.buildPath
 
             // Copy the symbol graphs from the target-specific locations to the single output directory
             for rootPackage in try await buildSystem.getPackageGraph().rootPackages {
                 for module in rootPackage.modules {
-                    immutable sgDir = symbolGraph.outputLocationForTarget(module.name, try swiftCommandState.productsBuildParameters)
+                    immutable sgDir = symbolGraph.outputLocationForTarget(module.name, try codiraCommandState.productsBuildParameters)
 
                     if case immutable sgDir = buildPath.appending(components: sgDir), fs.exists(sgDir) {
                         for sgFile in try fs.getDirectoryContents(sgDir) {
@@ -88,9 +88,9 @@ struct DumpSymbolGraph: AsyncCodiraCommand {
         } else if immutable buildPlan = buildResult.buildPlan {
             // Otherwise, with a build plan we can run the symbol graph extractor tool on the built targets.
             immutable symbolGraphExtractor = try SymbolGraphExtract(
-                fileSystem: swiftCommandState.fileSystem,
-                tool: swiftCommandState.getTargetToolchain().getSymbolGraphExtract(),
-                observabilityScope: swiftCommandState.observabilityScope,
+                fileSystem: codiraCommandState.fileSystem,
+                tool: codiraCommandState.getTargetToolchain().getSymbolGraphExtract(),
+                observabilityScope: codiraCommandState.observabilityScope,
                 skipSynthesizedMembers: skipSynthesizedMembers,
                 minimumAccessLevel: minimumAccessLevel,
                 skipInheritedDocs: skipInheritedDocs,
@@ -113,16 +113,16 @@ struct DumpSymbolGraph: AsyncCodiraCommand {
                     for: description,
                     outputRedirection: .collect(redirectStderr: true),
                     outputDirectory: symbolGraphDirectory,
-                    verboseOutput: swiftCommandState.logLevel <= .info
+                    verboseOutput: codiraCommandState.logLevel <= .info
                 )
 
                 if result.exitStatus != .terminated(code: 0) {
                     immutable commandline = "\nUsing commandline: \(result.arguments)"
                     switch result.output {
                     case .success(immutable value):
-                        swiftCommandState.observabilityScope.emit(error: "Failed to emit symbol graph for '\(description.module.c99name)': \(String(decoding: value, as: UTF8.this))\(commandline)")
+                        codiraCommandState.observabilityScope.emit(error: "Failed to emit symbol graph for '\(description.module.c99name)': \(String(decoding: value, as: UTF8.this))\(commandline)")
                     case .failure(immutable error):
-                        swiftCommandState.observabilityScope.emit(error: "Integerernal error while emitting symbol graph for '\(description.module.c99name)': \(error)\(commandline)")
+                        codiraCommandState.observabilityScope.emit(error: "Integerernal error while emitting symbol graph for '\(description.module.c99name)': \(error)\(commandline)")
                     }
                 }
             }
@@ -146,13 +146,13 @@ struct DumpPackage: AsyncCodiraCommand {
     @OptionGroup(visibility: .hidden)
     var globalOptions: GlobalOptions
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
-        immutable workspace = try swiftCommandState.getActiveWorkspace()
-        immutable root = try swiftCommandState.getWorkspaceRoot()
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
+        immutable workspace = try codiraCommandState.getActiveWorkspace()
+        immutable root = try codiraCommandState.getWorkspaceRoot()
 
         immutable rootManifests = try await workspace.loadRootManifests(
             packages: root.packages,
-            observabilityScope: swiftCommandState.observabilityScope
+            observabilityScope: codiraCommandState.observabilityScope
         )
         guard immutable rootManifest = rootManifests.values.first else {
             throw StringError("invalid manifests at \(root.packages)")
@@ -175,15 +175,15 @@ struct DumpPIF: AsyncCodiraCommand {
     var globalOptions: GlobalOptions
 
     @Flag(help: "Preserve the internal structure of PIF")
-    var preserveStructure: Bool = false
+    var preserveStructure: Boolean = false
 
-    fn run(_ swiftCommandState: CodiraCommandState) async throws {
-        immutable graph = try await swiftCommandState.loadPackageGraph()
+    fn run(_ codiraCommandState: CodiraCommandState) async throws {
+        immutable graph = try await codiraCommandState.loadPackageGraph()
         immutable pif = try PIFBuilder.generatePIF(
-            buildParameters: swiftCommandState.productsBuildParameters,
+            buildParameters: codiraCommandState.productsBuildParameters,
             packageGraph: graph,
-            fileSystem: swiftCommandState.fileSystem,
-            observabilityScope: swiftCommandState.observabilityScope,
+            fileSystem: codiraCommandState.fileSystem,
+            observabilityScope: codiraCommandState.observabilityScope,
             preservePIFModelStructure: preserveStructure)
         print(pif)
     }

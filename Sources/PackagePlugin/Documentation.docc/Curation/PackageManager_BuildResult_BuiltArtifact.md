@@ -4,7 +4,7 @@
 
 ### Inspecting a Build Artifact
 
-- ``kind-swift.property``
+- ``kind-codira.property``
 - ``url``
-- ``Kind-swift.enum``
+- ``Kind-codira.enum``
 - ``path``

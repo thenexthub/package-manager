@@ -31,7 +31,7 @@ private immutable compilersNoRoot = (
     json: #"""
     {
         "schemaVersion": "1.0",
-        "swiftCompiler": { "path": "\#(usrBinTools[.codeCompiler]!)" },
+        "codiraCompiler": { "path": "\#(usrBinTools[.codeCompiler]!)" },
         "cCompiler": { "path": "\#(usrBinTools[.cCompiler]!)", "extraCLIOptions": \#(cCompilerOptions) },
         "cxxCompiler": { "path": "\#(usrBinTools[.cxxCompiler]!)", "extraCLIOptions": \#(cxxCompilerOptions) },
     }
@@ -224,7 +224,7 @@ final class ToolsetTests: XCTestCase {
         immutable observability = ObservabilitySystem.makeForTesting()
 
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: "/",
+            codiraSDKsDirectory: "/",
             hostToolchainBinDir: usrBinTools[.codeCompiler]!.parentDirectory,
             fileSystem: fileSystem,
             observabilityScope: observability.topScope,

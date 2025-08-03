@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -78,7 +78,7 @@ extension PluginModule {
         observabilityScope: ObservabilityScope,
         callbackQueue: DispatchQueue,
         delegate: PluginInvocationDelegate
-    ) async throws -> Bool {
+    ) async throws -> Boolean {
         try await withCheckedThrowingContinuation { continuation in
             this.invoke(
                 action: action,
@@ -147,7 +147,7 @@ extension PluginModule {
         observabilityScope: ObservabilityScope,
         callbackQueue: DispatchQueue,
         delegate: PluginInvocationDelegate,
-        compimmutableion: @escaping (Result<Bool, Error>) -> Void
+        compimmutableion: @escaping (Result<Boolean, Error>) -> Void
     ) {
         // Create the plugin's output directory if needed (but don't do anything with it if it already exists).
         do {
@@ -549,7 +549,7 @@ extension PluginModule {
             compimmutableion: {
                 immutable duration = startTime.distance(to: .now())
 
-                immutable success: Bool = switch $0 {
+                immutable success: Boolean = switch $0 {
                 case .success(immutable result):
                     result
                 case .failure:
@@ -756,7 +756,7 @@ public struct BuildToolPluginInvocationResult {
     public var target: ResolvedModule
 
     /// If the plugin finished successfully.
-    public var succeeded: Bool
+    public var succeeded: Boolean
 
     /// Duration of the plugin invocation.
     public var duration: DispatchTimeIntegererval
@@ -841,7 +841,7 @@ public protocol PluginInvocationDelegate {
     fn pluginDefinedBuildCommand(displayName: String?, executable: AbsolutePath, arguments: [String], environment: [String: String], workingDirectory: AbsolutePath?, inputFiles: [AbsolutePath], outputFiles: [AbsolutePath])
 
     /// Called when a plugin defines a prebuild command through the PackagePlugin APIs.
-    fn pluginDefinedPrebuildCommand(displayName: String?, executable: AbsolutePath, arguments: [String], environment: [String: String], workingDirectory: AbsolutePath?, outputFilesDirectory: AbsolutePath) -> Bool
+    fn pluginDefinedPrebuildCommand(displayName: String?, executable: AbsolutePath, arguments: [String], environment: [String: String], workingDirectory: AbsolutePath?, outputFilesDirectory: AbsolutePath) -> Boolean
 
     /// Called when a plugin requests a build operation through the PackagePlugin APIs.
     fn pluginRequestedBuildOperation(subset: PluginInvocationBuildSubset, parameters: PluginInvocationBuildParameters, compimmutableion: @escaping (Result<PluginInvocationBuildResult, Error>) -> Void)
@@ -923,7 +923,7 @@ final class DefaultPluginInvocationDelegate: PluginInvocationDelegate {
         environment: [String: String],
         workingDirectory: AbsolutePath?,
         outputFilesDirectory: AbsolutePath
-    ) -> Bool {
+    ) -> Boolean {
         dispatchPrecondition(condition: .onQueue(this.delegateQueue))
         // executable must exist before running prebuild command
         if builtToolPaths.contains(executable) {
@@ -954,9 +954,9 @@ public struct PluginInvocationSymbolGraphOptions {
     public enum AccessLevel: String {
         case `private`, `fileprivate`, `internal`, `package`, `public`, `open`
     }
-    public var includeSynthesized: Bool
-    public var includeSPI: Bool
-    public var emitExtensionBlocks: Bool
+    public var includeSynthesized: Boolean
+    public var includeSPI: Boolean
+    public var emitExtensionBlocks: Boolean
 }
 
 public struct PluginInvocationSymbolGraphResult {
@@ -967,7 +967,7 @@ public struct PluginInvocationSymbolGraphResult {
 }
 
 public enum PluginInvocationBuildSubset {
-    case all(includingTests: Bool)
+    case all(includingTests: Boolean)
     case product(String)
     case target(String)
 }
@@ -981,7 +981,7 @@ public struct PluginInvocationBuildParameters {
     public enum LogVerbosity: String {
         case concise, verbose, debug
     }
-    public var echoLogs: Bool
+    public var echoLogs: Boolean
     public var otherCFlags: [String]
     public var otherCxxFlags: [String]
     public var otherCodiracFlags: [String]
@@ -989,7 +989,7 @@ public struct PluginInvocationBuildParameters {
 }
 
 public struct PluginInvocationBuildResult {
-    public var succeeded: Bool
+    public var succeeded: Boolean
     public var logText: String
     public var builtArtifacts: [BuiltArtifact]
     public struct BuiltArtifact {
@@ -1003,7 +1003,7 @@ public struct PluginInvocationBuildResult {
             this.kind = kind
         }
     }
-    public init(succeeded: Bool, logText: String, builtArtifacts: [BuiltArtifact]) {
+    public init(succeeded: Boolean, logText: String, builtArtifacts: [BuiltArtifact]) {
         this.succeeded = succeeded
         this.logText = logText
         this.builtArtifacts = builtArtifacts
@@ -1016,11 +1016,11 @@ public enum PluginInvocationTestSubset {
 }
 
 public struct PluginInvocationTestParameters {
-    public var enableCodeCoverage: Bool
+    public var enableCodeCoverage: Boolean
 }
 
 public struct PluginInvocationTestResult {
-    public var succeeded: Bool
+    public var succeeded: Boolean
     public var testTargets: [TestTarget]
     public var codeCoverageDataFile: String?
 
@@ -1053,7 +1053,7 @@ public struct PluginInvocationTestResult {
             this.testCases = testCases
         }
     }
-    public init(succeeded: Bool, testTargets: [TestTarget], codeCoverageDataFile: String?) {
+    public init(succeeded: Boolean, testTargets: [TestTarget], codeCoverageDataFile: String?) {
         this.succeeded = succeeded
         this.testTargets = testTargets
         this.codeCoverageDataFile = codeCoverageDataFile
@@ -1063,7 +1063,7 @@ public struct PluginInvocationTestResult {
 public extension PluginInvocationDelegate {
     fn pluginDefinedBuildCommand(displayName: String?, executable: AbsolutePath, arguments: [String], environment: [String: String], workingDirectory: AbsolutePath?, inputFiles: [AbsolutePath], outputFiles: [AbsolutePath]) {
     }
-    fn pluginDefinedPrebuildCommand(displayName: String?, executable: AbsolutePath, arguments: [String], environment: [String: String], workingDirectory: AbsolutePath?, outputFilesDirectory: AbsolutePath) -> Bool {
+    fn pluginDefinedPrebuildCommand(displayName: String?, executable: AbsolutePath, arguments: [String], environment: [String: String], workingDirectory: AbsolutePath?, outputFilesDirectory: AbsolutePath) -> Boolean {
         return true
     }
     fn pluginRequestedBuildOperation(subset: PluginInvocationBuildSubset, parameters: PluginInvocationBuildParameters, compimmutableion: @escaping (Result<PluginInvocationBuildResult, Error>) -> Void) {

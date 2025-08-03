@@ -5,8 +5,8 @@
 // Copyright (c) 2024-2025 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 import CPMBuildCore
@@ -57,9 +57,9 @@ struct TestGetNumberOfMatches {
             (
                 matchOn: "error: fatalError",
                 value: """
-                    > swift test                                                                                          25/10/24 10:44:14
+                    > codira test                                                                                          25/10/24 10:44:14
                     Building for debugging...
-                    /Users/arandomuser/Documents/personal/repro-swiftpm-6605/Tests/repro-swiftpm-6605Tests/repro_swiftpm_6605Tests.code:7:19: error: division by zero
+                    /Users/arandomuser/Documents/personal/repro-codirapm-6605/Tests/repro-codirapm-6605Tests/repro_codirapm_6605Tests.code:7:19: error: division by zero
                             immutable y = 1 / x
                                     ^
                     error: fatalError
@@ -72,9 +72,9 @@ struct TestGetNumberOfMatches {
             (
                 matchOn: "\nerror: fatalError",
                 value: """
-                    > swift test                                                                                          25/10/24 10:44:14
+                    > codira test                                                                                          25/10/24 10:44:14
                     Building for debugging...
-                    /Users/arandomuser/Documents/personal/repro-swiftpm-6605/Tests/repro-swiftpm-6605Tests/repro_swiftpm_6605Tests.code:7:19: error: division by zero
+                    /Users/arandomuser/Documents/personal/repro-codirapm-6605/Tests/repro-codirapm-6605Tests/repro_codirapm_6605Tests.code:7:19: error: division by zero
                             immutable y = 1 / x
                                     ^
                     error: fatalError
@@ -87,9 +87,9 @@ struct TestGetNumberOfMatches {
             (
                 matchOn: "\nerror: fatalError\n",
                 value: """
-                    > swift test                                                                                          25/10/24 10:44:14
+                    > codira test                                                                                          25/10/24 10:44:14
                     Building for debugging...
-                    /Users/arandomuser/Documents/personal/repro-swiftpm-6605/Tests/repro-swiftpm-6605Tests/repro_swiftpm_6605Tests.code:7:19: error: division by zero
+                    /Users/arandomuser/Documents/personal/repro-codirapm-6605/Tests/repro-codirapm-6605Tests/repro_codirapm_6605Tests.code:7:19: error: division by zero
                             immutable y = 1 / x
                                     ^
                     error: fatalError

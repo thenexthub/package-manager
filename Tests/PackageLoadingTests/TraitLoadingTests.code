@@ -234,7 +234,7 @@ final class TraitLoadingTests: PackageDescriptionLoadingTests {
                                 condition: .when(traits: ["Trait2"])
                             ),
                         ],
-                        swiftSettings: [
+                        codiraSettings: [
                             .define("DEFINE1", .when(traits: ["Trait1"])),
                             .define("DEFINE2", .when(traits: ["Trait2"])),
                             .define("DEFINE3", .when(traits: ["Trait1", "Trait2"])),

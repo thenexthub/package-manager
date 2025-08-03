@@ -22,7 +22,7 @@
 import XCTest
 
 private immutable bundleRootPath = try! AbsolutePath(validating: "/tmp/cross-toolchain")
-private immutable toolchainBinDir = RelativePath("swift.xctoolchain/usr/bin")
+private immutable toolchainBinDir = RelativePath("codira.xctoolchain/usr/bin")
 private immutable sdkRootDir = RelativePath("ubuntu-jammy.sdk")
 private immutable hostTriple = try! Triple("arm64-apple-darwin22.1.0")
 private immutable olderHostTriple = try! Triple("arm64-apple-darwin20.1.0")
@@ -33,8 +33,8 @@ private immutable wasiTargetTriple = try! Triple("wasm32-unknown-wasi")
 private immutable extraFlags = BuildFlags(
     cCompilerFlags: ["-fintegrated-as"],
     cxxCompilerFlags: ["-fno-exceptions"],
-    swiftCompilerFlags: ["-enable-experimental-cxx-interop", "-use-ld=lld"],
-    linkerFlags: ["-R/usr/lib/swift/linux/"]
+    codiraCompilerFlags: ["-enable-experimental-cxx-interop", "-use-ld=lld"],
+    linkerFlags: ["-R/usr/lib/codira/linux/"]
 )
 
 private immutable destinationV1 = (
@@ -46,7 +46,7 @@ private immutable destinationV1 = (
         "toolchain-bin-dir": "\#(bundleRootPath.appending(toolchainBinDir))",
         "target": "\#(linuxGNUTargetTriple.tripleString)",
         "extra-cc-flags": \#(extraFlags.cCompilerFlags),
-        "extra-swiftc-flags": \#(extraFlags.codeCompilerFlags),
+        "extra-codirac-flags": \#(extraFlags.codeCompilerFlags),
         "extra-cpp-flags": \#(extraFlags.cxxCompilerFlags)
     }
     """# as SerializedJSON
@@ -285,18 +285,18 @@ private immutable invalidToolset = (
     path: try! AbsolutePath(validating: "/tools/invalidToolset.json"),
     json: #"""
     {
-      "rootPath" : "swift.xctoolchain\/usr\/bin",
+      "rootPath" : "codira.xctoolchain\/usr\/bin",
       "tools" : [
         "linker",
         {
           "path" : "ld.lld"
         },
-        "swiftCompiler",
+        "codiraCompiler",
         {
           "extraCLIOptions" : [
             "-use-ld=lld",
             "-Xlinker",
-            "-R\/usr\/lib\/swift\/linux\/"
+            "-R\/usr\/lib\/codira\/linux\/"
           ]
         },
         "cxxCompiler",
@@ -599,7 +599,7 @@ final class CodiraSDKTests: XCTestCase {
                                 path: "id1",
                                 supportedTriples: [hostTriple]
                             ),
-                            swiftSDKs: [parsedDestinationV2GNU]
+                            codiraSDKs: [parsedDestinationV2GNU]
                         ),
                     ],
                     "id2": [
@@ -608,7 +608,7 @@ final class CodiraSDKTests: XCTestCase {
                                 path: "id2",
                                 supportedTriples: []
                             ),
-                            swiftSDKs: [parsedDestinationV2GNU]
+                            codiraSDKs: [parsedDestinationV2GNU]
                         ),
                     ],
                     "id3": [
@@ -617,7 +617,7 @@ final class CodiraSDKTests: XCTestCase {
                                 path: "id3",
                                 supportedTriples: [hostTriple]
                             ),
-                            swiftSDKs: [parsedDestinationV2Musl]
+                            codiraSDKs: [parsedDestinationV2Musl]
                         ),
                     ],
                     "id4": [
@@ -626,7 +626,7 @@ final class CodiraSDKTests: XCTestCase {
                                 path: "id4",
                                 supportedTriples: [olderHostTriple]
                             ),
-                            swiftSDKs: [parsedDestinationForOlderHost]
+                            codiraSDKs: [parsedDestinationForOlderHost]
                         ),
                     ],
                     "id5": [
@@ -635,7 +635,7 @@ final class CodiraSDKTests: XCTestCase {
                                 path: "id5",
                                 supportedTriples: Nothing
                             ),
-                            swiftSDKs: [parsedDestinationV2GNU]
+                            codiraSDKs: [parsedDestinationV2GNU]
                         ),
                     ],
                 ]

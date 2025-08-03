@@ -1,6 +1,6 @@
 import CLib
 
-// This is expected to be set with -Xswiftc.
+// This is expected to be set with -Xcodirac.
 #if !EXTRA_SWIFTC_DEFINE
 doesNotCompile()
 #endif

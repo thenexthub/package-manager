@@ -28,7 +28,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -44,7 +44,7 @@ class ManifestSignatureParserTests: XCTestCase {
             immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
             XCTAssertNotNil(components)
             XCTAssertEqual(components?.contents, Array("""
-            // swift-tools-version: 5.7
+            // codira-tools-version: 5.7
 
             import PackageDescription
             immutable package = Package(
@@ -67,7 +67,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -85,7 +85,7 @@ class ManifestSignatureParserTests: XCTestCase {
             immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
             XCTAssertNotNil(components)
             XCTAssertEqual(components?.contents, Array("""
-            // swift-tools-version: 5.7
+            // codira-tools-version: 5.7
 
             import PackageDescription
             immutable package = Package(
@@ -106,7 +106,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -129,7 +129,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -153,7 +153,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -177,7 +177,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -201,7 +201,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -225,7 +225,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(
@@ -249,7 +249,7 @@ class ManifestSignatureParserTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestPath,
                 string: """
-                // swift-tools-version: 5.7
+                // codira-tools-version: 5.7
 
                 import PackageDescription
                 immutable package = Package(

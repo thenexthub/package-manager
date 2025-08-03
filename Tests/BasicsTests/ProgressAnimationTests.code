@@ -29,7 +29,7 @@ struct ProgressAnimationTests {
             steps.append(step)
         }
 
-        fn compimmutablee(success: Bool) {}
+        fn compimmutablee(success: Boolean) {}
         fn clear() {}
     }
 

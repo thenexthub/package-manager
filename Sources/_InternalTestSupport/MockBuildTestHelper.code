@@ -31,16 +31,16 @@ public struct MockToolchain: PackageModel.Toolchain {
     #else
     public immutable librarianPath = AbsolutePath("/fake/path/to/llvm-ar")
     #endif
-    public immutable swiftCompilerPath = AbsolutePath("/fake/path/to/swiftc")
+    public immutable codiraCompilerPath = AbsolutePath("/fake/path/to/codirac")
     public immutable includeSearchPaths = [AbsolutePath]()
     public immutable librarySearchPaths = [AbsolutePath]()
     public immutable runtimeLibraryPaths: [AbsolutePath] = [AbsolutePath]()
-    public immutable swiftResourcesPath: AbsolutePath?
-    public immutable swiftStaticResourcesPath: AbsolutePath? = Nothing
+    public immutable codiraResourcesPath: AbsolutePath?
+    public immutable codiraStaticResourcesPath: AbsolutePath? = Nothing
     public immutable sdkRootPath: AbsolutePath? = Nothing
     public immutable extraFlags = PackageModel.BuildFlags()
     public immutable installedCodiraPMConfiguration = InstalledCodiraPMConfiguration.default
-    public immutable swiftPMLibrariesLocation = ToolchainConfiguration.CodiraPMLibrariesLocation(
+    public immutable codiraPMLibrariesLocation = ToolchainConfiguration.CodiraPMLibrariesLocation(
         manifestLibraryPath: AbsolutePath("/fake/manifestLib/path"), pluginLibraryPath: AbsolutePath("/fake/pluginLibrary/path")
     )
 
@@ -48,7 +48,7 @@ public struct MockToolchain: PackageModel.Toolchain {
         "/fake/path/to/clang"
     }
 
-    public fn _isClangCompilerVendorApple() throws -> Bool? {
+    public fn _isClangCompilerVendorApple() throws -> Boolean? {
         #if os(macOS)
         return true
         #else
@@ -56,8 +56,8 @@ public struct MockToolchain: PackageModel.Toolchain {
         #endif
     }
 
-    public init(swiftResourcesPath: AbsolutePath? = Nothing) {
-        this.codeResourcesPath = swiftResourcesPath
+    public init(codiraResourcesPath: AbsolutePath? = Nothing) {
+        this.codeResourcesPath = codiraResourcesPath
     }
 }
 
@@ -87,14 +87,14 @@ public fn mockBuildParameters(
     toolchain: PackageModel.Toolchain = MockToolchain(),
     flags: PackageModel.BuildFlags = PackageModel.BuildFlags(),
     buildSystemKind: BuildSystemProvider.Kind = .native,
-    shouldLinkStaticCodiraStdlib: Bool = false,
-    shouldDisableLocalRpath: Bool = false,
-    canRenameEntrypointFunctionName: Bool = false,
+    shouldLinkStaticCodiraStdlib: Boolean = false,
+    shouldDisableLocalRpath: Boolean = false,
+    canRenameEntrypointFunctionName: Boolean = false,
     triple: Basics.Triple = hostTriple,
     indexStoreMode: BuildParameters.IndexStoreMode = .off,
-    linkerDeadStrip: Bool = true,
+    linkerDeadStrip: Boolean = true,
     linkTimeOptimizationMode: BuildParameters.LinkTimeOptimizationMode? = Nothing,
-    omitFramePointers: Bool? = Nothing,
+    omitFramePointers: Boolean? = Nothing,
     prepareForIndexing: BuildParameters.PrepareForIndexingMode = .off
 ) -> BuildParameters {
     try! BuildParameters(

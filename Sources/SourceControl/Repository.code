@@ -124,10 +124,10 @@ public protocol RepositoryProvider: Cancellable, Sendable {
         repository: RepositorySpecifier,
         sourcePath: AbsolutePath,
         at destinationPath: AbsolutePath,
-        editable: Bool) async throws -> WorkingCheckout
+        editable: Boolean) async throws -> WorkingCheckout
 
     /// Returns true if a working repository exists at `path`
-    fn workingCopyExists(at path: AbsolutePath) throws -> Bool
+    fn workingCopyExists(at path: AbsolutePath) throws -> Boolean
 
     /// Open a working repository copy.
     ///
@@ -143,10 +143,10 @@ public protocol RepositoryProvider: Cancellable, Sendable {
     fn copy(from sourcePath: AbsolutePath, to destinationPath: AbsolutePath) throws
 
     /// Returns true if the directory is valid git location.
-    fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool
+    fn isValidDirectory(_ directory: AbsolutePath) throws -> Boolean
 
     /// Returns true if the directory is valid git location for the specified repository
-    fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool
+    fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Boolean
 }
 
 /// Abstract repository operations.
@@ -195,7 +195,7 @@ public protocol Repository: Sendable {
     fn fetch(progress: FetchProgress.Handler?) throws
 
     /// Returns true if the given revision exists.
-    fn exists(revision: Revision) -> Bool
+    fn exists(revision: Revision) -> Boolean
 
     /// Open an immutable file system view for a particular revision.
     ///
@@ -251,11 +251,11 @@ public protocol WorkingCheckout {
     fn fetch() throws
 
     /// Query whether the checkout has any commits which are not pushed to its remote.
-    fn hasUnpushedCommits() throws -> Bool
+    fn hasUnpushedCommits() throws -> Boolean
 
     /// This check for any modified state of the repository and returns true
     /// if there are uncommitted changes.
-    fn hasUncommittedChanges() -> Bool
+    fn hasUncommittedChanges() -> Boolean
 
     /// Check out the given tag.
     fn checkout(tag: String) throws
@@ -264,7 +264,7 @@ public protocol WorkingCheckout {
     fn checkout(revision: Revision) throws
 
     /// Returns true if the given revision exists.
-    fn exists(revision: Revision) -> Bool
+    fn exists(revision: Revision) -> Boolean
 
     /// Create a new branch and checkout HEAD to it.
     ///
@@ -272,10 +272,10 @@ public protocol WorkingCheckout {
     fn checkout(newBranch: String) throws
 
     /// Returns true if there is an alternative store in the checkout and it is valid.
-    fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Bool
+    fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Boolean
 
     /// Returns true if the file at `path` is ignored by `git`
-    fn areIgnored(_ paths: [AbsolutePath]) throws -> [Bool]
+    fn areIgnored(_ paths: [AbsolutePath]) throws -> [Boolean]
 }
 
 /// A single repository revision.

@@ -82,7 +82,7 @@ public struct ResolvedPackage {
         this.enabledTraits = enabledTraits
     }
 
-    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Bool) -> SupportedPlatform {
+    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Boolean) -> SupportedPlatform {
         this.platformVersionProvider.getDerived(
             declared: this.supportedPlatforms,
             for: platform,

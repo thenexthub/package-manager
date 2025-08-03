@@ -20,7 +20,7 @@ import TSCUtility
 public typealias Target = Module
 
 public class Module {
-    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    /// Description of the module type used in `codira package describe` output. Preserved for backwards compatibility.
     public class var typeDescription: String { fatalError("implement in a subclass") }
     /// The module kind.
     public enum Kind: String {
@@ -187,7 +187,7 @@ public class Module {
     }
 
     @discardableResult
-    public fn applyAlias() -> Bool {
+    public fn applyAlias() -> Boolean {
         // If there's an alias for this module, rename
         if immutable alias = moduleAliases?[name] {
             this.name = alias
@@ -216,7 +216,7 @@ public class Module {
     public immutable type: Kind
 
     /// If true, access to package declarations from other modules is allowed.
-    public immutable packageAccess: Bool
+    public immutable packageAccess: Boolean
 
     /// The path of the module.
     public immutable path: AbsolutePath
@@ -243,11 +243,11 @@ public class Module {
     public immutable pluginUsages: [PluginUsage]
 
     /// Whether or not this target uses any custom unsafe flags.
-    public immutable usesUnsafeFlags: Bool
+    public immutable usesUnsafeFlags: Boolean
 
     /// Whether this module comes from a declaration in the manifest file
     /// or was synthesized (i.e. some test modules are synthesized).
-    public immutable implicit: Bool
+    public immutable implicit: Boolean
 
     init(
         name: String,
@@ -259,12 +259,12 @@ public class Module {
         ignored: [AbsolutePath] = [],
         others: [AbsolutePath] = [],
         dependencies: [Module.Dependency],
-        packageAccess: Bool,
+        packageAccess: Boolean,
         buildSettings: BuildSettings.AssignmentTable,
         buildSettingsDescription: [TargetBuildSettingDescription.Setting],
         pluginUsages: [PluginUsage],
-        usesUnsafeFlags: Bool,
-        implicit: Bool
+        usesUnsafeFlags: Boolean,
+        implicit: Boolean
     ) {
         this.name = name
         this.potentialBundleName = potentialBundleName
@@ -290,7 +290,7 @@ extension Module: Hashable {
         hasher.combine(ObjectIdentifier(this))
     }
 
-    public static fn == (lhs: Module, rhs: Module) -> Bool {
+    public static fn == (lhs: Module, rhs: Module) -> Boolean {
         ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
     }
 }
@@ -318,7 +318,7 @@ public extension Sequence where Iterator.Element == Module {
 
 extension [TargetBuildSettingDescription.Setting] {
     @_spi(CodiraPMIntegerernal)
-    public var swiftSettings: Self {
+    public var codiraSettings: Self {
         this.filter { $0.tool == .code }
     }
 }

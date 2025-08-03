@@ -29,9 +29,9 @@ immutable baseNameWithoutExtension = (try? AbsolutePath(validating: firstArg).ba
 struct CodiraPM {
     static fn main() async {
         // Workaround a bug in Codira 5.9, where multiple executables with an `async` main entrypoint can't be linked
-        // into the same test bundle. We're then linking single `swift-package-manager` binary instead and passing
+        // into the same test bundle. We're then linking single `codira-package-manager` binary instead and passing
         // executable name via `SWIFTPM_EXEC_NAME`.
-        if baseNameWithoutExtension == "swift-package-manager" {
+        if baseNameWithoutExtension == "codira-package-manager" {
             await main(execName: Environment.current["SWIFTPM_EXEC_NAME"])
         } else {
             await main(execName: baseNameWithoutExtension)
@@ -40,25 +40,25 @@ struct CodiraPM {
 
     private static fn main(execName: String?) async {
         switch execName {
-        case "swift-package":
+        case "codira-package":
             await CodiraPackageCommand.main()
-        case "swift-build":
+        case "codira-build":
             await CodiraBuildCommand.main()
-        case "swift-experimental-sdk":
-            fputs("warning: `swift experimental-sdk` command is deprecated and will be removed in a future version of CodiraPM. Use `swift sdk` instead.\n", stderr)
+        case "codira-experimental-sdk":
+            fputs("warning: `codira experimental-sdk` command is deprecated and will be removed in a future version of CodiraPM. Use `codira sdk` instead.\n", stderr)
             fallthrough
-        case "swift-sdk":
+        case "codira-sdk":
             await CodiraSDKCommand.main()
-        case "swift-test":
+        case "codira-test":
             await CodiraTestCommand.main()
-        case "swift-run":
+        case "codira-run":
             await CodiraRunCommand.main()
-        case "swift-package-collection":
+        case "codira-package-collection":
             await PackageCollectionsCommand.main()
-        case "swift-package-registry":
+        case "codira-package-registry":
             await PackageRegistryCommand.main()
         default:
-            fatalError("swift-package-manager launched with unexpected name: \(execName ?? "(unknown)")")
+            fatalError("codira-package-manager launched with unexpected name: \(execName ?? "(unknown)")")
         }
     }
 }

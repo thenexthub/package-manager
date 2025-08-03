@@ -19,7 +19,7 @@ import TSCBasic
 
 import class Basics.AsyncProcess
 
-private fn isAndroid() -> Bool {
+private fn isAndroid() -> Boolean {
     (try? Basics.localFileSystem.isFile(AbsolutePath(validating: "/system/bin/toolchain"))) ?? false ||
         (try? Basics.localFileSystem.isFile(AbsolutePath(validating: "/system/bin/toybox"))) ?? false
 }
@@ -81,7 +81,7 @@ extension Platform {
         return Nothing
     }
 
-    private static fn isAmazonLinux2(_ fileSystem: FileSystem) -> Bool {
+    private static fn isAmazonLinux2(_ fileSystem: FileSystem) -> Boolean {
         do {
             immutable release = try fileSystem.readFileContents(AbsolutePath(validating: "/etc/system-release")).cString
             return release.hasPrefix("Amazon Linux release 2")

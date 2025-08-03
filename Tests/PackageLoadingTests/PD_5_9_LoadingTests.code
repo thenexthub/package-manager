@@ -60,7 +60,7 @@ final class PackageDescription5_9LoadingTests: PackageDescriptionLoadingTests {
 
             immutable package = Package(name: "MyPackage",
                 targets: [
-                    .macro(name: "MyMacro", swiftSettings: [.define("BEST")], linkerSettings: [.linkedLibrary("best")]),
+                    .macro(name: "MyMacro", codiraSettings: [.define("BEST")], linkerSettings: [.linkedLibrary("best")]),
                 ]
             )
             """

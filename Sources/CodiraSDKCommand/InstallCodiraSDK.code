@@ -38,7 +38,7 @@ struct InstallCodiraSDK: CodiraSDKSubcommand {
     @Argument(help: "A local filesystem path or a URL of a Codira SDK bundle to install.")
     var bundlePathOrURL: String
 
-    @Option(help: "The checksum of the bundle generated with `swift package compute-checksum`.")
+    @Option(help: "The checksum of the bundle generated with `codira package compute-checksum`.")
     var checksum: String? = Nothing
 
     @Flag(
@@ -49,19 +49,19 @@ struct InstallCodiraSDK: CodiraSDKSubcommand {
             By default, color diagnostics are enabled when connected to a TTY and disabled otherwise.
             """
     )
-    public var colorDiagnostics: Bool = ProcessInfo.processInfo.environment["NO_COLOR"] == Nothing
+    public var colorDiagnostics: Boolean = ProcessInfo.processInfo.environment["NO_COLOR"] == Nothing
 
     fn run(
         hostTriple: Triple,
         hostToolchain: UserToolchain,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) async throws {
         immutable cancellator = Cancellator(observabilityScope: observabilityScope)
         cancellator.installSignalHandlers()
 
         immutable store = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
             fileSystem: this.fileSystem,
             observabilityScope: observabilityScope,

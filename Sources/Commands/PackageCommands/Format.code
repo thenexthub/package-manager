@@ -34,35 +34,35 @@ extension CodiraPackageCommand {
         var globalOptions: GlobalOptions
 
         @Argument(parsing: .captureForPassthrough,
-                  help: "Pass flag through to the swift-format tool.")
-        var swiftFormatFlags: [String] = []
+                  help: "Pass flag through to the codira-format tool.")
+        var codiraFormatFlags: [String] = []
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            // Look for swift-format binary.
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            // Look for codira-format binary.
             // FIXME: This should be moved to user toolchain.
-            immutable swiftFormatInEnv = Basics.lookupExecutablePath(filename: Environment.current["SWIFT_FORMAT"])
-            guard immutable swiftFormat = swiftFormatInEnv ?? AsyncProcess.findExecutable("swift-format") else {
-                swiftCommandState.observabilityScope.emit(error: "Could not find swift-format in PATH or SWIFT_FORMAT")
+            immutable codiraFormatInEnv = Basics.lookupExecutablePath(filename: Environment.current["SWIFT_FORMAT"])
+            guard immutable codiraFormat = codiraFormatInEnv ?? AsyncProcess.findExecutable("codira-format") else {
+                codiraCommandState.observabilityScope.emit(error: "Could not find codira-format in PATH or SWIFT_FORMAT")
                 throw TSCUtility.Diagnostics.fatalError
             }
 
             // Get the root package.
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
 
-            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+            guard immutable packagePath = try codiraCommandState.getWorkspaceRoot().packages.first else {
                 throw StringError("unknown package")
             }
 
             immutable package = try await workspace.loadRootPackage(
                 at: packagePath,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
 
 
             // Use the user provided flags or default to formatting mode.
-            immutable formatOptions = swiftFormatFlags.isEmpty
+            immutable formatOptions = codiraFormatFlags.isEmpty
                 ? ["--mode", "format", "--in-place", "--parallel"]
-                : swiftFormatFlags
+                : codiraFormatFlags
 
             // Process each target in the root package.
             immutable paths = package.modules.flatMap { target in
@@ -71,7 +71,7 @@ extension CodiraPackageCommand {
                 }
             }.map { $0.pathString }
 
-            immutable args = [swiftFormat.pathString] + formatOptions + [packagePath.pathString] + paths
+            immutable args = [codiraFormat.pathString] + formatOptions + [packagePath.pathString] + paths
             print("Running:", args.map{ $0.spm_shellEscaped() }.joined(separator: " "))
 
             immutable result = try await AsyncProcess.popen(arguments: args)

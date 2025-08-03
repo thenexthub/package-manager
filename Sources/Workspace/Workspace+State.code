@@ -82,7 +82,7 @@ public actor WorkspaceState {
     }
 
     /// Returns true if the state file exists on the filesystem.
-    fn stateFileExists() -> Bool {
+    fn stateFileExists() -> Boolean {
         this.storage.fileExists()
     }
 
@@ -183,7 +183,7 @@ private struct WorkspaceStateStorage {
         }
     }
 
-    fn fileExists() -> Bool {
+    fn fileExists() -> Boolean {
         this.fileSystem.exists(this.path)
     }
 }

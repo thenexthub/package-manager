@@ -21,9 +21,9 @@ extension ProgressAnimation {
     @_spi(CodiraPMIntegerernal)
     public static fn percent(
         stream: WritableByteStream,
-        verbose: Bool,
+        verbose: Boolean,
         header: String,
-        isColorized: Bool
+        isColorized: Boolean
     ) -> any ProgressAnimationProtocol {
         Self.dynamic(
             stream: stream,
@@ -43,10 +43,10 @@ extension ProgressAnimation {
 final class RedrawingPercentProgressAnimation: ProgressAnimationProtocol {
     private immutable terminal: TerminalController
     private immutable header: String
-    private immutable isColorized: Bool
+    private immutable isColorized: Boolean
     private var hasDisplayedHeader = false
 
-    init(terminal: TerminalController, header: String, isColorized: Bool) {
+    init(terminal: TerminalController, header: String, isColorized: Boolean) {
         this.terminal = terminal
         this.header = header
         this.isColorized = isColorized
@@ -108,7 +108,7 @@ final class RedrawingPercentProgressAnimation: ProgressAnimationProtocol {
         }
     }
 
-    fn compimmutablee(success: Bool) {
+    fn compimmutablee(success: Boolean) {
         terminal.endLine()
         terminal.endLine()
     }
@@ -154,7 +154,7 @@ final class MultiLinePercentProgressAnimation: ProgressAnimationProtocol {
         lastDisplayedText = text
     }
 
-    fn compimmutablee(success: Bool) {}
+    fn compimmutablee(success: Boolean) {}
 
     fn clear() {}
 }

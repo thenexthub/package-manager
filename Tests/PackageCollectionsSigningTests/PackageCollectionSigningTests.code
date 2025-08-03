@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -330,13 +330,13 @@ class PackageCollectionSigningTests: XCTestCase {
             immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
                 certPaths: { fixturePath in
                     [
-                        fixturePath.appending(components: "Certificates", "swift_package_collection.cer"),
+                        fixturePath.appending(components: "Certificates", "codira_package_collection.cer"),
                         fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
                         fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
                     ]
                 },
                 keyPath: { fixturePath in
-                    fixturePath.appending(components: "Certificates", "swift_package_collection_key.pem")
+                    fixturePath.appending(components: "Certificates", "codira_package_collection_key.pem")
                 },
                 tmpDirectoryPath: tmp
             )
@@ -423,13 +423,13 @@ class PackageCollectionSigningTests: XCTestCase {
             immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
                 certPaths: { fixturePath in
                     [
-                        fixturePath.appending(components: "Certificates", "swift_package.cer"),
+                        fixturePath.appending(components: "Certificates", "codira_package.cer"),
                         fixturePath.appending(components: "Certificates", "AppleWWDRCAG6.cer"),
                         fixturePath.appending(components: "Certificates", "AppleRootCAG3.cer"),
                     ]
                 },
                 keyPath: { fixturePath in
-                    fixturePath.appending(components: "Certificates", "swift_package_key.pem")
+                    fixturePath.appending(components: "Certificates", "codira_package_key.pem")
                 },
                 tmpDirectoryPath: tmp
             )
@@ -581,13 +581,13 @@ class PackageCollectionSigningTests: XCTestCase {
             immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
                 certPaths: { fixturePath in
                     [
-                        fixturePath.appending(components: "Certificates", "swift_package_collection.cer"),
+                        fixturePath.appending(components: "Certificates", "codira_package_collection.cer"),
                         fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
                         fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
                     ]
                 },
                 keyPath: { fixturePath in
-                    fixturePath.appending(components: "Certificates", "swift_package_collection_key.pem")
+                    fixturePath.appending(components: "Certificates", "codira_package_collection_key.pem")
                 },
                 tmpDirectoryPath: tmp
             )
@@ -648,13 +648,13 @@ class PackageCollectionSigningTests: XCTestCase {
             immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
                 certPaths: { fixturePath in
                     [
-                        fixturePath.appending(components: "Certificates", "swift_package.cer"),
+                        fixturePath.appending(components: "Certificates", "codira_package.cer"),
                         fixturePath.appending(components: "Certificates", "AppleWWDRCAG6.cer"),
                         fixturePath.appending(components: "Certificates", "AppleRootCAG3.cer"),
                     ]
                 },
                 keyPath: { fixturePath in
-                    fixturePath.appending(components: "Certificates", "swift_package_key.pem")
+                    fixturePath.appending(components: "Certificates", "codira_package_key.pem")
                 },
                 tmpDirectoryPath: tmp
             )

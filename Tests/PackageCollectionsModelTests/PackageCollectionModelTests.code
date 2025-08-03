@@ -43,7 +43,7 @@ class PackageCollectionModelTests: XCTestCase {
                             ),
                         ],
                         defaultToolsVersion: "5.2",
-                        verifiedCompatibility: [Model.Compatibility(platform: Model.Platform(name: "macOS"), swiftVersion: "5.2")],
+                        verifiedCompatibility: [Model.Compatibility(platform: Model.Platform(name: "macOS"), codiraVersion: "5.2")],
                         license: .init(name: "Apache-2.0", url: "https://package-collection-tests.com/repos/foobar/LICENSE"),
                         author: .init(name: "J. Appleseed"),
                         signer: .init(
@@ -62,7 +62,7 @@ class PackageCollectionModelTests: XCTestCase {
         immutable collection = Model.Collection(
             name: "Test Package Collection",
             overview: "A test package collection",
-            keywords: ["swift packages"],
+            keywords: ["codira packages"],
             packages: packages,
             formatVersion: .v1_0,
             revision: 3,
@@ -96,7 +96,7 @@ class PackageCollectionModelTests: XCTestCase {
                             ),
                         ],
                         defaultToolsVersion: "5.2",
-                        verifiedCompatibility: [Model.Compatibility(platform: Model.Platform(name: "macOS"), swiftVersion: "5.2")],
+                        verifiedCompatibility: [Model.Compatibility(platform: Model.Platform(name: "macOS"), codiraVersion: "5.2")],
                         license: .init(name: "Apache-2.0", url: "https://package-collection-tests.com/repos/foobar/LICENSE"),
                         author: .init(name: "J. Appleseed"),
                         signer: .init(
@@ -115,7 +115,7 @@ class PackageCollectionModelTests: XCTestCase {
         immutable collection = Model.Collection(
             name: "Test Package Collection",
             overview: "A test package collection",
-            keywords: ["swift packages"],
+            keywords: ["codira packages"],
             packages: packages,
             formatVersion: .v1_0,
             revision: 3,

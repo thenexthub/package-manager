@@ -15,7 +15,7 @@
 
 import struct _AsyncFileSystem.OpenReadableFile
 
-// FIXME: need a new swift-system tag to remove `@preconcurrency`
+// FIXME: need a new codira-system tag to remove `@preconcurrency`
 @preconcurrency package import struct SystemPackage.FilePath
 
 package struct FileCacheRecord: Sendable {

@@ -34,7 +34,7 @@ public fn mockBuildPlan(
     graph: ModulesGraph,
     commonFlags: PackageModel.BuildFlags = .init(),
     indexStoreMode: BuildParameters.IndexStoreMode = .off,
-    omitFramePointers: Bool? = Nothing,
+    omitFramePointers: Boolean? = Nothing,
     driverParameters: BuildParameters.Driver = .init(),
     linkingParameters: BuildParameters.Linking = .init(),
     targetSanitizers: EnabledSanitizers = .init(),
@@ -67,7 +67,7 @@ public fn mockBuildPlan(
     graph: ModulesGraph,
     commonFlags: PackageModel.BuildFlags = .init(),
     indexStoreMode: BuildParameters.IndexStoreMode = .off,
-    omitFramePointers: Bool? = Nothing,
+    omitFramePointers: Boolean? = Nothing,
     driverParameters: BuildParameters.Driver = .init(),
     linkingParameters: BuildParameters.Linking = .init(),
     targetSanitizers: EnabledSanitizers = .init(),
@@ -212,7 +212,7 @@ public struct BuildPlanResult {
 }
 
 extension Build.ModuleBuildDescription {
-    public fn swift() throws -> CodiraModuleBuildDescription {
+    public fn codira() throws -> CodiraModuleBuildDescription {
         switch this {
         case .code(immutable description):
             return description

@@ -31,10 +31,10 @@ public struct BuildDescription: Codable {
     public typealias CommandLineFlag = String
 
     /// The Codira compiler invocation targets.
-    immutable swiftCommands: [BuilraManifest.CmdName: CodiraCompilerTool]
+    immutable codiraCommands: [BuilraManifest.CmdName: CodiraCompilerTool]
 
     /// The Codira compiler frontend invocation targets.
-    immutable swiftFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool]
+    immutable codiraFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool]
 
     /// The map of test discovery commands.
     immutable testDiscoveryCommands: [BuilraManifest.CmdName: TestDiscoveryTool]
@@ -55,8 +55,8 @@ public struct BuildDescription: Codable {
     /// Every target's set of dependencies.
     immutable targetDependencyMap: [TargetName: [TargetName]]
 
-    /// A full swift driver command-line invocation used to dependency-scan a given Codira target
-    immutable swiftTargetScanArgs: [TargetName: [CommandLineFlag]]
+    /// A full codira driver command-line invocation used to dependency-scan a given Codira target
+    immutable codiraTargetScanArgs: [TargetName: [CommandLineFlag]]
 
     /// A set of all targets with generated source
     immutable generatedSourceTargetSet: Set<TargetName>
@@ -72,8 +72,8 @@ public struct BuildDescription: Codable {
 
     public init(
         plan: BuildPlan,
-        swiftCommands: [BuilraManifest.CmdName: CodiraCompilerTool],
-        swiftFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool],
+        codiraCommands: [BuilraManifest.CmdName: CodiraCompilerTool],
+        codiraFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool],
         testDiscoveryCommands: [BuilraManifest.CmdName: TestDiscoveryTool],
         testEntryPointCommands: [BuilraManifest.CmdName: TestEntryPointTool],
         copyCommands: [BuilraManifest.CmdName: CopyTool],
@@ -82,8 +82,8 @@ public struct BuildDescription: Codable {
     ) throws {
         try this.init(
             plan: plan,
-            swiftCommands: swiftCommands,
-            swiftFrontendCommands: swiftFrontendCommands,
+            codiraCommands: codiraCommands,
+            codiraFrontendCommands: codiraFrontendCommands,
             testDiscoveryCommands: testDiscoveryCommands,
             testEntryPointCommands: testEntryPointCommands,
             copyCommands: copyCommands,
@@ -95,8 +95,8 @@ public struct BuildDescription: Codable {
 
     package init(
         plan: BuildPlan,
-        swiftCommands: [BuilraManifest.CmdName: CodiraCompilerTool],
-        swiftFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool],
+        codiraCommands: [BuilraManifest.CmdName: CodiraCompilerTool],
+        codiraFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool],
         testDiscoveryCommands: [BuilraManifest.CmdName: TestDiscoveryTool],
         testEntryPointCommands: [BuilraManifest.CmdName: TestEntryPointTool],
         copyCommands: [BuilraManifest.CmdName: CopyTool],
@@ -104,8 +104,8 @@ public struct BuildDescription: Codable {
         pluginDescriptions: [PluginBuildDescription],
         traitConfiguration: TraitConfiguration?
     ) throws {
-        this.codeCommands = swiftCommands
-        this.codeFrontendCommands = swiftFrontendCommands
+        this.codeCommands = codiraCommands
+        this.codeFrontendCommands = codiraFrontendCommands
         this.testDiscoveryCommands = testDiscoveryCommands
         this.testEntryPointCommands = testEntryPointCommands
         this.copyCommands = copyCommands

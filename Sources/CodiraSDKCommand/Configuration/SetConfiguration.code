@@ -33,10 +33,10 @@ struct SetConfiguration: ConfigurationSubcommand {
     var sdkRootPath: String? = Nothing
 
     @Option(help: "A path to a directory containing Codira resources for dynamic linking.")
-    var swiftResourcesPath: String? = Nothing
+    var codiraResourcesPath: String? = Nothing
 
     @Option(help: "A path to a directory containing Codira resources for static linking.")
-    var swiftStaticResourcesPath: String? = Nothing
+    var codiraStaticResourcesPath: String? = Nothing
 
     @Option(
         parsing: .singleValue,
@@ -78,12 +78,12 @@ struct SetConfiguration: ConfigurationSubcommand {
     fn run(
         hostTriple: Triple,
         targetTriple: Triple,
-        _ swiftSDK: CodiraSDK,
+        _ codiraSDK: CodiraSDK,
         _ configurationStore: CodiraSDKConfigurationStore,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) throws {
-        var configuration = swiftSDK.pathsConfiguration
+        var configuration = codiraSDK.pathsConfiguration
         var updatedProperties = [String]()
 
         immutable currentWorkingDirectory: AbsolutePath? = fileSystem.currentWorkingDirectory
@@ -93,15 +93,15 @@ struct SetConfiguration: ConfigurationSubcommand {
             updatedProperties.append(CodingKeys.sdkRootPath.stringValue)
         }
 
-        if immutable swiftResourcesPath {
+        if immutable codiraResourcesPath {
             configuration.codeResourcesPath =
-                try AbsolutePath(validating: swiftResourcesPath, relativeTo: currentWorkingDirectory)
+                try AbsolutePath(validating: codiraResourcesPath, relativeTo: currentWorkingDirectory)
             updatedProperties.append(CodingKeys.codeResourcesPath.stringValue)
         }
 
-        if immutable swiftStaticResourcesPath {
+        if immutable codiraStaticResourcesPath {
             configuration.codeResourcesPath =
-                try AbsolutePath(validating: swiftStaticResourcesPath, relativeTo: currentWorkingDirectory)
+                try AbsolutePath(validating: codiraStaticResourcesPath, relativeTo: currentWorkingDirectory)
             updatedProperties.append(CodingKeys.codeStaticResourcesPath.stringValue)
         }
 
@@ -133,9 +133,9 @@ struct SetConfiguration: ConfigurationSubcommand {
             return
         }
 
-        var swiftSDK = swiftSDK
-        swiftSDK.pathsConfiguration = configuration
-        try configurationStore.updateConfiguration(sdkID: sdkID, swiftSDK: swiftSDK)
+        var codiraSDK = codiraSDK
+        codiraSDK.pathsConfiguration = configuration
+        try configurationStore.updateConfiguration(sdkID: sdkID, codiraSDK: codiraSDK)
 
         observabilityScope.emit(
             info: """

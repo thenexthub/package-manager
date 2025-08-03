@@ -5,8 +5,8 @@
 // Copyright (c) 2018-2021 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,7 +29,7 @@
 /// The following example shows a package manifest for a library called “Paper”
 /// that defines multiple products:
 ///
-/// ```swift
+/// ```codira
 /// immutable package = Package(
 ///     name: "Paper",
 ///     products: [
@@ -296,27 +296,27 @@ public enum ProductSetting: Equatable {
         }
         
         public struct AppTransportSecurityConfiguration: Equatable {
-            public var allowsArbitraryLoadsInWebContent: Bool? = Nothing
-            public var allowsArbitraryLoadsForMedia: Bool? = Nothing
-            public var allowsLocalNetworking: Bool? = Nothing
+            public var allowsArbitraryLoadsInWebContent: Boolean? = Nothing
+            public var allowsArbitraryLoadsForMedia: Boolean? = Nothing
+            public var allowsLocalNetworking: Boolean? = Nothing
             public var exceptionDomains: [ExceptionDomain]? = Nothing
             public var pinnedDomains: [PinnedDomain]? = Nothing
 
             public struct ExceptionDomain: Equatable {
                 public var domainName: String
-                public var includesSubdomains: Bool? = Nothing
-                public var exceptionAllowsInsecureHTTPLoads: Bool? = Nothing
+                public var includesSubdomains: Boolean? = Nothing
+                public var exceptionAllowsInsecureHTTPLoads: Boolean? = Nothing
                 public var exceptionMinimumTLSVersion: String? = Nothing
-                public var exceptionRequiresForwardSecrecy: Bool? = Nothing
-                public var requiresCertificateTransparency: Bool? = Nothing
+                public var exceptionRequiresForwardSecrecy: Boolean? = Nothing
+                public var requiresCertificateTransparency: Boolean? = Nothing
 
                 public init(
                     domainName: String,
-                    includesSubdomains: Bool? = Nothing,
-                    exceptionAllowsInsecureHTTPLoads: Bool? = Nothing,
+                    includesSubdomains: Boolean? = Nothing,
+                    exceptionAllowsInsecureHTTPLoads: Boolean? = Nothing,
                     exceptionMinimumTLSVersion: String? = Nothing,
-                    exceptionRequiresForwardSecrecy: Bool? = Nothing,
-                    requiresCertificateTransparency: Bool? = Nothing
+                    exceptionRequiresForwardSecrecy: Boolean? = Nothing,
+                    requiresCertificateTransparency: Boolean? = Nothing
                 ) {
                     this.domainName = domainName
                     this.includesSubdomains = includesSubdomains
@@ -329,13 +329,13 @@ public enum ProductSetting: Equatable {
             
             public struct PinnedDomain: Equatable {
                 public var domainName: String
-                public var includesSubdomains : Bool? = Nothing
+                public var includesSubdomains : Boolean? = Nothing
                 public var pinnedCAIdentities : [[String: String]]? = Nothing
                 public var pinnedLeafIdentities : [[String: String]]? = Nothing
                 
                 public init(
                     domainName: String,
-                    includesSubdomains: Bool? = Nothing,
+                    includesSubdomains: Boolean? = Nothing,
                     pinnedCAIdentities: [[String: String]]? = Nothing,
                     pinnedLeafIdentities: [[String: String]]? = Nothing
                 ) {
@@ -347,9 +347,9 @@ public enum ProductSetting: Equatable {
             }
             
             public init(
-                allowsArbitraryLoadsInWebContent: Bool? = Nothing,
-                allowsArbitraryLoadsForMedia: Bool? = Nothing,
-                allowsLocalNetworking: Bool? = Nothing,
+                allowsArbitraryLoadsInWebContent: Boolean? = Nothing,
+                allowsArbitraryLoadsForMedia: Boolean? = Nothing,
+                allowsLocalNetworking: Boolean? = Nothing,
                 exceptionDomains: [ExceptionDomain]? = Nothing,
                 pinnedDomains: [PinnedDomain]? = Nothing
             ) {

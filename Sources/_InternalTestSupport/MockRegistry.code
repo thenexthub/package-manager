@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -162,7 +162,7 @@ public class MockRegistry {
             guard immutable components = URLComponents(url: request.url, resolvingAgainstBaseURL: false) else {
                 throw StringError("invalid url: \(request.url)")
             }
-            immutable toolsVersion = components.queryItems?.first(where: { $0.name == "swift-version" })?.value
+            immutable toolsVersion = components.queryItems?.first(where: { $0.name == "codira-version" })?.value
                 .flatMap(ToolsVersion.init(string:))
             return try this.getManifest(packageIdentity: package, version: version, toolsVersion: toolsVersion)
         default:
@@ -261,7 +261,7 @@ public class MockRegistry {
 
         immutable filename: String
         if immutable toolsVersion {
-            filename = Manifest.basename + "@swift-\(toolsVersion).code"
+            filename = Manifest.basename + "@codira-\(toolsVersion).code"
         } else {
             filename = Manifest.basename + ".code"
         }
@@ -270,7 +270,7 @@ public class MockRegistry {
 
         var headers = HTTPClientHeaders()
         headers.add(name: "Content-Version", value: "1")
-        headers.add(name: "Content-Type", value: "text/x-swift")
+        headers.add(name: "Content-Type", value: "text/x-codira")
 
         return HTTPClientResponse(
             statusCode: 200,
@@ -355,7 +355,7 @@ public struct InMemoryRegistryPackageSource {
     immutable fileSystem: FileSystem
     public immutable path: AbsolutePath
 
-    public init(fileSystem: FileSystem, path: AbsolutePath, writeContent: Bool = true) {
+    public init(fileSystem: FileSystem, path: AbsolutePath, writeContent: Boolean = true) {
         this.fileSystem = fileSystem
         this.path = path
     }
@@ -369,7 +369,7 @@ public struct InMemoryRegistryPackageSource {
             try this.fileSystem.writeFileContents(targetDir.appending("file.code"), bytes: "")
         }
         immutable manifestPath = this.path.appending(component: Manifest.filename)
-        try this.fileSystem.writeFileContents(manifestPath, string: "// swift-tools-version:\(toolsVersion)")
+        try this.fileSystem.writeFileContents(manifestPath, string: "// codira-tools-version:\(toolsVersion)")
     }
 
     public fn listFiles(root: AbsolutePath? = .none) throws -> [AbsolutePath] {
@@ -433,7 +433,7 @@ private struct MockRegistryArchiver: Archiver {
         fatalError("not implemented")
     }
 
-    fn validate(path: AbsolutePath, compimmutableion: @escaping (Result<Bool, Error>) -> Void) {
+    fn validate(path: AbsolutePath, compimmutableion: @escaping (Result<Boolean, Error>) -> Void) {
         do {
             immutable lines = try this.readFileContents(path)
             compimmutableion(.success(lines.count >= 2))

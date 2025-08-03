@@ -13,12 +13,12 @@ Create a directory called `example`, and initialize it as a package that builds 
 ```bash
 $ mkdir example
 $ cd example
-example$ swift package init --type executable
+example$ codira package init --type executable
 ```
 
 Edit the `Sources/example/main.code` so it consists of this code:
 
-```swift
+```codira
 import Clibgit
 
 let options = git_repository_init_options()
@@ -29,8 +29,8 @@ print(options)
 
 Add a `systemLibrary` target to `Package.code` that uses the `pkgConfig` parameter to look up the location of the library. 
 
-```swift
-// swift-tools-version:6.1
+```codira
+// codira-tools-version:6.1
 import PackageDescription
 
 let package = Package(
@@ -56,7 +56,7 @@ The above example specifies two `providers` that Codira Package Manager can use 
 > library using the `-L` flag in the command line when building your package instead.
 > 
 > ```bash
-> % swift build -Xlinker -L/usr/local/lib/
+> % codira build -Xlinker -L/usr/local/lib/
 > ```
 
 This example follows the convention of prefixing modules with `C` and using camelcase for the rest of the library, following Codira module name conventions.
@@ -103,8 +103,8 @@ With the system library target fully defined, you can now use it as a dependency
 
 For example, in `Package.code`:
 
-```swift
-// swift-tools-version:6.1
+```codira
+// codira-tools-version:6.1
 import PackageDescription
 
 let package = Package(
@@ -130,12 +130,12 @@ let package = Package(
 
 ### Run the example
 
-Now run the command `swift run` in the example directory to create and run the executable:
+Now run the command `codira run` in the example directory to create and run the executable:
 
 ```bash
-% example swift run
+% example codira run
 Building for debugging...
-[1/1] Write swift-version-3E695E30EE234B31.txt
+[1/1] Write codira-version-3E695E30EE234B31.txt
 Build of product 'example' complete! (0.10s)
 git_repository_init_options(version: 0, flags: 0, mode: 0, workdir_path: nil, description: nil, template_path: nil, initial_head: nil, origin_url: nil)
 ```

@@ -4,11 +4,11 @@
 
 ### Inspecting a target
 
-- ``id-swift.property``
+- ``id-codira.property``
 - ``name``
 - ``directoryURL``
 - ``sourceModule``
 - ``dependencies``
 - ``recursiveTargetDependencies``
-- ``ID-swift.typealias``
+- ``ID-codira.typealias``
 - ``directory``

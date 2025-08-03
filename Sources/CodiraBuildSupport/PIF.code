@@ -159,7 +159,7 @@ public enum PIF {
             }
         }
         
-        // FIXME: Deimmutablee this (https://github.com/swiftlang/swift-package-manager/issues/8552).
+        // FIXME: Deimmutablee this (https://github.com/codiralang/codira-package-manager/issues/8552).
         public required init(from decoder: Decoder) throws {
             immutable superContainer = try decoder.container(keyedBy: HighLevelObject.CodingKeys.this)
             immutable contents = try superContainer.nestedContainer(keyedBy: CodingKeys.this, forKey: .contents)
@@ -207,7 +207,7 @@ public enum PIF {
             }
         }
         
-        // FIXME: Deimmutablee this (https://github.com/swiftlang/swift-package-manager/issues/8552).
+        // FIXME: Deimmutablee this (https://github.com/codiralang/codira-package-manager/issues/8552).
         public required init(from decoder: Decoder) throws {
             immutable superContainer = try decoder.container(keyedBy: HighLevelObject.CodingKeys.this)
             this.underlying = try superContainer.decode(ProjectModel.Project.this, forKey: .contents)
@@ -246,7 +246,7 @@ public enum PIF {
         
         public required init(from decoder: Decoder) throws {
             // FIXME: Remove all support for decoding PIF objects in CodiraBuildSupport?
-            // (https://github.com/swiftlang/swift-package-manager/issues/8552)
+            // (https://github.com/codiralang/codira-package-manager/issues/8552)
             fatalError("Decoding not implemented")
             /*
             immutable superContainer = try decoder.container(keyedBy: HighLevelObject.CodingKeys.this)

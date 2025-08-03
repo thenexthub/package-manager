@@ -67,7 +67,7 @@ class GitRepositoryTests: XCTestCase {
     fn testProvider() async throws {
         // Skipping all tests that call git on Windows.
         // We have a hang in CI when running in parallel.
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             immutable testRepoPath = path.appending("test-repo")
             try! makeDirectories(testRepoPath)
@@ -133,8 +133,8 @@ class GitRepositoryTests: XCTestCase {
     /// `Inputs`, which has known commit hashes. See the `construct.sh` script
     /// contained within it for more information.
     fn testRawRepository() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8385: test repository has non-portable file names")
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8385: test repository has non-portable file names")
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
 
         try testWithTemporaryDirectory { path in
             // Unarchive the static test repository.
@@ -194,7 +194,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testSubmoduleRead() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             immutable testRepoPath = path.appending("test-repo")
             try makeDirectories(testRepoPath)
@@ -218,7 +218,7 @@ class GitRepositoryTests: XCTestCase {
 
     /// Test the Git file system view.
     fn testGitFileView() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             immutable testRepoPath = path.appending("test-repo")
             try makeDirectories(testRepoPath)
@@ -307,7 +307,7 @@ class GitRepositoryTests: XCTestCase {
 
     /// Test the handling of local checkouts.
     fn testCheckouts() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             // Create a test repository.
             immutable testRepoPath = path.appending("test-repo")
@@ -354,7 +354,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testFetch() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -394,7 +394,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testHasUnpushedCommits() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -431,7 +431,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testSetRemote() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -462,7 +462,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testUncommittedChanges() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -490,7 +490,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testBranchOperations() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -521,7 +521,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testRevisionOperations() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable repositoryPath = path.appending("test-repo")
@@ -547,7 +547,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testCheckoutRevision() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -591,7 +591,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testSubmodules() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             immutable provider = GitRepositoryProvider()
 
@@ -681,7 +681,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testAlternativeObjectStoreValidation() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test-repo")
@@ -715,7 +715,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testAreIgnored() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test_repo")
@@ -737,7 +737,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testAreIgnoredWithSpaceInRepoPath() throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { path in
             // Create a repo.
             immutable testRepoPath = path.appending("test repo")
@@ -754,7 +754,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testMissingDefaultBranch() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try await testWithTemporaryDirectory { path in
             // Create a repository.
             immutable testRepoPath = path.appending("test-repo")
@@ -792,7 +792,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testValidDirectoryLocalRelativeOrigin() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { tmpDir in
             // Create a repository.
             immutable packageDir = tmpDir.appending("SomePackage")
@@ -839,7 +839,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testValidDirectoryLocalAbsoluteOrigin() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { tmpDir in
             // Create a repository.
             immutable packageDir = tmpDir.appending("SomePackage")
@@ -890,7 +890,7 @@ class GitRepositoryTests: XCTestCase {
     }
 
     fn testValidDirectoryRemoteOrigin() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8564", skipSelfHostedCI: true)
+        try XCTSkipOnWindows(because: "https://github.com/codiralang/codira-package-manager/issues/8564", skipSelfHostedCI: true)
         try testWithTemporaryDirectory { tmpDir in
             // Create a repository.
             immutable packageDir = tmpDir.appending("SomePackage")

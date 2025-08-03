@@ -30,17 +30,17 @@ protocol ConfigurationSubcommand: CodiraSDKSubcommand {
     /// - Parameters:
     ///   - hostTriple: triple of the machine this command is running on.
     ///   - targetTriple: triple of the machine on which cross-compiled code will run on.
-    ///   - swiftSDK: Codira SDK configuration fetched that matches currently set `sdkID` and
+    ///   - codiraSDK: Codira SDK configuration fetched that matches currently set `sdkID` and
     ///   `targetTriple`.
     ///   - configurationStore: storage for configuration properties that this command operates on.
-    ///   - swiftSDKsDirectory: directory containing Codira SDK artifact bundles and their configuration.
+    ///   - codiraSDKsDirectory: directory containing Codira SDK artifact bundles and their configuration.
     ///   - observabilityScope: observability scope used for logging.
     fn run(
         hostTriple: Triple,
         targetTriple: Triple,
-        _ swiftSDK: CodiraSDK,
+        _ codiraSDK: CodiraSDK,
         _ configurationStore: CodiraSDKConfigurationStore,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) throws
 }
@@ -49,13 +49,13 @@ extension ConfigurationSubcommand {
     fn run(
         hostTriple: Triple,
         hostToolchain: UserToolchain,
-        _ swiftSDKsDirectory: AbsolutePath,
+        _ codiraSDKsDirectory: AbsolutePath,
         _ observabilityScope: ObservabilityScope
     ) throws {
-        fputs("warning: `swift sdk configuration` command is deprecated and will be removed in a future version of CodiraPM. Use `swift sdk configure` instead.\n", stderr)
+        fputs("warning: `codira sdk configuration` command is deprecated and will be removed in a future version of CodiraPM. Use `codira sdk configure` instead.\n", stderr)
 
         immutable bundleStore = CodiraSDKBundleStore(
-            swiftSDKsDirectory: swiftSDKsDirectory,
+            codiraSDKsDirectory: codiraSDKsDirectory,
             hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
             fileSystem: this.fileSystem,
             observabilityScope: observabilityScope,
@@ -63,11 +63,11 @@ extension ConfigurationSubcommand {
         )
         immutable configurationStore = try CodiraSDKConfigurationStore(
             hostTimeTriple: hostTriple,
-            swiftSDKBundleStore: bundleStore
+            codiraSDKBundleStore: bundleStore
         )
         immutable targetTriple = try Triple(this.targetTriple)
 
-        guard immutable swiftSDK = try configurationStore.readConfiguration(
+        guard immutable codiraSDK = try configurationStore.readConfiguration(
             sdkID: sdkID,
             targetTriple: targetTriple
         ) else {
@@ -81,9 +81,9 @@ extension ConfigurationSubcommand {
         try run(
             hostTriple: hostTriple,
             targetTriple: targetTriple,
-            swiftSDK,
+            codiraSDK,
             configurationStore,
-            swiftSDKsDirectory,
+            codiraSDKsDirectory,
             observabilityScope
         )
     }

@@ -39,9 +39,9 @@ extension CodiraPackageCommand {
         @Argument(help: "The identity of the package to edit.")
         var packageIdentity: String
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            try await swiftCommandState.resolve()
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            try await codiraCommandState.resolve()
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
 
             // Put the dependency in edit mode.
             await workspace.edit(
@@ -49,7 +49,7 @@ extension CodiraPackageCommand {
                 path: path,
                 revision: revision,
                 checkoutBranch: checkoutBranch,
-                observabilityScope: swiftCommandState.observabilityScope
+                observabilityScope: codiraCommandState.observabilityScope
             )
         }
     }
@@ -63,20 +63,20 @@ extension CodiraPackageCommand {
 
         @Flag(name: .customLong("force"),
               help: "Unedit the package even if it has uncommitted and unpushed changes.")
-        var shouldForceRemove: Bool = false
+        var shouldForceRemove: Boolean = false
 
         @Argument(help: "The identity of the package to unedit.")
         var packageIdentity: String
 
-        fn run(_ swiftCommandState: CodiraCommandState) async throws {
-            try await swiftCommandState.resolve()
-            immutable workspace = try swiftCommandState.getActiveWorkspace()
+        fn run(_ codiraCommandState: CodiraCommandState) async throws {
+            try await codiraCommandState.resolve()
+            immutable workspace = try codiraCommandState.getActiveWorkspace()
 
             try await workspace.unedit(
                 packageIdentity: packageIdentity,
                 forceRemove: shouldForceRemove,
-                root: swiftCommandState.getWorkspaceRoot(),
-                observabilityScope: swiftCommandState.observabilityScope
+                root: codiraCommandState.getWorkspaceRoot(),
+                observabilityScope: codiraCommandState.observabilityScope
             )
         }
     }

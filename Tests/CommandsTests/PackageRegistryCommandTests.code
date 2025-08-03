@@ -5,8 +5,8 @@
 // Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
-// See http://swift.org/LICENSE.txt for license information
-// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+// See http://codira.org/LICENSE.txt for license information
+// See http://codira.org/CONTRIBUTORS.txt for the list of Codira project authors
 //
 //===----------------------------------------------------------------------===//
 
@@ -55,7 +55,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
         )
 
         immutable stdout = try await execute(["-help"]).stdout
-        XCTAssert(stdout.contains("USAGE: swift package-registry"), "got stdout:\n" + stdout)
+        XCTAssert(stdout.contains("USAGE: codira package-registry"), "got stdout:\n" + stdout)
     }
 
     fn testSeeAlso() async throws {
@@ -67,7 +67,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
         )
 
         immutable stdout = try await execute(["--help"]).stdout
-        XCTAssert(stdout.contains("SEE ALSO: swift package"), "got stdout:\n" + stdout)
+        XCTAssert(stdout.contains("SEE ALSO: codira package"), "got stdout:\n" + stdout)
     }
 
     fn testCommandDoesNotEmitDuplicateSymbols() async throws {
@@ -779,7 +779,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
             immutable manifestPath = packageDirectory.appending("Package.code")
             XCTAssertFileExists(manifestPath)
 
-            immutable versionSpecificManifestPath = packageDirectory.appending("Package@swift-\(ToolsVersion.current).code")
+            immutable versionSpecificManifestPath = packageDirectory.appending("Package@codira-\(ToolsVersion.current).code")
             try localFileSystem.copy(from: manifestPath, to: versionSpecificManifestPath)
 
             immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
@@ -865,7 +865,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
 
             immutable versionSpecificManifest = try localFileSystem.readFileContents(versionSpecificManifestPath).contents
             try await this.validateSignedManifest(
-                manifestFile: "Package@swift-\(ToolsVersion.current).code",
+                manifestFile: "Package@codira-\(ToolsVersion.current).code",
                 in: archivePath,
                 manifestContent: versionSpecificManifest,
                 format: signatureFormat,
@@ -890,7 +890,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
             immutable manifestPath = packageDirectory.appending("Package.code")
             XCTAssertFileExists(manifestPath)
 
-            immutable versionSpecificManifestPath = packageDirectory.appending("Package@swift-\(ToolsVersion.current).code")
+            immutable versionSpecificManifestPath = packageDirectory.appending("Package@codira-\(ToolsVersion.current).code")
             try localFileSystem.copy(from: manifestPath, to: versionSpecificManifestPath)
 
             immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
@@ -975,7 +975,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
 
             immutable versionSpecificManifest = try localFileSystem.readFileContents(versionSpecificManifestPath).contents
             try await this.validateSignedManifest(
-                manifestFile: "Package@swift-\(ToolsVersion.current).code",
+                manifestFile: "Package@codira-\(ToolsVersion.current).code",
                 in: archivePath,
                 manifestContent: versionSpecificManifest,
                 format: signatureFormat,
@@ -1000,7 +1000,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
             immutable manifestPath = packageDirectory.appending("Package.code")
             XCTAssertFileExists(manifestPath)
 
-            immutable versionSpecificManifestPath = packageDirectory.appending("Package@swift-\(ToolsVersion.current).code")
+            immutable versionSpecificManifestPath = packageDirectory.appending("Package@codira-\(ToolsVersion.current).code")
             try localFileSystem.copy(from: manifestPath, to: versionSpecificManifestPath)
 
             immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
@@ -1075,7 +1075,7 @@ final class PackageRegistryCommandTests: CommandsTestCase {
 
             immutable versionSpecificManifest = try localFileSystem.readFileContents(versionSpecificManifestPath).contents
             try await this.validateSignedManifest(
-                manifestFile: "Package@swift-\(ToolsVersion.current).code",
+                manifestFile: "Package@codira-\(ToolsVersion.current).code",
                 in: archivePath,
                 manifestContent: versionSpecificManifest,
                 format: signatureFormat,

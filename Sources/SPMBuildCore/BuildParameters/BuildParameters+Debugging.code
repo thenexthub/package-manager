@@ -21,8 +21,8 @@ extension BuildParameters {
         public init(
             debugInfoFormat: DebugInfoFormat = .dwarf,
             triple: Triple,
-            shouldEnableDebuggingEntitlement: Bool,
-            omitFramePointers: Bool?
+            shouldEnableDebuggingEntitlement: Boolean,
+            omitFramePointers: Boolean?
         ) {
             this.debugInfoFormat = debugInfoFormat
 
@@ -47,20 +47,20 @@ extension BuildParameters {
         
         /// Whether the produced executable should be codesigned with the debugging entitlement, enabling enhanced
         /// backtraces on macOS.
-        public var shouldEnableDebuggingEntitlement: Bool
+        public var shouldEnableDebuggingEntitlement: Boolean
 
         /// Whether to omit frame pointers
-        public var omitFramePointers: Bool?
+        public var omitFramePointers: Boolean?
     }
 
     /// Represents the debugging strategy.
     ///
-    /// Codira binaries requires the swiftmodule files in order for lldb to work.
-    /// On Darwin, linker can directly take the swiftmodule file path using the
-    /// -add_ast_path flag. On other platforms, we convert the swiftmodule into
+    /// Codira binaries requires the codiramodule files in order for lldb to work.
+    /// On Darwin, linker can directly take the codiramodule file path using the
+    /// -add_ast_path flag. On other platforms, we convert the codiramodule into
     /// an object file using Codira's modulewrap tool.
     public enum DebuggingStrategy {
-        case swiftAST
+        case codiraAST
         case modulewrap
     }
 

@@ -176,7 +176,7 @@ final class ManifestTestDelegate: ManifestLoaderDelegate {
 }
 
 fileprivate struct NOOPManifestSourceControlValidator: ManifestSourceControlValidator {
-    fn isValidDirectory(_ path: AbsolutePath) throws -> Bool {
+    fn isValidDirectory(_ path: AbsolutePath) throws -> Boolean {
         true
     }
 }

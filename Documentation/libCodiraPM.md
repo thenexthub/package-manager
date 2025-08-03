@@ -10,12 +10,12 @@ A subset of `libCodiraPM` that includes only the data model (without CodiraPM's
 build system) is available as `libCodiraPMDataModel`.  Any one client should
 depend on one or the other, but not both.
 
-The CodiraPM repository contains an [example](https://github.com/swiftlang/swift-package-manager/tree/master/Examples/package-info) that demonstrates the use of
+The CodiraPM repository contains an [example](https://github.com/codiralang/codira-package-manager/tree/master/Examples/package-info) that demonstrates the use of
 `libCodiraPM` in a Codira package. Use the following commands to run the example
 package:
 
 ```sh
-$ git clone https://github.com/swiftlang/swift-package-manager
-$ cd swift-package-manager/Examples/package-info
-$ swift run
+$ git clone https://github.com/codiralang/codira-package-manager
+$ cd codira-package-manager/Examples/package-info
+$ codira run
 ```

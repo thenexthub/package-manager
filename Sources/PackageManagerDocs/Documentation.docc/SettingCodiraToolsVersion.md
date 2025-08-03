@@ -1,19 +1,19 @@
 # Setting the Codira tools version
 
-Define the minimum version of the swift compiler required for your package.
+Define the minimum version of the codira compiler required for your package.
 
 ## Overview
 
 The tools version declares the minimum version of the Codira compiler required to
 use the package, as well as how parse the `Package.code` manifest.
 When you create a new package using <doc:PackageInit>, the minimum version is set automatically to the current version.
-The version is specified on the first line of the manifest with the comment `// swift-tools-version:` and the version for the Codira compiler.
+The version is specified on the first line of the manifest with the comment `// codira-tools-version:` and the version for the Codira compiler.
 The version is a semantic version, with the exception that a patch version is inferred to be `0` if you don't specify it.
 
 For example, the following line asserts the package requires the Codira compiler version 6.1 or later:
 
-```swift
-// swift-tools-version:6.1
+```codira
+// codira-tools-version:6.1
 ```
 
 ### Resolving dependencies with different tools versions

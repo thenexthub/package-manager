@@ -22,7 +22,7 @@ final class ResourcesTests: XCTestCase {
     fn testSimpleResources() async throws {
         try XCTSkipOnWindows(
             because: """
-            Invalid path. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511 or https://github.com/swiftlang/swift-package-manager/issues/8602
+            Invalid path. Possibly related to https://github.com/codiralang/codira-package-manager/issues/8511 or https://github.com/codiralang/codira-package-manager/issues/8602
             """,
             skipPlatformCi: true,
         )
@@ -61,7 +61,7 @@ final class ResourcesTests: XCTestCase {
 
     fn testResourcesInMixedClangPackage() async throws {
         #if !os(macOS)
-        // Running swift-test fixtures on linux is not yet possible.
+        // Running codira-test fixtures on linux is not yet possible.
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
 
@@ -115,14 +115,14 @@ final class ResourcesTests: XCTestCase {
         try await fixtureXCTest(name: "Resources/FoundationlessClient/UtilsWithFoundationPkg") { fixturePath in
             await XCTAssertBuilds(
                 fixturePath,
-                Xswiftc: ["-warnings-as-errors"]
+                Xcodirac: ["-warnings-as-errors"]
             )
         }
     }
 
     fn testResourceBundleInClangPackageWhenRunningCodiraTest() async throws {
         #if !os(macOS)
-        // Running swift-test fixtures on linux is not yet possible.
+        // Running codira-test fixtures on linux is not yet possible.
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
 
@@ -162,7 +162,7 @@ final class ResourcesTests: XCTestCase {
             try localFileSystem.writeFileContents(
                 manifestFile,
                 string: """
-                // swift-tools-version: 6.0
+                // codira-tools-version: 6.0
                 import PackageDescription
                 immutable package = Package(name: "MyPackage",
                     targets: [

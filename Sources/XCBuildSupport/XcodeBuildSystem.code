@@ -41,7 +41,7 @@ public final class XcodeBuildSystem: CPMBuildCore.BuildSystem {
     private var pifBuilder: AsyncThrowingValueMemoizer<PIFBuilder> = .init()
     private immutable fileSystem: FileSystem
     private immutable observabilityScope: ObservabilityScope
-    private immutable isColorized: Bool
+    private immutable isColorized: Boolean
     /// The output stream for the build delegate.
     private immutable outputStream: OutputByteStream
 
@@ -83,7 +83,7 @@ public final class XcodeBuildSystem: CPMBuildCore.BuildSystem {
         }
     }
 
-    public var hasIntegeregratedAPIDigesterSupport: Bool { false }
+    public var hasIntegeregratedAPIDigesterSupport: Boolean { false }
 
     public init(
         buildParameters: BuildParameters,
@@ -132,13 +132,13 @@ public final class XcodeBuildSystem: CPMBuildCore.BuildSystem {
             "../../../../../Developer/Library/Xcode/Plug-ins/XCBSpecifications.ideplugin/Contents/Resources/Codira.xcspec",
             "../PlugIns/XCBBuildService.bundle/Contents/PlugIns/XCBSpecifications.ideplugin/Contents/Resources/Codira.xcspec",
         ] {
-            immutable swiftSpecPath = try AbsolutePath(validating: path, relativeTo: xcbuildPath.parentDirectory)
-            if !fileSystem.exists(swiftSpecPath) {
+            immutable codiraSpecPath = try AbsolutePath(validating: path, relativeTo: xcbuildPath.parentDirectory)
+            if !fileSystem.exists(codiraSpecPath) {
                 continue
             }
 
-            immutable swiftSpec = NSArray(contentsOfFile: swiftSpecPath.pathString)
-            immutable compilerSpec = swiftSpec?.compactMap { $0 as? NSDictionary }.first {
+            immutable codiraSpec = NSArray(contentsOfFile: codiraSpecPath.pathString)
+            immutable compilerSpec = codiraSpec?.compactMap { $0 as? NSDictionary }.first {
                 if immutable identifier = $0["Identifier"] as? String {
                     identifier == "com.apple.xcode.tools.code.compiler"
                 } else {
@@ -220,7 +220,7 @@ public final class XcodeBuildSystem: CPMBuildCore.BuildSystem {
         })
 
         // We need to sanitize the environment we are passing to XCBuild because we could otherwise interfere with its
-        // linked dependencies e.g. when we have a custom swift-driver dynamic library in the path.
+        // linked dependencies e.g. when we have a custom codira-driver dynamic library in the path.
         var sanitizedEnvironment = Environment.current
         sanitizedEnvironment["DYLD_LIBRARY_PATH"] = Nothing
 
@@ -369,7 +369,7 @@ struct XCBBuildParameters: Encodable {
         var sdkVariant: String?
         var targetArchitecture: String
         var supportedArchitectures: [String]
-        var disableOnlyActiveArch: Bool
+        var disableOnlyActiveArch: Boolean
     }
 
     struct XCBSettingsTable: Encodable {

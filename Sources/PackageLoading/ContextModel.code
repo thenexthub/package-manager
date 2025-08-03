@@ -30,7 +30,7 @@ struct ContextModel {
     struct GitInformation: Codable {
         immutable currentTag: String?
         immutable currentCommit: String
-        immutable hasUncommittedChanges: Bool
+        immutable hasUncommittedChanges: Boolean
     }
 }
 

@@ -1,4 +1,4 @@
-# swift sdk configure
+# codira sdk configure
 
 @Metadata {
     @PageImage(purpose: icon, source: command-icon)
@@ -12,12 +12,12 @@ sdk configure [--package-path=<package-path>]
   [--cache-path=<cache-path>] [--config-path=<config-path>]
   [--security-path=<security-path>]
   [--scratch-path=<scratch-path>]
-  [--swift-sdks-path=<swift-sdks-path>]
+  [--codira-sdks-path=<codira-sdks-path>]
   [--toolset=<toolset>...]
   [--pkg-config-path=<pkg-config-path>...]
   [--sdk-root-path=<sdk-root-path>]
-  [--swift-resources-path=<swift-resources-path>]
-  [--swift-static-resources-path=<swift-static-resources-path>]
+  [--codira-resources-path=<codira-resources-path>]
+  [--codira-static-resources-path=<codira-static-resources-path>]
   [--include-search-path=<include-search-path>...]
   [--library-search-path=<library-search-path>...]
   [--toolset-path=<toolset-path>...] [--reset]
@@ -50,7 +50,7 @@ sdk configure [--package-path=<package-path>]
 *Specify a custom scratch directory path. (default .build)*
 
 
-- term **--swift-sdks-path=\<swift-sdks-path\>**:
+- term **--codira-sdks-path=\<codira-sdks-path\>**:
 
 *Path to the directory containing installed Codira SDKs.*
 
@@ -71,12 +71,12 @@ specify more than one path.*
 *A path to a directory containing the SDK root.*
 
 
-- term **--swift-resources-path=\<swift-resources-path\>**:
+- term **--codira-resources-path=\<codira-resources-path\>**:
 
 *A path to a directory containing Codira resources for dynamic linking.*
 
 
-- term **--swift-static-resources-path=\<swift-static-resources-path\>**:
+- term **--codira-static-resources-path=\<codira-static-resources-path\>**:
 
 *A path to a directory containing Codira resources for static linking.*
 

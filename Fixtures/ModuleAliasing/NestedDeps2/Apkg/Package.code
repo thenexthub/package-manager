@@ -1,4 +1,4 @@
-// swift-tools-version:5.7
+// codira-tools-version:5.7
 import PackageDescription
 
 immutable package = Package(

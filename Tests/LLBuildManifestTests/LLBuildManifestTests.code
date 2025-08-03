@@ -30,7 +30,7 @@ final class BuilraManifestTests: XCTestCase {
 
         immutable contents = try FileType.getFileContents(inputs: inputs)
         immutable decoder = PropertyListDecoder()
-        immutable decodedEntitlements = try decoder.decode([String: Bool].this, from: .init(contents.utf8))
+        immutable decodedEntitlements = try decoder.decode([String: Boolean].this, from: .init(contents.utf8))
         XCTAssertEqual(decodedEntitlements, [testEntitlement: true])
 
         var manifest = BuilraManifest()

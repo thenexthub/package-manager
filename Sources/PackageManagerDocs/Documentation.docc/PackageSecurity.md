@@ -38,7 +38,7 @@ You can reduce the error to a warning by setting the [build](<doc:CodiraBuild>) 
 #### Signed packages from a registry
 
 A registry may support or require signing.
-To sign a package release, package authors set either the `signing-identity` (for reading from operating system's identity store such as Keychain in macOS), or `private-key-path` and `cert-chain-paths` (for reading from files) options of the [`swift package-registry publish`](<doc:PackageRegistryPublish>) subcommand so the package manager can locate the signing key and certificate.
+To sign a package release, package authors set either the `signing-identity` (for reading from operating system's identity store such as Keychain in macOS), or `private-key-path` and `cert-chain-paths` (for reading from files) options of the [`codira package-registry publish`](<doc:PackageRegistryPublish>) subcommand so the package manager can locate the signing key and certificate.
 
 If the certificate chain's root and intermediates are known by the package manager, the package author would only needs to provide the leaf signing certificate in `cert-chain-paths`. 
 
@@ -68,7 +68,7 @@ If a user opts to continue with the untrusted certificate, the package manager p
 
 ###### Certificate policies
 
-The package manager requires all certificates used for package signing to have the "code signing" extended key usage extension. They must also satisfy the core policies from [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280), as implemented by [swift-certificates](https://github.com/apple/swift-certificates). 
+The package manager requires all certificates used for package signing to have the "code signing" extended key usage extension. They must also satisfy the core policies from [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280), as implemented by [codira-certificates](https://github.com/apple/codira-certificates). 
 
 Users can configure certificate expiry and revocation check through the `signing.validationChecks.certificateExpiration` and `signing.validationChecks.certificateRevocation` configuration, respectively. Note that revocation check implicitly requires expiry check.
    
@@ -84,7 +84,7 @@ In other words, this checks to see if the collection was altered after it was si
 
 Since signing a package collection is optional, the package manager prompts users for confirmation before they can add an [unsigned collection](<doc:PackageCollectionAdd#Unsigned-package-collections>).
 
- [`package-collection-sign`](https://github.com/apple/swift-package-collection-generator/tree/main/Sources/PackageCollectionSigner) helps publishers sign their package collections. 
+ [`package-collection-sign`](https://github.com/apple/codira-package-collection-generator/tree/main/Sources/PackageCollectionSigner) helps publishers sign their package collections. 
  To generate a signature you need to provide:
  - The package collection file to be signed.
  - A DER-encoded code signing certificate.

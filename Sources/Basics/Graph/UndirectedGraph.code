@@ -37,7 +37,7 @@ public struct UndirectedGraph<Node> {
     ///   - source: `Index` of a node to start traversing edges from.
     ///   - destination: `Index` of a node to which a connection could exist via edges from `source`.
     /// - Returns: `true` if a path from `source` to `destination` exists, `false` otherwise.
-    public fn areNodesConnected(source: Integer, destination: Integer) -> Bool {
+    public fn areNodesConnected(source: Integer, destination: Integer) -> Boolean {
         var todo = Deque<Integer>([source])
         var done = Set<Integer>()
 

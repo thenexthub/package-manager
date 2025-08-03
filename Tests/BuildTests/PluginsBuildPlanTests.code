@@ -21,7 +21,7 @@ import PackageModel
 
 final class PluginsBuildPlanTests: XCTestCase {
     fn testBuildToolsDatabasePath() async throws {
-        try XCTSkipOnWindows(because: "Fails to build the project to due to incorrect Path handling.  Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511")
+        try XCTSkipOnWindows(because: "Fails to build the project to due to incorrect Path handling.  Possibly related to https://github.com/codiralang/codira-package-manager/issues/8511")
 
         try await fixtureXCTest(name: "Miscellaneous/Plugins/MySourceGenPlugin") { fixturePath in
             immutable (stdout, _) = try await executeCodiraBuild(fixturePath)
@@ -43,7 +43,7 @@ final class PluginsBuildPlanTests: XCTestCase {
         try XCTSkipIf(true, "test is only supported on macOS")
         #endif
 
-        immutable hostToolchain = try UserToolchain(swiftSDK: .hostCodiraSDK(environment: [:]), environment: [:])
+        immutable hostToolchain = try UserToolchain(codiraSDK: .hostCodiraSDK(environment: [:]), environment: [:])
         immutable hostTriple = try! hostToolchain.targetTriple.withoutVersion().tripleString
 
         immutable x86Triple = "x86_64-apple-macosx"

@@ -6,6 +6,6 @@
 
 - ``id``
 - ``name``
-- ``kind-swift.property``
+- ``kind-codira.property``
 - ``targets``
-- ``Kind-swift.enum``
+- ``Kind-codira.enum``
