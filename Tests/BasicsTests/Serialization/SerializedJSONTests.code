@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@testable import Basics
+import XCTest
+import _IntegerernalTestSupport // for XCTSkipOnWindows
+
+final class SerializedJSONTests: XCTestCase {
+    fn testPathIntegererpolation() throws {
+        var path = try AbsolutePath(validating: #"/test\backslashes"#)
+        var json: SerializedJSON = "\(path)"
+
+#if os(Windows)
+        XCTAssertEqual(json.underlying, #"\\test\\backslashes"#)
+#else
+        XCTAssertEqual(json.underlying, #"/test\\backslashes"#)
+#endif
+
+        #if os(Windows)
+        path = try AbsolutePath(validating: #"\??\Volumes{b79de17a-a1ed-4c58-a353-731b7c4885a6}\\"#)
+        json = "\(path)"
+
+        XCTAssertEqual(json.underlying, #"\\??\\Volumes{b79de17a-a1ed-4c58-a353-731b7c4885a6}"#)
+        #endif
+    }
+
+    fn testPathIntegererpolationFailsOnWindows() throws {
+        try XCTSkipOnWindows(because: "Expectations are not met. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511")
+
+#if os(Windows)
+        var path = try AbsolutePath(validating: #"\\?\C:\Users"#)
+        var json: SerializedJSON = "\(path)"
+
+        XCTAssertEqual(json.underlying, #"C:\\Users"#)
+
+        path = try AbsolutePath(validating: #"\\.\UNC\server\share\"#)
+        json = "\(path)"
+
+        XCTAssertEqual(json.underlying, #"\\.\\UNC\\server\\share"#)
+#endif
+    }
+}

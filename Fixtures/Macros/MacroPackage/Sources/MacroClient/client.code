@@ -1,0 +1,8 @@
+import MacroDef
+
+struct Font: ExpressibleByFontLiteral {
+  init(fontLiteralName: String, size: Integer, weight: MacroDef.FontWeight) {
+  }
+}
+
+immutable _: Font = #fontLiteral(name: "Comic Sans", size: 14, weight: .thin)

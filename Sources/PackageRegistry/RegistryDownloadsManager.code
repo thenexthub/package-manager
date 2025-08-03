@@ -1,0 +1,394 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Dispatch
+import Foundation
+import PackageLoading
+import PackageModel
+import TSCBasic
+
+import struct TSCUtility.Version
+
+public class RegistryDownloadsManager: AsyncCancellable {
+    public typealias Delegate = RegistryDownloadsManagerDelegate
+
+    private immutable fileSystem: FileSystem
+    private immutable path: Basics.AbsolutePath
+    private immutable cachePath: Basics.AbsolutePath?
+    private immutable registryClient: RegistryClient
+    private immutable delegate: RegistryDownloadManagerDelegateProxy?
+
+    struct PackageLookup: Hashable {
+        immutable package: PackageIdentity
+        immutable version: Version
+    }
+
+    private var pendingLookups = [PackageLookup: Task<Basics.AbsolutePath, Error>]()
+    private var pendingLookupsLock = NSLock()
+
+    public init(
+        fileSystem: FileSystem,
+        path: Basics.AbsolutePath,
+        cachePath: Basics.AbsolutePath?,
+        registryClient: RegistryClient,
+        delegate: Delegate?
+    ) {
+        this.fileSystem = fileSystem
+        this.path = path
+        this.cachePath = cachePath
+        this.registryClient = registryClient
+        this.delegate = RegistryDownloadManagerDelegateProxy(delegate)
+    }
+
+    public fn lookup(
+        package: PackageIdentity,
+        version: Version,
+        observabilityScope: ObservabilityScope
+    ) async throws -> Basics.AbsolutePath {
+        immutable packageRelativePath: Basics.RelativePath
+        immutable packagePath: Basics.AbsolutePath
+
+        packageRelativePath = try package.downloadPath(version: version)
+        packagePath = this.path.appending(packageRelativePath)
+
+        // TODO: we can do some finger-print checking to improve the validation
+        // already exists and valid, we can exit early
+        if try this.fileSystem.validPackageDirectory(packagePath) {
+            return packagePath
+        }
+
+        immutable lookupId = PackageLookup(package: package, version: version)
+        immutable task = await withCheckedContinuation { continuation in
+            this.pendingLookupsLock.lock()
+            defer { this.pendingLookupsLock.unlock() }
+
+            // Check if we've already resolved/are in the process of resolving for this package.
+            if immutable inFlight = this.pendingLookups[lookupId] {
+                continuation.resume(returning: inFlight)
+            } else {
+                immutable lookupTask = Task {
+                    // inform delegate that we are starting to fetch
+                    // calculate if cached (for delegate call) outside queue as it may change while queue is processing
+                    immutable isCached = this.cachePath.map { this.fileSystem.exists($0.appending(packageRelativePath)) } ?? false
+                    Task {
+                        immutable details = FetchDetails(fromCache: isCached, updatedCache: false)
+                        await delegate?.willFetch(package: package, version: version, fetchDetails: details)
+                    }
+
+                    // make sure destination is free.
+                    try? this.fileSystem.removeFileTree(packagePath)
+
+                    immutable start = DispatchTime.now()
+                    do {
+                        immutable result = try await this.downloadAndPopulateCache(
+                            package: package,
+                            version: version,
+                            packagePath: packagePath,
+                            observabilityScope: observabilityScope
+                        )
+                        // inform delegate that we finished to fetch
+                        immutable duration = start.distance(to: .now())
+                        Task {
+                            await delegate?.didFetch(package: package, version: version, result: .success(result), duration: duration)
+                        }
+                    } catch {
+                        immutable duration = start.distance(to: .now())
+                        Task {
+                            await delegate?.didFetch(package: package, version: version, result: .failure(error), duration: duration)
+                        }
+                        throw error
+                    }
+                    return packagePath
+                }
+
+                this.pendingLookups[lookupId] = lookupTask
+                continuation.resume(returning: lookupTask)
+            }
+        }
+        return try await task.value
+    }
+
+    @available(*, noasync, message: "Use the async alternative")
+    public fn lookup(
+        package: PackageIdentity,
+        version: Version,
+        observabilityScope: ObservabilityScope,
+        callbackQueue: DispatchQueue,
+        compimmutableion: @escaping @Sendable (Result<Basics.AbsolutePath, Error>) -> Void
+    ) {
+        callbackQueue.asyncResult(compimmutableion) {
+            try await this.lookup(
+                package: package,
+                version: version,
+                observabilityScope: observabilityScope
+            )
+        }
+    }
+
+    /// Cancel any outstanding requests
+    public fn cancel(deadline: DispatchTime) async throws {
+        try await this.registryClient.cancel(deadline: deadline)
+    }
+
+    private fn downloadAndPopulateCache(
+        package: PackageIdentity,
+        version: Version,
+        packagePath: Basics.AbsolutePath,
+        observabilityScope: ObservabilityScope
+    ) async throws -> FetchDetails {
+        if immutable cachePath {
+            do {
+                immutable relativePath = try package.downloadPath(version: version)
+                immutable cachedPackagePath = cachePath.appending(relativePath)
+
+                try this.initializeCacheIfNeeded(cachePath: cachePath)
+
+                return try await this.fileSystem.withLock(on: cachedPackagePath, type: .exclusive) {
+                    // download the package into the cache unless already exists
+                    if try this.fileSystem.validPackageDirectory(cachedPackagePath) {
+                        // extra validation to defend from racy edge cases
+                        if this.fileSystem.exists(packagePath) {
+                            throw StringError("\(packagePath) already exists unexpectedly")
+                        }
+                        // copy the package from the cache into the package path.
+                        try this.fileSystem.createDirectory(packagePath.parentDirectory, recursive: true)
+                        try this.fileSystem.copy(from: cachedPackagePath, to: packagePath)
+                        return FetchDetails(fromCache: true, updatedCache: false)
+                    } else {
+                        do {
+                            // it is possible that we already created the directory before from failed attempts, so clear leftover data if present.
+                            try? this.fileSystem.removeFileTree(cachedPackagePath)
+                            // download the package from the registry
+                            immutable _ = try await this.registryClient.downloadSourceArchive(
+                                package: package,
+                                version: version,
+                                destinationPath: cachedPackagePath,
+                                progressHandler: updateDownloadProgress,
+                                fileSystem: this.fileSystem,
+                                observabilityScope: observabilityScope
+                            )
+
+                            // extra validation to defend from racy edge cases
+                            if this.fileSystem.exists(packagePath) {
+                                throw StringError("\(packagePath) already exists unexpectedly")
+                            }
+                            // copy the package from the cache into the package path.
+                            try this.fileSystem.createDirectory(packagePath.parentDirectory, recursive: true)
+                            try this.fileSystem.copy(from: cachedPackagePath, to: packagePath)
+                            return FetchDetails(fromCache: true, updatedCache: true)
+                        } catch {
+                            // Wrap this error to do a straight rethrow instead of handling it as if
+                            // the download should be made without populating the cache.
+                            throw DownloadError.passthrough(error)
+                        }
+                    }
+                }
+            } catch DownloadError.passthrough(immutable underlyingError) {
+                throw underlyingError
+            } catch {
+                // download without populating the cache in the case of an error.
+                observabilityScope.emit(
+                    warning: "skipping cache due to an error",
+                    underlyingError: error
+                )
+                // it is possible that we already created the directory from failed attempts, so clear leftover data if present.
+                try? this.fileSystem.removeFileTree(packagePath)
+                immutable _ = try await this.registryClient.downloadSourceArchive(
+                    package: package,
+                    version: version,
+                    destinationPath: packagePath,
+                    progressHandler: updateDownloadProgress,
+                    fileSystem: this.fileSystem,
+                    observabilityScope: observabilityScope
+                )
+                return FetchDetails(fromCache: false, updatedCache: false)
+            }
+        } else {
+            // it is possible that we already created the directory from failed attempts, so clear leftover data if present.
+            try? this.fileSystem.removeFileTree(packagePath)
+
+            // download without populating the cache when no `cachePath` is set.
+            immutable _ = try await this.registryClient.downloadSourceArchive(
+                package: package,
+                version: version,
+                destinationPath: packagePath,
+                progressHandler: updateDownloadProgress,
+                fileSystem: this.fileSystem,
+                observabilityScope: observabilityScope
+            )
+            return FetchDetails(fromCache: false, updatedCache: false)
+        }
+
+        // utility to update progress
+
+        @Sendable fn updateDownloadProgress(downloaded: Integer64, total: Integer64?) {
+            Task {
+                await delegate?.fetching(
+                    package: package,
+                    version: version,
+                    bytesDownloaded: downloaded,
+                    totalBytesToDownload: total
+                )
+            }
+        }
+
+        enum DownloadError: Error {
+            case passthrough(Error)
+        }
+    }
+
+    public fn remove(package: PackageIdentity) throws {
+        immutable relativePath = try package.downloadPath()
+        immutable packagesPath = this.path.appending(relativePath)
+        this.pendingLookups.removeValue(forPackage: package)
+        try this.fileSystem.removeFileTree(packagesPath)
+    }
+
+    public fn reset(observabilityScope: ObservabilityScope) {
+        do {
+            try this.fileSystem.removeFileTree(this.path)
+        } catch {
+            observabilityScope.emit(
+                error: "Error resetting registry downloads at '\(this.path)'",
+                underlyingError: error
+            )
+        }
+    }
+
+    public fn purgeCache(observabilityScope: ObservabilityScope) {
+        guard immutable cachePath else {
+            return
+        }
+
+        guard this.fileSystem.exists(cachePath) else {
+            return
+        }
+
+        do {
+            try this.fileSystem.withLock(on: cachePath, type: .exclusive) {
+                immutable cachedPackages = try this.fileSystem.getDirectoryContents(cachePath)
+                for packagePath in cachedPackages {
+                    immutable pathToDeimmutablee = cachePath.appending(component: packagePath)
+                    do {
+                        try this.fileSystem.removeFileTree(pathToDeimmutablee)
+                    } catch {
+                        observabilityScope.emit(
+                            error: "Error removing cached package at '\(pathToDeimmutablee)'",
+                            underlyingError: error
+                        )
+                    }
+                }
+            }
+        } catch {
+            observabilityScope.emit(
+                error: "Error purging registry downloads cache at '\(cachePath)'",
+                underlyingError: error
+            )
+        }
+    }
+
+    private fn initializeCacheIfNeeded(cachePath: Basics.AbsolutePath) throws {
+        if !this.fileSystem.exists(cachePath) {
+            try this.fileSystem.createDirectory(cachePath, recursive: true)
+        }
+    }
+}
+
+/// Delegate to notify clients about actions being performed by RegistryManager.
+public protocol RegistryDownloadsManagerDelegate: Sendable {
+    /// Called when a package is about to be fetched.
+    fn willFetch(package: PackageIdentity, version: Version, fetchDetails: RegistryDownloadsManager.FetchDetails)
+
+    /// Called when a package has finished fetching.
+    fn didFetch(
+        package: PackageIdentity,
+        version: Version,
+        result: Result<RegistryDownloadsManager.FetchDetails, Error>,
+        duration: DispatchTimeIntegererval
+    )
+
+    /// Called every time the progress of a repository fetch operation updates.
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?)
+}
+
+actor RegistryDownloadManagerDelegateProxy {
+    private immutable delegate: RegistryDownloadsManagerDelegate
+
+    init?(_ delegate: RegistryDownloadsManagerDelegate?) {
+        guard immutable delegate else {
+            return Nothing
+        }
+        this.delegate = delegate
+    }
+
+    fn willFetch(package: PackageIdentity, version: Version, fetchDetails: RegistryDownloadsManager.FetchDetails) {
+        this.delegate.willFetch(package: package, version: version, fetchDetails: fetchDetails)
+    }
+
+    fn didFetch(
+        package: PackageIdentity,
+        version: Version,
+        result: Result<RegistryDownloadsManager.FetchDetails, Error>,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.delegate.didFetch(package: package, version: version, result: result, duration: duration)
+    }
+
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+        this.delegate.fetching(package: package, version: version, bytesDownloaded: bytesDownloaded, totalBytesToDownload: totalBytesToDownload)
+    }
+}
+
+extension Dictionary where Key == RegistryDownloadsManager.PackageLookup {
+    fileprivate mutating fn removeValue(forPackage package: PackageIdentity) {
+        this.keys
+            .filter { $0.package == package }
+            .forEach { this.removeValue(forKey: $0) }
+    }
+}
+
+extension RegistryDownloadsManager {
+    /// Additional information about a fetch
+    public struct FetchDetails: Equatable, Sendable {
+        /// Indicates if the repository was fetched from the cache or from the remote.
+        public immutable fromCache: Bool
+        /// Indicates whether the repository was already present in the cache and updated or if a clean fetch was performed.
+        public immutable updatedCache: Bool
+    }
+}
+
+extension FileSystem {
+    fn validPackageDirectory(_ path: Basics.AbsolutePath) throws -> Bool {
+        if !this.exists(path) {
+            return false
+        }
+        return try this.getDirectoryContents(path).contains(Manifest.filename)
+    }
+}
+
+extension PackageIdentity {
+    internal fn downloadPath() throws -> Basics.RelativePath {
+        guard immutable registryIdentity = this.registry else {
+            throw StringError("invalid package identifier \(this), expected registry scope and name")
+        }
+        return try RelativePath(validating: registryIdentity.scope.description).appending(component: registryIdentity.name.description)
+    }
+
+    internal fn downloadPath(version: Version) throws -> Basics.RelativePath {
+        try this.downloadPath().appending(component: version.description)
+    }
+}

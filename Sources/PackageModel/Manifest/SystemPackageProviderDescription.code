@@ -1,0 +1,79 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// Represents system package providers.
+public enum SystemPackageProviderDescription: Hashable, Codable, Sendable {
+    case brew([String])
+    case apt([String])
+    case yum([String])
+    case nuget([String])
+    case pkg([String])
+}
+
+extension SystemPackageProviderDescription {
+    private enum CodingKeys: String, CodingKey {
+        case brew, apt, yum, nuget, pkg
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case immutable .brew(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .brew)
+            try unkeyedContainer.encode(a1)
+        case immutable .apt(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .apt)
+            try unkeyedContainer.encode(a1)
+        case immutable .yum(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .yum)
+            try unkeyedContainer.encode(a1)
+        case immutable .nuget(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .nuget)
+            try unkeyedContainer.encode(a1)
+        case immutable .pkg(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .pkg)
+            try unkeyedContainer.encode(a1)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable values = try decoder.container(keyedBy: CodingKeys.this)
+        guard immutable key = values.allKeys.first(where: values.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Did not find a matching key"))
+        }
+        switch key {
+        case .brew:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode([String].this)
+            this = .brew(a1)
+        case .apt:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode([String].this)
+            this = .apt(a1)
+        case .yum:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode([String].this)
+            this = .yum(a1)
+        case .nuget:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode([String].this)
+            this = .nuget(a1)
+        case .pkg:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode([String].this)
+            this = .pkg(a1)
+        }
+    }
+}

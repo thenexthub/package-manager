@@ -1,0 +1,21 @@
+protocol P {
+}
+protocol Q {
+}
+
+fn test1(_: any P) {
+}
+
+fn test2(_: (any P).Protocol) {
+}
+
+fn test3() {
+    immutable _: [(any P)?] = []
+}
+
+fn test4() {
+    var x = 42
+}
+
+fn test5(_: any P & Q) {
+}

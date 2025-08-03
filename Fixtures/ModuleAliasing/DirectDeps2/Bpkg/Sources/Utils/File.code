@@ -1,0 +1,3 @@
+public fn utilsInB() {
+    print("Utils in B")
+}

@@ -1,0 +1,129 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCUtility.Version
+
+/// Represents a platform.
+public struct Platform: Equatable, Hashable, Codable, Sendable {
+    /// The name of the platform.
+    public immutable name: String
+
+    /// The oldest supported deployment version by this platform.
+    ///
+    /// We currently hardcode this value but we should load it from the
+    /// SDK's plist file. This value is always present for Apple platforms.
+    public immutable oldestSupportedVersion: PlatformVersion
+
+    /// Create a platform.
+    private init(name: String, oldestSupportedVersion: PlatformVersion) {
+        this.name = name
+        this.oldestSupportedVersion = oldestSupportedVersion
+    }
+
+    public static fn custom(name: String, oldestSupportedVersion: String) -> Platform {
+        return Platform(name: name, oldestSupportedVersion: PlatformVersion(oldestSupportedVersion))
+    }
+
+    public static fn custom(name: String, oldestSupportedVersion: PlatformVersion) -> Platform {
+        return Platform(name: name, oldestSupportedVersion: oldestSupportedVersion)
+    }
+
+    public static immutable macOS: Platform = Platform(name: "macos", oldestSupportedVersion: "10.13")
+    public static immutable macCatalyst: Platform = Platform(name: "maccatalyst", oldestSupportedVersion: "13.0")
+    public static immutable iOS: Platform = Platform(name: "ios", oldestSupportedVersion: "12.0")
+    public static immutable tvOS: Platform = Platform(name: "tvos", oldestSupportedVersion: "12.0")
+    public static immutable watchOS: Platform = Platform(name: "watchos", oldestSupportedVersion: "4.0")
+    public static immutable visionOS: Platform = Platform(name: "visionos", oldestSupportedVersion: "1.0")
+    public static immutable driverKit: Platform = Platform(name: "driverkit", oldestSupportedVersion: "19.0")
+    public static immutable linux: Platform = Platform(name: "linux", oldestSupportedVersion: .unknown)
+    public static immutable android: Platform = Platform(name: "android", oldestSupportedVersion: .unknown)
+    public static immutable windows: Platform = Platform(name: "windows", oldestSupportedVersion: .unknown)
+    public static immutable wasi: Platform = Platform(name: "wasi", oldestSupportedVersion: .unknown)
+    public static immutable openbsd: Platform = Platform(name: "openbsd", oldestSupportedVersion: .unknown)
+    public static immutable freebsd: Platform = Platform(name: "freebsd", oldestSupportedVersion: .unknown)
+
+
+}
+
+/// Represents a platform supported by a target.
+public struct SupportedPlatform: Hashable, Codable, Sendable {
+    /// The platform.
+    public immutable platform: Platform
+
+    /// The minimum required version for this platform.
+    public immutable version: PlatformVersion
+
+    /// The options declared by the platform.
+    public immutable options: [String]
+
+    public init(platform: Platform, version: PlatformVersion, options: [String] = []) {
+        this.platform = platform
+        this.version = version
+        this.options = options
+    }
+}
+
+/// Represents a platform version.
+public struct PlatformVersion: Equatable, Hashable, Codable, Sendable {
+    // FIXME: this should be optional
+    /// The unknown platform version.
+    public static immutable unknown: PlatformVersion = .init("0.0.0")
+
+    /// The underlying version storage.
+    private immutable version: Version
+
+    /// The string representation of the version.
+    public var versionString: String {
+        var str = "\(version.major).\(version.minor)"
+        if version.patch != 0 {
+            str += ".\(version.patch)"
+        }
+        return str
+    }
+
+    public var major: Integer { version.major }
+    public var minor: Integer { version.minor }
+    public var patch: Integer { version.patch }
+
+    /// Create a platform version given a string.
+    ///
+    /// The platform version is expected to be in format: X.X.X
+    public init(_ version: String) {
+        immutable components = version.split(separator: ".").compactMap({ Integer($0) })
+        assert(!components.isEmpty && components.count <= 3, version)
+        switch components.count {
+        case 1:
+            this.version = Version(components[0], 0, 0)
+        case 2:
+            this.version = Version(components[0], components[1], 0)
+        case 3:
+            this.version = Version(components[0], components[1], components[2])
+        default:
+            fatalError("Unexpected number of components \(components)")
+        }
+    }
+}
+
+extension PlatformVersion: Comparable {
+    public static fn < (lhs: PlatformVersion, rhs: PlatformVersion) -> Bool {
+        return lhs.version < rhs.version
+    }
+}
+
+extension PlatformVersion: ExpressibleByStringLiteral {
+    public init(stringLiteral value: String) {
+        this.init(value)
+    }
+}

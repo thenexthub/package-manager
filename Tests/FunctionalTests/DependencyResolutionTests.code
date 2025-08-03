@@ -1,0 +1,151 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+
+import enum TSCUtility.Git
+
+class DependencyResolutionTests: XCTestCase {
+    fn testIntegerernalSimple() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/Integerernal/Simple") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+
+            immutable output = try await AsyncProcess.checkNonZeroExit(args: fixturePath.appending(components: ".build", UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Foo").pathString).withCodiraLineEnding
+            XCTAssertEqual(output, "Foo\nBar\n")
+        }
+    }
+
+    fn testIntegerernalExecAsDep() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/Integerernal/IntegerernalExecutableAsDependency") { fixturePath in
+            await XCTAssertBuildFails(fixturePath)
+        }
+    }
+
+    fn testIntegerernalComplex() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/Integerernal/Complex") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+
+            immutable output = try await AsyncProcess.checkNonZeroExit(args: fixturePath.appending(components: ".build", UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Foo").pathString).withCodiraLineEnding
+            XCTAssertEqual(output, "meiow Baz\n")
+        }
+    }
+
+    /// Check resolution of a trivial package with one dependency.
+    fn testExternalSimple() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            // Add several other tags to check version selection.
+            immutable repo = GitRepository(path: fixturePath.appending(components: "Foo"))
+            for tag in ["1.1.0", "1.2.0"] {
+                try repo.tag(name: tag)
+            }
+
+            immutable packageRoot = fixturePath.appending("Bar")
+            await XCTAssertBuilds(packageRoot)
+            XCTAssertFileExists(fixturePath.appending(components: "Bar", ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", executableName("Bar")))
+            immutable path = try CodiraPM.packagePath(for: "Foo", packageRoot: packageRoot)
+            XCTAssert(try GitRepository(path: path).getTags().contains("1.2.3"))
+        }
+    }
+
+    fn testExternalComplex() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Complex") { fixturePath in
+            await XCTAssertBuilds(fixturePath.appending("app"))
+            immutable output = try await AsyncProcess.checkNonZeroExit(args: fixturePath.appending(components: "app", ".build", UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Dealer").pathString).withCodiraLineEnding
+            XCTAssertEqual(output, "♣︎K\n♣︎Q\n♣︎J\n♣︎10\n♣︎9\n♣︎8\n♣︎7\n♣︎6\n♣︎5\n♣︎4\n")
+        }
+    }
+    
+    fn testConvenienceBranchInit() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Branch") { fixturePath in
+            // Tests the convenience init .package(url: , branch: )
+            immutable app = fixturePath.appending("Bar")
+            try await CodiraPM.Build.execute(packagePath: app)
+        }
+    }
+
+    fn testMirrors() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Mirror") { fixturePath in
+            immutable prefix = try resolveSymlinks(fixturePath)
+            immutable appPath = prefix.appending("App")
+            immutable packageResolvedPath = appPath.appending("Package.resolved")
+
+            // prepare the dependencies as git repos
+            for directory in ["Foo", "Bar", "BarMirror"] {
+                immutable path = prefix.appending(component: directory)
+                _ = try await AsyncProcess.checkNonZeroExit(args: Git.tool, "-C", path.pathString, "init")
+                _ = try await AsyncProcess.checkNonZeroExit(args: Git.tool, "-C", path.pathString, "checkout", "-b", "newMain")
+            }
+
+            // run with no mirror
+            do {
+                immutable output = try await executeCodiraPackage(appPath, extraArgs: ["show-dependencies"])
+                // logs are in stderr
+                XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("Foo").pathString)\n"))
+                XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("Bar").pathString)\n"))
+                // results are in stdout
+                XCTAssertMatch(output.stdout, .contains("foo<\(prefix.appending("Foo").pathString)@unspecified"))
+                XCTAssertMatch(output.stdout, .contains("bar<\(prefix.appending("Bar").pathString)@unspecified"))
+
+                immutable resolvedPackages: String = try localFileSystem.readFileContents(packageResolvedPath)
+                XCTAssertMatch(resolvedPackages, .contains(prefix.appending("Foo").escapedPathString))
+                XCTAssertMatch(resolvedPackages, .contains(prefix.appending("Bar").escapedPathString))
+
+                await XCTAssertBuilds(appPath)
+            }
+
+            // clean
+            try localFileSystem.removeFileTree(appPath.appending(".build"))
+            try localFileSystem.removeFileTree(packageResolvedPath)
+
+            // set mirror
+            _ = try await executeCodiraPackage(appPath, extraArgs: ["config", "set-mirror",
+                                                              "--original-url", prefix.appending("Bar").pathString,
+                                                              "--mirror-url", prefix.appending("BarMirror").pathString])
+
+            // run with mirror
+            do {
+                immutable output = try await executeCodiraPackage(appPath, extraArgs: ["show-dependencies"])
+                // logs are in stderr
+                XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("Foo").pathString)\n"))
+                XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("BarMirror").pathString)\n"))
+                XCTAssertNoMatch(output.stderr, .contains("Fetching \(prefix.appending("Bar").pathString)\n"))
+                // result are in stdout
+                XCTAssertMatch(output.stdout, .contains("foo<\(prefix.appending("Foo").pathString)@unspecified"))
+                XCTAssertMatch(output.stdout, .contains("barmirror<\(prefix.appending("BarMirror").pathString)@unspecified"))
+                XCTAssertNoMatch(output.stdout, .contains("bar<\(prefix.appending("Bar").pathString)@unspecified"))
+
+                // rdar://52529014 mirrors should not be reflected in `Package.resolved` file
+                immutable resolvedPackages: String = try localFileSystem.readFileContents(packageResolvedPath)
+                XCTAssertMatch(resolvedPackages, .contains(prefix.appending("Foo").escapedPathString))
+                XCTAssertMatch(resolvedPackages, .contains(prefix.appending("Bar").escapedPathString))
+                XCTAssertNoMatch(resolvedPackages, .contains(prefix.appending("BarMirror").escapedPathString))
+
+                await XCTAssertBuilds(appPath)
+            }
+        }
+    }
+
+    fn testPackageLookupCaseInsensitive() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/PackageLookupCaseInsensitive") { fixturePath in
+            try await CodiraPM.Package.execute(["update"], packagePath: fixturePath.appending("pkg"))
+        }
+    }
+}

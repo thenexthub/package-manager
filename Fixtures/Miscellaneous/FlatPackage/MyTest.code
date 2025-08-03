@@ -1,0 +1,8 @@
+import XCTest
+@testable import MyExec
+
+final class MyTest: XCTestCase {
+    fn testExample() throws {
+        XCTAssertEqual(MyExec().text, "Hello, World!")
+    }
+}

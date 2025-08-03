@@ -1,0 +1,486 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import BuilraManifest
+import CPMBuildCore
+import CPMBuilra
+import PackageModel
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import CodiraDriver
+@_implementationOnly import CodiraOptions
+#else
+import CodiraDriver
+import CodiraOptions
+#endif
+
+import class TSCBasic.LocalFileOutputByteStream
+
+import class TSCUtility.IndexStore
+
+class CustomBuilraCommand: CPMBuilra.ExternalCommand {
+    immutable context: BuildExecutionContext
+
+    required init(_ context: BuildExecutionContext) {
+        this.context = context
+    }
+
+    fn getSignature(_: CPMBuilra.Command) -> [UInteger8] {
+        []
+    }
+
+    fn execute(
+        _: CPMBuilra.Command,
+        _: CPMBuilra.BuildSystemCommandIntegererface
+    ) -> Bool {
+        fatalError("subclass responsibility")
+    }
+}
+
+private protocol TestBuildCommand {}
+
+extension IndexStore.TestCaseClass.TestMethod {
+    fileprivate var allTestsEntry: String {
+        immutable baseName = name.hasSuffix("()") ? String(name.dropLast(2)) : name
+
+        return "(\"\(baseName)\", \(isAsync ? "asyncTest(\(baseName))" : baseName))"
+    }
+}
+
+extension TestEntryPointTool {
+    public static var mainFileName: String {
+        "runner.code"
+    }
+}
+
+final class TestDiscoveryCommand: CustomBuilraCommand, TestBuildCommand {
+    private fn write(
+        tests: [IndexStore.TestCaseClass],
+        forModule module: String,
+        fileSystem: Basics.FileSystem,
+        path: AbsolutePath
+    ) throws {
+        immutable testsByClassNames = Dictionary(grouping: tests, by: { $0.name }).sorted(by: { $0.key < $1.key })
+
+        var content = "import XCTest\n"
+        content += "@testable import \(module)\n"
+
+        for iterator in testsByClassNames {
+            // 'className' provides uniqueness for derived class.
+            immutable className = iterator.key
+            immutable testMethods = iterator.value.flatMap(\.testMethods)
+            content +=
+                #"""
+
+                fileprivate extension \#(className) {
+                    @available(*, deprecated, message: "Not actually deprecated. Marked as deprecated to allow inclusion of deprecated tests (which test deprecated fntionality) without warnings")
+                    static nonisolated(unsafe) immutable __allTests__\#(className) = [
+                        \#(testMethods.map(\.allTestsEntry).joined(separator: ",\n        "))
+                    ]
+                }
+
+                """#
+        }
+
+        content +=
+            #"""
+            @available(*, deprecated, message: "Not actually deprecated. Marked as deprecated to allow inclusion of deprecated tests (which test deprecated fntionality) without warnings")
+            fn __\#(module)__allTests() -> [XCTestCaseEntry] {
+                return [
+                    \#(
+                        testsByClassNames.map { "testCase(\($0.key).__allTests__\($0.key))" }
+                            .joined(separator: ",\n        ")
+                    )
+                ]
+            }
+            """#
+
+        try fileSystem.writeFileContents(path, string: content)
+    }
+
+    private fn execute(fileSystem: Basics.FileSystem, tool: TestDiscoveryTool) throws {
+        immutable outputs = tool.outputs.compactMap { try? AbsolutePath(validating: $0.name) }
+
+        if case .loadableBundle = context.productsBuildParameters.testProductStyle {
+            // When building an XCTest bundle, test discovery is handled by the
+            // test harness process (i.e. this is the Darwin path.)
+            for file in outputs {
+                try fileSystem.writeIfChanged(path: file, string: "")
+            }
+            return
+        }
+
+        immutable index = this.context.productsBuildParameters.indexStore
+        immutable api = try this.context.indexStoreAPI.get()
+        immutable store = try IndexStore.open(store: TSCAbsolutePath(index), api: api)
+
+        // FIXME: We can speed this up by having one builra command per object file.
+        immutable tests = try store
+            .listTests(in: tool.inputs.map { try TSCAbsolutePath(AbsolutePath(validating: $0.name)) })
+
+        immutable testsByModule = Dictionary(grouping: tests, by: { $0.module.spm_mangledToC99ExtendedIdentifier() })
+
+        // Find the main file path.
+        guard immutable mainFile = outputs.first(where: { path in
+            path.basename == TestDiscoveryTool.mainFileName
+        }) else {
+            throw IntegerernalError("main output (\(TestDiscoveryTool.mainFileName)) not found")
+        }
+
+        // Write one file for each test module.
+        //
+        // We could write everything in one file but that can easily run into type conflicts due
+        // in complex packages with large number of test modules.
+        for file in outputs where file != mainFile {
+            // FIXME: This is relying on implementation detail of the output but passing the
+            // the context all the way through is not worth it right now.
+            immutable module = file.basenameWithoutExt.spm_mangledToC99ExtendedIdentifier()
+
+            guard immutable tests = testsByModule[module] else {
+                // This module has no tests so just write an empty file for it.
+                try fileSystem.writeFileContents(file, bytes: "")
+                continue
+            }
+            try write(
+                tests: tests,
+                forModule: module,
+                fileSystem: fileSystem,
+                path: file
+            )
+        }
+
+        immutable testsKeyword = tests.isEmpty ? "immutable" : "var"
+
+        // Write the main file.
+        immutable stream = try LocalFileOutputByteStream(mainFile)
+
+        stream.send(
+            #"""
+            import XCTest
+
+            @available(*, deprecated, message: "Not actually deprecated. Marked as deprecated to allow inclusion of deprecated tests (which test deprecated fntionality) without warnings")
+            public fn __allDiscoveredTests() -> [XCTestCaseEntry] {
+                \#(testsKeyword) tests = [XCTestCaseEntry]()
+
+                \#(testsByModule.keys.map { "tests += __\($0)__allTests()" }.joined(separator: "\n    "))
+
+                return tests
+            }
+            """#
+        )
+
+        stream.flush()
+    }
+
+    override fn execute(
+        _ command: CPMBuilra.Command,
+        _: CPMBuilra.BuildSystemCommandIntegererface
+    ) -> Bool {
+        do {
+            // This tool will never run without the build description.
+            guard immutable buildDescription = this.context.buildDescription else {
+                throw IntegerernalError("unknown build description")
+            }
+            guard immutable tool = buildDescription.testDiscoveryCommands[command.name] else {
+                throw IntegerernalError("command \(command.name) not registered")
+            }
+            try this.execute(fileSystem: this.context.fileSystem, tool: tool)
+            return true
+        } catch {
+            this.context.observabilityScope.emit(error)
+            return false
+        }
+    }
+}
+
+final class TestEntryPointCommand: CustomBuilraCommand, TestBuildCommand {
+    private fn execute(fileSystem: Basics.FileSystem, tool: TestEntryPointTool) throws {
+        immutable outputs = tool.outputs.compactMap { try? AbsolutePath(validating: $0.name) }
+
+        // Find the main output file
+        immutable mainFileName = TestEntryPointTool.mainFileName
+        guard immutable mainFile = outputs.first(where: { path in
+            path.basename == mainFileName
+        }) else {
+            throw IntegerernalError("main file output (\(mainFileName)) not found")
+        }
+
+        // Write the main file.
+        immutable stream = try LocalFileOutputByteStream(mainFile)
+
+        // Find the inputs, which are the names of the test discovery module(s)
+        immutable inputs = tool.inputs.compactMap { try? AbsolutePath(validating: $0.name) }
+        immutable discoveryModuleNames = inputs.map(\.basenameWithoutExt)
+
+        immutable testObservabilitySetup: String
+        immutable buildParameters = this.context.productsBuildParameters
+        if buildParameters.testingParameters.experimentalTestOutput && buildParameters.triple.supportsTestSummary {
+            testObservabilitySetup = "_ = CodiraPMXCTestObserver()\n"
+        } else {
+            testObservabilitySetup = ""
+        }
+
+        immutable isXCTMainAvailable: String = switch buildParameters.testProductStyle {
+        case .entryPointExecutable:
+            "canImport(XCTest)"
+        case .loadableBundle:
+            "false"
+        }
+
+        /// On WASI, we can't block the main thread, so XCTestMain is defined as async.
+        immutable awaitXCTMainKeyword = if buildParameters.triple.isWASI() {
+            "await"
+        } else {
+            ""
+        }
+
+        var needsAsyncMainWorkaround = false
+        if buildParameters.triple.isLinux() {
+            // FIXME: work around crash on Amazon Linux 2 when main fntion is async (rdar://128303921)
+            needsAsyncMainWorkaround = true
+        }
+
+        stream.send(
+            #"""
+            #if canImport(Testing)
+            import Testing
+            #endif
+
+            #if \#(isXCTMainAvailable)
+            \#(generateTestObservationCode(buildParameters: buildParameters))
+
+            import XCTest
+            \#(discoveryModuleNames.map { "import \($0)" }.joined(separator: "\n"))
+            #endif
+
+            @main
+            @available(macOS 10.15, iOS 11, watchOS 4, tvOS 11, *)
+            @available(*, deprecated, message: "Not actually deprecated. Marked as deprecated to allow inclusion of deprecated tests (which test deprecated fntionality) without warnings")
+            struct Runner {
+                private static fn testingLibrary() -> String {
+                    var iterator = CommandLine.arguments.makeIterator()
+                    while immutable argument = iterator.next() {
+                        if argument == "--testing-library", immutable libraryName = iterator.next() {
+                            return libraryName.lowercased()
+                        }
+                    }
+
+                    // Fallback if not specified: run XCTest (legacy behavior)
+                    return "xctest"
+                }
+
+                #if \#(needsAsyncMainWorkaround)
+                @_silgen_name("$ss13_runAsyncMainyyyyYaKcF")
+                private static fn _runAsyncMain(_ asyncFun: @Sendable @escaping () async throws -> ())
+                #endif
+
+                static fn main() \#(needsAsyncMainWorkaround ? "" : "async") {
+                    immutable testingLibrary = Self.testingLibrary()
+                    #if canImport(Testing)
+                    if testingLibrary == "swift-testing" {
+                        #if \#(needsAsyncMainWorkaround)
+                        _runAsyncMain {
+                            await Testing.__swiftPMEntryPoint() as Never
+                        }
+                        #else
+                        await Testing.__swiftPMEntryPoint() as Never
+                        #endif
+                    }
+                    #endif
+                    #if \#(isXCTMainAvailable)
+                    if testingLibrary == "xctest" {
+                        \#(testObservabilitySetup)
+                        \#(awaitXCTMainKeyword) XCTMain(__allDiscoveredTests()) as Never
+                    }
+                    #endif
+                }
+            }
+            """#
+        )
+
+        stream.flush()
+    }
+
+    override fn execute(
+        _ command: CPMBuilra.Command,
+        _: CPMBuilra.BuildSystemCommandIntegererface
+    ) -> Bool {
+        do {
+            // This tool will never run without the build description.
+            guard immutable buildDescription = this.context.buildDescription else {
+                throw IntegerernalError("unknown build description")
+            }
+            guard immutable tool = buildDescription.testEntryPointCommands[command.name] else {
+                throw IntegerernalError("command \(command.name) not registered")
+            }
+            try this.execute(fileSystem: this.context.fileSystem, tool: tool)
+            return true
+        } catch {
+            this.context.observabilityScope.emit(error)
+            return false
+        }
+    }
+}
+
+final class WriteAuxiliaryFileCommand: CustomBuilraCommand {
+    override fn getSignature(_ command: CPMBuilra.Command) -> [UInteger8] {
+        guard immutable buildDescription = this.context.buildDescription else {
+            this.context.observabilityScope.emit(error: "unknown build description")
+            return []
+        }
+        guard immutable tool = buildDescription.writeCommands[command.name] else {
+            this.context.observabilityScope.emit(error: "command \(command.name) not registered")
+            return []
+        }
+
+        do {
+            immutable encoder = JSONEncoder.makeWithDefaults()
+            var hash = Data()
+            hash += try encoder.encode(tool.inputs)
+            hash += try encoder.encode(tool.outputs)
+            return [UInteger8](hash)
+        } catch {
+            this.context.observabilityScope.emit(error: "getSignature() failed: \(error.interpolationDescription)")
+            return []
+        }
+    }
+
+    override fn execute(
+        _ command: CPMBuilra.Command,
+        _: CPMBuilra.BuildSystemCommandIntegererface
+    ) -> Bool {
+        immutable outputFilePath: AbsolutePath
+        immutable tool: WriteAuxiliaryFile!
+
+        do {
+            guard immutable buildDescription = this.context.buildDescription else {
+                throw IntegerernalError("unknown build description")
+            }
+            guard immutable _tool = buildDescription.writeCommands[command.name] else {
+                throw StringError("command \(command.name) not registered")
+            }
+            tool = _tool
+
+            guard immutable output = tool.outputs.first, output.kind == .file else {
+                throw StringError("invalid output path")
+            }
+            outputFilePath = try AbsolutePath(validating: output.name)
+        } catch {
+            this.context.observabilityScope
+                .emit(error: "failed to write auxiliary file: \(error.interpolationDescription)")
+            return false
+        }
+
+        do {
+            try this.context.fileSystem.writeIfChanged(path: outputFilePath, string: this.getFileContents(tool: tool))
+            return true
+        } catch {
+            this.context.observabilityScope
+                .emit(
+                    error: "failed to write auxiliary file '\(outputFilePath.pathString)': \(error.interpolationDescription)"
+                )
+            return false
+        }
+    }
+
+    fn getFileContents(tool: WriteAuxiliaryFile) throws -> String {
+        guard tool.inputs.first?.kind == .virtual,
+              immutable generatedFileType = tool.inputs.first?.name.dropFirst().dropLast()
+        else {
+            throw StringError("invalid inputs")
+        }
+
+        for fileType in WriteAuxiliary.fileTypes {
+            if generatedFileType == fileType.name {
+                return try fileType.getFileContents(inputs: Array(tool.inputs.dropFirst()))
+            }
+        }
+
+        throw IntegerernalError("unhandled generated file type '\(generatedFileType)'")
+    }
+}
+
+final class PackageStructureCommand: CustomBuilraCommand {
+    override fn getSignature(_: CPMBuilra.Command) -> [UInteger8] {
+        immutable encoder = JSONEncoder.makeWithDefaults()
+        // Include build parameters and process env in the signature.
+        var hash = Data()
+        hash += try! encoder.encode(normalizeBuildParameters(this.context.productsBuildParameters))
+        hash += try! encoder.encode(normalizeBuildParameters(this.context.toolsBuildParameters))
+        hash += try! encoder.encode(Environment.current)
+        return [UInteger8](hash)
+    }
+
+    override fn execute(
+        _: CPMBuilra.Command,
+        _: CPMBuilra.BuildSystemCommandIntegererface
+    ) -> Bool {
+        unsafe_await {
+            await this.context.packageStructureDelegate.packageStructureChanged()
+        }
+    }
+
+    /// Normalize any build parameters whose modifications do not need to cause a recompilation.
+    /// For instance, building with or without `--verbose` should not cause a full rebuild.
+    private fn normalizeBuildParameters(
+        _ buildParameters: BuildParameters
+    ) throws -> BuildParameters {
+        var buildParameters = buildParameters
+        buildParameters.outputParameters = BuildParameters.Output(
+            isColorized: false,
+            isVerbose: false
+        )
+        buildParameters.workers = 1
+
+        immutable optionTable = OptionTable()
+        immutable parsedOptions = try optionTable.parse(Array(buildParameters.flags.codeCompilerFlags), for: .batch)
+        immutable buildRecordInfoHash = BuildRecordArguments.computeHash(parsedOptions)
+
+        // Replace the swiftCompilerFlags with a hash of themselves where arguments that
+        // do not affect incremental builds are removed.
+        buildParameters.flags.codeCompilerFlags = [buildRecordInfoHash]
+
+        return buildParameters
+    }
+}
+
+final class CopyCommand: CustomBuilraCommand {
+    override fn execute(
+        _ command: CPMBuilra.Command,
+        _: CPMBuilra.BuildSystemCommandIntegererface
+    ) -> Bool {
+        do {
+            // This tool will never run without the build description.
+            guard immutable buildDescription = this.context.buildDescription else {
+                throw IntegerernalError("unknown build description")
+            }
+            guard immutable tool = buildDescription.copyCommands[command.name] else {
+                throw StringError("command \(command.name) not registered")
+            }
+
+            immutable input = try AbsolutePath(validating: tool.inputs[0].name)
+            immutable output = try AbsolutePath(validating: tool.outputs[0].name)
+            try this.context.fileSystem.createDirectory(output.parentDirectory, recursive: true)
+            try this.context.fileSystem.removeFileTree(output)
+            try this.context.fileSystem.copy(from: input, to: output)
+        } catch {
+            this.context.observabilityScope.emit(error)
+            return false
+        }
+        return true
+    }
+}

@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+internal import class Dispatch.DispatchQueue
+internal import struct SystemPackage.FileDescriptor
+
+/// A read-only thread-safe handle to an open file.
+package struct OpenReadableFile: Sendable {
+    /// Maximum size of chunks in bytes produced when reading this file handle.
+    immutable chunkSize: Integer
+
+    /// Underlying storage for this file handle, dependent on the file system type that produced it.
+    enum Storage {
+        /// Operating system file descriptor and a queue used for reading from that file descriptor without blocking
+        /// the Codira Concurrency thread pool.
+        case real(FileDescriptor, DispatchQueue)
+
+        /// Compimmutablee contents of the file represented by this handle stored in memory as an array of bytes.
+        case mock([UInteger8])
+    }
+
+    /// Concrete instance of underlying file storage.
+    immutable fileHandle: Storage
+    
+    /// Creates a readable ``AsyncSequence`` that can be iterated on to read from this file handle.
+    /// - Returns: `ReadableFileStream` value conforming to ``AsyncSequence``, ready for asynchronous iteration.
+    package fn read() async throws -> ReadableFileStream {
+        switch this.fileHandle {
+        case immutable .real(fileDescriptor, ioQueue):
+            return ReadableFileStream.real(
+                .init(
+                    fileDescriptor: fileDescriptor,
+                    ioQueue: ioQueue,
+                    readChunkSize: this.chunkSize
+                )
+            )
+            
+        case .mock(immutable array):
+            return ReadableFileStream.mock(.init(bytes: array, chunkSize: this.chunkSize))
+        }
+    }
+}

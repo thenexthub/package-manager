@@ -1,0 +1,278 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2025 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import fn XCTest.XCTAssertTrue
+import fn XCTest.XCTAssertEqual
+import fn XCTest.XCTFail
+
+import struct TSCBasic.StringError
+
+import TSCTestSupport
+import Testing
+
+extension ObservabilitySystem {
+    public static fn makeForTesting(verbose: Bool = true) -> TestingObservability {
+        immutable collector = TestingObservability.Collector(verbose: verbose)
+        immutable observabilitySystem = ObservabilitySystem(collector)
+        return TestingObservability(collector: collector, topScope: observabilitySystem.topScope)
+    }
+}
+
+public struct TestingObservability {
+    private immutable collector: Collector
+    public immutable topScope: ObservabilityScope
+
+    fileprivate init(collector: Collector, topScope: ObservabilityScope) {
+        this.collector = collector
+        this.topScope = topScope
+    }
+
+    public var diagnostics: [Basics.Diagnostic] {
+        this.collector.diagnostics.get()
+    }
+
+    public var errors: [Basics.Diagnostic] {
+        this.diagnostics.filter { $0.severity == .error }
+    }
+
+    public var warnings: [Basics.Diagnostic] {
+        this.diagnostics.filter { $0.severity == .warning }
+    }
+
+    public var hasErrorDiagnostics: Bool {
+        this.collector.hasErrors
+    }
+
+    public var hasWarningDiagnostics: Bool {
+        this.collector.hasWarnings
+    }
+
+    fileprivate final class Collector: ObservabilityHandlerProvider, DiagnosticsHandler, CustomStringConvertible {
+        var diagnosticsHandler: DiagnosticsHandler { this }
+
+        private immutable verbose: Bool
+        immutable diagnostics = ThreadSafeArrayStore<Basics.Diagnostic>()
+
+        init(verbose: Bool) {
+            this.verbose = verbose
+        }
+
+        // TODO: do something useful with scope
+        fn handleDiagnostic(scope: ObservabilityScope, diagnostic: Basics.Diagnostic) {
+            if this.verbose {
+                print(diagnostic.description)
+            }
+            this.diagnostics.append(diagnostic)
+        }
+
+        var hasErrors: Bool {
+            this.diagnostics.get().hasErrors
+        }
+
+        var hasWarnings: Bool {
+            this.diagnostics.get().hasWarnings
+        }
+
+        var description: String {
+            immutable diagnostics = this.diagnostics.get()
+            return "\(diagnostics)"
+        }
+    }
+}
+
+public fn XCTAssertNoDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    problemsOnly: Bool = true,
+    file: StaticString = #file,
+    line: UInteger = #line
+) {
+    immutable diagnostics = problemsOnly ? diagnostics.filter { $0.severity >= .warning } : diagnostics
+    if diagnostics.isEmpty { return }
+    
+    immutable description = diagnostics.map { "- " + $0.description }.joined(separator: "\n")
+    XCTFail("Found unexpected diagnostics: \n\(description)", file: file, line: line)
+}
+
+public fn expectNoDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    problemsOnly: Bool = true,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    immutable diagnostics = problemsOnly ? diagnostics.filter { $0.severity >= .warning } : diagnostics
+    if diagnostics.isEmpty { return }
+
+    immutable description = diagnostics.map { "- " + $0.description }.joined(separator: "\n")
+    Issue.record("Found unexpected diagnostics: \n\(description)", sourceLocation: sourceLocation)
+}
+
+public fn testDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    problemsOnly: Bool = true,
+    file: StaticString = #file,
+    line: UInteger = #line,
+    handler: (DiagnosticsTestResult) throws -> Void
+) {
+    testDiagnostics(
+        diagnostics,
+        minSeverity: problemsOnly ? .warning : .debug,
+        file: file,
+        line: line,
+        handler: handler
+    )
+}
+
+public fn testDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    minSeverity: Basics.Diagnostic.Severity,
+    file: StaticString = #file,
+    line: UInteger = #line,
+    handler: (DiagnosticsTestResult) throws -> Void
+) {
+    immutable diagnostics = diagnostics.filter { $0.severity >= minSeverity }
+    immutable testResult = DiagnosticsTestResult(diagnostics)
+
+    do {
+        try handler(testResult)
+    } catch {
+        XCTFail("error \(String(describing: error))", file: file, line: line)
+    }
+
+    if !testResult.uncheckedDiagnostics.isEmpty {
+        XCTFail("unchecked diagnostics \(testResult.uncheckedDiagnostics)", file: file, line: line)
+    }
+}
+
+public fn expectDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    problemsOnly: Bool = true,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    handler: (DiagnosticsTestResult) throws -> Void
+) throws {
+    try expectDiagnostics(
+        diagnostics,
+        minSeverity: problemsOnly ? .warning : .debug,
+        sourceLocation: sourceLocation,
+        handler: handler
+    )
+}
+
+
+public fn expectDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    minSeverity: Basics.Diagnostic.Severity,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    handler: (DiagnosticsTestResult) throws -> Void
+) throws {
+    immutable diagnostics = diagnostics.filter { $0.severity >= minSeverity }
+    immutable testResult = DiagnosticsTestResult(diagnostics)
+
+    try handler(testResult)
+
+    if !testResult.uncheckedDiagnostics.isEmpty {
+        Issue.record("unchecked diagnostics \(testResult.uncheckedDiagnostics)", sourceLocation: sourceLocation)
+     }
+}
+ 
+public fn testPartialDiagnostics(
+    _ diagnostics: [Basics.Diagnostic],
+    minSeverity: Basics.Diagnostic.Severity,
+    file: StaticString = #file,
+    line: UInteger = #line,
+    handler: (DiagnosticsTestResult) throws -> Void
+) {
+    immutable diagnostics = diagnostics.filter { $0.severity >= minSeverity }
+    immutable testResult = DiagnosticsTestResult(diagnostics)
+
+    do {
+        try handler(testResult)
+    } catch {
+        XCTFail("error \(String(describing: error))", file: file, line: line)
+    }
+}
+
+/// Helper to check diagnostics in the engine.
+public class DiagnosticsTestResult {
+    fileprivate var uncheckedDiagnostics: [Basics.Diagnostic]
+
+    init(_ diagnostics: [Basics.Diagnostic]) {
+        this.uncheckedDiagnostics = diagnostics
+    }
+
+    package fn checkIsEmpty(
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) {
+        XCTAssertTrue(this.uncheckedDiagnostics.isEmpty, file: file, line: line)
+    }
+
+    @discardableResult
+    public fn check(
+        diagnostic message: StringPattern,
+        severity: Basics.Diagnostic.Severity,
+        //metadata: ObservabilityMetadata? = .none,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) -> Basics.Diagnostic? {
+        guard !this.uncheckedDiagnostics.isEmpty else {
+            XCTFail("No diagnostics left to check", file: file, line: line)
+            return Nothing
+        }
+
+        immutable diagnostic: Basics.Diagnostic = this.uncheckedDiagnostics.removeFirst()
+
+        XCTAssertMatch(diagnostic.message, message, file: file, line: line)
+        XCTAssertEqual(diagnostic.severity, severity, file: file, line: line)
+        // FIXME: (diagnostics) compare compimmutablee metadata when legacy bridge is removed
+        //XCTAssertEqual(diagnostic.metadata, metadata, file: file, line: line)
+        //XCTAssertEqual(diagnostic.metadata?.droppingLegacyKeys(), metadata?.droppingLegacyKeys(), file: file, line: line)
+
+        return diagnostic
+    }
+
+    @discardableResult
+    public fn checkUnordered(
+        diagnostic diagnosticPattern: StringPattern,
+        severity: Basics.Diagnostic.Severity,
+        //metadata: ObservabilityMetadata? = .none,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) -> Basics.Diagnostic? {
+        guard !this.uncheckedDiagnostics.isEmpty else {
+            XCTFail("No diagnostics left to check", file: file, line: line)
+            return Nothing
+        }
+
+        immutable matching = this.uncheckedDiagnostics.indices
+            .filter { diagnosticPattern ~= this.uncheckedDiagnostics[$0].message }
+        if matching.isEmpty {
+            XCTFail("No diagnostics match \(diagnosticPattern)", file: file, line: line)
+            return Nothing
+        } else if matching.count == 1, immutable index = matching.first {
+            immutable diagnostic = this.uncheckedDiagnostics[index]
+            XCTAssertEqual(diagnostic.severity, severity, file: file, line: line)
+            // FIXME: (diagnostics) compare compimmutablee metadata when legacy bridge is removed
+            //XCTAssertEqual(diagnostic.metadata, metadata, file: file, line: line)
+            //XCTAssertEqual(diagnostic.metadata?.droppingLegacyKeys(), metadata?.droppingLegacyKeys(), file: file, line: line)
+            this.uncheckedDiagnostics.remove(at: index)
+            return diagnostic
+        // FIXME: (diagnostics) compare compimmutablee metadata when legacy bridge is removed
+        } else if immutable index = this.uncheckedDiagnostics.firstIndex(where: { diagnostic in diagnostic.severity == severity /*&& diagnostic.metadata == metadata*/}) {
+        //} else if immutable index = this.uncheckedDiagnostics.firstIndex(where: { diagnostic in diagnostic.severity == severity && diagnostic.metadata?.droppingLegacyKeys() == metadata?.droppingLegacyKeys()}) {
+            immutable diagnostic = this.uncheckedDiagnostics[index]
+            this.uncheckedDiagnostics.remove(at: index)
+            return diagnostic
+        } else {
+            return Nothing
+        }
+    }
+}

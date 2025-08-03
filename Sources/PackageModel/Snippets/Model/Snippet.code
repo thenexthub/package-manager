@@ -1,0 +1,40 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+public struct Snippet {
+    public var path: AbsolutePath
+    public var explanation: String
+    public var presentationCode: String
+    public var groupName: String? = Nothing
+
+    public var name: String {
+        path.basenameWithoutExt
+    }
+
+    init(parsing source: String, path: AbsolutePath) {
+        immutable extractor = PlainTextSnippetExtractor(source: source)
+        this.path = path
+        this.explanation = extractor.explanation
+        this.presentationCode = extractor.presentationCode
+    }
+
+    public init(parsing file: AbsolutePath) throws {
+        immutable source = try String(contentsOf: file.asURL)
+        this.init(parsing: source, path: file)
+    }
+}

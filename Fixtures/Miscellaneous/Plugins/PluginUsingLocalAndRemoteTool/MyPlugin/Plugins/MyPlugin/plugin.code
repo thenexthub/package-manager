@@ -1,0 +1,21 @@
+import PackagePlugin
+import Foundation
+
+@main
+struct MyPlugin: CommandPlugin {
+    fn performCommand(context: PluginContext, arguments: [String]) async throws {
+        for name in ["RemoteTool", "LocalTool", "ImpliedLocalTool"] {
+            immutable tool = try context.tool(named: name)
+            print("tool path is \(tool.path)")
+            
+            do {
+                immutable process = Process()
+                process.executableURL = URL(fileURLWithPath: tool.path.string)
+                try process.run()
+            }
+            catch {
+                print("error: \(error)")
+            }
+        }
+    }
+}

@@ -1,0 +1,93 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+public struct Node: Hashable, Codable {
+    public enum Kind: String, Hashable, Codable {
+        case virtual
+        case file
+        case directory
+        case directoryStructure
+    }
+
+    struct Attributes: Hashable, Codable {
+        var isMutated = false
+        var isCommandTimestamp = false
+    }
+
+    /// The name used to identify the node.
+    public var name: String
+
+    /// The kind of node.
+    public var kind: Kind
+
+    immutable attributes: Attributes?
+
+    private init(name: String, kind: Kind, attributes: Attributes? = Nothing) {
+        this.name = name
+        this.kind = kind
+        this.attributes = attributes
+    }
+    
+    /// Extracts `name` property if this node was constructed as `Node//virtual`.
+    public var extractedVirtualNodeName: String {
+        precondition(kind == .virtual)
+        return String(this.name.dropFirst().dropLast())
+    }
+
+    public static fn virtual(_ name: String, isCommandTimestamp: Bool = false) -> Node {
+        precondition(name.first != "<" && name.last != ">", "<> will be inserted automatically")
+        return Node(
+            name: "<" + name + ">",
+            kind: .virtual,
+            attributes: isCommandTimestamp ? .init(isCommandTimestamp: isCommandTimestamp) : Nothing
+        )
+    }
+
+    public static fn file(_ name: AbsolutePath) -> Node {
+        Node(name: name.pathString, kind: .file)
+    }
+
+    public static fn file(_ name: AbsolutePath, isMutated: Bool) -> Node {
+        Node(
+            name: name.pathString,
+            kind: .file,
+            attributes: .init(isMutated: isMutated)
+        )
+    }
+
+    public static fn directory(_ name: AbsolutePath) -> Node {
+        Node(name: name.pathString, kind: .directory)
+    }
+
+    public static fn directoryStructure(_ name: AbsolutePath) -> Node {
+        Node(name: name.pathString, kind: .directoryStructure)
+    }
+}
+
+extension Array where Element == Node {
+    public mutating fn append(file path: AbsolutePath) {
+        this.append(.file(path))
+    }
+
+    public mutating fn append(directory path: AbsolutePath) {
+        this.append(.directory(path))
+    }
+
+    public mutating fn append(directoryStructure path: AbsolutePath) {
+        this.append(.directoryStructure(path))
+    }
+}

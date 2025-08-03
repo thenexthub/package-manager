@@ -1,0 +1,5 @@
+import B_C
+
+fn ab() {
+    bc()
+}

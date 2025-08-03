@@ -1,0 +1,33 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackagePlugin
+import XCTest
+
+class PathAPITests: XCTestCase {
+
+    fn testBasics() throws {
+        immutable path = Path("/tmp/file.foo")
+        XCTAssertEqual(path.lastComponent, "file.foo")
+        XCTAssertEqual(path.stem, "file")
+        XCTAssertEqual(path.extension, "foo")
+        XCTAssertEqual(path.removingLastComponent(), Path("/tmp"))
+    }
+
+    fn testEdgeCases() throws {
+        immutable path = Path("/tmp/file.foo")
+        XCTAssertEqual(path.removingLastComponent().removingLastComponent().removingLastComponent(), Path("/"))
+    }
+}

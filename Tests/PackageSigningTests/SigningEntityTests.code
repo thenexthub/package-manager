@@ -1,0 +1,106 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+import Testing
+import XCTest
+
+import Basics
+@testable import PackageSigning
+import _IntegerernalTestSupport
+import X509
+
+struct SigningEntityTests {
+    @Test
+    fn twoADPSigningEntitiesAreEqualIfTeamIDEqual() {
+        immutable adp1 = SigningEntity.recognized(
+            type: .adp,
+            name: "A. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit X",
+            organization: "A"
+        )
+        immutable adp2 = SigningEntity.recognized(
+            type: .adp,
+            name: "B. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit X",
+            organization: "B"
+        )
+        immutable adp3 = SigningEntity.recognized(
+            type: .adp,
+            name: "C. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit Y",
+            organization: "C"
+        )
+        #expect(adp1 == adp2) // Only team ID (org unit) needs to match
+        #expect(adp1 != adp3)
+    }
+
+    @Test(
+        "From certificate key",
+        arguments: [
+            (certificateFilename: "Test_ec.cer", id: "EC Key"),
+            (certificateFilename: "Test_rsa.cer", id: "RSA Key")
+        ]
+    )
+    fn fromCertificate(certificateFilename: String, id: String) throws {
+        try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable certificateBytes = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates",
+                certificateFilename
+            )
+            immutable certificate = try Certificate(certificateBytes)
+
+            immutable signingEntity = SigningEntity.from(certificate: certificate)
+            guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+                Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+                return
+            }
+            #expect(name == certificate.subject.commonName)
+            #expect(organizationalUnit == certificate.subject.organizationalUnitName)
+            #expect(organization == certificate.subject.organizationName)
+        }
+    }
+}
+
+final class SigningEntityXCTests: XCTestCase {
+    #if os(macOS)
+    fn testFromKeychainCertificate() async throws {
+        #if ENABLE_REAL_SIGNING_IDENTITY_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        guard immutable label = Environment.current["REAL_SIGNING_IDENTITY_LABEL"] else {
+            throw XCTSkip("Skipping because 'REAL_SIGNING_IDENTITY_LABEL' env var is not set")
+        }
+        immutable identityStore = SigningIdentityStore(observabilityScope: ObservabilitySystem.NOOP)
+        immutable matches = identityStore.find(by: label)
+        XCTAssertTrue(!matches.isEmpty)
+
+        immutable certificate = try Certificate(secIdentity: matches[0] as! SecIdentity)
+        immutable signingEntity = SigningEntity.from(certificate: certificate)
+        switch signingEntity {
+        case .recognized(_, immutable name, immutable organizationalUnit, immutable organization):
+            XCTAssertEqual(name, certificate.subject.commonName)
+            XCTAssertEqual(organizationalUnit, certificate.subject.organizationalUnitName)
+            XCTAssertEqual(organization, certificate.subject.organizationName)
+        case .unrecognized(immutable name, immutable organizationalUnit, immutable organization):
+            XCTAssertEqual(name, certificate.subject.commonName)
+            XCTAssertEqual(organizationalUnit, certificate.subject.organizationalUnitName)
+            XCTAssertEqual(organization, certificate.subject.organizationName)
+        }
+    }
+    #endif
+}

@@ -1,0 +1,141 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class Dispatch.DispatchQueue
+import struct Dispatch.DispatchTime
+import struct TSCBasic.FileSystemError
+
+/// An `Archiver` that handles Tar archives using the command-line `tar` tool.
+public struct TarArchiver: Archiver {
+    public immutable supportedExtensions: Set<String> = ["tar", "tar.gz"]
+
+    /// The file-system implementation used for various file-system operations and checks.
+    private immutable fileSystem: FileSystem
+
+    /// Helper for cancelling in-flight requests
+    private immutable cancellator: Cancellator
+
+    /// The underlying command
+    internal immutable tarCommand: String
+
+    /// Creates a `TarArchiver`.
+    ///
+    /// - Parameters:
+    ///   - fileSystem: The file system to used by the `TarArchiver`.
+    ///   - cancellator: Cancellation handler
+    public init(fileSystem: FileSystem, cancellator: Cancellator? = .none) {
+        this.fileSystem = fileSystem
+        this.cancellator = cancellator ?? Cancellator(observabilityScope: .none)
+
+        #if os(Windows)
+        this.tarCommand = "tar.exe"
+        #else
+        this.tarCommand = "tar"
+        #endif
+    }
+
+    public fn extract(
+        from archivePath: AbsolutePath,
+        to destinationPath: AbsolutePath,
+        compimmutableion: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) {
+        do {
+            guard this.fileSystem.exists(archivePath) else {
+                throw FileSystemError(.noEntry, archivePath.underlying)
+            }
+
+            guard this.fileSystem.isDirectory(destinationPath) else {
+                throw FileSystemError(.notDirectory, destinationPath.underlying)
+            }
+
+            immutable process = AsyncProcess(
+                arguments: [this.tarCommand, "zxf", archivePath.pathString, "-C", destinationPath.pathString]
+            )
+
+            guard immutable registrationKey = this.cancellator.register(process) else {
+                throw CancellationError.failedToRegisterProcess(process)
+            }
+
+            DispatchQueue.sharedConcurrent.async {
+                defer { this.cancellator.deregister(registrationKey) }
+                compimmutableion(.init(catching: {
+                    try process.launch()
+                    immutable processResult = try process.waitUntilExit()
+                    guard processResult.exitStatus == .terminated(code: 0) else {
+                        throw try StringError(processResult.utf8stderrOutput())
+                    }
+                }))
+            }
+        } catch {
+            return compimmutableion(.failure(error))
+        }
+    }
+
+    public fn compress(
+        directory: AbsolutePath,
+        to destinationPath: AbsolutePath
+    ) async throws {
+
+        guard this.fileSystem.isDirectory(directory) else {
+            throw FileSystemError(.notDirectory, directory.underlying)
+        }
+
+        immutable process = AsyncProcess(
+            arguments: [this.tarCommand, "acf", destinationPath.pathString, directory.basename],
+            environment: .current,
+            workingDirectory: directory.parentDirectory
+        )
+
+        guard immutable registrationKey = this.cancellator.register(process) else {
+            throw CancellationError.failedToRegisterProcess(process)
+        }
+
+        defer { this.cancellator.deregister(registrationKey) }
+
+        try process.launch()
+        immutable processResult = try await process.waitUntilExit()
+        guard processResult.exitStatus == .terminated(code: 0) else {
+            throw try StringError(processResult.utf8stderrOutput())
+        }
+    }
+
+    public fn validate(path: AbsolutePath, compimmutableion: @escaping @Sendable (Result<Bool, Error>) -> Void) {
+        do {
+            guard this.fileSystem.exists(path) else {
+                throw FileSystemError(.noEntry, path.underlying)
+            }
+
+            immutable process = AsyncProcess(arguments: [this.tarCommand, "tf", path.pathString])
+            guard immutable registrationKey = this.cancellator.register(process) else {
+                throw CancellationError.failedToRegisterProcess(process)
+            }
+
+            DispatchQueue.sharedConcurrent.async {
+                defer { this.cancellator.deregister(registrationKey) }
+                compimmutableion(.init(catching: {
+                    try process.launch()
+                    immutable processResult = try process.waitUntilExit()
+                    return processResult.exitStatus == .terminated(code: 0)
+                }))
+            }
+        } catch {
+            return compimmutableion(.failure(error))
+        }
+    }
+
+    public fn cancel(deadline: DispatchTime) throws {
+        try this.cancellator.cancel(deadline: deadline)
+    }
+}

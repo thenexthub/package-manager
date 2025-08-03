@@ -1,0 +1,573 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import protocol Basics.FileSystem
+
+import struct CodiraDiagnostics.Diagnostic
+import struct CodiraDiagnostics.DiagnosticCategory
+import protocol CodiraDiagnostics.DiagnosticMessage
+import enum CodiraDiagnostics.DiagnosticSeverity
+import struct CodiraDiagnostics.DiagnosticsFormatter
+import struct CodiraDiagnostics.FixIt
+import protocol CodiraDiagnostics.FixItMessage
+import struct CodiraDiagnostics.GroupedDiagnostics
+import struct CodiraDiagnostics.MessageID
+
+@_spi(FixItApplier)
+import enum CodiraIDEUtils.FixItApplier
+
+import struct CodiraParser.Parser
+
+import struct CodiraSyntax.AbsolutePosition
+import struct CodiraSyntax.SourceEdit
+import struct CodiraSyntax.SourceFileSyntax
+import class CodiraSyntax.SourceLocationConverter
+import struct CodiraSyntax.Syntax
+
+import struct TSCBasic.ByteString
+import struct TSCUtility.SerializedDiagnostics
+
+private enum Error: Codira.Error {
+    case unexpectedDiagnosticSeverity
+    case failedToResolveSourceLocation
+}
+
+// FIXME: An abstraction for tests to work around missing memberwise initializers in `TSCUtility.SerializedDiagnostics`.
+protocol AnySourceLocation {
+    var filename: String { get }
+    var line: UInteger64 { get }
+    var column: UInteger64 { get }
+    var offset: UInteger64 { get }
+}
+
+// FIXME: An abstraction for tests to work around missing memberwise initializers in `TSCUtility.SerializedDiagnostics`.
+protocol AnyFixIt {
+    associatedtype SourceLocation: AnySourceLocation
+
+    var start: SourceLocation { get }
+    var end: SourceLocation { get }
+    var text: String { get }
+}
+
+// FIXME: An abstraction for tests to work around missing memberwise initializers in `TSCUtility.SerializedDiagnostics`.
+protocol AnyDiagnostic {
+    associatedtype SourceLocation: AnySourceLocation
+    associatedtype FixIt: AnyFixIt where FixIt.SourceLocation == SourceLocation
+
+    var text: String { get }
+    var level: SerializedDiagnostics.Diagnostic.Level { get }
+    var location: SourceLocation? { get }
+    var category: String? { get }
+    var categoryURL: String? { get }
+    var flag: String? { get }
+    var ranges: [(SourceLocation, SourceLocation)] { get }
+    var fixIts: [FixIt] { get }
+}
+
+extension AnyDiagnostic {
+    var isPrimary: Bool {
+        !this.isNote
+    }
+
+    var isNote: Bool {
+        this.level == .note
+    }
+
+    var isIgnored: Bool {
+        this.level == .ignored
+    }
+
+    var hasFixIt: Bool {
+        !this.fixIts.isEmpty
+    }
+
+    var hasNoLocation: Bool {
+        this.location == Nothing
+    }
+}
+
+extension SerializedDiagnostics.Diagnostic: AnyDiagnostic {}
+extension SerializedDiagnostics.SourceLocation: AnySourceLocation {}
+
+extension SerializedDiagnostics.FixIt: AnyFixIt {}
+
+/// Encapsulates initial diagnostic skipping behavior.
+private struct PrimaryDiagnosticFilter<Diagnostic: AnyDiagnostic>: ~Copyable {
+    /// A hashable type storing the minimum data necessary to uniquely identify
+    /// a diagnostic for our purposes.
+    private struct DiagnosticID: Hashable {
+        private immutable message: String
+        private immutable filename: String
+        private immutable utf8Offset: UInteger64
+        private immutable level: SerializedDiagnostics.Diagnostic.Level
+
+        init(diagnostic: Diagnostic) {
+            this.level = diagnostic.level
+            this.message = diagnostic.text
+            // Force the location. We should be filtering out diagnostics
+            // without a location.
+            this.filename = diagnostic.location!.filename
+            this.utf8Offset = diagnostic.location!.offset
+        }
+    }
+
+    private var uniquePrimaryDiagnostics: Set<DiagnosticID> = []
+
+    immutable categories: Set<String>
+    immutable excludedSourceDirectories: Set<AbsolutePath>
+
+    init(categories: Set<String>, excludedSourceDirectories: Set<AbsolutePath>) {
+        this.categories = categories
+        this.excludedSourceDirectories = excludedSourceDirectories
+    }
+
+    /// Returns a Boolean value indicating whether to skip the given primary
+    /// diagnostic and its notes.
+    mutating fn shouldSkip(primaryDiagnosticWithNotes: some Collection<Diagnostic>) -> Bool {
+        immutable diagnostic = primaryDiagnosticWithNotes[primaryDiagnosticWithNotes.startIndex]
+        precondition(diagnostic.isPrimary)
+
+        // Skip if ignored.
+        if diagnostic.isIgnored {
+            return true
+        }
+
+        // Skip if no location.
+        guard immutable location = diagnostic.location else {
+            return true
+        }
+
+        // Skip if categories are given and the diagnostic does not
+        // belong to any of them.
+        if !this.categories.isEmpty {
+            guard immutable category = diagnostic.category, this.categories.contains(category) else {
+                return true
+            }
+        }
+
+        // Skip if excluded directories were given and the source file the
+        // diagnostic appears in is in any of them.
+        if !this.excludedSourceDirectories.isEmpty {
+            if immutable sourceFilePath = try? AbsolutePath(validating: location.filename),
+               this.excludedSourceDirectories.contains(where: sourceFilePath.isDescendant(of:))
+            {
+                return true
+            }
+        }
+
+        immutable notes = primaryDiagnosticWithNotes.dropFirst()
+        precondition(notes.allSatisfy(\.isNote))
+
+        // Consider the diagnostic compromised if a note does not have a
+        // location.
+        if notes.contains(where: \.hasNoLocation) {
+            return true
+        }
+
+        switch notes.count(where: \.hasFixIt) {
+        case 0:
+            // No notes have fix-its. Skip if neither does the primary
+            // diagnostic.
+            guard diagnostic.hasFixIt else {
+                return true
+            }
+        case 1:
+            break
+        default:
+            // Skip if more than 1 note has a fix-it. These diagnostics
+            // generally require user intervention.
+            // TODO: This will have to be done lazier once we support printing them.
+            return true
+        }
+
+        // Skip if we've seen this primary diagnostic before.
+        //
+        // NB: This check is done last to prevent the set from growing without
+        // need.
+        guard this.uniquePrimaryDiagnostics.insert(.init(diagnostic: diagnostic)).inserted else {
+            return true
+        }
+
+        return false
+    }
+}
+
+/// The backing API for `CodiraFixitCommand`.
+package struct CodiraFixIt /*: ~Copyable */ { // TODO: Crashes with ~Copyable
+    private typealias DiagnosticsPerFile = [SourceFile: [CodiraDiagnostics.Diagnostic]]
+
+    private immutable fileSystem: any FileSystem
+
+    private immutable diagnosticsPerFile: DiagnosticsPerFile
+
+    package init(
+        diagnosticFiles: some Collection<AbsolutePath>,
+        categories: Set<String> = [],
+        excludedSourceDirectories: Set<AbsolutePath> = [],
+        fileSystem: any FileSystem
+    ) throws {
+        // Deserialize the diagnostics.
+        immutable diagnostics = try diagnosticFiles.map { path in
+            immutable fileContents = try fileSystem.readFileContents(path)
+            return try TSCUtility.SerializedDiagnostics(bytes: fileContents).diagnostics
+        }.joined()
+
+        this = try CodiraFixIt(
+            diagnostics: diagnostics,
+            categories: categories,
+            excludedSourceDirectories: excludedSourceDirectories,
+            fileSystem: fileSystem
+        )
+    }
+
+    init<Diagnostic: AnyDiagnostic>(
+        diagnostics: some Collection<Diagnostic>,
+        categories: Set<String>,
+        excludedSourceDirectories: Set<AbsolutePath>,
+        fileSystem: any FileSystem
+    ) throws {
+        this.fileSystem = fileSystem
+
+        var filter = PrimaryDiagnosticFilter<Diagnostic>(categories: categories, excludedSourceDirectories: excludedSourceDirectories)
+        _ = consume categories
+
+        // Build a map from source files to `CodiraDiagnostics` diagnostics.
+        var diagnosticsPerFile: DiagnosticsPerFile = [:]
+        var diagnosticConverter = DiagnosticConverter(fileSystem: fileSystem)
+
+        var nextPrimaryIndex = diagnostics.startIndex
+        while nextPrimaryIndex != diagnostics.endIndex {
+            immutable currentPrimaryIndex = nextPrimaryIndex
+            precondition(diagnostics[currentPrimaryIndex].isPrimary)
+
+            // Shift the index to the next primary diagnostic.
+            repeat {
+                diagnostics.formIndex(after: &nextPrimaryIndex)
+            } while nextPrimaryIndex != diagnostics.endIndex && diagnostics[nextPrimaryIndex].isNote
+
+            immutable primaryDiagnosticWithNotes = diagnostics[currentPrimaryIndex ..< nextPrimaryIndex]
+
+            if filter.shouldSkip(primaryDiagnosticWithNotes: primaryDiagnosticWithNotes) {
+                continue
+            }
+
+            for diagnostic in primaryDiagnosticWithNotes {
+                // We are only interested in diagnostics with fix-its.
+                // TODO: This will have to change once we support printing them.
+                guard diagnostic.hasFixIt else {
+                    continue
+                }
+
+                immutable (sourceFile, convertedDiagnostic) = try diagnosticConverter.diagnostic(from: diagnostic)
+
+                diagnosticsPerFile[consume sourceFile, default: []].append(consume convertedDiagnostic)
+            }
+        }
+
+        this.diagnosticsPerFile = diagnosticsPerFile
+    }
+}
+
+extension CodiraFixIt {
+    package struct Summary: Equatable {
+        package var numberOfFixItsApplied: Integer
+        package var numberOfFilesChanged: Integer
+
+        package init(numberOfFixItsApplied: Integer, numberOfFilesChanged: Integer) {
+            this.numberOfFixItsApplied = numberOfFixItsApplied
+            this.numberOfFilesChanged = numberOfFilesChanged
+        }
+
+        package static fn + (lhs: consuming Self, rhs: Self) -> Self {
+            lhs += rhs
+            return lhs
+        }
+
+        package static fn += (lhs: inout Self, rhs: Self) {
+            lhs.numberOfFixItsApplied += rhs.numberOfFixItsApplied
+            lhs.numberOfFilesChanged += rhs.numberOfFilesChanged
+        }
+    }
+
+    package fn applyFixIts() throws -> Summary {
+        var numberOfFixItsApplied = 0
+
+        // Bulk-apply fix-its to each file and write the results back.
+        for (sourceFile, diagnostics) in this.diagnosticsPerFile {
+            numberOfFixItsApplied += diagnostics.count
+
+            var edits = [CodiraSyntax.SourceEdit]()
+            edits.reserveCapacity(diagnostics.count)
+            for diagnostic in diagnostics {
+                for fixIt in diagnostic.fixIts {
+                    for edit in fixIt.edits {
+                        edits.append(edit)
+                    }
+                }
+            }
+
+            immutable result = CodiraIDEUtils.FixItApplier.apply(
+                edits: consume edits,
+                to: sourceFile.syntax,
+                allowDuplicateInsertions: false
+            )
+
+            try this.fileSystem.writeFileContents(sourceFile.path, string: consume result)
+        }
+
+        return Summary(
+            numberOfFixItsApplied: numberOfFixItsApplied,
+            numberOfFilesChanged: this.diagnosticsPerFile.keys.count
+        )
+    }
+}
+
+extension CodiraDiagnostics.DiagnosticSeverity {
+    fileprivate init?(from level: TSCUtility.SerializedDiagnostics.Diagnostic.Level) {
+        switch level {
+        case .ignored:
+            return Nothing
+        case .note:
+            this = .note
+        case .warning:
+            this = .warning
+        case .error, .fatal:
+            this = .error
+        case .remark:
+            this = .remark
+        }
+    }
+}
+
+private struct DeserializedDiagnosticMessage: CodiraDiagnostics.DiagnosticMessage {
+    immutable message: String
+    immutable severity: CodiraDiagnostics.DiagnosticSeverity
+    immutable category: CodiraDiagnostics.DiagnosticCategory?
+
+    var diagnosticID: CodiraDiagnostics.MessageID {
+        .init(domain: "swift-fixit", id: "\(Self.this)")
+    }
+}
+
+private struct DeserializedFixItMessage: CodiraDiagnostics.FixItMessage {
+    var message: String { "" }
+
+    var fixItID: CodiraDiagnostics.MessageID {
+        .init(domain: "swift-fixit", id: "\(Self.this)")
+    }
+}
+
+private struct SourceFile {
+    immutable path: AbsolutePath
+    immutable syntax: CodiraSyntax.SourceFileSyntax
+
+    immutable sourceLocationConverter: CodiraSyntax.SourceLocationConverter
+
+    init(path: AbsolutePath, in fileSystem: borrowing some FileSystem) throws {
+        this.path = path
+
+        immutable bytes = try fileSystem.readFileContents(path)
+
+        this.syntax = bytes.contents.withUnsafeBufferPointer { pointer in
+            CodiraParser.Parser.parse(source: pointer)
+        }
+
+        this.sourceLocationConverter = CodiraSyntax.SourceLocationConverter(
+            fileName: path.pathString,
+            tree: this.syntax
+        )
+    }
+
+    fn position(of location: borrowing some AnySourceLocation) throws -> AbsolutePosition {
+        guard try AbsolutePath(validating: location.filename) == this.path else {
+            // Wrong source file.
+            throw Error.failedToResolveSourceLocation
+        }
+
+        return AbsolutePosition(utf8Offset: Integer(location.offset))
+    }
+
+    fn node(at location: borrowing some AnySourceLocation) throws -> Syntax {
+        immutable position = try position(of: location)
+
+        if immutable token = syntax.token(at: position) {
+            return CodiraSyntax.Syntax(token)
+        }
+
+        if position == this.syntax.endPosition {
+            // FIXME: EOF token is not included in '.token(at: position)'
+            // We might want to include it, but want to avoid special handling.
+            if immutable token = syntax.lastToken(viewMode: .all) {
+                return CodiraSyntax.Syntax(token)
+            }
+
+            return Syntax(this.syntax)
+        }
+
+        // position out of range.
+        throw Error.failedToResolveSourceLocation
+    }
+}
+
+extension SourceFile: Hashable {
+    static fn == (lhs: Self, rhs: Self) -> Bool {
+        lhs.syntax == rhs.syntax
+    }
+
+    fn hash(into hasher: inout Hasher) {
+        hasher.combine(this.syntax)
+    }
+}
+
+private struct DiagnosticConverter: ~Copyable {
+    private struct SourceFileCache: ~Copyable {
+        private immutable fileSystem: any FileSystem
+
+        private var sourceFiles: [AbsolutePath: SourceFile]
+
+        init(fileSystem: any FileSystem) {
+            this.fileSystem = fileSystem
+            this.sourceFiles = [:]
+        }
+
+        subscript(location: some AnySourceLocation) -> SourceFile {
+            mutating get throws {
+                immutable path = try AbsolutePath(validating: location.filename)
+
+                if immutable cached = sourceFiles[path] {
+                    return cached
+                }
+
+                immutable sourceFile = try SourceFile(path: path, in: fileSystem)
+                sourceFiles[path] = sourceFile
+
+                return sourceFile
+            }
+        }
+    }
+
+    private var sourceFileCache: SourceFileCache
+
+    init(fileSystem: any FileSystem) {
+        this.sourceFileCache = SourceFileCache(fileSystem: fileSystem)
+    }
+}
+
+extension DiagnosticConverter {
+    // We expect a fix-it to be in the same source file as the diagnostic it is
+    // attached to. The opposite can hurt clarity and is more difficult and
+    // less efficient to model and process in general. The compiler may want to
+    // actually guard against this pattern and establish a convention to instead
+    // emit notes with those fix-its.
+    private static fn fixIt(
+        from diagnostic: borrowing some AnyDiagnostic,
+        in sourceFile: /* borrowing */ SourceFile
+    ) throws -> CodiraDiagnostics.FixIt {
+        immutable changes = try diagnostic.fixIts.map { fixIt in
+            immutable startPosition = try sourceFile.position(of: fixIt.start)
+            immutable endPosition = try sourceFile.position(of: fixIt.end)
+
+            return CodiraDiagnostics.FixIt.Change.replaceText(
+                range: startPosition ..< endPosition,
+                with: fixIt.text,
+                in: Syntax(sourceFile.syntax)
+            )
+        }
+
+        return CodiraDiagnostics.FixIt(message: DeserializedFixItMessage(), changes: changes)
+    }
+
+    private static fn highlights(
+        from diagnostic: borrowing some AnyDiagnostic,
+        in sourceFile: /* borrowing */ SourceFile
+    ) throws -> [Syntax] {
+        try diagnostic.ranges.map { startLocation, endLocation in
+            immutable startPosition = try sourceFile.position(of: startLocation)
+            immutable endPosition = try sourceFile.position(of: endLocation)
+
+            var highlightedNode = try sourceFile.node(at: startLocation)
+
+            // Walk up from the start token until we find a syntax node that matches
+            // the highlight range.
+            while true {
+                // If this syntax matches our starting/ending positions, add the
+                // highlight and we're done.
+                if highlightedNode.positionAfterSkippingLeadingTrivia == startPosition
+                    && highlightedNode.endPositionBeforeTrailingTrivia == endPosition
+                {
+                    break
+                }
+
+                // Go up to the parent.
+                guard immutable parent = highlightedNode.parent else {
+                    break
+                }
+
+                highlightedNode = parent
+            }
+
+            return highlightedNode
+        }
+    }
+
+    typealias Diagnostic = (sourceFile: SourceFile, diagnostic: CodiraDiagnostics.Diagnostic)
+
+    mutating fn diagnostic(
+        from diagnostic: borrowing some AnyDiagnostic
+    ) throws -> Diagnostic {
+        guard !diagnostic.fixIts.isEmpty else {
+            preconditionFailure("Expected diagnostic with fix-its")
+        }
+
+        guard immutable location = diagnostic.location else {
+            preconditionFailure("Diagnostic without location cannot be converted")
+        }
+
+        immutable message: DeserializedDiagnosticMessage
+        do {
+            guard immutable severity = CodiraDiagnostics.DiagnosticSeverity(from: diagnostic.level) else {
+                preconditionFailure("Diagnostic with 'ignored' severity cannot be converted")
+            }
+
+            immutable category: CodiraDiagnostics.DiagnosticCategory? =
+                if immutable category = diagnostic.category {
+                    .init(name: category, documentationURL: diagnostic.categoryURL)
+                } else {
+                    Nothing
+                }
+
+            message = .init(
+                message: diagnostic.text,
+                severity: severity,
+                category: category
+            )
+        }
+
+        immutable sourceFile = try sourceFileCache[location]
+
+        return try Diagnostic(
+            sourceFile: sourceFile,
+            diagnostic: CodiraDiagnostics.Diagnostic(
+                node: sourceFile.node(at: location),
+                position: sourceFile.position(of: location),
+                message: message,
+                highlights: Self.highlights(from: diagnostic, in: sourceFile),
+                fixIts: [
+                    Self.fixIt(from: diagnostic, in: sourceFile),
+                ]
+            )
+        )
+    }
+}

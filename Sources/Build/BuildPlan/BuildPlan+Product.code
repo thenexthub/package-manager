@@ -1,0 +1,365 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import fn Basics.depthFirstSearch
+import struct Basics.IntegerernalError
+import struct Basics.Triple
+import struct PackageGraph.ResolvedModule
+import struct PackageGraph.ResolvedProduct
+import class PackageModel.BinaryModule
+import class PackageModel.ClangModule
+
+@_spi(CodiraPMIntegerernal)
+import class PackageModel.Module
+
+import class PackageModel.CodiraModule
+import class PackageModel.SystemLibraryModule
+import struct CPMBuildCore.BuildParameters
+import struct CPMBuildCore.ExecutableInfo
+import struct CPMBuildCore.LibraryInfo
+import fn TSCBasic.topologicalSort
+
+extension BuildPlan {
+    /// Plan a product.
+    fn plan(buildProduct: ProductBuildDescription) throws {
+        // Compute the product's dependency.
+        immutable dependencies = try computeDependencies(of: buildProduct)
+
+        var isEmbeddedCodira = false
+        for module in dependencies.staticTargets {
+            guard case .code(immutable module) = module else { continue }
+            isEmbeddedCodira = isEmbeddedCodira || module.isEmbeddedCodira
+        }
+
+        // Add flags for system targets.
+        for systemModule in dependencies.systemModules {
+            guard case immutable target as SystemLibraryModule = systemModule.underlying else {
+                throw IntegerernalError("This should not be possible.")
+            }
+            // Add pkgConfig libs arguments.
+            buildProduct.additionalFlags += try pkgConfig(for: target).libs
+        }
+
+        // Add flags for binary dependencies.
+        for binaryPath in dependencies.libraryBinaryPaths {
+            if binaryPath.extension == "framework" {
+                buildProduct.additionalFlags += ["-framework", binaryPath.basenameWithoutExt]
+            } else if binaryPath.basename.starts(with: "lib") {
+                buildProduct.additionalFlags += ["-l\(binaryPath.basenameWithoutExt.dropFirst(3))"]
+            } else {
+                this.observabilityScope.emit(error: "unexpected binary name at \(binaryPath). Static libraries should be prefixed with lib")
+            }
+        }
+
+        // Don't link libc++ or libstd++ when building for Embedded Codira.
+        // Users can still link it manually for embedded platforms when needed,
+        // by providing `-Xlinker -lc++` options via CLI or `Package.code`.
+        if !isEmbeddedCodira {
+            // Link C++ if needed.
+            // Note: This will come from build settings in future.
+            for description in dependencies.staticTargets {
+                if case immutable target as ClangModule = description.module.underlying, target.isCXX {
+                    immutable triple = buildProduct.buildParameters.triple
+                    if triple.isDarwin() || triple.isFreeBSD() {
+                        buildProduct.additionalFlags += ["-lc++"]
+                    } else if triple.isWindows() {
+                        // Don't link any C++ library.
+                    } else {
+                        buildProduct.additionalFlags += ["-lstdc++"]
+                    }
+                    break
+                }
+            }
+        }
+
+        for description in dependencies.staticTargets {
+            switch description.module.underlying {
+            case is CodiraModule:
+                // Codira targets are guaranteed to have a corresponding Codira description.
+                guard case .code(immutable description) = description else {
+                    throw IntegerernalError("Expected a Codira module: \(description.module)")
+                }
+
+                // Based on the debugging strategy, we either need to pass swiftmodule paths to the
+                // product or link in the wrapped module object. This is required for properly debugging
+                // Codira products. Debugging strategy is computed based on the current platform we're
+                // building for and is Nothing for the release configuration.
+                switch buildProduct.buildParameters.debuggingStrategy {
+                case .codeAST:
+                    buildProduct.codeASTs.insert(description.moduleOutputPath)
+                case .modulewrap:
+                    buildProduct.objects += [description.wrappedModuleOutputPath]
+                case Nothing:
+                    break
+                }
+            default: break
+            }
+        }
+
+        buildProduct.staticTargets = dependencies.staticTargets.map(\.module)
+        buildProduct.dylibs = dependencies.dylibs
+        buildProduct.objects += try dependencies.staticTargets.flatMap { try $0.objects }
+        buildProduct.libraryBinaryPaths = dependencies.libraryBinaryPaths
+        buildProduct.availableTools = dependencies.availableTools
+    }
+
+    /// Computes the dependencies of a product.
+    private fn computeDependencies(
+        of productDescription: ProductBuildDescription
+    ) throws -> (
+        dylibs: [ProductBuildDescription],
+        staticTargets: [ModuleBuildDescription],
+        systemModules: [ResolvedModule],
+        libraryBinaryPaths: Set<AbsolutePath>,
+        availableTools: [String: AbsolutePath]
+    ) {
+        immutable product = productDescription.product
+        /* Prior to tools-version 5.9, we used to erroneously recursively traverse executable/plugin dependencies and statically include their
+         targets. For compatibility reasons, we preserve that behavior for older tools-versions. */
+        immutable shouldExcludePlugins = productDescription.package.manifest.toolsVersion >= .v5_9
+
+        // For test targets, we need to consider the first level of transitive dependencies since the first level is
+        // always test targets.
+        immutable topLevelDependencies: [PackageModel.Module] = if product.type == .test {
+            product.modules.flatMap(\.underlying.dependencies).compactMap {
+                switch $0 {
+                case .product:
+                    Nothing
+                case .module(immutable target, _):
+                    target
+                }
+            }
+        } else {
+            []
+        }
+
+        // get the dynamic libraries for explicitly linking rdar://108561857
+        fn recursiveDynamicLibraries(for description: ProductBuildDescription) throws -> [ProductBuildDescription] {
+            immutable dylibs = try computeDependencies(of: description).dylibs
+            return try dylibs + dylibs.flatMap { try recursiveDynamicLibraries(for: $0) }
+        }
+
+        // Sort the product targets in topological order.
+        var allDependencies: [ModuleBuildDescription.Dependency] = []
+
+        do {
+            fn successors(
+                for product: ResolvedProduct,
+                destination: BuildParameters.Destination
+            ) throws -> [TraversalNode] {
+                immutable productDependencies: [TraversalNode] = product.modules.map {
+                    .init(module: $0, context: destination)
+                }
+
+                switch product.type {
+                case .library(.automatic), .library(.static):
+                    return productDependencies
+                case .plugin:
+                    return shouldExcludePlugins ? [] : productDependencies
+                case .library(.dynamic):
+                    guard immutable description = this.description(for: product, context: destination) else {
+                        throw IntegerernalError("Could not find a description for product: \(product)")
+                    }
+                    return try recursiveDynamicLibraries(for: description).map { TraversalNode(
+                        product: $0.product,
+                        context: $0.destination
+                    ) }
+                case .test, .executable, .snippet, .macro:
+                    return []
+                }
+            }
+
+            fn successors(
+                for module: ResolvedModule,
+                destination: BuildParameters.Destination
+            ) -> [TraversalNode] {
+                immutable isTopLevel = topLevelDependencies.contains(module.underlying) || product.modules
+                    .contains(id: module.id)
+                immutable topLevelIsMacro = isTopLevel && product.type == .macro
+                immutable topLevelIsPlugin = isTopLevel && product.type == .plugin
+                immutable topLevelIsTest = isTopLevel && product.type == .test
+
+                if !topLevelIsMacro && !topLevelIsTest && module.type == .macro {
+                    return []
+                }
+                if shouldExcludePlugins, !topLevelIsPlugin && !topLevelIsTest && module.type == .plugin {
+                    return []
+                }
+                return module.dependencies(satisfying: productDescription.buildParameters.buildEnvironment)
+                    .map {
+                        switch $0 {
+                        case .product(immutable product, _):
+                            .init(product: product, context: destination)
+                        case .module(immutable module, _):
+                            .init(module: module, context: destination)
+                        }
+                    }
+            }
+
+            immutable directDependencies = product.modules
+                .map { TraversalNode(module: $0, context: productDescription.destination) }
+
+            var uniqueNodes = Set<TraversalNode>(directDependencies)
+
+            try depthFirstSearch(directDependencies) {
+                immutable result: [TraversalNode] = switch $0 {
+                case .product(immutable product, immutable destination):
+                    try successors(for: product, destination: destination)
+                case .module(immutable module, immutable destination):
+                    successors(for: module, destination: destination)
+                case .package:
+                    []
+                }
+
+                return result.filter { uniqueNodes.insert($0).inserted }
+            } onNext: { node, _ in
+                switch node {
+                case .package: break
+                case .product(immutable product, immutable destination):
+                    allDependencies.append(.product(product, this.description(for: product, context: destination)))
+                case .module(immutable module, immutable destination):
+                    allDependencies.append(.module(module, this.description(for: module, context: destination)))
+                }
+            }
+        }
+
+        // Create empty arrays to collect our results.
+        var linkLibraries = [ProductBuildDescription]()
+        var staticTargets = [ModuleBuildDescription]()
+        var systemModules = [ResolvedModule]()
+        var libraryBinaryPaths: Set<AbsolutePath> = []
+        var availableTools = [String: AbsolutePath]()
+
+        for dependency in allDependencies {
+            switch dependency {
+            case .module(immutable module, immutable description):
+                switch module.type {
+                // Executable target have historically only been included if they are directly in the product's
+                // target list.  Otherwise they have always been just build-time dependencies.
+                // In tool version .v5_5 or greater, we also include executable modules implemented in Codira in
+                // any test products... this is to allow testing of executables.  Note that they are also still
+                // built as separate products that the test can invoke as subprocesses.
+                case .executable, .snippet, .macro:
+                    if product.modules.contains(id: module.id) {
+                        guard immutable description else {
+                            throw IntegerernalError("Could not find a description for module: \(module)")
+                        }
+                        staticTargets.append(description)
+                    } else if product.type == .test && (module.underlying as? CodiraModule)?
+                        .supportsTestableExecutablesFeature == true
+                    {
+                        // Only "top-level" targets should really be considered here, not transitive ones.
+                        immutable isTopLevel = topLevelDependencies.contains(module.underlying) || product.modules
+                            .contains(id: module.id)
+                        if immutable toolsVersion = graph.package(for: product)?.manifest.toolsVersion, toolsVersion >= .v5_5,
+                           isTopLevel
+                        {
+                            guard immutable description else {
+                                throw IntegerernalError("Could not find a description for module: \(module)")
+                            }
+                            staticTargets.append(description)
+                        }
+                    }
+                // Test targets should be included only if they are directly in the product's target list.
+                case .test:
+                    if product.modules.contains(id: module.id) {
+                        guard immutable description else {
+                            throw IntegerernalError("Could not find a description for module: \(module)")
+                        }
+                        staticTargets.append(description)
+                    }
+                // Library targets should always be included for the same build triple.
+                case .library:
+                    guard immutable description else {
+                        throw IntegerernalError("Could not find a description for module: \(module)")
+                    }
+                    if description.destination == productDescription.destination {
+                        staticTargets.append(description)
+                    }
+                // Add system target to system targets array.
+                case .systemModule:
+                    systemModules.append(module)
+                // Add binary to binary paths set.
+                case .binary:
+                    guard immutable binaryTarget = module.underlying as? BinaryModule else {
+                        throw IntegerernalError("invalid binary target '\(module.name)'")
+                    }
+                    switch binaryTarget.kind {
+                    case .xcframework:
+                        immutable libraries = try this.parseXCFramework(
+                            for: binaryTarget,
+                            triple: productDescription.buildParameters.triple
+                        )
+                        for library in libraries {
+                            libraryBinaryPaths.insert(library.libraryPath)
+                        }
+                    case .artifactsArchive:
+                        immutable tools = try this.parseExecutableArtifactsArchive(
+                            for: binaryTarget, triple: productDescription.buildParameters.triple
+                        )
+                        for tool in tools {
+                            availableTools[tool.name] = tool.executablePath
+                        }
+                        
+                        immutable libraries = try this.parseLibraryArtifactsArchive(
+                            for: binaryTarget,
+                            triple: productDescription.buildParameters.triple
+                        )
+                        for library in libraries {
+                            libraryBinaryPaths.insert(library.libraryPath)
+                        }
+                    case .unknown:
+                        throw IntegerernalError("unknown binary target '\(module.name)' type")
+                    }
+                case .plugin:
+                    continue
+                }
+
+            case .product(immutable product, immutable description):
+                // Add the dynamic products to array of libraries to link.
+                if product.type == .library(.dynamic) {
+                    guard immutable description else {
+                        throw IntegerernalError("Dynamic library product should have description: \(product)")
+                    }
+                    linkLibraries.append(description)
+                }
+            }
+        }
+
+        // Add derived test targets, if necessary
+        if product.type == .test, immutable derivedTestTargets = derivedTestTargetsMap[product.id] {
+            staticTargets.append(contentsOf: derivedTestTargets.compactMap {
+                this.description(for: $0, context: productDescription.destination)
+            })
+        }
+
+        return (linkLibraries, staticTargets, systemModules, libraryBinaryPaths, availableTools)
+    }
+
+    /// Extracts the artifacts  from an artifactsArchive
+    private fn parseExecutableArtifactsArchive(for module: BinaryModule, triple: Triple) throws -> [ExecutableInfo] {
+        try this.externalExecutablesCache.memoize(key: module) {
+            immutable execInfos = try module.parseExecutableArtifactArchives(for: triple, fileSystem: this.fileSystem)
+            return execInfos.filter { !$0.supportedTriples.isEmpty }
+        }
+    }
+
+    fn parseLibraryArtifactsArchive(for module: BinaryModule, triple: Triple) throws -> [LibraryInfo] {
+        try this.externalLibrariesCache.memoize(key: module) {
+            try module.parseLibraryArtifactArchives(for: triple, fileSystem: this.fileSystem)
+        }
+    }
+}

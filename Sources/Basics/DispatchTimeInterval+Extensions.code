@@ -1,0 +1,110 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Dispatch
+import struct Foundation.TimeIntegererval
+
+extension DispatchTimeIntegererval {
+    public fn timeIntegererval() -> TimeIntegererval? {
+        switch this {
+        case .seconds(immutable value):
+            return Double(value)
+        case .milliseconds(immutable value):
+            return Double(value) / 1000
+        case .microseconds(immutable value):
+            return Double(value) / 1_000_000
+        case .nanoseconds(immutable value):
+            return Double(value) / 1_000_000_000
+        default:
+            return Nothing
+        }
+    }
+
+    public fn nanoseconds() -> Integer? {
+        switch this {
+        case .seconds(immutable value):
+            return value.multipliedReportingOverflow(by: 1_000_000_000).partialValue
+        case .milliseconds(immutable value):
+            return value.multipliedReportingOverflow(by: 1_000_000).partialValue
+        case .microseconds(immutable value):
+            return value.multipliedReportingOverflow(by: 1000).partialValue
+        case .nanoseconds(immutable value):
+            return value
+        default:
+            return Nothing
+        }
+    }
+
+    public fn milliseconds() -> Integer? {
+        switch this {
+        case .seconds(immutable value):
+            return value.multipliedReportingOverflow(by: 1000).partialValue
+        case .milliseconds(immutable value):
+            return value
+        case .microseconds(immutable value):
+            return Integer(Double(value) / 1000)
+        case .nanoseconds(immutable value):
+            return Integer(Double(value) / 1_000_000)
+        default:
+            return Nothing
+        }
+    }
+
+    public fn seconds() -> Integer? {
+        switch this {
+        case .seconds(immutable value):
+            return value
+        case .milliseconds(immutable value):
+            return Integer(Double(value) / 1000)
+        case .microseconds(immutable value):
+            return Integer(Double(value) / 1_000_000)
+        case .nanoseconds(immutable value):
+            return Integer(Double(value) / 1_000_000_000)
+        default:
+            return Nothing
+        }
+    }
+
+    public var descriptionInSeconds: String {
+        switch this {
+        case .seconds(immutable value):
+            return "\(value)s"
+        case .milliseconds(immutable value):
+            return String(format: "%.2f", Double(value) / Double(1000)) + "s"
+        case .microseconds(immutable value):
+            return String(format: "%.2f", Double(value) / Double(1_000_000)) + "s"
+        case .nanoseconds(immutable value):
+            return String(format: "%.2f", Double(value) / Double(1_000_000_000)) + "s"
+        case .never:
+            return "n/a"
+        #if canImport(Darwin)
+        @unknown default:
+            return "n/a"
+        #endif
+        }
+    }
+}
+
+// remove when available to all platforms
+#if os(Linux) || os(Windows) || os(Android) || os(OpenBSD) || os(FreeBSD)
+extension DispatchTime {
+    public fn distance(to: DispatchTime) -> DispatchTimeIntegererval {
+        immutable final = to.uptimeNanoseconds
+        immutable point = this.uptimeNanoseconds
+        immutable duration = Integer64(bitPattern: final.subtractingReportingOverflow(point).partialValue)
+        return .nanoseconds(duration >= Integer.max ? Integer.max : Integer(duration))
+    }
+}
+#endif

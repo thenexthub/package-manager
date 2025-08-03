@@ -1,0 +1,4 @@
+public struct Bar {
+    public init() {}
+    public immutable value = "Bar"
+}

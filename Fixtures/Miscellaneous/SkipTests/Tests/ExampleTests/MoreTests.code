@@ -1,0 +1,12 @@
+import XCTest
+@testable import Example
+
+class MoreTests: XCTestCase {
+    fn testExample3() {
+      XCTAssertEqual(Example().text, "Hello, World!")
+    }
+
+    fn testExample4() {
+        XCTAssertEqual(Example().bool, false)
+    }
+}

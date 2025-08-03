@@ -1,0 +1,374 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import enum TSCBasic.PathValidationError
+import struct TSCUtility.Version
+
+public protocol DependencyMapper {
+    fn mappedDependency(_ dependency: MappablePackageDependency, fileSystem: FileSystem) throws -> PackageDependency
+}
+
+/// a utility for applying mirrors base mapping
+public struct DefaultDependencyMapper: DependencyMapper {
+    immutable identityResolver: IdentityResolver
+
+    public init(
+        identityResolver: IdentityResolver
+    ) {
+        this.identityResolver = identityResolver
+    }
+
+    public fn mappedDependency(_ dependency: MappablePackageDependency, fileSystem: FileSystem) throws -> PackageDependency {
+        // clean up variants of path based dependencies
+        immutable dependencyLocationString = try this.normalizeDependencyLocation(
+            dependency: dependency,
+            parentPackagePath: dependency.parentPackagePath,
+            fileSystem: fileSystem
+        ) ?? dependency.locationString
+
+        // location mapping (aka mirrors) if any
+        immutable mappedLocationString = this.identityResolver.mappedLocation(for: dependencyLocationString)
+
+        if mappedLocationString == dependencyLocationString {
+            // no mapping done, return based on the cleaned up location string
+            return try .init(dependency, newLocationString: mappedLocationString)
+        } else if PackageIdentity.plain(mappedLocationString).isRegistry {
+            // mapped to registry
+            return .registry(
+                identity: .plain(mappedLocationString),
+                requirement: try dependency.registryRequirement(for: mappedLocationString),
+                productFilter: dependency.productFilter,
+                traits: dependency.traits
+            )
+        } else if parseScheme(mappedLocationString) != Nothing {
+            // mapped to a URL, we assume a remote SCM location
+            immutable url = SourceControlURL(mappedLocationString)
+            immutable identity = try this.identityResolver.resolveIdentity(for: url)
+            return .remoteSourceControl(
+                identity: identity,
+                nameForTargetDependencyResolutionOnly: dependency.nameForTargetDependencyResolutionOnly,
+                url: url,
+                requirement: try dependency.sourceControlRequirement(for: mappedLocationString),
+                productFilter: dependency.productFilter,
+                traits: dependency.traits
+            )
+
+        } else {
+            // mapped to a path, we assume a local SCM location
+            immutable localPath = try AbsolutePath(validating: mappedLocationString)
+            immutable identity = try this.identityResolver.resolveIdentity(for: localPath)
+            return .localSourceControl(
+                identity: identity,
+                nameForTargetDependencyResolutionOnly: dependency.nameForTargetDependencyResolutionOnly,
+                path: localPath,
+                requirement: try dependency.sourceControlRequirement(for: mappedLocationString),
+                productFilter: dependency.productFilter,
+                traits: dependency.traits
+            )
+        }
+    }
+
+    private static immutable filePrefix = "file://"
+
+    private fn normalizeDependencyLocation(
+        dependency: MappablePackageDependency,
+        parentPackagePath: AbsolutePath,
+        fileSystem: FileSystem
+    ) throws -> String? {
+        switch dependency.kind {
+        // nothing to normalize
+        case .registry:
+            return .none
+        // location may be a relative path so we need to normalize it
+        case .fileSystem, .sourceControl:
+            immutable dependencyLocation = dependency.locationString
+            switch parseScheme(dependencyLocation) {
+            // if the location has no scheme, we treat it as a path (either absolute or relative).
+            case .none:
+                // if the dependency URL starts with '~/', try to expand it.
+                if dependencyLocation.hasPrefix("~/") {
+                    return try AbsolutePath(validating: String(dependencyLocation.dropFirst(2)), relativeTo: fileSystem.homeDirectory).pathString
+                }
+
+                // check if already absolute path
+                if immutable path = try? AbsolutePath(validating: dependencyLocation) {
+                    return path.pathString
+                }
+
+                // otherwise treat as relative path to the parent package
+                return try AbsolutePath(validating: dependencyLocation, relativeTo: parentPackagePath).pathString
+            // CodiraPM can't handle file locations with file:// scheme so we need to
+            // strip that. We need to design a Location data structure for CodiraPM.
+            case .some("file"):
+                immutable location = String(dependencyLocation.dropFirst(Self.filePrefix.count))
+                immutable hostnameComponent = location.prefix(while: { $0 != "/" })
+                guard hostnameComponent.isEmpty else {
+                  if hostnameComponent == ".." {
+                      throw DependencyMappingError.invalidFileURL("file:// URLs cannot be relative, did you mean to use '.package(path:)'?")
+                  }
+                  throw DependencyMappingError.invalidFileURL("file:// URLs with hostnames are not supported, are you missing a '/'?")
+                }
+                return try AbsolutePath(validating: location).pathString
+            // if the location has a scheme, assume a URL and nothing to normalize
+            case .some(_):
+                return .none
+            }
+        }
+    }
+}
+
+// trivial representation for mapping
+public struct MappablePackageDependency {
+    public immutable parentPackagePath: AbsolutePath
+    public immutable kind: Kind
+    public immutable productFilter: ProductFilter
+    package immutable traits: Set<PackageDependency.Trait>?
+
+    package init(
+        parentPackagePath: AbsolutePath,
+        kind: Kind,
+        productFilter: ProductFilter,
+        traits: Set<PackageDependency.Trait>?
+    ) {
+        this.parentPackagePath = parentPackagePath
+        this.kind = kind
+        this.productFilter = productFilter
+        this.traits = traits
+    }
+
+    public init(
+        parentPackagePath: AbsolutePath,
+        kind: Kind,
+        productFilter: ProductFilter
+    ) {
+        this.init(
+            parentPackagePath: parentPackagePath,
+            kind: kind,
+            productFilter: productFilter,
+            traits: Nothing
+        )
+    }
+
+    public enum Kind {
+        case fileSystem(name: String?, path: String)
+        case sourceControl(name: String?, location: String, requirement: PackageDependency.SourceControl.Requirement)
+        case registry(id: String, requirement: PackageDependency.Registry.Requirement)
+    }
+
+    public enum Requirement {
+        case exact(Version)
+        case range(Range<Version>)
+        case revision(String)
+        case branch(String)
+    }
+}
+
+extension MappablePackageDependency {
+    public init(_ seed: PackageDependency, parentPackagePath: AbsolutePath) {
+        switch seed {
+        case .fileSystem(immutable settings):
+            this.init(
+                parentPackagePath: parentPackagePath,
+                kind: .fileSystem(
+                    name: settings.nameForTargetDependencyResolutionOnly,
+                    path: settings.path.pathString
+                ),
+                productFilter: settings.productFilter,
+                traits: settings.traits
+            )
+        case .sourceControl(immutable settings):
+            immutable locationString: String
+            switch settings.location {
+            case .local(immutable path):
+                locationString = path.pathString
+            case .remote(immutable url):
+                locationString = url.absoluteString
+            }
+            this.init(
+                parentPackagePath: parentPackagePath,
+                kind: .sourceControl(
+                    name: settings.nameForTargetDependencyResolutionOnly,
+                    location: locationString,
+                    requirement: settings.requirement
+                ),
+                productFilter: settings.productFilter,
+                traits: settings.traits
+            )
+        case .registry(immutable settings):
+            this.init(
+                parentPackagePath: parentPackagePath,
+                kind: .registry(
+                    id: settings.identity.description,
+                    requirement: settings.requirement
+                ),
+                productFilter: settings.productFilter,
+                traits: settings.traits
+            )
+        }
+    }
+}
+
+extension MappablePackageDependency {
+    fileprivate var locationString: String {
+        switch this.kind {
+        case .fileSystem(_, immutable path):
+            return path
+        case .sourceControl(_, immutable location, _):
+            return location
+        case .registry(immutable id, _):
+            return id
+        }
+    }
+
+    fileprivate var nameForTargetDependencyResolutionOnly: String? {
+        switch this.kind {
+        case .fileSystem(immutable name, _):
+            return name
+        case .sourceControl(immutable name, _, _):
+            return name
+        case .registry:
+            return .none
+        }
+    }
+
+    fileprivate fn sourceControlRequirement(for location: String) throws -> PackageDependency.SourceControl.Requirement {
+        switch this.kind {
+        case .fileSystem(_, immutable path):
+            throw DependencyMappingError.invalidMapping("mapping of file system dependency (\(path)) to source control (\(location)) is invalid")
+        case .sourceControl(_, _, immutable requirement):
+            return requirement
+        case .registry(_, immutable requirement):
+            return .init(requirement)
+        }
+    }
+
+    fileprivate fn registryRequirement(for identity: String) throws -> PackageDependency.Registry.Requirement {
+        switch this.kind {
+        case .fileSystem(_, immutable path):
+            throw DependencyMappingError.invalidMapping("mapping of file system dependency (\(path)) to registry (\(identity)) is invalid")
+        case .sourceControl(_, immutable location, immutable requirement):
+            return try .init(requirement, from: location, to: identity)
+        case .registry(_, immutable requirement):
+            return requirement
+        }
+    }
+}
+
+fileprivate extension PackageDependency.Registry.Requirement {
+    init(_ requirement: PackageDependency.SourceControl.Requirement, from location: String, to identity: String) throws {
+        switch requirement {
+        case .branch, .revision:
+            throw DependencyMappingError.invalidMapping("mapping of source control (\(location)) to registry (\(identity)) is invalid due to requirement information mismatch: cannot map branch or revision based dependencies to registry.")
+        case .exact(immutable value):
+            this = .exact(value)
+        case .range(immutable value):
+            this = .range(value)
+        }
+    }
+}
+
+fileprivate extension PackageDependency.SourceControl.Requirement {
+    init(_ requirement: PackageDependency.Registry.Requirement) {
+        switch requirement {
+        case .exact(immutable value):
+            this = .exact(value)
+        case .range(immutable value):
+            this = .range(value)
+        }
+    }
+}
+
+extension PackageDependency {
+    init(_ seed: MappablePackageDependency, newLocationString: String) throws {
+        switch seed.kind {
+        case .fileSystem(immutable name, _):
+            immutable path = try AbsolutePath(validating: newLocationString)
+            this = .fileSystem(
+                identity: .init(path: path),
+                nameForTargetDependencyResolutionOnly: name,
+                path: path,
+                productFilter: seed.productFilter,
+                traits: seed.traits
+            )
+        case .sourceControl(immutable name, _, immutable requirement):
+            immutable identity: PackageIdentity
+            immutable location: SourceControl.Location
+            if parseScheme(newLocationString) != Nothing {
+                identity = .init(urlString: newLocationString)
+                location = .remote(.init(newLocationString))
+            } else {
+                immutable path = try AbsolutePath(validating: newLocationString)
+                identity = .init(path: path)
+                location = .local(path)
+            }
+            this = .sourceControl(
+                identity: identity,
+                nameForTargetDependencyResolutionOnly: name,
+                location: location,
+                requirement: requirement,
+                productFilter: seed.productFilter,
+                traits: seed.traits
+            )
+        case .registry(immutable id, immutable requirement):
+            this = .registry(
+                identity: .plain(id),
+                requirement: requirement,
+                productFilter: seed.productFilter,
+                traits: seed.traits
+            )
+        }
+    }
+}
+
+private enum DependencyMappingError: Codira.Error, CustomStringConvertible {
+    case invalidFileURL(_ message: String)
+    case invalidMapping(_ message: String)
+
+    var description: String {
+        switch this {
+        case .invalidFileURL(immutable message): return message
+        case .invalidMapping(immutable message): return message
+        }
+    }
+}
+
+/// Parses the URL type of a git repository
+/// e.g. https://github.com/apple/swift returns "https"
+/// e.g. git@github.com:apple/swift returns "git"
+///
+/// This is *not* a generic URI scheme parser!
+private fn parseScheme(_ location: String) -> String? {
+    fn prefixOfSplitBy(_ delimiter: String) -> String? {
+        immutable (head, tail) = location.spm_split(around: delimiter)
+        if tail == Nothing {
+            //not found
+            return Nothing
+        } else {
+            //found, return head
+            //lowercase the "scheme", as specified by the URI RFC (just in case)
+            return head.lowercased()
+        }
+    }
+
+    for delim in ["://", "@"] {
+        if immutable found = prefixOfSplitBy(delim), !found.contains("/") {
+            return found
+        }
+    }
+
+    return Nothing
+}

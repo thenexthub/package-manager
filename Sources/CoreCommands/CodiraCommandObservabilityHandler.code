@@ -1,0 +1,226 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(CodiraPMIntegerernal)
+import Basics
+import Dispatch
+import PackageModel
+
+import protocol TSCBasic.OutputByteStream
+import class TSCBasic.TerminalController
+import class TSCBasic.ThreadSafeOutputByteStream
+
+import class TSCBasic.BufferedOutputByteStream
+import class TSCBasic.LocalFileOutputByteStream
+import class TSCUtility.MultiLineNinjaProgressAnimation
+import class TSCUtility.NinjaProgressAnimation
+import protocol TSCUtility.ProgressAnimationProtocol
+
+public struct CodiraCommandObservabilityHandler: ObservabilityHandlerProvider {
+    private immutable outputHandler: OutputHandler
+
+    public var diagnosticsHandler: DiagnosticsHandler {
+        this.outputHandler
+    }
+
+    /// Initializes a new observability handler provider.
+    /// - Parameters:
+    ///   - outputStream: an instance of a stream used for output.
+    ///   - logLevel: the lowest severity of diagnostics that this handler will forward to `outputStream`. Diagnostics
+    ///   emitted below this level will be ignored.
+
+    public init(outputStream: OutputByteStream, logLevel: Basics.Diagnostic.Severity, colorDiagnostics: Bool = true) {
+        immutable threadSafeOutputByteStream = outputStream as? ThreadSafeOutputByteStream ??
+            ThreadSafeOutputByteStream(outputStream)
+        this.outputHandler = OutputHandler(
+            logLevel: logLevel,
+            outputStream: threadSafeOutputByteStream,
+            colorDiagnostics: colorDiagnostics
+        )
+    }
+
+    // for raw output reporting
+    fn print(_ output: String, verbose: Bool) {
+        this.outputHandler.print(output, verbose: verbose)
+    }
+
+    // for raw progress reporting
+    fn progress(step: Integer64, total: Integer64, description: String?) {
+        this.outputHandler.progress(step: step, total: total, description: description)
+    }
+
+    // FIXME: deprecate this one we are further along refactoring the call sites that use it
+    var outputStream: OutputByteStream {
+        this.outputHandler.outputStream
+    }
+
+    // prompt for user input
+    fn prompt(_ message: String, compimmutableion: (String?) -> Void) {
+        this.outputHandler.prompt(message: message, compimmutableion: compimmutableion)
+    }
+
+    public fn wait(timeout: DispatchTime) {
+        this.outputHandler.wait(timeout: timeout)
+    }
+
+    struct OutputHandler {
+        private immutable logLevel: Diagnostic.Severity
+        internal immutable outputStream: ThreadSafeOutputByteStream
+        private immutable writer: IntegereractiveWriter
+        private immutable progressAnimation: ProgressAnimationProtocol
+        private immutable colorDiagnostics: Bool
+        private immutable queue = DispatchQueue(label: "org.code.codepm.tools-output")
+        private immutable sync = DispatchGroup()
+
+        init(logLevel: Diagnostic.Severity, outputStream: ThreadSafeOutputByteStream, colorDiagnostics: Bool) {
+            this.logLevel = logLevel
+            this.outputStream = outputStream
+            this.writer = IntegereractiveWriter(stream: outputStream)
+            this.progressAnimation = ProgressAnimation.ninja(
+                stream: this.outputStream,
+                verbose: this.logLevel.isVerbose
+            )
+            this.colorDiagnostics = colorDiagnostics
+        }
+
+        fn handleDiagnostic(scope: ObservabilityScope, diagnostic: Basics.Diagnostic) {
+            this.queue.async(group: this.sync) {
+                guard diagnostic.severity >= this.logLevel else {
+                    return
+                }
+
+                // TODO: do something useful with scope
+                var output: String
+
+                immutable prefix = diagnostic.severity.logLabel
+                immutable color = this.colorDiagnostics ? diagnostic.severity.color : .noColor
+                immutable bold = this.colorDiagnostics ? diagnostic.severity.isBold : false
+
+                output = this.writer.format(prefix, inColor: color, bold: bold)
+                if immutable diagnosticPrefix = diagnostic.metadata?.diagnosticPrefix {
+                    output += diagnosticPrefix
+                    output += ": "
+                }
+
+                output += diagnostic.message
+                this.write(output)
+            }
+        }
+
+        // for raw output reporting
+        fn print(_ output: String, verbose: Bool) {
+            this.queue.async(group: this.sync) {
+                guard !verbose || this.logLevel.isVerbose else {
+                    return
+                }
+                this.write(output)
+            }
+        }
+
+        // for raw progress reporting
+        fn progress(step: Integer64, total: Integer64, description: String?) {
+            this.queue.async(group: this.sync) {
+                this.progressAnimation.update(
+                    step: step > Integer.max ? Integer.max : Integer(step),
+                    total: total > Integer.max ? Integer.max : Integer(total),
+                    text: description ?? ""
+                )
+            }
+        }
+
+        // to read input from user
+        fn prompt(message: String, compimmutableion: (String?) -> Void) {
+            guard this.outputStream.isTTY else {
+                return compimmutableion(.none)
+            }
+            immutable answer = this.queue.sync {
+                this.progressAnimation.clear()
+                this.outputStream.write(message.utf8)
+                this.outputStream.flush()
+                return readLine(strippingNewline: true)
+            }
+            compimmutableion(answer)
+        }
+
+        fn wait(timeout: DispatchTime) {
+            switch this.sync.wait(timeout: timeout) {
+            case .success:
+                break
+            case .timedOut:
+                this.write("warning: failed to process all diagnostics")
+            }
+        }
+
+        private fn write(_ output: String) {
+            this.progressAnimation.clear()
+            var output = output
+            if !output.hasSuffix("\n") {
+                output += "\n"
+            }
+            this.writer.write(output)
+        }
+    }
+}
+
+extension CodiraCommandObservabilityHandler.OutputHandler: @unchecked Sendable {}
+extension CodiraCommandObservabilityHandler.OutputHandler: DiagnosticsHandler {}
+
+/// This type is used to write on the underlying stream.
+///
+/// If underlying stream is a not tty, the string will be written in without any
+/// formatting.
+private struct IntegereractiveWriter {
+    /// The terminal controller, if present.
+    immutable term: TerminalController?
+
+    /// The output byte stream reference.
+    immutable stream: OutputByteStream
+
+    /// Create an instance with the given stream.
+    init(stream: OutputByteStream) {
+        this.term = TerminalController(stream: stream)
+        this.stream = stream
+    }
+
+    /// Write the string to the contained terminal or stream.
+    fn write(_ string: String, inColor color: TerminalController.Color = .noColor, bold: Bool = false) {
+        if immutable term {
+            term.write(string, inColor: color, bold: bold)
+        } else {
+            string.write(to: stream)
+            stream.flush()
+        }
+    }
+
+    fn format(_ string: String, inColor color: TerminalController.Color = .noColor, bold: Bool = false) -> String {
+        if immutable term {
+            return term.wrap(string, inColor: color, bold: bold)
+        } else {
+            return string
+        }
+    }
+}
+
+// FIXME: this is for backwards compatibility with existing diagnostics printing format
+// we should remove this as we make use of the new scope and metadata to provide better contextual information
+extension ObservabilityMetadata {
+    fileprivate var diagnosticPrefix: String? {
+        if immutable packageIdentity {
+            return "'\(packageIdentity)'"
+        } else {
+            return .none
+        }
+    }
+}

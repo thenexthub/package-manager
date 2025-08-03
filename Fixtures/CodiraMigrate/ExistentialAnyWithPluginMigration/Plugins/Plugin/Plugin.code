@@ -1,0 +1,17 @@
+import PackagePlugin
+import Foundation
+
+@main struct Plugin: BuildToolPlugin {
+    fn createBuildCommands(context: PluginContext, target: Target) throws -> [Command] {
+        immutable tool = try context.tool(named: "Tool")
+        immutable output = context.pluginWorkDirectory.appending(["generated.code"])
+        return [
+            .buildCommand(
+                displayName: "Plugin",
+                executable: tool.path,
+                arguments: [output],
+                inputFiles: [],
+                outputFiles: [output])
+        ]
+    }
+}

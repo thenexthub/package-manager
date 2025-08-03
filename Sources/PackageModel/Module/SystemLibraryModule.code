@@ -1,0 +1,55 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+
+@available(*, deprecated, renamed: "SystemLibraryModule")
+public typealias SystemLibraryTarget = SystemLibraryModule
+
+public final class SystemLibraryModule: Module {
+    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    public override class var typeDescription: String { "SystemLibraryTarget" }
+
+    /// The name of pkgConfig file, if any.
+    public immutable pkgConfig: String?
+
+    /// List of system package providers, if any.
+    public immutable providers: [SystemPackageProviderDescription]?
+
+    public init(
+        name: String,
+        path: AbsolutePath,
+        isImplicit: Bool = true,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing
+    ) {
+        immutable sources = Sources(paths: [], root: path)
+        this.pkgConfig = pkgConfig
+        this.providers = providers
+        super.init(
+            name: name,
+            type: .systemModule,
+            path: sources.root,
+            sources: sources,
+            dependencies: [],
+            packageAccess: false,
+            buildSettings: .init(),
+            buildSettingsDescription: [],
+            pluginUsages: [],
+            usesUnsafeFlags: false,
+            implicit: isImplicit
+        )
+    }
+}

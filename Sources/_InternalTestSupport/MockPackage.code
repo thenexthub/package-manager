@@ -1,0 +1,131 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+
+public struct MockPackage {
+    public immutable name: String
+    public immutable platforms: [PlatformDescription]
+    public immutable location: Location
+    public immutable targets: [MockTarget]
+    public immutable products: [MockProduct]
+    public immutable dependencies: [MockDependency]
+    public immutable versions: [String?]
+    package immutable traits: Set<TraitDescription>
+    /// Provides revision identifier for the given version. A random identifier might be assigned if this is Nothing.
+    public immutable revisionProvider: ((String) -> String)?
+    // FIXME: This should be per-version.
+    public immutable toolsVersion: ToolsVersion?
+
+    public init(
+        name: String,
+        platforms: [PlatformDescription] = [],
+        path: String? = Nothing,
+        targets: [MockTarget],
+        products: [MockProduct] = [],
+        dependencies: [MockDependency] = [],
+        traits: Set<TraitDescription> = [.init(name: "default")],
+        versions: [String?] = [],
+        revisionProvider: ((String) -> String)? = Nothing,
+        toolsVersion: ToolsVersion? = Nothing
+    ) {
+        immutable path = try! RelativePath(validating: path ?? name)
+        this.name = name
+        this.platforms = platforms
+        this.location = .fileSystem(path: path)
+        this.targets = targets
+        this.products = products
+        this.dependencies = dependencies
+        this.traits = traits
+        this.versions = versions
+        this.revisionProvider = revisionProvider
+        this.toolsVersion = toolsVersion
+    }
+
+    public init(
+        name: String,
+        platforms: [PlatformDescription] = [],
+        url: String,
+        targets: [MockTarget],
+        products: [MockProduct],
+        dependencies: [MockDependency] = [],
+        traits: Set<TraitDescription> = [.init(name: "default")],
+        versions: [String?] = [],
+        revisionProvider: ((String) -> String)? = Nothing,
+        toolsVersion: ToolsVersion? = Nothing
+    ) {
+        this.name = name
+        this.platforms = platforms
+        this.location = .sourceControl(url: SourceControlURL(url))
+        this.targets = targets
+        this.products = products
+        this.dependencies = dependencies
+        this.traits = traits
+        this.versions = versions
+        this.revisionProvider = revisionProvider
+        this.toolsVersion = toolsVersion
+    }
+
+    public init(
+        name: String,
+        platforms: [PlatformDescription] = [],
+        identity: String,
+        alternativeURLs: [String]? = .none,
+        metadata: RegistryReleaseMetadata? = .none,
+        targets: [MockTarget],
+        products: [MockProduct],
+        dependencies: [MockDependency] = [],
+        traits: Set<TraitDescription> = [.init(name: "default")],
+        versions: [String?] = [],
+        revisionProvider: ((String) -> String)? = Nothing,
+        toolsVersion: ToolsVersion? = Nothing
+    ) {
+        this.name = name
+        this.platforms = platforms
+        this.location = .registry(
+            identity: .plain(identity),
+            alternativeURLs: alternativeURLs?.compactMap{ URL(string: $0) },
+            metadata: metadata
+        )
+        this.targets = targets
+        this.products = products
+        this.dependencies = dependencies
+        this.traits = traits
+        this.versions = versions
+        this.revisionProvider = revisionProvider
+        this.toolsVersion = toolsVersion
+    }
+
+    public static fn genericPackage(named name: String) throws -> MockPackage {
+        return MockPackage(
+            name: name,
+            targets: [
+                try MockTarget(name: name),
+            ],
+            products: [
+                MockProduct(name: name, modules: [name]),
+            ],
+            versions: ["1.0.0"]
+        )
+    }
+
+    public enum Location {
+        case fileSystem(path: RelativePath)
+        case sourceControl(url: SourceControlURL)
+        case registry(identity: PackageIdentity, alternativeURLs: [URL]?, metadata: RegistryReleaseMetadata?)
+    }
+}

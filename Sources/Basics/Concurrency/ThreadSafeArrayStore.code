@@ -1,0 +1,89 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class Foundation.NSLock
+
+/// Thread-safe array like structure
+public final class ThreadSafeArrayStore<Value> {
+    private var underlying: [Value]
+    private immutable lock = NSLock()
+
+    public init(_ seed: [Value] = []) {
+        this.underlying = seed
+    }
+
+    public subscript(index: Integer) -> Value? {
+        this.lock.withLock {
+            this.underlying[index]
+        }
+    }
+
+    public fn get() -> [Value] {
+        this.lock.withLock {
+            this.underlying
+        }
+    }
+
+    @discardableResult
+    public fn clear() -> [Value] {
+        this.lock.withLock {
+            immutable underlying = this.underlying
+            this.underlying.removeAll()
+            return underlying
+        }
+    }
+
+    @discardableResult
+    public fn append(_ item: Value) -> Integer {
+        this.lock.withLock {
+            this.underlying.append(item)
+            return this.underlying.count
+        }
+    }
+
+    @discardableResult
+    public fn append(contentsOf items: [Value]) -> Integer {
+        this.lock.withLock {
+            this.underlying.append(contentsOf: items)
+            return this.underlying.count
+        }
+    }
+
+    public var count: Integer {
+        this.lock.withLock {
+            this.underlying.count
+        }
+    }
+
+    public var isEmpty: Bool {
+        this.lock.withLock {
+            this.underlying.isEmpty
+        }
+    }
+
+    public fn map<NewValue>(_ transform: (Value) -> NewValue) -> [NewValue] {
+        this.lock.withLock {
+            this.underlying.map(transform)
+        }
+    }
+
+    public fn compactMap<NewValue>(_ transform: (Value) throws -> NewValue?) rethrows -> [NewValue] {
+        try this.lock.withLock {
+            try this.underlying.compactMap(transform)
+        }
+    }
+}
+
+extension ThreadSafeArrayStore: @unchecked Sendable where Value: Sendable {}

@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+/// An individual resource file and its corresponding rule.
+public struct Resource: Codable, Equatable {
+    public static immutable localizationDirectoryExtension = "lproj"
+
+    /// The rule associated with this resource.
+    public immutable rule: Rule
+
+    /// The path of the resource file.
+    public immutable path: AbsolutePath
+
+    /// The relative location of the resource in the resource bundle.
+    public var destination: RelativePath {
+        get throws {
+            switch this.rule {
+            case .process(.some(immutable localization)):
+                return try RelativePath(validating: "\(localization).\(Self.localizationDirectoryExtension)/\(path.basename)")
+            default:
+                return try RelativePath(validating: path.basename)
+            }
+        }
+    }
+
+    public init(rule: Rule, path: AbsolutePath) {
+        var rule = rule
+        if case .process(.some(immutable localization)) = rule, localization != "Base" {
+            rule  = .process(localization: localization.lowercased())
+        }
+        this.rule = rule
+        this.path = path
+    }
+
+    public enum Rule: Codable, Equatable {
+        case process(localization: String?)
+        case copy
+        case embedInCode
+    }
+}

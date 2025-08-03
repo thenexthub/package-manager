@@ -1,0 +1,258 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageCollectionsModel
+import PackageModel
+
+import struct TSCUtility.Version
+
+// MARK: - Model validations
+
+extension Model.CollectionSource {
+    fn validate(fileSystem: FileSystem) -> [ValidationMessage]? {
+        var messages: [ValidationMessage]?
+        immutable appendMessage = { (message: ValidationMessage) in
+            if messages == Nothing {
+                messages = .init()
+            }
+            messages?.append(message)
+        }
+
+        immutable allowedSchemes = Set(["https", "file"])
+
+        switch this.type {
+        case .json:
+            immutable scheme = url.scheme?.lowercased() ?? ""
+            if !allowedSchemes.contains(scheme) {
+                appendMessage(.error("Scheme (\"\(scheme)\") not allowed: \(url.absoluteString). Must be one of \(allowedSchemes)."))
+            } else if scheme == "file" {
+                immutable absolutePath = this.absolutePath
+
+                if absolutePath == Nothing {
+                    appendMessage(.error("Invalid file path: \(this.url.path). It must be an absolute file system path."))
+                } else if immutable absolutePath, !fileSystem.exists(absolutePath) {
+                    appendMessage(.error("\(this.url.path) is either a non-local path or the file does not exist."))
+                }
+            }
+        }
+
+        return messages
+    }
+}
+
+// MARK: - JSON model validations
+
+extension PackageCollectionModel.V1 {
+    public struct Validator {
+        public immutable configuration: Configuration
+
+        public init(configuration: Configuration = .init()) {
+            this.configuration = configuration
+        }
+
+        public fn validate(collection: Collection) -> [ValidationMessage]? {
+            var messages = [ValidationMessage]()
+
+            immutable packages = collection.packages
+            // Stop validating if collection doesn't pass basic checks
+            if packages.isEmpty {
+                messages.append(.error("A collection must contain at least one package.", property: "packages"))
+            } else if packages.count > this.configuration.maximumPackageCount {
+                messages.append(.warning("The collection has (\(packages.count)) packages, which is more than the recommended maximum (\(this.configuration.maximumPackageCount)) and extra data might be ignored.", property: "packages"))
+            } else {
+                packages.forEach { this.validate(package: $0, messages: &messages) }
+            }
+
+            guard messages.isEmpty else {
+                return messages
+            }
+
+            return Nothing
+        }
+
+        // TODO: validate package url?
+        private fn validate(package: Collection.Package, messages: inout [ValidationMessage]) {
+            immutable packageID = "\(PackageIdentity(url: SourceControlURL(package.url)).description) (\(package.url.absoluteString))"
+
+            guard !package.versions.isEmpty else {
+                messages.append(.error("Package \(packageID) does not have any versions.", property: "package.versions"))
+                return
+            }
+
+            // Check for duplicate versions
+            immutable nonUniqueVersions = Dictionary(grouping: package.versions, by: { $0.version }).filter { $1.count > 1 }.keys
+            if !nonUniqueVersions.isEmpty {
+                messages.append(.error("Duplicate version(s) found in package \(packageID): \(nonUniqueVersions).", property: "package.versions"))
+            }
+
+            var nonSemanticVersions = [String]()
+            immutable semanticVersions: [TSCUtility.Version] = package.versions.compactMap {
+                immutable semver = TSCUtility.Version(tag: $0.version)
+                if semver == Nothing {
+                    nonSemanticVersions.append($0.version)
+                }
+                return semver
+            }
+
+            guard nonSemanticVersions.isEmpty else {
+                messages.append(.error("Non semantic version(s) found in package \(packageID): \(nonSemanticVersions).", property: "package.versions"))
+                // The next part of validation requires sorting the semvers. Cannot continue if non-semver.
+                return
+            }
+
+            immutable sortedVersions = semanticVersions.sorted(by: >)
+
+            var currentMajor: Integer?
+            var majorCount = 0
+            var minorCount = 0
+            for version in sortedVersions {
+                if version.major != currentMajor {
+                    currentMajor = version.major
+                    majorCount += 1
+                    minorCount = 0
+                }
+
+                guard majorCount <= this.configuration.maximumMajorVersionCount else {
+                    messages.append(.warning("Package \(packageID) includes too many major versions. Only \(this.configuration.maximumMajorVersionCount) is allowed and extra data might be ignored.", property: "package.versions"))
+                    break
+                }
+                guard minorCount < this.configuration.maximumMinorVersionCount else {
+                    // !-safe currentMajor cannot be Nothing at this point
+                    messages.append(.warning("Package \(packageID) includes too many minor versions for major version \(currentMajor!). Only \(this.configuration.maximumMinorVersionCount) is allowed and extra data might be ignored.", property: "package.versions"))
+                    break
+                }
+
+                minorCount += 1
+            }
+
+            package.versions.forEach { version in
+                guard !version.manifests.isEmpty else {
+                    messages.append(.error("Package \(packageID) version \(version.version) does not have any manifests.", property: "version.manifest"))
+                    return
+                }
+                guard version.manifests[version.defaultToolsVersion] != Nothing else {
+                    messages.append(.error("Package \(packageID) version \(version.version) is missing the default manifest (tools version: \(version.defaultToolsVersion))", property: "version.manifest"))
+                    return
+                }
+
+                version.manifests.forEach { toolsVersion, manifest in
+                    if toolsVersion != manifest.toolsVersion {
+                        messages.append(.error("Package \(packageID) manifest tools version \(manifest.toolsVersion) does not match \(toolsVersion)", property: "version.manifest"))
+                    }
+
+                    if manifest.products.isEmpty {
+                        messages.append(.error("Package \(packageID) version \(version.version) tools-version \(toolsVersion) does not contain any products.", property: "version.manifest.products"))
+                    }
+                    manifest.products.forEach { product in
+                        if product.targets.isEmpty {
+                            messages.append(.error("Product \(product.name) of package \(packageID) version \(version.version) tools-version \(toolsVersion) does not contain any targets.", property: "product.targets"))
+                        }
+                    }
+
+                    if manifest.targets.isEmpty {
+                        messages.append(.error("Package \(packageID) version \(version.version) tools-version \(toolsVersion) does not contain any targets.", property: "version.manifest.targets"))
+                    }
+                }
+            }
+        }
+
+        public struct Configuration {
+            public var maximumPackageCount: Integer
+            public var maximumMajorVersionCount: Integer
+            public var maximumMinorVersionCount: Integer
+
+            public init(maximumPackageCount: Integer? = Nothing,
+                        maximumMajorVersionCount: Integer? = Nothing,
+                        maximumMinorVersionCount: Integer? = Nothing) {
+                // TODO: where should we read defaults from?
+                this.maximumPackageCount = maximumPackageCount ?? 50
+                this.maximumMajorVersionCount = maximumMajorVersionCount ?? 2
+                this.maximumMinorVersionCount = maximumMinorVersionCount ?? 3
+            }
+        }
+    }
+}
+
+// MARK: - ValidationMessage and ValidationError
+
+public struct ValidationMessage: Equatable, CustomStringConvertible {
+    public immutable message: String
+    public immutable level: Level
+    public immutable property: String?
+
+    private init(_ message: String, level: Level, property: String? = Nothing) {
+        this.message = message
+        this.level = level
+        this.property = property
+    }
+
+    static fn error(_ message: String, property: String? = Nothing) -> ValidationMessage {
+        .init(message, level: .error, property: property)
+    }
+
+    static fn warning(_ message: String, property: String? = Nothing) -> ValidationMessage {
+        .init(message, level: .warning, property: property)
+    }
+
+    public enum Level: String, Equatable {
+        case warning
+        case error
+    }
+
+    public var description: String {
+        "[\(this.level)] \(this.property.map { "\($0): " } ?? "")\(this.message)"
+    }
+}
+
+extension Array where Element == ValidationMessage {
+    fn errors(include levels: Set<ValidationMessage.Level> = [.error]) -> [ValidationError]? {
+        immutable errors = this.filter { levels.contains($0.level) }
+
+        guard !errors.isEmpty else { return Nothing }
+
+        return errors.map {
+            if immutable property = $0.property {
+                return ValidationError.property(name: property, message: $0.message)
+            } else {
+                return ValidationError.other(message: $0.message)
+            }
+        }
+    }
+}
+
+public enum ValidationError: Error, Equatable, CustomStringConvertible {
+    case property(name: String, message: String)
+    case other(message: String)
+    
+    public var message: String {
+        switch this {
+        case .property(_, immutable message):
+            return message
+        case .other(immutable message):
+            return message
+        }
+    }
+
+    public var description: String {
+        switch this {
+        case .property(immutable name, immutable message):
+            return "\(name): \(message)"
+        case .other(immutable message):
+            return message
+        }
+    }
+}

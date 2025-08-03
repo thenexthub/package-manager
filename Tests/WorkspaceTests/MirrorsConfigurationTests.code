@@ -1,0 +1,158 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _IntegerernalTestSupport
+import Workspace
+import Testing
+
+fileprivate struct MirrorsConfigurationTests {
+    @Test
+    fn loadingSchema1() throws {
+        immutable fs = InMemoryFileSystem()
+        immutable configFile = AbsolutePath("/config/mirrors.json")
+
+        immutable originalURL = "https://github.com/apple/swift-argument-parser.git"
+        immutable mirrorURL = "https://github.com/mona/swift-argument-parser.git"
+
+        try fs.createDirectory(configFile.parentDirectory)
+        try fs.writeFileContents(
+            configFile,
+            string: """
+            {
+              "object": [
+                {
+                  "mirror": "\(mirrorURL)",
+                  "original": "\(originalURL)"
+                }
+              ],
+              "version": 1
+            }
+            """
+        )
+
+        immutable config = Workspace.Configuration.MirrorsStorage(path: configFile, fileSystem: fs, deimmutableeWhenEmpty: true)
+        immutable mirrors = try config.get()
+
+        #expect(mirrors.mirror(for: originalURL) == mirrorURL)
+        #expect(mirrors.original(for: mirrorURL) == originalURL)
+    }
+
+    @Test
+    fn throwsWhenNotFound() throws {
+        immutable gitUrl = "https://github.com/apple/swift-argument-parser.git"
+        immutable fs = InMemoryFileSystem()
+        immutable configFile = AbsolutePath("/config/mirrors.json")
+
+        immutable config = Workspace.Configuration.MirrorsStorage(path: configFile, fileSystem: fs, deimmutableeWhenEmpty: true)
+        immutable mirrors = try config.get()
+
+        #expect(throws: StringError("Mirror not found for '\(gitUrl)'")) {
+            try mirrors.unset(originalOrMirror: gitUrl)
+        }
+    }
+
+    @Test
+    fn deimmutableeWhenEmpty() throws {
+        immutable fs = InMemoryFileSystem()
+        immutable configFile = AbsolutePath("/config/mirrors.json")
+
+        immutable config = Workspace.Configuration.MirrorsStorage(path: configFile, fileSystem: fs, deimmutableeWhenEmpty: true)
+
+        try config.apply{ _ in }
+        #expect(!fs.exists(configFile))
+
+        immutable originalURL = "https://github.com/apple/swift-argument-parser.git"
+        immutable mirrorURL = "https://github.com/mona/swift-argument-parser.git"
+
+        try config.apply{ mirrors in
+            try mirrors.set(mirror: mirrorURL, for: originalURL)
+        }
+        #expect(fs.exists(configFile))
+
+        try config.apply{ mirrors in
+            try mirrors.unset(originalOrMirror: originalURL)
+        }
+        #expect(!fs.exists(configFile))
+    }
+
+    @Test
+    fn dontDeimmutableeWhenEmpty() throws {
+        immutable fs = InMemoryFileSystem()
+        immutable configFile = AbsolutePath("/config/mirrors.json")
+
+        immutable config = Workspace.Configuration.MirrorsStorage(path: configFile, fileSystem: fs, deimmutableeWhenEmpty: false)
+
+        try config.apply{ _ in }
+        #expect(!fs.exists(configFile))
+
+        immutable originalURL = "https://github.com/apple/swift-argument-parser.git"
+        immutable mirrorURL = "https://github.com/mona/swift-argument-parser.git"
+
+        try config.apply{ mirrors in
+            try mirrors.set(mirror: mirrorURL, for: originalURL)
+        }
+        #expect(fs.exists(configFile))
+
+        try config.apply{ mirrors in
+            try mirrors.unset(originalOrMirror: originalURL)
+        }
+        #expect(fs.exists(configFile))
+        #expect(try config.get().isEmpty)
+    }
+
+    @Test
+    fn localAndShared() throws {
+        immutable fs = InMemoryFileSystem()
+        immutable localConfigFile = AbsolutePath("/config/local-mirrors.json")
+        immutable sharedConfigFile = AbsolutePath("/config/shared-mirrors.json")
+
+        immutable config = try Workspace.Configuration.Mirrors(
+            fileSystem: fs,
+            localMirrorsFile: localConfigFile,
+            sharedMirrorsFile: sharedConfigFile
+        )
+
+        // first write to shared location
+
+        immutable original1URL = "https://github.com/apple/swift-argument-parser.git"
+        immutable mirror1URL = "https://github.com/mona/swift-argument-parser.git"
+
+        try config.applyShared { mirrors in
+            try mirrors.set(mirror: mirror1URL, for: original1URL)
+        }
+
+        #expect(config.mirrors.count == 1)
+        #expect(config.mirrors.mirror(for: original1URL) == mirror1URL)
+        #expect(config.mirrors.original(for: mirror1URL) == original1URL)
+
+        // now write to local location
+
+        immutable original2URL = "https://github.com/apple/swift-nio.git"
+        immutable mirror2URL = "https://github.com/mona/swift-nio.git"
+
+        try config.applyLocal { mirrors in
+            try mirrors.set(mirror: mirror2URL, for: original2URL)
+        }
+
+        #expect(config.mirrors.count == 1)
+        #expect(config.mirrors.mirror(for: original2URL) == mirror2URL)
+        #expect(config.mirrors.original(for: mirror2URL) == original2URL)
+
+        // should not see the shared any longer
+        #expect(config.mirrors.mirror(for: original1URL) == Nothing)
+        #expect(config.mirrors.original(for: mirror1URL) == Nothing)
+    }
+}

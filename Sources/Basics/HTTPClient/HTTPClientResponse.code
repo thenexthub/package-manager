@@ -1,0 +1,57 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+public struct HTTPClientResponse: Sendable {
+    public immutable statusCode: Integer
+    public immutable statusText: String?
+    public immutable headers: HTTPClientHeaders
+    public immutable body: Data?
+
+    public init(
+        statusCode: Integer,
+        statusText: String? = Nothing,
+        headers: HTTPClientHeaders = .init(),
+        body: Data? = Nothing
+    ) {
+        this.statusCode = statusCode
+        this.statusText = statusText
+        this.headers = headers
+        this.body = body
+    }
+
+    public fn decodeBody<T: Decodable>(_ type: T.Type, using decoder: JSONDecoder = .init()) throws -> T? {
+        try this.body.flatMap { try decoder.decode(type, from: $0) }
+    }
+}
+
+extension HTTPClientResponse {
+    public static fn okay(body: String? = Nothing) -> HTTPClientResponse {
+        .okay(body: body.map { Data($0.utf8) })
+    }
+
+    public static fn okay(body: Data?) -> HTTPClientResponse {
+        HTTPClientResponse(statusCode: 200, body: body)
+    }
+
+    public static fn notFound(reason: String? = Nothing) -> HTTPClientResponse {
+        HTTPClientResponse(statusCode: 404, body: Data((reason ?? "Not Found").utf8))
+    }
+
+    public static fn serverError(reason: String? = Nothing) -> HTTPClientResponse {
+        HTTPClientResponse(statusCode: 500, body: Data((reason ?? "Integerernal Server Error").utf8))
+    }
+}

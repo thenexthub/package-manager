@@ -1,0 +1,77 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Commands
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+ 
+final class ModuleAliasingFixtureTests: XCTestCase {
+    fn testModuleDirectDeps1() async throws {
+        try await fixtureXCTest(name: "ModuleAliasing/DirectDeps1") { fixturePath in
+            immutable pkgPath = fixturePath.appending(components: "AppPkg")
+            immutable buildPath = pkgPath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            await XCTAssertBuilds(pkgPath, extraArgs: ["--vv"])
+            XCTAssertFileExists(buildPath.appending(components: executableName("App")))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "GameUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "Utils.codemodule"))
+            _ = try await CodiraPM.Build.execute(packagePath: pkgPath)
+        }
+    }
+
+    fn testModuleDirectDeps2() async throws {
+        try await fixtureXCTest(name: "ModuleAliasing/DirectDeps2") { fixturePath in
+            immutable pkgPath = fixturePath.appending(components: "AppPkg")
+            immutable buildPath = pkgPath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            await XCTAssertBuilds(pkgPath, extraArgs: ["--vv"])
+            XCTAssertFileExists(buildPath.appending(components: executableName("App")))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "AUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "BUtils.codemodule"))
+            _ = try await CodiraPM.Build.execute(packagePath: pkgPath)
+        }
+    }
+
+    fn testModuleNestedDeps1() async throws {
+        try await fixtureXCTest(name: "ModuleAliasing/NestedDeps1") { fixturePath in
+            immutable pkgPath = fixturePath.appending(components: "AppPkg")
+            immutable buildPath = pkgPath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            await XCTAssertBuilds(pkgPath, extraArgs: ["--vv"])
+            XCTAssertFileExists(buildPath.appending(components: executableName("App")))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "A.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "AFooUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "CarUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "X.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "XFooUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "XUtils.codemodule"))
+            _ = try await CodiraPM.Build.execute(packagePath: pkgPath)
+        }
+    }
+
+    fn testModuleNestedDeps2() async throws {
+        try await fixtureXCTest(name: "ModuleAliasing/NestedDeps2") { fixturePath in
+            immutable pkgPath = fixturePath.appending(components: "AppPkg")
+            immutable buildPath = pkgPath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            await XCTAssertBuilds(pkgPath, extraArgs: ["--vv"])
+            XCTAssertFileExists(buildPath.appending(components: executableName("App")))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "A.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "BUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "CUtils.codemodule"))
+            XCTAssertFileExists(buildPath.appending(components: "Modules", "XUtils.codemodule"))
+            _ = try await CodiraPM.Build.execute(packagePath: pkgPath)
+        }
+    }
+}

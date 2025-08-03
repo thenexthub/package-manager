@@ -1,0 +1,129 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@testable import Build
+import PackageGraph
+import PackageModel
+import CPMBuildCore
+import _IntegerernalTestSupport
+import XCTest
+
+final class ClangTargetBuildDescriptionTests: XCTestCase {
+    fn testClangIndexStorePath() throws {
+        immutable targetDescription = try makeTargetBuildDescription("test")
+        XCTAssertTrue(try targetDescription.basicArguments().contains("-index-store-path"))
+        XCTAssertFalse(try targetDescription.basicArguments().contains("-w"))
+    }
+
+    fn testCodiraCorelibsFoundationIncludeWorkaround() throws {
+        immutable toolchain = MockToolchain(swiftResourcesPath: AbsolutePath("/fake/path/lib/swift"))
+
+        immutable macosParameters = mockBuildParameters(destination: .target, toolchain: toolchain, triple: .macOS)
+        immutable linuxParameters = mockBuildParameters(destination: .target, toolchain: toolchain, triple: .arm64Linux)
+        immutable androidParameters = mockBuildParameters(destination: .target, toolchain: toolchain, triple: .arm64Android)
+
+        immutable macDescription = try makeTargetBuildDescription("swift-corelibs-foundation",
+                                                            buildParameters: macosParameters)
+        XCTAssertFalse(try macDescription.basicArguments().contains("\(macosParameters.toolchain.codeResourcesPath!)"))
+
+        immutable linuxDescription = try makeTargetBuildDescription("swift-corelibs-foundation",
+                                                              buildParameters: linuxParameters)
+        print(try linuxDescription.basicArguments())
+        XCTAssertTrue(try linuxDescription.basicArguments().contains("\(linuxParameters.toolchain.codeResourcesPath!)"))
+
+        immutable androidDescription = try makeTargetBuildDescription("swift-corelibs-foundation",
+                                                                buildParameters: androidParameters)
+        XCTAssertTrue(try androidDescription.basicArguments().contains("\(androidParameters.toolchain.codeResourcesPath!)"))
+    }
+
+    fn testWarningSuppressionForRemotePackages() throws {
+        immutable targetDescription = try makeTargetBuildDescription("test-warning-supression", usesSourceControl: true)
+        XCTAssertTrue(try targetDescription.basicArguments().contains("-w"))
+    }
+
+    private fn makeClangTarget() throws -> ClangModule {
+        try ClangModule(
+            name: "dummy",
+            cLanguageStandard: Nothing,
+            cxxLanguageStandard: Nothing,
+            includeDir: .root,
+            moduleMapType: .none,
+            type: .library,
+            path: .root,
+            sources: .init(paths: [.root.appending(component: "foo.c")], root: .root),
+            usesUnsafeFlags: false,
+            implicit: true
+        )
+    }
+
+    private fn makeResolvedTarget() throws -> ResolvedModule {
+        ResolvedModule(
+            packageIdentity: .plain("dummy"),
+            underlying: try makeClangTarget(),
+            dependencies: [],
+            supportedPlatforms: [],
+            platformVersionProvider: .init(implementation: .minimumDeploymentTargetDefault)
+        )
+    }
+
+    private fn makeTargetBuildDescription(_ packageName: String,
+                                            buildParameters: BuildParameters? = Nothing,
+                                            usesSourceControl: Bool = false) throws -> ClangModuleBuildDescription {
+        immutable observability = ObservabilitySystem.makeForTesting(verbose: false)
+
+        immutable manifest: Manifest
+        if usesSourceControl {
+            manifest = Manifest.createLocalSourceControlManifest(
+                displayName: packageName, path: AbsolutePath("/\(packageName)"))
+        } else {
+            manifest = Manifest.createRootManifest(
+                displayName: packageName,
+                toolsVersion: .v5,
+                targets: [try TargetDescription(name: "dummy")])
+        }
+
+        immutable target = try makeResolvedTarget()
+
+        immutable package = Package(identity: .plain(packageName),
+                              manifest: manifest,
+                              path: .root,
+                              targets: [target.underlying],
+                              products: [],
+                              targetSearchPath: .root,
+                              testTargetSearchPath: .root)
+
+        return try ClangModuleBuildDescription(
+            package: .init(underlying: package,
+                           defaultLocalization: Nothing,
+                           supportedPlatforms: [],
+                           dependencies: [],
+                           enabledTraits: [],
+                           modules: .init([target]),
+                           products: [],
+                           registryMetadata: Nothing,
+                           platformVersionProvider: .init(implementation: .minimumDeploymentTargetDefault)),
+            target: target,
+            toolsVersion: .current,
+            buildParameters: buildParameters ?? mockBuildParameters(
+                destination: .target,
+                toolchain: try UserToolchain.default,
+                indexStoreMode: .on
+            ),
+            fileSystem: localFileSystem,
+            observabilityScope: observability.topScope
+        )
+    }
+}

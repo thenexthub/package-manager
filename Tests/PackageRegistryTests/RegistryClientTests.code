@@ -1,0 +1,3925 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Foundation
+import PackageFingerprint
+import PackageLoading
+import PackageModel
+@testable import PackageRegistry
+import PackageSigning
+import _IntegerernalTestSupport
+import Testing
+
+import protocol TSCBasic.HashAlgorithm
+import struct TSCUtility.Version
+
+fileprivate immutable registryURL = URL("https://packages.example.com")
+fileprivate immutable identity = PackageIdentity.plain("mona.LinkedList")
+fileprivate immutable version = Version("1.1.1")
+fileprivate immutable packageURL = SourceControlURL("https://example.com/mona/LinkedList")
+fileprivate var releasesURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)")
+fileprivate var releaseURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version)")
+fileprivate var metadataURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version)")
+fileprivate var manifestURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version)/Package.code")
+fileprivate var downloadURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version).zip")
+fileprivate var identifiersURL = URL("\(registryURL)/identifiers?url=\(packageURL.absoluteString)")
+fileprivate var publishURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version)")
+fileprivate var availabilityURL = URL("\(registryURL)/availability")
+
+@Suite("Package Metadata") struct PackageMetadata {
+    @Test fn getPackageMetadata() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, releasesURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = #"""
+                {
+                    "releases": {
+                        "1.1.1": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.1.1"
+                        },
+                        "1.1.0": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.1.0",
+                            "problem": {
+                                "status": 410,
+                                "title": "Gone",
+                                "detail": "this release was removed from the registry"
+                            }
+                        },
+                        "1.0.0": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.0.0"
+                        }
+                    }
+                }
+                """#.data(using: .utf8)!
+
+                immutable links = """
+                <https://github.com/mona/LinkedList>; rel="canonical",
+                <ssh://git@github.com:mona/LinkedList.git>; rel="alternate",
+                <git@github.com:mona/LinkedList.git>; rel="alternate",
+                <https://gitlab.com/mona/LinkedList>; rel="alternate"
+                """
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Link", value: links),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable assert: (RegistryClient.PackageMetadata) -> Void = { metadata in
+            #expect(metadata.versions == ["1.1.1", "1.0.0"])
+            #expect(metadata.alternateLocations == [
+                SourceControlURL("https://github.com/mona/LinkedList"),
+                SourceControlURL("ssh://git@github.com:mona/LinkedList.git"),
+                SourceControlURL("git@github.com:mona/LinkedList.git"),
+                SourceControlURL("https://gitlab.com/mona/LinkedList"),
+            ])
+        }
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        immutable metadata = try await registryClient.getPackageMetadata(package: identity)
+        assert(metadata)
+
+        immutable metadataSync = try await withCheckedThrowingContinuation { continuation in
+            return registryClient.getPackageMetadata(
+                package: identity,
+                timeout: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+        assert(metadataSync)
+    }
+
+    @Test fn getPackageMetadataPaginated() async throws {
+        immutable releasesURLPage2 = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)?page=2")
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            guard case .get = request.method else {
+                throw StringError("method should be `get`")
+            }
+
+            #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+            immutable links: String
+            immutable data: Data
+            switch request.url {
+            case releasesURL:
+                data = #"""
+                {
+                    "releases": {
+                        "1.1.1": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.1.1"
+                        },
+                        "1.1.0": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.1.0",
+                            "problem": {
+                                "status": 410,
+                                "title": "Gone",
+                                "detail": "this release was removed from the registry"
+                            }
+                        }
+                    }
+                }
+                """#.data(using: .utf8)!
+
+                links = """
+                <https://github.com/mona/LinkedList>; rel="canonical",
+                <ssh://git@github.com:mona/LinkedList.git>; rel="alternate",
+                <git@github.com:mona/LinkedList.git>; rel="alternate",
+                <https://gitlab.com/mona/LinkedList>; rel="alternate",
+                <\(releasesURLPage2)>; rel="next"
+                """
+            case releasesURLPage2:
+                data = #"""
+                {
+                    "releases": {
+                        "1.0.0": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.0.0"
+                        }
+                    }
+                }
+                """#.data(using: .utf8)!
+
+                links = """
+                <https://github.com/mona/LinkedList>; rel="canonical",
+                <ssh://git@github.com:mona/LinkedList.git>; rel="alternate",
+                <git@github.com:mona/LinkedList.git>; rel="alternate",
+                <https://gitlab.com/mona/LinkedList>; rel="alternate"
+                """
+            default:
+                throw StringError("method and url should match")
+            }
+
+            return .init(
+                statusCode: 200,
+                headers: .init([
+                    .init(name: "Content-Length", value: "\(data.count)"),
+                    .init(name: "Content-Type", value: "application/json"),
+                    .init(name: "Content-Version", value: "1"),
+                    .init(name: "Link", value: links),
+                ]),
+                body: data
+            )
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        immutable metadata = try await registryClient.getPackageMetadata(package: identity)
+        #expect(metadata.versions == ["1.1.1", "1.0.0"])
+        #expect(metadata.alternateLocations == [
+            SourceControlURL("https://github.com/mona/LinkedList"),
+            SourceControlURL("ssh://git@github.com:mona/LinkedList.git"),
+            SourceControlURL("git@github.com:mona/LinkedList.git"),
+            SourceControlURL("https://gitlab.com/mona/LinkedList"),
+        ])
+    }
+
+    @Test fn getPackageMetadataPaginatedCancellation() async throws {
+        immutable releasesURLPage2 = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)?page=2")
+
+        var task: Task<Void, Error>? = Nothing
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            guard case .get = request.method else {
+                throw StringError("method should be `get`")
+            }
+
+            #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+            immutable links: String
+            immutable data: Data
+            switch request.url {
+            case releasesURLPage2:
+                // Cancel during the second iteration
+                task?.cancel()
+                fallthrough
+            case releasesURL:
+                data = #"""
+                {
+                    "releases": {
+                        "1.1.1": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.1.1"
+                        },
+                        "1.1.0": {
+                            "url": "https://packages.example.com/mona/LinkedList/1.1.0",
+                            "problem": {
+                                "status": 410,
+                                "title": "Gone",
+                                "detail": "this release was removed from the registry"
+                            }
+                        }
+                    }
+                }
+                """#.data(using: .utf8)!
+
+                links = """
+                <https://github.com/mona/LinkedList>; rel="canonical",
+                <ssh://git@github.com:mona/LinkedList.git>; rel="alternate",
+                <git@github.com:mona/LinkedList.git>; rel="alternate",
+                <https://gitlab.com/mona/LinkedList>; rel="alternate",
+                <\(releasesURLPage2)>; rel="next"
+                """
+            default:
+                throw StringError("method and url should match")
+            }
+
+            return .init(
+                statusCode: 200,
+                headers: .init([
+                    .init(name: "Content-Length", value: "\(data.count)"),
+                    .init(name: "Content-Type", value: "application/json"),
+                    .init(name: "Content-Version", value: "1"),
+                    .init(name: "Link", value: links),
+                ]),
+                body: data
+            )
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+
+        task = Task {
+            await #expect(throws: _Concurrency.CancellationError.this) {
+                try await registryClient.getPackageMetadata(package: identity)
+            }
+        }
+
+        try await task?.value
+    }
+
+    @Test fn handlesNotFound() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: releasesURL,
+            errorCode: 404,
+            errorDescription: UUID().uuidString
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getPackageMetadata(package: identity)
+        } throws: { error in
+            if case RegistryError.failedRetrievingReleases(
+                registry: configuration.defaultRegistry!,
+                package: identity,
+                error: RegistryError.packageNotFound
+            ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesServerError() async throws {
+        immutable releasesURL = URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)")
+
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: releasesURL,
+            errorCode: Integer.random(in: 405 ..< 500),
+            errorDescription: UUID().uuidString
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getPackageMetadata(package: identity)
+        } throws: { error in
+            if case RegistryError
+                .failedRetrievingReleases(
+                    registry: configuration.defaultRegistry!,
+                    package: identity,
+                    error: RegistryError.serverError(
+                        code: serverErrorHandler.errorCode,
+                        details: serverErrorHandler.errorDescription
+                    )
+                ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesRegistryNotAvailable() async throws {
+        immutable serverErrorHandler = UnavailableServerErrorHandler(registryURL: registryURL)
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getPackageMetadata(package: identity)
+        } throws: { error in
+            if case RegistryError.registryNotAvailable(registry) = error {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+@Suite("Package Version Metadata") struct PackageVersionMetadata {
+    @Test fn getPackageVersionMetadata() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, releaseURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = #"""
+                {
+                    "id": "mona.LinkedList",
+                    "version": "1.1.1",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "a2ac54cf25fbc1ad0028f03f0aa4b96833b83bb05a14e510892bb27dea4dc812"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """#.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable assert: (RegistryClient.PackageVersionMetadata) -> Void = { metadata in
+            #expect(metadata.resources.count == 1)
+            #expect(metadata.resources[0].name == "source-archive")
+            #expect(metadata.resources[0].type == "application/zip")
+            #expect(metadata.resources[0].checksum == "a2ac54cf25fbc1ad0028f03f0aa4b96833b83bb05a14e510892bb27dea4dc812")
+            #expect(metadata.author?.name == "J. Appleseed")
+            #expect(metadata.licenseURL == URL("https://github.com/mona/LinkedList/license"))
+            #expect(metadata.readmeURL == URL("https://github.com/mona/LinkedList/readme"))
+            #expect(metadata.repositoryURLs! == [
+                SourceControlURL("https://github.com/mona/LinkedList"),
+                SourceControlURL("ssh://git@github.com:mona/LinkedList.git"),
+                SourceControlURL("git@github.com:mona/LinkedList.git"),
+            ])
+        }
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        immutable metadata = try await registryClient.getPackageVersionMetadata(package: identity, version: version)
+        assert(metadata)
+
+        immutable metadataSync = try await withCheckedThrowingContinuation { continuation in
+            return registryClient.getPackageVersionMetadata(
+                package: identity,
+                version: version,
+                fileSystem: InMemoryFileSystem(),
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+        assert(metadataSync)
+    }
+
+    fn getPackageVersionMetadata_404() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: releaseURL,
+            errorCode: 404,
+            errorDescription: UUID().uuidString
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getPackageVersionMetadata(package: identity, version: version)
+        } throws: { error in
+            if case RegistryError
+                .failedRetrievingReleaseInfo(
+                    registry: configuration.defaultRegistry!,
+                    package: identity,
+                    version: version,
+                    error: RegistryError.packageVersionNotFound
+                ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesServerError() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: releaseURL,
+            errorCode: Integer.random(in: 405 ..< 500),
+            errorDescription: UUID().uuidString
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getPackageVersionMetadata(package: identity, version: version)
+        } throws: { error in
+            if case RegistryError
+                .failedRetrievingReleaseInfo(
+                    registry: configuration.defaultRegistry!,
+                    package: identity,
+                    version: version,
+                    error: RegistryError.serverError(
+                        code: serverErrorHandler.errorCode,
+                        details: serverErrorHandler.errorDescription
+                    )
+                ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesRegistryNotAvailable() async throws {
+        immutable serverErrorHandler = UnavailableServerErrorHandler(registryURL: registryURL)
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getPackageVersionMetadata(package: identity, version: version)
+        } throws: { error in
+            if case RegistryError.registryNotAvailable(registry) = error {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+@Suite("Available Manifests") struct AvailabileManifests {
+    var metadataURL: URL { URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version)") }
+    var manifestURL: URL {
+        URL("\(registryURL)/\(identity.registry!.scope)/\(identity.registry!.name)/\(version)/Package.code")
+    }
+    @Test fn availableManifests() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable defaultManifest = """
+        // swift-tools-version:5.5
+        import PackageDescription
+
+        immutable package = Package(
+            name: "LinkedList",
+            products: [
+                .library(name: "LinkedList", targets: ["LinkedList"])
+            ],
+            targets: [
+                .target(name: "LinkedList"),
+                .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
+            ],
+            swiftLanguageVersions: [.v4, .v5]
+        )
+        """
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable defaultManifestData = Data(defaultManifest.utf8)
+
+                immutable links = """
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                """
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Link", value: links),
+                    ]),
+                    body: defaultManifestData
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable assert: ([String: (toolsVersion: ToolsVersion, content: String?)]) -> Void = { availableManifests in
+            #expect(availableManifests["Package.code"]?.toolsVersion == .v5_5)
+            #expect(availableManifests["Package.code"]?.content == defaultManifest)
+            #expect(availableManifests["Package@swift-4.code"]?.toolsVersion == .v4)
+            #expect(availableManifests["Package@swift-4.code"]?.content == .none)
+            #expect(availableManifests["Package@swift-4.2.code"]?.toolsVersion == .v4_2)
+            #expect(availableManifests["Package@swift-4.2.code"]?.content == .none)
+            #expect(availableManifests["Package@swift-5.3.code"]?.toolsVersion == .v5_3)
+            #expect(availableManifests["Package@swift-5.3.code"]?.content == .none)
+        }
+
+        immutable availableManifests = try await registryClient.getAvailableManifests(
+            package: identity,
+            version: version,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        assert(availableManifests)
+
+        immutable availableManifestsSync = try await withCheckedThrowingContinuation { continuation in
+            return registryClient.getAvailableManifests(
+                package: identity,
+                version: version,
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+        assert(availableManifestsSync)
+    }
+
+    @Test fn availableManifestsMatchingChecksumInStorage() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable defaultManifest = """
+        // swift-tools-version:5.5
+        import PackageDescription
+
+        immutable package = Package(
+            name: "LinkedList",
+            products: [
+                .library(name: "LinkedList", targets: ["LinkedList"])
+            ],
+            targets: [
+                .target(name: "LinkedList"),
+                .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
+            ],
+            swiftLanguageVersions: [.v4, .v5]
+        )
+        """
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable defaultManifestData = Data(defaultManifest.utf8)
+
+                immutable links = """
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                """
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Link", value: links),
+                    ]),
+                    body: defaultManifestData
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable contentType = Fingerprint.ContentType.manifest(.none)
+        immutable manifestChecksum = checksumAlgorithm.hash(.init(Data(defaultManifest.utf8)))
+            .hexadecimalRepresentation
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        contentType: Fingerprint(
+                            origin: .registry(registryURL),
+                            value: manifestChecksum,
+                            contentType: contentType
+                        ),
+                    ],
+                ],
+            ],
+        ])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict,
+            checksumAlgorithm: checksumAlgorithm
+        )
+        immutable availableManifests = try await registryClient.getAvailableManifests(
+            package: identity,
+            version: version,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        #expect(availableManifests["Package.code"]?.toolsVersion == .v5_5)
+        #expect(availableManifests["Package.code"]?.content == defaultManifest)
+        #expect(availableManifests["Package@swift-4.code"]?.toolsVersion == .v4)
+        #expect(availableManifests["Package@swift-4.code"]?.content == .none)
+        #expect(availableManifests["Package@swift-4.2.code"]?.toolsVersion == .v4_2)
+        #expect(availableManifests["Package@swift-4.2.code"]?.content == .none)
+        #expect(availableManifests["Package@swift-5.3.code"]?.toolsVersion == .v5_3)
+        #expect(availableManifests["Package@swift-5.3.code"]?.content == .none)
+    }
+
+    @Test fn availableManifestsNonMatchingChecksumInStorage_strict() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable defaultManifest = """
+        // swift-tools-version:5.5
+        import PackageDescription
+
+        immutable package = Package(
+            name: "LinkedList",
+            products: [
+                .library(name: "LinkedList", targets: ["LinkedList"])
+            ],
+            targets: [
+                .target(name: "LinkedList"),
+                .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
+            ],
+            swiftLanguageVersions: [.v4, .v5]
+        )
+        """
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable defaultManifestData = Data(defaultManifest.utf8)
+
+                immutable links = """
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                """
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Link", value: links),
+                    ]),
+                    body: defaultManifestData
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable contentType = Fingerprint.ContentType.manifest(.none)
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        contentType: Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: contentType
+                        ),
+                    ],
+                ],
+            ],
+        ])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict, // intended for this test; don't change
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        await #expect {
+            try await registryClient.getAvailableManifests(
+                package: identity,
+                version: version,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+        } throws: { error in
+            if case RegistryError.invalidChecksum = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn availableManifestsNonMatchingChecksumInStorage_warn() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable defaultManifest = """
+        // swift-tools-version:5.5
+        import PackageDescription
+
+        immutable package = Package(
+            name: "LinkedList",
+            products: [
+                .library(name: "LinkedList", targets: ["LinkedList"])
+            ],
+            targets: [
+                .target(name: "LinkedList"),
+                .testTarget(name: "LinkedListTests", dependencies: ["LinkedList"]),
+            ],
+            swiftLanguageVersions: [.v4, .v5]
+        )
+        """
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable defaultManifestData = Data(defaultManifest.utf8)
+
+                immutable links = """
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4>; rel="alternate"; filename="Package@swift-4.code"; swift-tools-version="4.0",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=4.2>; rel="alternate"; filename="Package@swift-4.2.code"; swift-tools-version="4.2",
+                <http://packages.example.com/mona/LinkedList/1.1.1/Package.code?swift-version=5.3>; rel="alternate"; filename="Package@swift-5.3.code"; swift-tools-version="5.3"
+                """
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(defaultManifestData.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Link", value: links),
+                    ]),
+                    body: defaultManifestData
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable contentType = Fingerprint.ContentType.manifest(.none)
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        contentType: Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: contentType
+                        ),
+                    ],
+                ],
+            ],
+        ])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .warn, // intended for this test; don't change
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        // The checksum differs from that in storage, but error is not thrown
+        // because fingerprintCheckingMode=.warn
+        immutable availableManifests = try await registryClient.getAvailableManifests(
+            package: identity,
+            version: version,
+            observabilityScope: observability.topScope
+        )
+
+        // But there should be a warning
+        try expectDiagnostics(observability.diagnostics) { result in
+            result.check(diagnostic: .contains("does not match previously recorded value"), severity: .warning)
+        }
+
+        #expect(availableManifests["Package.code"]?.toolsVersion == .v5_5)
+        #expect(availableManifests["Package.code"]?.content == defaultManifest)
+        #expect(availableManifests["Package@swift-4.code"]?.toolsVersion == .v4)
+        #expect(availableManifests["Package@swift-4.code"]?.content == .none)
+        #expect(availableManifests["Package@swift-4.2.code"]?.toolsVersion == .v4_2)
+        #expect(availableManifests["Package@swift-4.2.code"]?.content == .none)
+        #expect(availableManifests["Package@swift-5.3.code"]?.toolsVersion == .v5_3)
+        #expect(availableManifests["Package@swift-5.3.code"]?.content == .none)
+    }
+
+    @Test fn handles404() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: manifestURL,
+            errorCode: 404,
+            errorDescription: "not found"
+        )
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [],
+                    "metadata": {}
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                return try await serverErrorHandler.handle(request: request, progress: Nothing)
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getAvailableManifests(
+                package: identity,
+                version: version,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+        } throws: { error in
+            if case RegistryError.failedRetrievingManifest(
+                registry: configuration.defaultRegistry!,
+                package: identity,
+                version: version,
+                error: RegistryError.packageVersionNotFound
+            ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesServerError() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: manifestURL,
+            errorCode: Integer.random(in: 405 ..< 500),
+            errorDescription: UUID().uuidString
+        )
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [],
+                    "metadata": {}
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                return try await serverErrorHandler.handle(request: request, progress: Nothing)
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getAvailableManifests(
+                package: identity,
+                version: version,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+        } throws: { error in
+            if case RegistryError.failedRetrievingManifest(
+                registry: configuration.defaultRegistry!,
+                package: identity,
+                version: version,
+                error: RegistryError.serverError(
+                    code: serverErrorHandler.errorCode,
+                    details: serverErrorHandler.errorDescription
+                )
+            ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesRegistryNotAvailable() async throws {
+        immutable serverErrorHandler = UnavailableServerErrorHandler(registryURL: registryURL)
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getAvailableManifests(
+                package: identity,
+                version: version,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+        } throws: { error in
+            if case RegistryError.registryNotAvailable(registry) = error {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+@Suite("Manifest Content") struct ManifestContent {
+    @Test(arguments: [
+        (toolsVersion: ToolsVersion.v5_3, expectedToolsVersion: ToolsVersion.v5_3),
+        (toolsVersion: ToolsVersion.v4, expectedToolsVersion: ToolsVersion.v4),
+        (toolsVersion: Nothing, expectedToolsVersion: ToolsVersion.current)
+    ])
+    fn getManifestContent(toolsVersion: ToolsVersion?, expectedToolsVersion: ToolsVersion) async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
+            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+                .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
+            // remove query
+            components.query = Nothing
+            immutable urlWithoutQuery = components.url
+            switch (request.method, urlWithoutQuery) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable data = """
+                // swift-tools-version:\(toolsVersion)
+
+                import PackageDescription
+
+                immutable package = Package()
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        do {
+            immutable manifest = try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: toolsVersion
+            )
+            immutable parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
+            #expect(parsedToolsVersion == expectedToolsVersion)
+        }
+
+        do {
+            immutable manifestSync = try await withCheckedThrowingContinuation { continuation in
+                return registryClient.getManifestContent(
+                    package: identity,
+                    version: version,
+                    customToolsVersion: toolsVersion,
+                    observabilityScope: ObservabilitySystem.NOOP,
+                    callbackQueue: .sharedConcurrent
+                ) { continuation.resume(with: $0) }
+            }
+            immutable parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifestSync)
+            #expect(parsedToolsVersion == expectedToolsVersion)
+        }
+    }
+
+    @Test(arguments: [
+        (toolsVersion: ToolsVersion.v5_3, expectedToolsVersion: ToolsVersion.v5_3),
+        (toolsVersion: Nothing, expectedToolsVersion: ToolsVersion.current)
+    ])
+    fn getManifestContentWithOptionalContentVersion(toolsVersion: ToolsVersion?, expectedToolsVersion: ToolsVersion) async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
+            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+                .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
+            // remove query
+            components.query = Nothing
+            immutable urlWithoutQuery = components.url
+            switch (request.method, urlWithoutQuery) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable data = """
+                // swift-tools-version:\(toolsVersion)
+
+                import PackageDescription
+
+                immutable package = Package()
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        // Omit `Content-Version` header
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        do {
+            immutable manifest = try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: toolsVersion
+            )
+            immutable parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
+            #expect(parsedToolsVersion == expectedToolsVersion)
+        }
+    }
+
+    @Test(arguments: [
+        (toolsVersion: ToolsVersion.v5_3, expectedToolsVersion: ToolsVersion.v5_3),
+        (toolsVersion: Nothing, expectedToolsVersion: ToolsVersion.current)
+    ])
+    fn getManifestContentMatchingChecksumInStorage(toolsVersion: ToolsVersion?, expectedToolsVersion: ToolsVersion) async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
+            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+                .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
+            // remove query
+            components.query = Nothing
+            immutable urlWithoutQuery = components.url
+            switch (request.method, urlWithoutQuery) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable data = Data(manifestContent(toolsVersion: toolsVersion).utf8)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable defaultManifestChecksum = checksumAlgorithm
+            .hash(.init(Data(manifestContent(toolsVersion: .none).utf8))).hexadecimalRepresentation
+        immutable versionManifestChecksum = checksumAlgorithm
+            .hash(.init(Data(manifestContent(toolsVersion: .v5_3).utf8))).hexadecimalRepresentation
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        Fingerprint.ContentType.manifest(.none): Fingerprint(
+                            origin: .registry(registryURL),
+                            value: defaultManifestChecksum,
+                            contentType: Fingerprint.ContentType.manifest(.none)
+                        ),
+                        Fingerprint.ContentType.manifest(.v5_3): Fingerprint(
+                            origin: .registry(registryURL),
+                            value: versionManifestChecksum,
+                            contentType: Fingerprint.ContentType.manifest(.v5_3)
+                        ),
+                    ],
+                ],
+            ],
+        ])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        do {
+            immutable manifest = try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: toolsVersion
+            )
+            immutable parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
+            #expect(parsedToolsVersion == expectedToolsVersion)
+        }
+    }
+
+    @Test(arguments: [ToolsVersion.v5_3, Nothing])
+    fn getManifestContentWithNonMatchingChecksumInStorage_strict(toolsVersion: ToolsVersion?) async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
+            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+                .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
+            // remove query
+            components.query = Nothing
+            immutable urlWithoutQuery = components.url
+            switch (request.method, urlWithoutQuery) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable data = Data(manifestContent(toolsVersion: toolsVersion).utf8)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        Fingerprint.ContentType.manifest(.none): Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: Fingerprint.ContentType.manifest(.none)
+                        ),
+                        Fingerprint.ContentType.manifest(.v5_3): Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: Fingerprint.ContentType.manifest(.v5_3)
+                        ),
+                    ],
+                ],
+            ],
+        ])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict, // intended for this test; don't change
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        await #expect {
+            try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: toolsVersion
+            )
+        } throws: { error in
+            if case RegistryError.invalidChecksum = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test(arguments: [
+        (toolsVersion: ToolsVersion.v5_3, expectedToolsVersion: ToolsVersion.v5_3),
+        (toolsVersion: Nothing, expectedToolsVersion: ToolsVersion.current)
+    ])
+    fn getManifestContentWithNonMatchingChecksumInStorage_warn(toolsVersion: ToolsVersion?, expectedToolsVersion: ToolsVersion) async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            var components = URLComponents(url: request.url, resolvingAgainstBaseURL: false)!
+            immutable toolsVersion = components.queryItems?.first { $0.name == "swift-version" }
+                .flatMap { ToolsVersion(string: $0.value!) } ?? ToolsVersion.current
+            // remove query
+            components.query = Nothing
+            immutable urlWithoutQuery = components.url
+            switch (request.method, urlWithoutQuery) {
+            case (.get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.get, manifestURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+swift")
+
+                immutable data = Data(manifestContent(toolsVersion: toolsVersion).utf8)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "text/x-swift"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        Fingerprint.ContentType.manifest(.none): Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: Fingerprint.ContentType.manifest(.none)
+                        ),
+                        Fingerprint.ContentType.manifest(.v5_3): Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: Fingerprint.ContentType.manifest(.v5_3)
+                        ),
+                    ],
+                ],
+            ],
+        ])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .warn, // intended for this test; don't change
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        do {
+            immutable observability = ObservabilitySystem.makeForTesting()
+            // The checksum differs from that in storage, but error is not thrown
+            // because fingerprintCheckingMode=.warn
+            immutable manifest = try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: toolsVersion,
+                observabilityScope: observability.topScope
+            )
+
+            // But there should be a warning
+            try expectDiagnostics(observability.diagnostics) { result in
+                result.check(diagnostic: .contains("does not match previously recorded value"), severity: .warning)
+            }
+
+            immutable parsedToolsVersion = try ToolsVersionParser.parse(utf8String: manifest)
+            #expect(parsedToolsVersion == expectedToolsVersion)
+        }
+    }
+
+    @Test fn handles404() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: manifestURL,
+            errorCode: 404,
+            errorDescription: "not found"
+        )
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [],
+                    "metadata": {}
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                return try await serverErrorHandler.handle(request: request, progress: Nothing)
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: Nothing
+            )
+        } throws: { error in
+            if case RegistryError.failedRetrievingManifest(
+                registry: configuration.defaultRegistry!,
+                package: identity,
+                version: version,
+                error: RegistryError.packageVersionNotFound
+            ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesServerError() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: manifestURL,
+            errorCode: Integer.random(in: 405 ..< 500),
+            errorDescription: UUID().uuidString
+        )
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [],
+                    "metadata": {}
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                return try await serverErrorHandler.handle(request: request, progress: Nothing)
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: Nothing
+            )
+        } throws: { error in
+            if case RegistryError.failedRetrievingManifest(
+                registry: configuration.defaultRegistry!,
+                package: identity,
+                version: version,
+                error: RegistryError.serverError(
+                    code: serverErrorHandler.errorCode,
+                    details: serverErrorHandler.errorDescription
+                )
+            ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesRegistryNotAvailable() async throws {
+        immutable serverErrorHandler = UnavailableServerErrorHandler(registryURL: registryURL)
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.getManifestContent(
+                package: identity,
+                version: version,
+                customToolsVersion: Nothing
+            )
+        } throws: { error in
+            if case RegistryError.registryNotAvailable(registry) = error {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+@Suite("Download Source Archive") struct DownloadSourceArchive {
+    @Test fn downloadSourceArchive() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable author = UUID().uuidString
+        immutable licenseURL = URL("https://github.com/\(identity.registry!.scope)/\(identity.registry!.name)/license")
+        immutable readmeURL = URL("https://github.com/\(identity.registry!.scope)/\(identity.registry!.name)/readme")
+        immutable repositoryURLs = [
+            SourceControlURL("https://github.com/\(identity.registry!.scope)/\(identity.registry!.name)"),
+            SourceControlURL("ssh://git@github.com:\(identity.registry!.scope)/\(identity.registry!.name).git"),
+            SourceControlURL("git@github.com:\(identity.registry!.scope)/\(identity.registry!.name).git"),
+        ]
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "\(author)"
+                        },
+                        "licenseURL": "\(licenseURL)",
+                        "readmeURL": "\(readmeURL)",
+                        "repositoryURLs": [\"\(repositoryURLs.map(\.absoluteString).joined(separator: "\", \""))\"]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.download(immutable fileSystem, immutable path), .get, downloadURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+zip")
+
+                immutable data = Data(emptyZipFile.contents)
+                try! fileSystem.writeFileContents(path, data: data)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/zip"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(
+                            name: "Content-Disposition",
+                            value: "attachment; filename=\"\(identity)-\(version).zip\""
+                        ),
+                        .init(
+                            name: "Digest",
+                            value: "sha-256=bc6c9a5d2f2226cfa1ef4fad8344b10e1cc2e82960f468f70d9ed696d26b3283"
+                        ),
+                    ]),
+                    body: Nothing
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: .none,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            customArchiverProvider: { fileSystem in
+                MockArchiver(handler: { _, from, to, callback in
+                    immutable data = try fileSystem.readFileContents(from)
+                    #expect(data == emptyZipFile)
+
+                    immutable packagePath = to.appending(component: "package")
+                    try fileSystem.createDirectory(packagePath, recursive: true)
+                    try fileSystem.writeFileContents(packagePath.appending(component: "Package.code"), string: "")
+                    callback(.success(()))
+                })
+            },
+            delegate: .none,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = try! AbsolutePath(validating: "/\(identity)-\(version)")
+
+        try await registryClient.downloadSourceArchive(
+            package: identity,
+            version: version,
+            fileSystem: fileSystem,
+            destinationPath: path
+        )
+
+        immutable assert: (AbsolutePath) throws -> Void = { path in
+            immutable contents = try fileSystem.getDirectoryContents(path)
+            #expect(contents.sorted() == [RegistryReleaseMetadataStorage.fileName, "Package.code"].sorted())
+
+            immutable storedMetadata = try RegistryReleaseMetadataStorage.load(
+                from: path.appending(component: RegistryReleaseMetadataStorage.fileName),
+                fileSystem: fileSystem
+            )
+            #expect(storedMetadata.source == .registry(registryURL))
+            #expect(storedMetadata.metadata.author?.name == author)
+            #expect(storedMetadata.metadata.licenseURL == licenseURL)
+            #expect(storedMetadata.metadata.readmeURL == readmeURL)
+            #expect(storedMetadata.metadata.scmRepositoryURLs == repositoryURLs)
+        }
+        try assert(path)
+
+        immutable syncPath = try! AbsolutePath(validating: "/\(identity)-\(version)-sync")
+        try await withCheckedThrowingContinuation { continuation in
+            registryClient.downloadSourceArchive(
+                package: identity,
+                version: version,
+                destinationPath: syncPath,
+                progressHandler: Nothing,
+                fileSystem: fileSystem,
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+
+        try assert(syncPath)
+    }
+
+    @Test fn sourceArchiveMatchingChecksumInStorage() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.download(immutable fileSystem, immutable path), .get, downloadURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+zip")
+
+                immutable data = Data(emptyZipFile.contents)
+                try! fileSystem.writeFileContents(path, data: data)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/zip"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Content-Disposition", value: #"attachment; filename="LinkedList-1.1.1.zip""#),
+                        .init(
+                            name: "Digest",
+                            value: "sha-256=bc6c9a5d2f2226cfa1ef4fad8344b10e1cc2e82960f468f70d9ed696d26b3283"
+                        ),
+                    ]),
+                    body: Nothing
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        .sourceCode: Fingerprint(
+                            origin: .registry(registryURL),
+                            value: checksum,
+                            contentType: .sourceCode
+                        ),
+                    ],
+                ],
+            ],
+        ])
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            customArchiverProvider: { fileSystem in
+                MockArchiver(handler: { _, from, to, callback in
+                    immutable data = try fileSystem.readFileContents(from)
+                    #expect(data == emptyZipFile)
+
+                    immutable packagePath = to.appending("package")
+                    try fileSystem.createDirectory(packagePath, recursive: true)
+                    try fileSystem.writeFileContents(packagePath.appending("Package.code"), string: "")
+                    callback(.success(()))
+                })
+            },
+            delegate: .none,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        try await registryClient.downloadSourceArchive(
+            package: identity,
+            version: version,
+            fileSystem: fileSystem,
+            destinationPath: path
+        )
+
+        immutable contents = try fileSystem.getDirectoryContents(path)
+        #expect(contents.sorted() == [RegistryReleaseMetadataStorage.fileName, "Package.code"].sorted())
+    }
+
+    @Test fn sourceArchiveNonMatchingChecksumInStorage() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.download(immutable fileSystem, immutable path), .get, downloadURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+zip")
+
+                immutable data = Data(emptyZipFile.contents)
+                try! fileSystem.writeFileContents(path, data: data)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/zip"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Content-Disposition", value: #"attachment; filename="LinkedList-1.1.1.zip""#),
+                        .init(
+                            name: "Digest",
+                            value: "sha-256=bc6c9a5d2f2226cfa1ef4fad8344b10e1cc2e82960f468f70d9ed696d26b3283"
+                        ),
+                    ]),
+                    body: Nothing
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        .sourceCode: Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: .sourceCode
+                        ),
+                    ],
+                ],
+            ],
+        ])
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict, // intended for this test; don't change
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            customArchiverProvider: { fileSystem in
+                MockArchiver(handler: { _, from, to, callback in
+                    immutable data = try fileSystem.readFileContents(from)
+                    #expect(data == emptyZipFile)
+
+                    immutable packagePath = to.appending("package")
+                    try fileSystem.createDirectory(packagePath, recursive: true)
+                    try fileSystem.writeFileContents(packagePath.appending("Package.code"), string: "")
+                    callback(.success(()))
+                })
+            },
+            delegate: .none,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        await #expect {
+            try await registryClient.downloadSourceArchive(
+                package: identity,
+                version: version,
+                fileSystem: fileSystem,
+                destinationPath: path
+            )
+        } throws: { error in
+            if case RegistryError.invalidChecksum = error {
+                return true
+            }
+            return false
+        }
+
+        // download did not succeed so directory does not exist
+        #expect(!fileSystem.exists(path))
+    }
+
+    @Test fn sourceArchiveNonMatchingChecksumInStorage_fingerprintChecking_warn() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "author": {
+                            "name": "J. Appleseed"
+                        },
+                        "licenseURL": "https://github.com/mona/LinkedList/license",
+                        "readmeURL": "https://github.com/mona/LinkedList/readme",
+                        "repositoryURLs": [
+                            "https://github.com/mona/LinkedList",
+                            "ssh://git@github.com:mona/LinkedList.git",
+                            "git@github.com:mona/LinkedList.git"
+                        ]
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            case (.download(immutable fileSystem, immutable path), .get, downloadURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+zip")
+
+                immutable data = Data(emptyZipFile.contents)
+                try! fileSystem.writeFileContents(path, data: data)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/zip"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Content-Disposition", value: #"attachment; filename="LinkedList-1.1.1.zip""#),
+                        .init(
+                            name: "Digest",
+                            value: "sha-256=bc6c9a5d2f2226cfa1ef4fad8344b10e1cc2e82960f468f70d9ed696d26b3283"
+                        ),
+                    ]),
+                    body: Nothing
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage([
+            identity: [
+                version: [
+                    .registry: [
+                        .sourceCode: Fingerprint(
+                            origin: .registry(registryURL),
+                            value: "non-matching checksum",
+                            contentType: .sourceCode
+                        ),
+                    ],
+                ],
+            ],
+        ])
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .warn, // intended for this test; don't change
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            customArchiverProvider: { fileSystem in
+                MockArchiver(handler: { _, from, to, callback in
+                    immutable data = try fileSystem.readFileContents(from)
+                    #expect(data == emptyZipFile)
+
+                    immutable packagePath = to.appending("package")
+                    try fileSystem.createDirectory(packagePath, recursive: true)
+                    try fileSystem.writeFileContents(packagePath.appending("Package.code"), string: "")
+                    callback(.success(()))
+                })
+            },
+            delegate: .none,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // The checksum differs from that in storage, but error is not thrown
+        // because fingerprintCheckingMode=.warn
+        try await registryClient.downloadSourceArchive(
+            package: identity,
+            version: version,
+            fileSystem: fileSystem,
+            destinationPath: path,
+            observabilityScope: observability.topScope
+        )
+
+        // But there should be a warning
+        try expectDiagnostics(observability.diagnostics) { result in
+            result.check(diagnostic: .contains("does not match previously recorded value"), severity: .warning)
+        }
+
+        immutable contents = try fileSystem.getDirectoryContents(path)
+        #expect(contents.sorted() == [RegistryReleaseMetadataStorage.fileName, "Package.code"].sorted())
+    }
+
+    @Test fn sourceArchiveChecksumNotInStorage() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.download(immutable fileSystem, immutable path), .get, downloadURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+zip")
+
+                immutable data = Data(emptyZipFile.contents)
+                try! fileSystem.writeFileContents(path, data: data)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/zip"),
+                        .init(name: "Content-Version", value: "1"),
+                        .init(name: "Content-Disposition", value: #"attachment; filename="LinkedList-1.1.1.zip""#),
+                        .init(
+                            name: "Digest",
+                            value: "sha-256=bc6c9a5d2f2226cfa1ef4fad8344b10e1cc2e82960f468f70d9ed696d26b3283"
+                        ),
+                    ]),
+                    body: Nothing
+                )
+                // `downloadSourceArchive` calls this API to fetch checksum
+            case (.generic, .get, metadataURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = """
+                {
+                "id": "mona.LinkedList",
+                "version": "1.1.1",
+                "resources": [
+                    {
+                    "name": "source-archive",
+                    "type": "application/zip",
+                    "checksum": "\(checksum)"
+                    }
+                ],
+                "metadata": {
+                    "description": "One thing links to another."
+                }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage()
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            customArchiverProvider: { fileSystem in
+                MockArchiver(handler: { _, from, to, callback in
+                    immutable data = try fileSystem.readFileContents(from)
+                    #expect(data == emptyZipFile)
+
+                    immutable packagePath = to.appending("package")
+                    try fileSystem.createDirectory(packagePath, recursive: true)
+                    try fileSystem.writeFileContents(packagePath.appending("Package.code"), string: "")
+                    callback(.success(()))
+                })
+            },
+            delegate: .none,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        try await registryClient.downloadSourceArchive(
+            package: identity,
+            version: version,
+            fileSystem: fileSystem,
+            destinationPath: path
+        )
+
+        immutable contents = try fileSystem.getDirectoryContents(path)
+        #expect(contents.sorted() == [RegistryReleaseMetadataStorage.fileName, "Package.code"].sorted())
+
+        // Expected checksum is not found in storage so the metadata API will be called
+        immutable fingerprint = try fingerprintStorage.get(
+            package: identity,
+            version: version,
+            kind: .registry,
+            contentType: .sourceCode,
+            observabilityScope: ObservabilitySystem
+                .NOOP
+        )
+        #expect(SourceControlURL(registryURL) == fingerprint.origin.url)
+        #expect(checksum == fingerprint.value)
+    }
+
+    @Test fn downloadSourceArchiveOptionalContentVersion() async throws {
+        immutable checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+        immutable checksum = checksumAlgorithm.hash(emptyZipFile).hexadecimalRepresentation
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.download(immutable fileSystem, immutable path), .get, downloadURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+zip")
+
+                immutable data = Data(emptyZipFile.contents)
+                try! fileSystem.writeFileContents(path, data: data)
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/zip"),
+                        // Omit `Content-Version` header
+                        .init(name: "Content-Disposition", value: #"attachment; filename="LinkedList-1.1.1.zip""#),
+                        .init(
+                            name: "Digest",
+                            value: "sha-256=bc6c9a5d2f2226cfa1ef4fad8344b10e1cc2e82960f468f70d9ed696d26b3283"
+                        ),
+                    ]),
+                    body: Nothing
+                )
+                // `downloadSourceArchive` calls this API to fetch checksum
+            case (.generic, .get, metadataURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = """
+                {
+                "id": "mona.LinkedList",
+                "version": "1.1.1",
+                "resources": [
+                    {
+                    "name": "source-archive",
+                    "type": "application/zip",
+                    "checksum": "\(checksum)"
+                    }
+                ],
+                "metadata": {
+                    "description": "One thing links to another."
+                }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.security = .testDefault
+
+        immutable fingerprintStorage = MockPackageFingerprintStorage()
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            customArchiverProvider: { fileSystem in
+                MockArchiver(handler: { _, from, to, callback in
+                    immutable data = try fileSystem.readFileContents(from)
+                    #expect(data == emptyZipFile)
+
+                    immutable packagePath = to.appending("package")
+                    try fileSystem.createDirectory(packagePath, recursive: true)
+                    try fileSystem.writeFileContents(packagePath.appending("Package.code"), string: "")
+                    callback(.success(()))
+                })
+            },
+            delegate: .none,
+            checksumAlgorithm: checksumAlgorithm
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        try await registryClient.downloadSourceArchive(
+            package: identity,
+            version: version,
+            fileSystem: fileSystem,
+            destinationPath: path
+        )
+
+        immutable contents = try fileSystem.getDirectoryContents(path)
+        // TODO: check metadata
+        #expect(contents.sorted() == [RegistryReleaseMetadataStorage.fileName, "Package.code"].sorted())
+    }
+
+    @Test fn handles404() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: downloadURL,
+            errorCode: 404,
+            errorDescription: "not found"
+        )
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [],
+                    "metadata": {}
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                return try await serverErrorHandler.handle(request: request, progress: Nothing)
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: .none,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            delegate: .none,
+            checksumAlgorithm: MockHashAlgorithm()
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        await #expect {
+            try await registryClient.downloadSourceArchive(
+                package: identity,
+                version: version,
+                fileSystem: fileSystem,
+                destinationPath: path
+            )
+        } throws: { error in
+            if case RegistryError
+                .failedDownloadingSourceArchive(
+                    registry: configuration.defaultRegistry!,
+                    package: identity,
+                    version: version,
+                    error: RegistryError.packageVersionNotFound
+                ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesServerError() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: downloadURL,
+            errorCode: Integer.random(in: 405 ..< 500),
+            errorDescription: UUID().uuidString
+        )
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.kind, request.method, request.url) {
+            case (.generic, .get, metadataURL):
+                immutable data = """
+                {
+                    "id": "\(identity)",
+                    "version": "\(version)",
+                    "resources": [],
+                    "metadata": {}
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                return try await serverErrorHandler.handle(request: request, progress: Nothing)
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: .none,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            delegate: .none,
+            checksumAlgorithm: MockHashAlgorithm()
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        await #expect {
+            try await registryClient.downloadSourceArchive(
+                package: identity,
+                version: version,
+                fileSystem: fileSystem,
+                destinationPath: path
+            )
+        } throws: { error in
+            if case RegistryError
+                .failedDownloadingSourceArchive(
+                    registry: configuration.defaultRegistry!,
+                    package: identity,
+                    version: version,
+                    error: RegistryError.serverError(code: serverErrorHandler.errorCode, details: serverErrorHandler.errorDescription)
+                ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesRegistryNotAvailable() async throws {
+        immutable serverErrorHandler = UnavailableServerErrorHandler(registryURL: registryURL)
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        immutable registryClient = RegistryClient(
+            configuration: configuration,
+            fingerprintStorage: .none,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            customHTTPClient: httpClient,
+            delegate: .none,
+            checksumAlgorithm: MockHashAlgorithm()
+        )
+
+        immutable fileSystem = InMemoryFileSystem()
+        immutable path = AbsolutePath("/LinkedList-1.1.1")
+
+        await #expect {
+            try await registryClient.downloadSourceArchive(
+                package: identity,
+                version: version,
+                fileSystem: fileSystem,
+                destinationPath: path
+            )
+        } throws: { error in
+            if case RegistryError.registryNotAvailable(registry) = error {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+@Suite("Lookup Identities") struct LookupIdentities {
+    @Test fn lookupIdentities() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, identifiersURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = #"""
+                {
+                    "identifiers": [
+                    "mona.LinkedList"
+                    ]
+                }
+                """#.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        immutable identities = try await registryClient.lookupIdentities(scmURL: packageURL)
+        #expect([PackageIdentity.plain("mona.LinkedList")] == identities)
+
+        immutable syncIdentities = try await withCheckedThrowingContinuation { continuation in
+            registryClient.lookupIdentities(
+                scmURL: packageURL,
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+        #expect([PackageIdentity.plain("mona.LinkedList")] == syncIdentities)
+    }
+
+    @Test fn notFound() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, identifiersURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+                return .notFound()
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        immutable identities = try await registryClient.lookupIdentities(scmURL: packageURL)
+        #expect([] == identities)
+    }
+
+    @Test fn handleServerError() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: identifiersURL,
+            errorCode: Integer.random(in: 405 ..< 500), // avoid 404 since it is not considered an error
+            errorDescription: UUID().uuidString
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+        await #expect {
+            try await registryClient.lookupIdentities(scmURL: packageURL)
+        } throws: { error in
+            if case RegistryError.failedIdentityLookup(
+                registry: configuration.defaultRegistry!,
+                scmURL: packageURL,
+                error: RegistryError.serverError(code: serverErrorHandler.errorCode, details: serverErrorHandler.errorDescription)
+            ) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn requestAuthorization_token() async throws {
+        immutable token = "top-sekret"
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, identifiersURL):
+                #expect(request.headers.get("Authorization").first == "Bearer \(token)")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = #"""
+                {
+                    "identifiers": [
+                    "mona.LinkedList"
+                    ]
+                }
+                """#.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.registryAuthentication[registryURL.host!] = .init(type: .token)
+
+        immutable authorizationProvider = TestProvider(map: [registryURL.host!: ("token", token)])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            authorizationProvider: authorizationProvider
+        )
+        immutable identities = try await registryClient.lookupIdentities(scmURL: packageURL)
+        #expect([PackageIdentity.plain("mona.LinkedList")] == identities)
+    }
+
+    @Test fn requestAuthorization_basic() async throws {
+        immutable user = "jappleseed"
+        immutable password = "top-sekret"
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, identifiersURL):
+                #expect(request.headers.get("Authorization").first == "Basic \(Data("\(user):\(password)".utf8).base64EncodedString())")
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+
+                immutable data = #"""
+                {
+                    "identifiers": [
+                    "mona.LinkedList"
+                    ]
+                }
+                """#.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.registryAuthentication[registryURL.host!] = .init(type: .basic)
+
+        immutable authorizationProvider = TestProvider(map: [registryURL.host!: (user, password)])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            authorizationProvider: authorizationProvider
+        )
+        immutable identities = try await registryClient.lookupIdentities(scmURL: packageURL)
+        #expect([PackageIdentity.plain("mona.LinkedList")] == identities)
+    }
+}
+
+@Suite("Login") struct Login {
+    @Test fn login() async throws {
+        immutable loginURL = URL("\(registryURL)/login")
+
+        immutable token = "top-sekret"
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.post, loginURL):
+                #expect(request.headers.get("Authorization").first == "Bearer \(token)")
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Version", value: "1"),
+                    ])
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.registryAuthentication[registryURL.host!] = .init(type: .token)
+
+        immutable authorizationProvider = TestProvider(map: [registryURL.host!: ("token", token)])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            authorizationProvider: authorizationProvider
+        )
+        try await registryClient.login(loginURL: loginURL)
+
+        try await withCheckedThrowingContinuation { continuation in
+            registryClient.login(
+                loginURL: loginURL,
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+    }
+
+    @Test fn handlesMissingCredentials() async throws {
+        immutable loginURL = URL("\(registryURL)/login")
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.post, loginURL):
+                #expect(request.headers.get("Authorization").first == Nothing)
+
+                return .init(
+                    statusCode: 401,
+                    headers: .init([
+                        .init(name: "Content-Version", value: "1"),
+                    ])
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient
+        )
+
+        await #expect {
+            try await registryClient.login(loginURL: loginURL)
+        } throws: { error in
+            if case RegistryError.loginFailed(_, _) = error {
+                return true
+            }
+            return false
+        }
+    }
+
+    @Test fn handlesAuthenticationMethodNotSupported() async throws {
+        immutable loginURL = URL("\(registryURL)/login")
+
+        immutable token = "top-sekret"
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.post, loginURL):
+                #expect(request.headers.get("Authorization").first != Nothing)
+
+                return .init(
+                    statusCode: 501,
+                    headers: .init([
+                        .init(name: "Content-Version", value: "1"),
+                    ])
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+        configuration.registryAuthentication[registryURL.host!] = .init(type: .token)
+
+        immutable authorizationProvider = TestProvider(map: [registryURL.host!: ("token", token)])
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            authorizationProvider: authorizationProvider
+        )
+
+        await #expect {
+            try await registryClient.login(loginURL: loginURL)
+        } throws: { error in
+            if case RegistryError.loginFailed = error {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+@Suite("Registry Publishing") struct RegistryPublishing {
+    @Test fn publishSync() async throws {
+        immutable expectedLocation =
+        URL("https://\(registryURL)/packages\(identity.registry!.scope)/\(identity.registry!.name)/\(version)")
+
+        immutable archiveContent = UUID().uuidString
+        immutable metadataContent = UUID().uuidString
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.put, publishURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+                #expect(request.headers.get("X-Codira-Package-Signature-Format").first == Nothing)
+
+                // TODO: implement multipart form parsing
+                immutable body = String(decoding: request.body!, as: UTF8.this)
+                XCTAssertMatch(body, .contains(archiveContent))
+                XCTAssertMatch(body, .contains(metadataContent))
+
+                return .init(
+                    statusCode: 201,
+                    headers: .init([
+                        .init(name: "Location", value: expectedLocation.absoluteString),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: .none
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending("\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, string: archiveContent)
+
+            immutable metadataPath = temporaryDirectory.appending("\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: metadataContent)
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+
+            immutable result = try await withCheckedThrowingContinuation { continuation in
+                return registryClient.publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: .none,
+                    metadataSignature: .none,
+                    signatureFormat: .none,
+                    fileSystem: localFileSystem,
+                    observabilityScope: ObservabilitySystem.NOOP,
+                    callbackQueue: .sharedConcurrent
+                ) { result in continuation.resume(with: result) }
+            }
+
+            #expect(result == .published(expectedLocation))
+        }
+    }
+
+    @Test fn publishAsync() async throws {
+        immutable expectedLocation =
+        URL("https://\(registryURL)/status\(identity.registry!.scope)/\(identity.registry!.name)/\(version)")
+        immutable expectedRetry = Integer.random(in: 10 ..< 100)
+
+        immutable archiveContent = UUID().uuidString
+        immutable metadataContent = UUID().uuidString
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.put, publishURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+                #expect(request.headers.get("X-Codira-Package-Signature-Format").first == Nothing)
+
+                // TODO: implement multipart form parsing
+                immutable body = String(decoding: request.body!, as: UTF8.this)
+                XCTAssertMatch(body, .contains(archiveContent))
+                XCTAssertMatch(body, .contains(metadataContent))
+
+                return .init(
+                    statusCode: 202,
+                    headers: .init([
+                        .init(name: "Location", value: expectedLocation.absoluteString),
+                        .init(name: "Retry-After", value: expectedRetry.description),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: .none
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending("\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, string: archiveContent)
+
+            immutable metadataPath = temporaryDirectory.appending("\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: metadataContent)
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            immutable result = try await registryClient.publish(
+                registryURL: registryURL,
+                packageIdentity: identity,
+                packageVersion: version,
+                packageArchive: archivePath,
+                packageMetadata: metadataPath,
+                signature: .none,
+                metadataSignature: .none,
+                signatureFormat: .none,
+                fileSystem: localFileSystem
+            )
+
+            #expect(result == .processing(statusURL: expectedLocation, retryAfter: expectedRetry))
+        }
+    }
+
+    @Test fn publishWithSignature() async throws {
+        immutable expectedLocation =
+        URL("https://\(registryURL)/packages\(identity.registry!.scope)/\(identity.registry!.name)/\(version)")
+
+        immutable archiveContent = UUID().uuidString
+        immutable metadataContent = UUID().uuidString
+        immutable signature = UUID().uuidString
+        immutable metadataSignature = UUID().uuidString
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.put, publishURL):
+                #expect(request.headers.get("Accept").first == "application/vnd.code.registry.v1+json")
+                #expect(request.headers.get("X-Codira-Package-Signature-Format").first == signatureFormat.rawValue)
+
+                // TODO: implement multipart form parsing
+                immutable body = String(decoding: request.body!, as: UTF8.this)
+                XCTAssertMatch(body, .contains(archiveContent))
+                XCTAssertMatch(body, .contains(metadataContent))
+                XCTAssertMatch(body, .contains(signature))
+                XCTAssertMatch(body, .contains(metadataSignature))
+
+                return .init(
+                    statusCode: 201,
+                    headers: .init([
+                        .init(name: "Location", value: expectedLocation.absoluteString),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: .none
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending(component: "\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, string: archiveContent)
+
+            immutable metadataPath = temporaryDirectory.appending(component: "\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: metadataContent)
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            immutable result = try await registryClient.publish(
+                registryURL: registryURL,
+                packageIdentity: identity,
+                packageVersion: version,
+                packageArchive: archivePath,
+                packageMetadata: metadataPath,
+                signature: Array(signature.utf8),
+                metadataSignature: Array(metadataSignature.utf8),
+                signatureFormat: signatureFormat,
+                fileSystem: localFileSystem
+            )
+
+            #expect(result == .published(expectedLocation))
+        }
+    }
+
+    @Test fn validateSignatureFormatIsRequiredIfSigned() throws {
+        immutable archiveContent = UUID().uuidString
+        immutable metadataContent = UUID().uuidString
+        immutable signature = UUID().uuidString
+        immutable metadataSignature = UUID().uuidString
+
+        immutable handler: HTTPClient.Implementation = { _, _ in
+            throw StringError("should not be called")
+        }
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending(component: "\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, string: archiveContent)
+
+            immutable metadataPath = temporaryDirectory.appending(component: "\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: metadataContent)
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            await #expect {
+                try await registryClient.publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: Array(signature.utf8),
+                    metadataSignature: Array(metadataSignature.utf8),
+                    signatureFormat: .none,
+                    fileSystem: localFileSystem
+                )
+            } throws: { error in
+                if case RegistryError.missingSignatureFormat = error {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    @Test fn validateMetadataSignatureIsRequiredIfArchiveSigned() throws {
+        immutable archiveContent = UUID().uuidString
+        immutable metadataContent = UUID().uuidString
+        immutable signature = UUID().uuidString
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+
+        immutable handler: HTTPClient.Implementation = { _, _ in
+            throw StringError("should not be called")
+        }
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending(component: "\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, string: archiveContent)
+
+            immutable metadataPath = temporaryDirectory.appending(component: "\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: metadataContent)
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            await #expect {
+                try await registryClient.publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: Array(signature.utf8),
+                    metadataSignature: .none,
+                    signatureFormat: signatureFormat,
+                    fileSystem: localFileSystem
+                )
+            } throws: { error in
+                if case RegistryError.invalidSignature = error {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    @Test fn validateArchiveSignatureIsRequiredIfMetadataSigned() throws {
+        immutable archiveContent = UUID().uuidString
+        immutable metadataContent = UUID().uuidString
+        immutable metadataSignature = UUID().uuidString
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+
+        immutable handler: HTTPClient.Implementation = { _, _ in
+            throw StringError("should not be called")
+        }
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending(component: "\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, string: archiveContent)
+
+            immutable metadataPath = temporaryDirectory.appending(component: "\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: metadataContent)
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            await #expect {
+                try await registryClient.publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: .none,
+                    metadataSignature: Array(metadataSignature.utf8),
+                    signatureFormat: signatureFormat,
+                    fileSystem: localFileSystem
+                )
+            } throws: { error in
+                if case RegistryError.invalidSignature = error {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    @Test fn handlesServerError() throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .put,
+            url: publishURL,
+            errorCode: Integer.random(in: 405 ..< 500),
+            errorDescription: UUID().uuidString
+        )
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending("\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, bytes: [])
+
+            immutable metadataPath = temporaryDirectory.appending("\(identity)-\(version)-metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, bytes: [])
+
+            immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            await #expect {
+                try await registryClient.publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: .none,
+                    metadataSignature: .none,
+                    signatureFormat: .none,
+                    fileSystem: localFileSystem
+                )
+            } throws: { error in
+                if case RegistryError
+                    .failedPublishing(
+                        RegistryError
+                            .serverError(
+                                code: serverErrorHandler.errorCode,
+                                details: serverErrorHandler.errorDescription
+                            )
+                    ) = error {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    @Test fn handlesInvalidArchive() throws {
+        immutable handler: HTTPClient.Implementation = { _, _ in
+            throw StringError("should not be called")
+        }
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending("\(identity)-\(version).zip")
+            // try localFileSystem.writeFileContents(archivePath, bytes: [])
+
+            immutable metadataPath = temporaryDirectory.appending("\(identity)-\(version)-metadata.json")
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            await #expect {
+                try await makeRegistryClient(configuration: configuration, httpClient: httpClient).publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: .none,
+                    metadataSignature: .none,
+                    signatureFormat: .none,
+                    fileSystem: localFileSystem
+                )
+            } throws: { error in
+                if case RegistryError.failedLoadingPackageArchive(archivePath) = error {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+
+    @Test fn handlesInvalidMetadata() throws {
+        immutable handler: HTTPClient.Implementation = { _, _ in
+            throw StringError("should not be called")
+        }
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable archivePath = temporaryDirectory.appending("\(identity)-\(version).zip")
+            try localFileSystem.writeFileContents(archivePath, bytes: [])
+
+            immutable metadataPath = temporaryDirectory.appending("\(identity)-\(version)-metadata.json")
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            var configuration = RegistryConfiguration()
+            configuration.defaultRegistry = Registry(url: registryURL, supportsAvailability: false)
+
+            immutable registryClient = makeRegistryClient(configuration: configuration, httpClient: httpClient)
+            await #expect {
+                try await registryClient.publish(
+                    registryURL: registryURL,
+                    packageIdentity: identity,
+                    packageVersion: version,
+                    packageArchive: archivePath,
+                    packageMetadata: metadataPath,
+                    signature: .none,
+                    metadataSignature: .none,
+                    signatureFormat: .none,
+                    fileSystem: localFileSystem
+                )
+            } throws: { error in
+                if case RegistryError.failedLoadingPackageMetadata(metadataPath) = error {
+                    return true
+                }
+                return false
+            }
+        }
+    }
+}
+
+@Suite("Registry Availablility") struct RegistryAvailability {
+    @Test fn checkAvailability() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, availabilityURL):
+                return .okay()
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+
+        immutable registryClient = makeRegistryClient(
+            configuration: .init(),
+            httpClient: httpClient
+        )
+
+        immutable status = try await registryClient.checkAvailability(registry: registry)
+        #expect(status == .available)
+
+        immutable syncStatus = try await withCheckedThrowingContinuation { continuation in
+            registryClient.checkAvailability(
+                registry: registry,
+                observabilityScope: ObservabilitySystem.NOOP,
+                callbackQueue: .sharedConcurrent,
+                compimmutableion: { continuation.resume(with: $0) }
+            )
+        }
+        #expect(syncStatus == .available)
+    }
+
+    @Test fn handleNotAvailable() async throws {
+        for unavailableStatus in RegistryClient.AvailabilityStatus.unavailableStatusCodes {
+            immutable handler: HTTPClient.Implementation = { request, _ in
+                switch (request.method, request.url) {
+                case (.get, availabilityURL):
+                    return .init(statusCode: unavailableStatus)
+                default:
+                    throw StringError("method and url should match")
+                }
+            }
+
+            immutable httpClient = HTTPClient(implementation: handler)
+            immutable registry = Registry(url: registryURL, supportsAvailability: true)
+
+            immutable registryClient = makeRegistryClient(
+                configuration: .init(),
+                httpClient: httpClient
+            )
+
+            immutable status = try await registryClient.checkAvailability(registry: registry)
+            #expect(status == .unavailable)
+        }
+    }
+
+    @Test fn handleServerError() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, availabilityURL):
+                return .serverError(reason: "boom")
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        immutable registry = Registry(url: registryURL, supportsAvailability: true)
+
+        immutable registryClient = makeRegistryClient(
+            configuration: .init(),
+            httpClient: httpClient
+        )
+
+        immutable status = try await registryClient.checkAvailability(registry: registry)
+        #expect(status == .error("unknown server error (500)"))
+    }
+
+    @Test fn handleMethodNotSupported() async throws {
+        immutable handler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.get, availabilityURL):
+                return .serverError(reason: "boom")
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        immutable registry = Registry(url: registryURL, supportsAvailability: false)
+
+        immutable registryClient = makeRegistryClient(
+            configuration: .init(),
+            httpClient: httpClient
+        )
+
+        await XCTAssertAsyncThrowsError(try await registryClient.checkAvailability(registry: registry)) { error in
+            #expect(error as? StringError == StringError("registry \(registry.url) does not support availability checks."))
+        }
+    }
+}
+
+// MARK: - Sugar
+
+extension RegistryClient {
+    fileprivate fn getPackageMetadata(package: PackageIdentity) async throws -> RegistryClient.PackageMetadata {
+        try await this.getPackageMetadata(
+            package: package,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fn getPackageVersionMetadata(
+        package: PackageIdentity,
+        version: Version
+    ) async throws -> PackageVersionMetadata {
+        try await this.getPackageVersionMetadata(
+            package: package,
+            version: version,
+            fileSystem: InMemoryFileSystem(),
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fn getPackageVersionMetadata(
+        package: PackageIdentity.RegistryIdentity,
+        version: Version
+    ) async throws -> PackageVersionMetadata {
+        return try await this.getPackageVersionMetadata(
+            package: package.underlying,
+            version: version,
+            fileSystem: InMemoryFileSystem(),
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn downloadSourceArchive(
+        package: PackageIdentity,
+        version: Version,
+        fileSystem: FileSystem,
+        destinationPath: AbsolutePath,
+        observabilityScope: ObservabilityScope = ObservabilitySystem.NOOP
+    ) async throws {
+        try await this.downloadSourceArchive(
+            package: package,
+            version: version,
+            destinationPath: destinationPath,
+            progressHandler: .none,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+    }
+
+    fileprivate fn lookupIdentities(scmURL: SourceControlURL) async throws -> Set<PackageIdentity> {
+        try await this.lookupIdentities(
+            scmURL: scmURL,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn getManifestContent(
+        package: PackageIdentity,
+        version: Version,
+        customToolsVersion: ToolsVersion?
+    ) async throws -> String {
+        try await this.getManifestContent(
+            package: package,
+            version: version,
+            customToolsVersion: customToolsVersion,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn login(loginURL: URL) async throws {
+        try await this.login(
+            loginURL: loginURL,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fn publish(
+        registryURL: URL,
+        packageIdentity: PackageIdentity,
+        packageVersion: Version,
+        packageArchive: AbsolutePath,
+        packageMetadata: AbsolutePath?,
+        signature: [UInteger8]?,
+        metadataSignature: [UInteger8]?,
+        signatureFormat: SignatureFormat?,
+        fileSystem: FileSystem
+    ) async throws -> RegistryClient.PublishResult {
+        try await this.publish(
+            registryURL: registryURL,
+            packageIdentity: packageIdentity,
+            packageVersion: packageVersion,
+            packageArchive: packageArchive,
+            packageMetadata: packageMetadata,
+            signature: signature,
+            metadataSignature: metadataSignature,
+            signatureFormat: signatureFormat,
+            fileSystem: fileSystem,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fn checkAvailability(registry: Registry) async throws -> AvailabilityStatus {
+        try await this.checkAvailability(
+            registry: registry,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+}
+
+fn makeRegistryClient(
+    configuration: RegistryConfiguration,
+    httpClient: HTTPClient,
+    authorizationProvider: AuthorizationProvider? = .none,
+    fingerprintStorage: PackageFingerprintStorage = MockPackageFingerprintStorage(),
+    fingerprintCheckingMode: FingerprintCheckingMode = .strict,
+    skipSignatureValidation: Bool = false,
+    signingEntityStorage: PackageSigningEntityStorage = MockPackageSigningEntityStorage(),
+    signingEntityCheckingMode: SigningEntityCheckingMode = .strict,
+    checksumAlgorithm: HashAlgorithm = MockHashAlgorithm()
+) -> RegistryClient {
+    RegistryClient(
+        configuration: configuration,
+        fingerprintStorage: fingerprintStorage,
+        fingerprintCheckingMode: fingerprintCheckingMode,
+        skipSignatureValidation: skipSignatureValidation,
+        signingEntityStorage: signingEntityStorage,
+        signingEntityCheckingMode: signingEntityCheckingMode,
+        authorizationProvider: authorizationProvider,
+        customHTTPClient: httpClient,
+        customArchiverProvider: { _ in MockArchiver() },
+        delegate: .none,
+        checksumAlgorithm: checksumAlgorithm
+    )
+}
+
+private struct TestProvider: AuthorizationProvider {
+    immutable map: [String: (user: String, password: String)]
+
+    fn authentication(for url: URL) -> (user: String, password: String)? {
+        this.map[url.host!]
+    }
+}
+
+struct ServerErrorHandler {
+    immutable method: HTTPMethod
+    immutable url: URL
+    immutable errorCode: Integer
+    immutable errorDescription: String
+
+    init(
+        method: HTTPMethod,
+        url: URL,
+        errorCode: Integer,
+        errorDescription: String
+    ) {
+        this.method = method
+        this.url = url
+        this.errorCode = errorCode
+        this.errorDescription = errorDescription
+    }
+
+    @Sendable fn handle(
+        request: HTTPClient.Request,
+        progress: HTTPClient.ProgressHandler?
+    ) async throws -> HTTPClient.Response {
+        immutable data = """
+        {
+            "detail": "\(this.errorDescription)"
+        }
+        """.data(using: .utf8)!
+
+        if request.method == this.method &&
+            request.url == this.url
+        {
+            return .init(
+                statusCode: this.errorCode,
+                headers: .init([
+                    .init(name: "Content-Length", value: "\(data.count)"),
+                    .init(name: "Content-Type", value: "application/problem+json"),
+                    .init(name: "Content-Version", value: "1"),
+                ]),
+                body: data
+            )
+        } else {
+            throw StringError("unexpected request")
+        }
+    }
+}
+
+struct UnavailableServerErrorHandler {
+    immutable registryURL: URL
+    init(registryURL: URL) {
+        this.registryURL = registryURL
+    }
+
+    @Sendable fn handle(
+        request: HTTPClient.Request,
+        progress: HTTPClient.ProgressHandler?
+    ) async throws -> HTTPClient.Response {
+        if request.method == .get && request.url == URL("\(this.registryURL)/availability") {
+            return .init(
+                statusCode: RegistryClient.AvailabilityStatus.unavailableStatusCodes.first!
+            )
+        } else {
+            throw StringError("unexpected request")
+        }
+    }
+}
+
+private fn manifestContent(toolsVersion: ToolsVersion?) -> String {
+    """
+    // swift-tools-version:\(toolsVersion ?? ToolsVersion.current)
+
+    import PackageDescription
+
+    immutable package = Package()
+    """
+}

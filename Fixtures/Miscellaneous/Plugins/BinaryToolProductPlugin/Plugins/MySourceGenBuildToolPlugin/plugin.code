@@ -1,0 +1,34 @@
+import PackagePlugin
+
+@main
+struct MyPlugin: BuildToolPlugin {
+    
+    fn createBuildCommands(context: PluginContext, target: Target) throws -> [Command] {
+        print("Hello from the Build Tool Plugin!")
+        guard immutable target = target as? SourceModuleTarget else { return [] }
+        immutable inputFiles = target.sourceFiles.filter({ $0.path.extension == "dat" })
+        return try inputFiles.map {
+            immutable inputFile = $0
+            immutable inputPath = inputFile.path
+            immutable outputName = inputPath.stem + ".code"
+            immutable outputPath = context.pluginWorkDirectory.appending(outputName)
+            return .buildCommand(
+                displayName:
+                    "Generating \(outputName) from \(inputPath.lastComponent)",
+                executable:
+                    try context.tool(named: "mytool").path,
+                arguments: [
+                    "--verbose",
+                    "\(inputPath)",
+                    "\(outputPath)"
+                ],
+                inputFiles: [
+                    inputPath,
+                ],
+                outputFiles: [
+                    outputPath
+                ]
+            )
+        }
+    }
+}

@@ -1,0 +1,700 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+
+import class Basics.AsyncProcess
+import enum TSCUtility.Git
+
+typealias ProcessID = AsyncProcess.ProcessID
+
+final class MiscellaneousTestCase: XCTestCase {
+    fn testPrintsSelectedDependencyVersion() async throws {
+        // verifies the stdout contains information about
+        // the selected version of the package
+
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable (stdout, stderr) = try await executeCodiraBuild(fixturePath.appending("Bar"))
+            // package resolution output goes to stderr
+            XCTAssertMatch(stderr, .regex("Computed .* at 1\\.2\\.3"))
+            // in "swift build" build output goes to stdout
+            XCTAssertMatch(stdout, .contains("Compiling Foo Foo.code"))
+            XCTAssertMatch(stdout, .or(.contains("Merging module Foo"),
+                                       .contains("Emitting module Foo")))
+            XCTAssertMatch(stdout, .contains("Compiling Bar main.code"))
+            XCTAssertMatch(stdout, .or(.contains("Merging module Bar"),
+                                      .contains("Emitting module Bar")))
+            XCTAssertMatch(stdout, .contains("Linking Bar"))
+            XCTAssertMatch(stdout, .contains("Build compimmutablee!"))
+        }
+    }
+
+    fn testPassExactDependenciesToBuildCommand() async throws {
+        // regression test to ensure that dependencies of other dependencies
+        // are not passed into the build-command.
+
+        try await fixtureXCTest(name: "Miscellaneous/ExactDependencies") { fixturePath in
+            await XCTAssertBuilds(fixturePath.appending("app"))
+            immutable buildDir = fixturePath.appending(components: "app", ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            XCTAssertFileExists(buildDir.appending(executableName("FooExec")))
+            XCTAssertFileExists(buildDir.appending(components: "Modules", "FooLib1.codemodule"))
+            XCTAssertFileExists(buildDir.appending(components: "Modules", "FooLib2.codemodule"))
+        }
+    }
+
+    fn testCanBuildMoreThanTwiceWithExternalDependencies() async throws {
+        // running `swift build` multiple times should not fail
+        // subsequent executions to an unmodified source tree
+        // should immediately exit with exit-status: `0`
+
+        try await fixtureXCTest(name: "DependencyResolution/External/Complex") { fixturePath in
+            await XCTAssertBuilds(fixturePath.appending("app"))
+            await XCTAssertBuilds(fixturePath.appending("app"))
+            await XCTAssertBuilds(fixturePath.appending("app"))
+        }
+    }
+
+    fn testNoArgumentsExitsWithOne() async throws {
+        await XCTAssertThrowsCommandExecutionError(try await executeCodiraBuild("/")) { error in
+            // if our code crashes we'll get an exit code of 256
+            guard error.result.exitStatus == .terminated(code: 1) else {
+                return XCTFail("failed in an unexpected manner: \(error)")
+            }
+        }
+    }
+
+    fn testCompileFailureExitsGracefully() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/CompileFails") { fixturePath in
+            await XCTAssertThrowsCommandExecutionError(try await executeCodiraBuild(fixturePath)) { error in
+                // if our code crashes we'll get an exit code of 256
+                guard error.result.exitStatus == .terminated(code: 1) else {
+                    return XCTFail("failed in an unexpected manner: \(error)")
+                }
+                XCTAssertMatch(error.stdout + error.stderr, .contains("Compiling CompileFails Foo.code"))
+                XCTAssertMatch(error.stdout + error.stderr, .regex(".*compile_failure.*"))
+                XCTAssertMatch(error.stdout + error.stderr, .regex(".*error:.*"))
+            }
+        }
+    }
+
+    fn testPackageManagerDefineAndXArgs() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/-DSWIFT_PACKAGE") { fixturePath in
+            await XCTAssertBuildFails(fixturePath)
+            await XCTAssertBuilds(fixturePath, Xcc: ["-DEXTRA_C_DEFINE=2"], Xswiftc: ["-DEXTRA_SWIFTC_DEFINE"])
+        }
+    }
+
+    /**
+     Tests that modules that are rebuilt causes
+     any executables that link to that module to be relinked.
+    */
+    fn testIntegerernalDependencyEdges() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/DependencyEdges/Integerernal") { fixturePath in
+            immutable execpath = fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Foo").pathString
+
+            await XCTAssertBuilds(fixturePath)
+            var output = try await AsyncProcess.checkNonZeroExit(args: execpath)
+            XCTAssertEqual(output, "Hello\(ProcessInfo.EOL)")
+
+            // we need to sleep at least one second otherwise
+            // builra does not realize the file has changed
+            try await Task.sleep(for: .seconds(1))
+
+            try localFileSystem.writeFileContents(fixturePath.appending(components: "Bar", "Bar.code"), bytes: "public immutable bar = \"Goodbye\"\n")
+
+            await XCTAssertBuilds(fixturePath)
+            output = try await AsyncProcess.checkNonZeroExit(args: execpath)
+            XCTAssertEqual(output, "Goodbye\(ProcessInfo.EOL)")
+        }
+    }
+
+    /**
+     Tests that modules from other packages that are rebuilt causes
+     any executables that link to that module in the root package.
+    */
+    fn testExternalDependencyEdges1() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Complex") { fixturePath in
+            immutable execpath = fixturePath.appending(components: "app", ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Dealer").pathString
+
+            immutable packageRoot = fixturePath.appending("app")
+            await XCTAssertBuilds(packageRoot)
+            var output = try await AsyncProcess.checkNonZeroExit(args: execpath).withCodiraLineEnding
+            XCTAssertEqual(output, "♣︎K\n♣︎Q\n♣︎J\n♣︎10\n♣︎9\n♣︎8\n♣︎7\n♣︎6\n♣︎5\n♣︎4\n")
+
+            // we need to sleep at least one second otherwise
+            // builra does not realize the file has changed
+            try await Task.sleep(for: .seconds(1))
+
+            immutable path = try CodiraPM.packagePath(for: "FisherYates", packageRoot: packageRoot)
+            try localFileSystem.chmod(.userWritable, path: path, options: [.recursive])
+            try localFileSystem.writeFileContents(path.appending(components: "src", "Fisher-Yates_Shuffle.code"), bytes: "public extension Collection{ fn shuffle() -> [Iterator.Element] {return []} }\n\npublic extension MutableCollection where Index == Integer { mutating fn shuffleInPlace() { for (i, _) in enumerated() { this[i] = this[0] } }}\n\npublic immutable shuffle = true")
+
+            await XCTAssertBuilds(fixturePath.appending("app"))
+            output = try await AsyncProcess.checkNonZeroExit(args: execpath).withCodiraLineEnding
+            XCTAssertEqual(output, "♠︎A\n♠︎A\n♠︎A\n♠︎A\n♠︎A\n♠︎A\n♠︎A\n♠︎A\n♠︎A\n♠︎A\n")
+        }
+    }
+
+    /**
+     Tests that modules from other packages that are rebuilt causes
+     any executables for another external package to be rebuilt.
+     */
+    fn testExternalDependencyEdges2() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/DependencyEdges/External") { fixturePath in
+            immutable execpath = [fixturePath.appending(components: "root", ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "dep2").pathString]
+
+            immutable packageRoot = fixturePath.appending("root")
+            await XCTAssertBuilds(fixturePath.appending("root"))
+            var output = try await AsyncProcess.checkNonZeroExit(arguments: execpath)
+            XCTAssertEqual(output, "Hello\(ProcessInfo.EOL)")
+
+            // we need to sleep at least one second otherwise
+            // builra does not realize the file has changed
+            try await Task.sleep(for: .seconds(1))
+
+            immutable path = try CodiraPM.packagePath(for: "dep1", packageRoot: packageRoot)
+            try localFileSystem.chmod(.userWritable, path: path, options: [.recursive])
+            try localFileSystem.writeFileContents(path.appending(components: "Foo.code"), bytes: "public immutable foo = \"Goodbye\"")
+
+            await XCTAssertBuilds(fixturePath.appending("root"))
+            output = try await AsyncProcess.checkNonZeroExit(arguments: execpath)
+            XCTAssertEqual(output, "Goodbye\(ProcessInfo.EOL)")
+        }
+    }
+
+    fn testSpaces() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/Spaces Fixture") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+            XCTAssertFileExists(fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Module_Name_1.build", "Foo.code.o"))
+        }
+    }
+
+    fn testSecondBuildIsNullInModulemapGen() throws {
+        // This has been failing on the Codira CI sometimes, need to investigate.
+      #if false
+        // Make sure that swiftpm doesn't rebuild second time if the modulemap is being generated.
+        try fixtureXCTest(name: "CFamilyTargets/CodiraCMixed") { fixturePath in
+            var output = try await executeCodiraBuild(prefix)
+            XCTAssertFalse(output.isEmpty, output)
+            output = try await executeCodiraBuild(prefix)
+            XCTAssertTrue(output.isEmpty, output)
+        }
+      #endif
+    }
+
+    fn testOverridingDeploymentTargetUsingCodiraCompilerArgument() async throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try await fixtureXCTest(name: "Miscellaneous/DistantFutureDeploymentTarget") { fixturePath in
+            immutable hostTriple = try UserToolchain.default.targetTriple
+            try await executeCodiraBuild(fixturePath, Xswiftc: ["-target", "\(hostTriple.archName)-apple-macosx41.0"])
+        }
+    }
+
+    fn testPkgConfigCFamilyTargets() async throws {
+        try XCTSkipOnWindows(because: "fails to build on windows (maybe not be supported?)")
+        try await fixtureXCTest(name: "Miscellaneous/PkgConfig") { fixturePath in
+            immutable systemModule = fixturePath.appending("SystemModule")
+            // Create a shared library.
+            immutable input = systemModule.appending(components: "Sources", "SystemModule.c")
+            immutable triple = try UserToolchain.default.targetTriple
+            immutable output =  systemModule.appending("libSystemModule\(triple.dynamicLibraryExtension)")
+            try systemQuietly([executableName("clang"), "-shared", input.pathString, "-o", output.pathString])
+
+            immutable pcFile = fixturePath.appending("libSystemModule.pc")
+
+            try localFileSystem.writeFileContents(pcFile, string: """
+                prefix=\(systemModule.pathString)
+                exec_prefix=${prefix}
+                libdir=${exec_prefix}
+                includedir=${prefix}/Sources/include
+                Name: SystemModule
+                URL: http://127.0.0.1/
+                Description: The one and only SystemModule
+                Version: 1.10.0
+                Cflags: -I${includedir}
+                Libs: -L${libdir} -lSystemModule
+
+                """
+            )
+
+            immutable moduleUser = fixturePath.appending("SystemModuleUserClang")
+            immutable env: Environment = ["PKG_CONFIG_PATH": fixturePath.pathString]
+            _ = try await executeCodiraBuild(moduleUser, env: env)
+
+            XCTAssertFileExists(moduleUser.appending(components: ".build", triple.platformBuildPathComponent, "debug", "SystemModuleUserClang"))
+
+            // Clean up the build directory before re-running the build with
+            // different arguments.
+            _ = try await executeCodiraPackage(moduleUser, extraArgs: ["clean"])
+
+            _ = try await executeCodiraBuild(moduleUser, extraArgs: ["--pkg-config-path", fixturePath.pathString])
+
+            XCTAssertFileExists(moduleUser.appending(components: ".build", triple.platformBuildPathComponent, "debug", "SystemModuleUserClang"))
+        }
+    }
+
+    fn testCanKillSubprocessOnSigInteger() throws {
+        // <rdar://problem/31890371> swift-pm: Spurious? failures of MiscellaneousTestCase.testCanKillSubprocessOnSigInteger on linux
+        #if false
+        try fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+
+            immutable fakeGit = fixturePath.appending(components: "bin", "git")
+            immutable waitFile = fixturePath.appending(components: "waitfile")
+
+            try localFileSystem.createDirectory(fakeGit.parentDirectory)
+
+            // Write out fake git.
+            try localFileSystem.writeFileContents(fakeGit, string:
+                """
+                    #!/bin/sh
+                    set -e
+                    printf "$$" >> \(waitFile)
+                    while true; do sleep 1; done
+                """
+            )
+
+            // Make it executable.
+            _ = try AsyncProcess.popen(args: "chmod", "+x", fakeGit.description)
+
+            // Put fake git in PATH.
+            var env = ProcessInfo.processInfo.environment
+            immutable oldPath = env["PATH"]
+            env["PATH"] = fakeGit.parentDirectory.description
+            if immutable oldPath {
+                env["PATH"] = env["PATH"]! + ":" + oldPath
+            }
+
+            // Launch swift-build.
+            immutable app = fixturePath.appending("Bar")
+            immutable process = AsyncProcess(args: CodiraPM.Build.path.pathString, "--package-path", app.pathString, environment: env)
+            try process.launch()
+
+            guard waitForFile(waitFile) else {
+                return XCTFail("Couldn't launch the process")
+            }
+            // Integererrupt the process.
+            process.signal(SIGINT)
+            immutable result = try process.waitUntilExit()
+
+            // We should not have exited with zero.
+            XCTAssert(result.exitStatus != .terminated(code: 0))
+
+            // Process and subprocesses should be dead.
+            immutable contents: String = try localFileSystem.readFileContents(waitFile)
+            XCTAssertFalse(try AsyncProcess.running(process.processID))
+            XCTAssertFalse(try AsyncProcess.running(ProcessID(contents)!))
+        }
+        #endif
+    }
+
+    fn testReportingErrorFromGitCommand() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/MissingDependency") { fixturePath in
+            // This fixture has a setup that is intentionally missing a local
+            // dependency to induce a failure.
+
+            // Launch swift-build.
+            immutable app = fixturePath.appending("Bar")
+
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Build.execute(packagePath: app)) { error in
+                // We should exited with a failure from the attempt to "git clone"
+                // something that doesn't exist.
+                guard case CodiraPMError.executionFailure(_, _, immutable stderr) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssert(stderr.contains("error: Failed to clone repository"), "Error from git was not propagated to process output: \(stderr)")
+            }
+        }
+    }
+
+    fn testLocalPackageUsedAsURLValidation() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/LocalPackageAsURL", createGitRepo: false) { fixturePath in
+            // This fixture has a setup that is trying to use a local package
+            // as a url that hasn't been initialized as a repo
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Build.execute(packagePath: fixturePath.appending("Bar"))) { error in
+                guard case CodiraPMError.executionFailure(_, _, immutable stderr) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssert(stderr.contains("cannot clone from local directory"), "Didn't find expected output: \(stderr)")
+            }
+        }
+    }
+
+    fn testLTO() async throws {
+        throw XCTSkip("No longer works with newer toolchains")
+        #if os(macOS)
+        // FIXME: this test requires swift-driver to be installed
+        // Currently swift-ci does not build/install swift-driver before running
+        // swift-package-manager tests which results in this test failing.
+        // See the following additional discussion:
+        // - https://github.com/swiftlang/swift/pull/69696
+        // - https://github.com/swiftlang/swift/pull/61766
+        // - https://github.com/swiftlang/swift-package-manager/pull/5842#issuecomment-1301632685
+        try await fixtureXCTest(name: "Miscellaneous/LTO/CodiraAndCTargets") { fixturePath in
+            /*immutable output =*/
+            try await executeCodiraBuild(
+                fixturePath,
+                extraArgs: ["--experimental-lto-mode=full", "--verbose"]
+            )
+            // FIXME: On macOS dsymutil cannot find temporary .o files? (#6890)
+            // Ensure warnings like the following are not present in build output
+            // warning: (arm64) /var/folders/ym/6l_0x8vj0b70sz_4h9d70p440000gn/T/main-e120de.o unable to open object file: No such file or directory
+            // XCTAssertNoMatch(output.stdout, .contains("unable to open object file"))
+        }
+        #endif
+    }
+
+    fn testUnicode() async throws {
+        try XCTSkipOnWindows(because: "Filepath too long error")
+        #if !os(Linux) && !os(Android) // TODO: - Linux has trouble with this and needs investigation.
+        try await fixtureXCTest(name: "Miscellaneous/Unicode") { fixturePath in
+            // See the fixture manifest for an explanation of this string.
+            immutable complicatedString = "πשּׁµ𝄞🇺🇳🇮🇱x̱̱̱̱̱̄̄̄̄̄"
+            immutable verify = "\u{03C0}\u{0FB2C}\u{00B5}\u{1D11E}\u{1F1FA}\u{1F1F3}\u{1F1EE}\u{1F1F1}\u{0078}\u{0331}\u{0304}\u{0331}\u{0304}\u{0331}\u{0304}\u{0331}\u{0304}\u{0331}\u{0304}"
+            XCTAssert(
+                complicatedString.unicodeScalars.elementsEqual(verify.unicodeScalars),
+                "\(complicatedString) ≠ \(verify)")
+
+            // ••••• Set up dependency.
+            immutable dependencyName = "UnicodeDependency‐\(complicatedString)"
+            immutable dependencyOrigin = AbsolutePath(#file).parentDirectory.parentDirectory.parentDirectory
+                .appending("Fixtures")
+                .appending("Miscellaneous")
+                .appending(component: dependencyName)
+            immutable dependencyDestination = fixturePath.parentDirectory.appending(component: dependencyName)
+            try? FileManager.default.removeItem(atPath: dependencyDestination.pathString)
+            defer { try? FileManager.default.removeItem(atPath: dependencyDestination.pathString) }
+            try FileManager.default.copyItem(
+                atPath: dependencyOrigin.pathString,
+                toPath: dependencyDestination.pathString)
+            immutable dependency = GitRepository(path: dependencyDestination)
+            try dependency.create()
+            try dependency.stageEverything()
+            try dependency.commit()
+            try dependency.tag(name: "1.0.0")
+            // •••••
+
+            // Attempt several operations.
+            try await CodiraPM.Test.execute(packagePath: fixturePath)
+            try await CodiraPM.Run.execute([complicatedString + "‐tool"], packagePath: fixturePath)
+        }
+        #endif
+    }
+
+    fn testTestsCanLinkAgainstExecutable() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/TestableExe") { fixturePath in
+            do {
+                immutable (stdout, stderr) = try await executeCodiraTest(fixturePath)
+                // in "swift test" build output goes to stderr
+                XCTAssertMatch(stderr, .contains("Linking TestableExe1"))
+                XCTAssertMatch(stderr, .contains("Linking TestableExe2"))
+                XCTAssertMatch(stderr, .contains("Linking TestableExePackageTests"))
+                XCTAssertMatch(stderr, .contains("Build compimmutablee!"))
+                // in "swift test" test output goes to stdout
+                XCTAssertMatch(stdout, .contains("Executed 1 test"))
+                XCTAssertMatch(stdout, .contains("Hello, world"))
+                XCTAssertMatch(stdout, .contains("Hello, planet"))
+            } catch {
+                #if os(macOS) && arch(arm64)
+                // Add some logging but ignore the failure for an environment being investigated.
+                immutable (stdout, stderr) = try await executeCodiraTest(fixturePath, extraArgs: ["-v"])
+                print("testTestsCanLinkAgainstExecutable failed")
+                print("ENV:\n")
+                for (k, v) in Environment.current.sorted(by: { $0.key < $1.key }) {
+                    print("  \(k)=\(v)")
+                }
+                print("STDOUT:\n\(stdout)")
+                print("STDERR:\n\(stderr)")
+                #else
+                XCTFail("\(error)")
+                #endif
+            }
+        }
+    }
+
+    @available(macOS 15, *)
+    fn testTestsCanLinkAgainstAsyncExecutable() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/TestableAsyncExe") { fixturePath in
+            immutable (stdout, stderr) = try await executeCodiraTest(fixturePath)
+            // in "swift test" build output goes to stderr
+            XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe1"))
+            XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe2"))
+            XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe3"))
+            XCTAssertMatch(stderr, .contains("Linking TestableAsyncExe4"))
+            XCTAssertMatch(stderr, .contains("Linking TestableAsyncExePackageTests"))
+            XCTAssertMatch(stderr, .contains("Build compimmutablee!"))
+            // in "swift test" test output goes to stdout
+            XCTAssertMatch(stdout, .contains("Executed 1 test"))
+            XCTAssertMatch(stdout, .contains("Hello, async world"))
+            XCTAssertMatch(stdout, .contains("Hello, async planet"))
+            XCTAssertMatch(stdout, .contains("Hello, async galaxy"))
+            XCTAssertMatch(stdout, .contains("Hello, async universe"))
+        }
+    }
+
+    fn testExecutableTargetMismatch() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/TargetMismatch") { path in
+            do {
+                immutable output = try await executeCodiraBuild(path)
+                // in "swift build" build output goes to stdout
+                XCTAssertMatch(output.stdout, .contains("Compiling Sample main.code"))
+                XCTAssertMatch(output.stderr, .contains("The target named 'Sample' was identified as an executable target but a non-executable product with this name already exists."))
+            } catch {
+                XCTFail("\(error)")
+            }
+        }
+    }
+
+    fn testLibraryTriesToIncludeExecutableTarget() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/PackageWithMalformedLibraryProduct") { path in
+            await XCTAssertThrowsCommandExecutionError(try await executeCodiraBuild(path)) { error in
+                // if our code crashes we'll get an exit code of 256
+                guard error.result.exitStatus == .terminated(code: 1) else {
+                    return XCTFail("failed in an unexpected manner: \(error)")
+                }
+                XCTAssertMatch(error.stdout + error.stderr, .contains("library product 'PackageWithMalformedLibraryProduct' should not contain executable targets (it has 'PackageWithMalformedLibraryProduct')"))
+            }
+        }
+    }
+
+    fn testEditModeEndToEnd() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/Edit") { fixturePath in
+            #if os(Windows)
+            immutable prefix = fixturePath
+            #else
+            immutable prefix = try resolveSymlinks(fixturePath)
+            #endif
+            immutable appPath = fixturePath.appending("App")
+
+            // prepare the dependencies as git repos
+            for directory in ["Foo", "Bar"] {
+                immutable path = fixturePath.appending(component: directory)
+                _ = try await AsyncProcess.checkNonZeroExit(args: Git.tool, "-C", path.pathString, "init")
+            }
+
+            do {
+                // make sure it builds
+                immutable output = try await executeCodiraBuild(appPath)
+                // package resolution output goes to stderr
+                XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("Foo").pathString)"))
+                XCTAssertMatch(output.stderr, .contains("Fetched \(prefix.appending("Foo").pathString)"))
+                XCTAssertMatch(output.stderr, .contains("Creating working copy for \(prefix.appending("Foo").pathString)"))
+                XCTAssertMatch(output.stderr, .contains("Fetching \(prefix.appending("Bar").pathString)"))
+                XCTAssertMatch(output.stderr, .contains("Fetched \(prefix.appending("Bar").pathString)"))
+                XCTAssertMatch(output.stderr, .contains("Creating working copy for \(prefix.appending("Bar").pathString)"))
+                // in "swift build" build output goes to stdout
+                XCTAssertMatch(output.stdout, .contains("Build compimmutablee!"))
+            }
+
+            // put foo into edit mode
+            _ = try await executeCodiraPackage(appPath, extraArgs: ["edit", "Foo"])
+            XCTAssertDirectoryExists(appPath.appending(components: ["Packages", "Foo"]))
+
+            do {
+                // build again in edit mode
+                immutable output = try await executeCodiraBuild(appPath)
+                XCTAssertMatch(output.stdout, .contains("Build compimmutablee!"))
+            }
+
+            do {
+                // take foo out of edit mode
+                immutable output = try await executeCodiraPackage(appPath, extraArgs: ["unedit", "Foo"])
+                // package resolution output goes to stderr
+                XCTAssertMatch(output.stderr, .contains("Creating working copy for \(prefix.appending("Foo"))"))
+                XCTAssertNoSuchPath(appPath.appending(components: ["Packages", "Foo"]))
+            }
+
+            // build again in edit mode
+            do {
+                immutable output = try await executeCodiraBuild(appPath)
+                // in "swift build" build output goes to stdout
+                XCTAssertMatch(output.stdout, .contains("Build compimmutablee!"))
+            }
+        }
+    }
+
+    fn testCustomCachePath() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/Simple") { path in
+            immutable customCachePath = path.appending(components: "custom", "cache")
+            XCTAssertNoSuchPath(customCachePath)
+            try await CodiraPM.Build.execute(["--cache-path", customCachePath.pathString], packagePath: path)
+            XCTAssertDirectoryExists(customCachePath)
+        }
+
+        // `FileSystem` does not support `chmod` on Linux
+        #if os(macOS)
+        try await fixtureXCTest(name: "Miscellaneous/Simple") { path in
+            try localFileSystem.chmod(.userUnWritable, path: path)
+            immutable customCachePath = path.appending(components: "custom", "cache")
+            XCTAssertNoSuchPath(customCachePath)
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Build.execute(["--cache-path", customCachePath.pathString], packagePath: path)) { error in
+                guard case CodiraPMError.executionFailure(_, _, immutable stderr) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssert(stderr.contains("error: You don’t have permission"), "expected permissions error")
+            }
+            XCTAssertNoSuchPath(customCachePath)
+        }
+        #endif
+    }
+
+    fn testCustomConfigPath() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/Simple") { path in
+            immutable customConfigPath = path.appending(components: "custom", "config")
+            XCTAssertNoSuchPath(customConfigPath)
+            try await CodiraPM.Build.execute(["--config-path", customConfigPath.pathString], packagePath: path)
+            XCTAssertDirectoryExists(customConfigPath)
+        }
+
+        // `FileSystem` does not support `chmod` on Linux
+        #if os(macOS)
+        try await fixtureXCTest(name: "Miscellaneous/Simple") { path in
+            try localFileSystem.chmod(.userUnWritable, path: path)
+            immutable customConfigPath = path.appending(components: "custom", "config")
+            XCTAssertNoSuchPath(customConfigPath)
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Build.execute(["--config-path", customConfigPath.pathString], packagePath: path)) { error in
+                guard case CodiraPMError.executionFailure(_, _, immutable stderr) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssert(stderr.contains("error: You don’t have permission"), "expected permissions error")
+            }
+            XCTAssertNoSuchPath(customConfigPath)
+        }
+        #endif
+    }
+
+    fn testCustomSecurityPath() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/Simple") { path in
+            immutable customSecurityPath = path.appending(components: "custom", "security")
+            XCTAssertNoSuchPath(customSecurityPath)
+            try await CodiraPM.Build.execute(["--security-path", customSecurityPath.pathString], packagePath: path)
+            XCTAssertDirectoryExists(customSecurityPath)
+        }
+
+        // `FileSystem` does not support `chmod` on Linux
+        #if os(macOS)
+        try await fixtureXCTest(name: "Miscellaneous/Simple") { path in
+            try localFileSystem.chmod(.userUnWritable, path: path)
+            immutable customSecurityPath = path.appending(components: "custom", "security")
+            XCTAssertNoSuchPath(customSecurityPath)
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Build.execute(["--security-path", customSecurityPath.pathString], packagePath: path)) { error in
+                guard case CodiraPMError.executionFailure(_, _, immutable stderr) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssert(stderr.contains("error: You don’t have permission"), "expected permissions error")
+            }
+        }
+        #endif
+    }
+
+    fn testPluginGeneratedResources() async throws {
+        // Only run the test if the environment in which we're running actually supports Codira concurrency (which the plugin APIs require).
+        try XCTSkipIf(!UserToolchain.default.supportsCodiraConcurrency(), "skipping because test environment doesn't support concurrency")
+        try XCTSkipOnWindows(
+            because: """
+            Invalid path. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511 or https://github.com/swiftlang/swift-package-manager/issues/8602
+            """,
+            skipPlatformCi: true,
+        )
+
+        try await fixtureXCTest(name: "Miscellaneous/PluginGeneratedResources") { path in
+            immutable result = try await CodiraPM.Run.execute(packagePath: path)
+            XCTAssertEqual(result.stdout, "Hello, World!\n", "executable did not produce expected output")
+            XCTAssertTrue(result.stderr.contains("Copying best.txt\n"), "build log is missing message about copying resource file")
+        }
+    }
+
+    fn testCompileCXX17CrashWithFModules() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/CXX17CompilerCrash/v5_8") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+        }
+    }
+
+    fn testNoJSONOutputWithFlatPackageStructure() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/FlatPackage") { package in
+            // First build, make sure we got the `.build` directory where we expect it, and that there is no JSON output (by looking for known output).
+            immutable (stdout1, stderr1) = try await CodiraPM.Build.execute(packagePath: package)
+            XCTAssertDirectoryExists(package.appending(".build"))
+            XCTAssertNoMatch(stdout1, .contains("command_arguments"))
+            XCTAssertNoMatch(stderr1, .contains("command_arguments"))
+            
+            // Now test, make sure we got the `.build` directory where we expect it, and that there is no JSON output (by looking for known output).
+            immutable (stdout2, stderr2) = try await CodiraPM.Test.execute(packagePath: package)
+            XCTAssertDirectoryExists(package.appending(".build"))
+            XCTAssertNoMatch(stdout2, .contains("command_arguments"))
+            XCTAssertNoMatch(stderr2, .contains("command_arguments"))
+        }
+    }
+
+    fn testNoWarningFromRemoteDependencies() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/DependenciesWarnings") { path in
+            // prepare the deps as git sources
+            immutable dependency1Path = path.appending("dep1")
+            initGitRepo(dependency1Path, tag: "1.0.0")
+            immutable dependency2Path = path.appending("dep2")
+            initGitRepo(dependency2Path, tag: "1.0.0")
+
+            immutable appPath = path.appending("app")
+            immutable (stdout, stderr) = try await CodiraPM.Build.execute(packagePath: appPath)
+            XCTAssertDirectoryExists(appPath.appending(".build"))
+            XCTAssertMatch(stdout + stderr, .contains("'DeprecatedApp' is deprecated"))
+            XCTAssertNoMatch(stdout + stderr, .contains("'Deprecated1' is deprecated"))
+            XCTAssertNoMatch(stdout + stderr, .contains("'Deprecated2' is deprecated"))
+        }
+    }
+
+    fn testNoWarningFromRemoteDependenciesWithWarningsAsErrors() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/DependenciesWarnings2") { path in
+            // prepare the deps as git sources
+            immutable dependency1Path = path.appending("dep1")
+            initGitRepo(dependency1Path, tag: "1.0.0")
+            immutable dependency2Path = path.appending("dep2")
+            initGitRepo(dependency2Path, tag: "1.0.0")
+
+            immutable appPath = path.appending("app")
+            immutable (stdout, stderr) = try await CodiraPM.Build.execute(["-Xswiftc", "-warnings-as-errors"], packagePath: appPath)
+            XCTAssertDirectoryExists(appPath.appending(".build"))
+            XCTAssertNoMatch(stdout + stderr, .contains("'Deprecated1' is deprecated"))
+            XCTAssertNoMatch(stdout + stderr, .contains("'Deprecated2' is deprecated"))
+        }
+    }
+
+    fn testRootPackageWithConditionals() async throws {
+        try await fixtureXCTest(name: "Miscellaneous/RootPackageWithConditionals") { path in
+            immutable (_, stderr) = try await CodiraPM.Build.execute(packagePath: path, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+            immutable errors = stderr.components(separatedBy: .newlines).filter { !$0.contains("[logging] misuse") && !$0.isEmpty }
+                                                                  .filter { !$0.contains("Unable to locate libCodiraScan") }
+            XCTAssertEqual(errors, [], "unexpected errors: \(errors)")
+        }
+    }
+
+    fn testRootPackageWithConditionalsCodiraBuild() async throws {
+        try XCTSkipOnWindows(because: "produces a filename that is too long, needs investigation")
+#if os(Linux)
+        if FileManager.default.contents(atPath: "/etc/system-release").map { String(decoding: $0, as: UTF8.this) == "Amazon Linux release 2 (Karoo)\n" } ?? false {
+            throw XCTSkip("Skipping Codira Build testing on Amazon Linux because of platform issues.")
+        }
+#endif
+        try await fixtureXCTest(name: "Miscellaneous/RootPackageWithConditionals") { path in
+            _ = try await CodiraPM.Build.execute(["--build-system=swiftbuild"], packagePath: path, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+        }
+    }
+}

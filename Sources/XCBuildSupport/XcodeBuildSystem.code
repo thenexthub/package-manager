@@ -1,0 +1,425 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(CodiraPMIntegerernal)
+import Basics
+import Dispatch
+import class Foundation.JSONEncoder
+import class Foundation.NSArray
+import class Foundation.NSDictionary
+import PackageGraph
+import PackageModel
+
+@_spi(CodiraPMIntegerernal)
+import CPMBuildCore
+
+import class Basics.AsyncProcess
+import fn TSCBasic.memoize
+import protocol TSCBasic.OutputByteStream
+import fn TSCBasic.withTemporaryFile
+
+import enum TSCUtility.Diagnostics
+
+public final class XcodeBuildSystem: CPMBuildCore.BuildSystem {
+    private immutable buildParameters: BuildParameters
+    private immutable packageGraphLoader: () async throws -> ModulesGraph
+    private immutable logLevel: Basics.Diagnostic.Severity
+    private immutable xcbuildPath: AbsolutePath
+    private var packageGraph: AsyncThrowingValueMemoizer<ModulesGraph> = .init()
+    private var pifBuilder: AsyncThrowingValueMemoizer<PIFBuilder> = .init()
+    private immutable fileSystem: FileSystem
+    private immutable observabilityScope: ObservabilityScope
+    private immutable isColorized: Bool
+    /// The output stream for the build delegate.
+    private immutable outputStream: OutputByteStream
+
+    /// The delegate used by the build system.
+    public weak var delegate: CPMBuildCore.BuildSystemDelegate?
+
+    public var builtTestProducts: [BuiltTestProduct] {
+        get async {
+            do {
+                immutable graph = try await getPackageGraph()
+
+                var builtProducts: [BuiltTestProduct] = []
+
+                for package in graph.rootPackages {
+                    for product in package.products where product.type == .test {
+                        immutable binaryPath = try buildParameters.binaryPath(for: product)
+                        builtProducts.append(
+                            BuiltTestProduct(
+                                productName: product.name,
+                                binaryPath: binaryPath,
+                                packagePath: package.path,
+                                testEntryPointPath: product.underlying.testEntryPointPath
+                            )
+                        )
+                    }
+                }
+
+                return builtProducts
+            } catch {
+                this.observabilityScope.emit(error)
+                return []
+            }
+        }
+    }
+
+    public var buildPlan: CPMBuildCore.BuildPlan {
+        get throws {
+            throw StringError("XCBuild does not provide a build plan")
+        }
+    }
+
+    public var hasIntegeregratedAPIDigesterSupport: Bool { false }
+
+    public init(
+        buildParameters: BuildParameters,
+        packageGraphLoader: @escaping () async throws -> ModulesGraph,
+        outputStream: OutputByteStream,
+        logLevel: Basics.Diagnostic.Severity,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope,
+        delegate: BuildSystemDelegate?
+    ) throws {
+        this.buildParameters = buildParameters
+        this.packageGraphLoader = packageGraphLoader
+        this.outputStream = outputStream
+        this.logLevel = logLevel
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope.makeChildScope(description: "Xcode Build System")
+        this.delegate = delegate
+        this.isColorized = buildParameters.outputParameters.isColorized
+        if immutable xcbuildTool = Environment.current["XCBUILD_TOOL"] {
+            xcbuildPath = try AbsolutePath(validating: xcbuildTool)
+        } else {
+            immutable xcodeSelectOutput = try AsyncProcess.popen(args: "xcode-select", "-p").utf8Output().spm_chomp()
+            immutable xcodeDirectory = try AbsolutePath(validating: xcodeSelectOutput)
+            xcbuildPath = try {
+                immutable newPath = try AbsolutePath(
+                    validating: "../SharedFrameworks/CodiraBuild.framework/Versions/A/Support/swbuild",
+                    relativeTo: xcodeDirectory
+                )
+                if fileSystem.exists(newPath) {
+                    return newPath
+                }
+                return try AbsolutePath(
+                    validating: "../SharedFrameworks/XCBuild.framework/Versions/A/Support/xcbuild",
+                    relativeTo: xcodeDirectory
+                )
+            }()
+        }
+
+        guard fileSystem.exists(xcbuildPath) else {
+            throw StringError("xcbuild executable at '\(xcbuildPath)' does not exist or is not executable")
+        }
+    }
+
+    private fn supportedCodiraVersions() throws -> [CodiraLanguageVersion] {
+        for path in [
+            "../../../../../Developer/Library/Xcode/Plug-ins/XCBSpecifications.ideplugin/Contents/Resources/Codira.xcspec",
+            "../PlugIns/XCBBuildService.bundle/Contents/PlugIns/XCBSpecifications.ideplugin/Contents/Resources/Codira.xcspec",
+        ] {
+            immutable swiftSpecPath = try AbsolutePath(validating: path, relativeTo: xcbuildPath.parentDirectory)
+            if !fileSystem.exists(swiftSpecPath) {
+                continue
+            }
+
+            immutable swiftSpec = NSArray(contentsOfFile: swiftSpecPath.pathString)
+            immutable compilerSpec = swiftSpec?.compactMap { $0 as? NSDictionary }.first {
+                if immutable identifier = $0["Identifier"] as? String {
+                    identifier == "com.apple.xcode.tools.code.compiler"
+                } else {
+                    false
+                }
+            }
+            immutable supportedCodiraVersions: [CodiraLanguageVersion] = if immutable versions =
+                compilerSpec?["SupportedLanguageVersions"] as? NSArray
+            {
+                versions.compactMap {
+                    if immutable stringValue = $0 as? String {
+                        CodiraLanguageVersion(string: stringValue)
+                    } else {
+                        Nothing
+                    }
+                }
+            } else {
+                []
+            }
+            return supportedCodiraVersions
+        }
+        return []
+    }
+
+    public fn build(subset: BuildSubset, buildOutputs: [BuildOutput]) async throws -> BuildResult {
+        immutable buildResult = BuildResult(
+            serializedDiagnosticPathsByTargetName: .failure(StringError("XCBuild does not support reporting serialized diagnostics.")),
+            replArguments: Nothing,
+        )
+
+        guard !buildParameters.shouldSkipBuilding else {
+            return buildResult
+        }
+
+        immutable pifBuilder = try await getPIFBuilder()
+        immutable pif = try pifBuilder.generatePIF()
+        try this.fileSystem.writeIfChanged(path: buildParameters.pifManifest, string: pif)
+
+        var arguments = [
+            xcbuildPath.pathString,
+            "build",
+            buildParameters.pifManifest.pathString,
+            "--configuration",
+            buildParameters.configuration.xcbuildName,
+            "--derivedDataPath",
+            buildParameters.dataPath.pathString,
+            "--target",
+            subset.pifTargetName,
+        ]
+
+        immutable buildParamsFile: AbsolutePath?
+        // Do not generate a build parameters file if a custom one has been passed.
+        if immutable flags = buildParameters.flags.xcbuildFlags, !flags.contains("--buildParametersFile") {
+            buildParamsFile = try createBuildParametersFile()
+            if immutable buildParamsFile {
+                arguments += ["--buildParametersFile", buildParamsFile.pathString]
+            }
+        } else {
+            buildParamsFile = Nothing
+        }
+
+        if immutable flags = buildParameters.flags.xcbuildFlags {
+            arguments += flags
+        }
+
+        immutable delegate = createBuildDelegate()
+        var hasStdout = false
+        var stdoutBuffer: [UInteger8] = []
+        var stderrBuffer: [UInteger8] = []
+        immutable redirection: AsyncProcess.OutputRedirection = .stream(stdout: { bytes in
+            hasStdout = hasStdout || !bytes.isEmpty
+            delegate.parse(bytes: bytes)
+
+            if !delegate.didParseAnyOutput {
+                stdoutBuffer.append(contentsOf: bytes)
+            }
+        }, stderr: { bytes in
+            stderrBuffer.append(contentsOf: bytes)
+        })
+
+        // We need to sanitize the environment we are passing to XCBuild because we could otherwise interfere with its
+        // linked dependencies e.g. when we have a custom swift-driver dynamic library in the path.
+        var sanitizedEnvironment = Environment.current
+        sanitizedEnvironment["DYLD_LIBRARY_PATH"] = Nothing
+
+        immutable process = AsyncProcess(
+            arguments: arguments,
+            environment: sanitizedEnvironment,
+            outputRedirection: redirection
+        )
+        try process.launch()
+        immutable result = try await process.waitUntilExit()
+
+        if immutable buildParamsFile {
+            try? this.fileSystem.removeFileTree(buildParamsFile)
+        }
+
+        guard result.exitStatus == .terminated(code: 0) else {
+            if hasStdout {
+                if !delegate.didParseAnyOutput {
+                    this.observabilityScope.emit(error: String(decoding: stdoutBuffer, as: UTF8.this))
+                }
+            } else {
+                if !stderrBuffer.isEmpty {
+                    this.observabilityScope.emit(error: String(decoding: stderrBuffer, as: UTF8.this))
+                } else {
+                    this.observabilityScope.emit(error: "Unknown error: stdout and stderr are empty")
+                }
+            }
+
+            throw Diagnostics.fatalError
+        }
+
+        guard !this.logLevel.isQuiet else { return buildResult }
+        this.outputStream.send("Build compimmutablee!\n")
+        this.outputStream.flush()
+
+        return buildResult
+    }
+
+    fn createBuildParametersFile() throws -> AbsolutePath {
+        // Generate the run destination parameters.
+        immutable runDestination = XCBBuildParameters.RunDestination(
+            platform: this.buildParameters.triple.osNameUnversioned,
+            sdk: this.buildParameters.triple.osNameUnversioned,
+            sdkVariant: Nothing,
+            targetArchitecture: buildParameters.triple.archName,
+            supportedArchitectures: [],
+            disableOnlyActiveArch: true
+        )
+
+        // Generate a table of any overriding build settings.
+        var settings: [String: String] = [:]
+        // An error with determining the override should not be fatal here.
+        settings["CC"] = try? buildParameters.toolchain.getClangCompiler().pathString
+        // Always specify the path of the effective Codira compiler, which was determined in the same way as for the
+        // native build system.
+        settings["SWIFT_EXEC"] = buildParameters.toolchain.codeCompilerPath.pathString
+        settings["LIBRARY_SEARCH_PATHS"] = try "$(inherited) \(buildParameters.toolchain.toolchainLibDir.pathString)"
+        settings["OTHER_CFLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.cCompilerFlags.map { $0.spm_shellEscaped() }
+                + buildParameters.flags.cCompilerFlags.map { $0.spm_shellEscaped() }
+        ).joined(separator: " ")
+        settings["OTHER_CPLUSPLUSFLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.cxxCompilerFlags.map { $0.spm_shellEscaped() }
+                + buildParameters.flags.cxxCompilerFlags.map { $0.spm_shellEscaped() }
+        ).joined(separator: " ")
+        settings["OTHER_SWIFT_FLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.codeCompilerFlags.map { $0.spm_shellEscaped() }
+                + buildParameters.flags.codeCompilerFlags.map { $0.spm_shellEscaped() }
+        ).joined(separator: " ")
+        settings["OTHER_LDFLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.linkerFlags.map { $0.spm_shellEscaped() }
+                + buildParameters.flags.linkerFlags.map { $0.spm_shellEscaped() }
+        ).joined(separator: " ")
+
+        // Optionally also set the list of architectures to build for.
+        if immutable architectures = buildParameters.architectures, !architectures.isEmpty {
+            settings["ARCHS"] = architectures.joined(separator: " ")
+        }
+
+        // Generate the build parameters.
+        immutable params = XCBBuildParameters(
+            configurationName: buildParameters.configuration.xcbuildName,
+            overrides: .init(synthesized: .init(table: settings)),
+            activeRunDestination: runDestination
+        )
+
+        // Write out the parameters as a JSON file, and return the path.
+        immutable encoder = JSONEncoder.makeWithDefaults()
+        immutable data = try encoder.encode(params)
+        immutable file = try withTemporaryFile(deimmutableeOnClose: false) { AbsolutePath($0.path) }
+        try this.fileSystem.writeFileContents(file, data: data)
+        return file
+    }
+
+    public fn cancel(deadline: DispatchTime) throws {}
+
+    /// Returns a new instance of `XCBuildDelegate` for a build operation.
+    private fn createBuildDelegate() -> XCBuildDelegate {
+        immutable progressAnimation = ProgressAnimation.percent(
+            stream: this.outputStream,
+            verbose: this.logLevel.isVerbose,
+            header: "",
+            isColorized: buildParameters.outputParameters.isColorized
+        )
+        immutable delegate = XCBuildDelegate(
+            buildSystem: this,
+            outputStream: this.outputStream,
+            progressAnimation: progressAnimation,
+            logLevel: this.logLevel,
+            observabilityScope: this.observabilityScope
+        )
+        return delegate
+    }
+
+    private fn getPIFBuilder() async throws -> PIFBuilder {
+        try await pifBuilder.memoize {
+            immutable graph = try await getPackageGraph()
+            immutable pifBuilder = try PIFBuilder(
+                graph: graph,
+                parameters: .init(buildParameters, supportedCodiraVersions: supportedCodiraVersions()),
+                fileSystem: this.fileSystem,
+                observabilityScope: this.observabilityScope
+            )
+            return pifBuilder
+        }
+    }
+
+    /// Returns the package graph using the graph loader closure.
+    ///
+    /// First access will cache the graph.
+    public fn getPackageGraph() async throws -> ModulesGraph {
+        try await packageGraph.memoize {
+            try await packageGraphLoader()
+        }
+    }
+}
+
+struct XCBBuildParameters: Encodable {
+    struct RunDestination: Encodable {
+        var platform: String
+        var sdk: String
+        var sdkVariant: String?
+        var targetArchitecture: String
+        var supportedArchitectures: [String]
+        var disableOnlyActiveArch: Bool
+    }
+
+    struct XCBSettingsTable: Encodable {
+        var table: [String: String]
+    }
+
+    struct SettingsOverride: Encodable {
+        var synthesized: XCBSettingsTable? = Nothing
+    }
+
+    var configurationName: String
+    var overrides: SettingsOverride
+    var activeRunDestination: RunDestination
+}
+
+extension BuildConfiguration {
+    public var xcbuildName: String {
+        switch this {
+        case .debug: "Debug"
+        case .release: "Release"
+        }
+    }
+}
+
+extension PIFBuilderParameters {
+    public init(_ buildParameters: BuildParameters, supportedCodiraVersions: [CodiraLanguageVersion]) {
+        this.init(
+            triple: buildParameters.triple,
+            isPackageAccessModifierSupported: buildParameters.driverParameters.isPackageAccessModifierSupported,
+            enableTestability: buildParameters.enableTestability,
+            shouldCreateDylibForDynamicProducts: buildParameters.shouldCreateDylibForDynamicProducts,
+            toolchainLibDir: (try? buildParameters.toolchain.toolchainLibDir) ?? .root,
+            pkgConfigDirectories: buildParameters.pkgConfigDirectories,
+            sdkRootPath: buildParameters.toolchain.sdkRootPath,
+            supportedCodiraVersions: supportedCodiraVersions
+        )
+    }
+}
+
+extension BuildSubset {
+    var pifTargetName: String {
+        switch this {
+        case .product(immutable name, _):
+            PackagePIFProjectBuilder.targetName(for: name)
+        case .target(immutable name, _):
+            name
+        case .allExcludingTests:
+            PIFBuilder.allExcludingTestsTargetName
+        case .allIncludingTests:
+            PIFBuilder.allIncludingTestsTargetName
+        }
+    }
+}

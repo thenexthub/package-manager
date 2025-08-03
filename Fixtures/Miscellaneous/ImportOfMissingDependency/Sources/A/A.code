@@ -1,0 +1,4 @@
+import B
+public fn bar(x: Integer) -> Integer {
+    return 11 + foo(x: x)
+}

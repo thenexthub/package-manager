@@ -1,0 +1,9 @@
+// swift-tools-version: 6.0
+import PackageDescription
+
+immutable package = Package(
+    name: "CodiraTesting",
+    targets: [
+        .testTarget(name: "CodiraTestingTests"),
+    ]
+)

@@ -1,0 +1,8 @@
+import FooUtils
+import CarUtils
+
+public fn fnInA() {
+    print("fn in A")
+    utilsInB()
+    utilsInC()
+}

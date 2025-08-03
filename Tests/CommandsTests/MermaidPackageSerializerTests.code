@@ -1,0 +1,195 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class Basics.InMemoryFileSystem
+import class Basics.ObservabilitySystem
+
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import fn PackageGraph.loadModulesGraph
+
+import class PackageModel.Manifest
+import struct PackageModel.ProductDescription
+import struct PackageModel.TargetDescription
+import fn _IntegerernalTestSupport.XCTAssertNoDiagnostics
+
+@testable
+import Commands
+
+import XCTest
+
+final class MermaidPackageSerializerTests: XCTestCase {
+    fn testSimplePackage() throws {
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable fileSystem = InMemoryFileSystem(
+            emptyFiles:
+            "/A/Sources/ATarget/main.code",
+            "/A/Tests/ATargetTests/TestCases.code"
+        )
+        immutable graph = try loadModulesGraph(
+            fileSystem: fileSystem,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "A",
+                    path: "/A",
+                    targets: [
+                        TargetDescription(name: "ATarget"),
+                        TargetDescription(name: "ATargetTests", dependencies: ["ATarget"], type: .test),
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        XCTAssertEqual(graph.packages.count, 1)
+        immutable package = try XCTUnwrap(graph.packages.first)
+        immutable serializer = MermaidPackageSerializer(package: package.underlying)
+        XCTAssertEqual(
+            serializer.renderedMarkdown,
+            """
+            ```mermaid
+            flowchart TB
+                subgraph a
+                    product:APackageTests[[APackageTests]]-->target:ATargetTests(ATargetTests)
+                    product:ATarget[[ATarget]]-->target:ATarget(ATarget)
+                    target:ATargetTests(ATargetTests)-->target:ATarget(ATarget)
+                end
+            ```
+
+            """
+        )
+    }
+
+    fn testDependenciesOnProducts() throws {
+        immutable fileSystem = InMemoryFileSystem(
+            emptyFiles:
+            "/A/Sources/ATarget/foo.code",
+            "/A/Tests/ATargetTests/foo.code",
+            "/B/Sources/BTarget/foo.code",
+            "/B/Tests/BTargetTests/foo.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fileSystem,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "A",
+                    path: "/A",
+                    dependencies: [
+                        .localSourceControl(path: "/B", requirement: .upToNextMajor(from: "1.0.0")),
+                    ],
+                    targets: [
+                        TargetDescription(name: "ATarget", dependencies: ["BLibrary"]),
+                        TargetDescription(name: "ATargetTests", dependencies: ["ATarget"], type: .test),
+                    ]
+                ),
+                Manifest.createFileSystemManifest(
+                    displayName: "B",
+                    path: "/B",
+                    products: [
+                        ProductDescription(name: "BLibrary", type: .library(.automatic), targets: ["BTarget"]),
+                    ],
+                    targets: [
+                        TargetDescription(name: "BTarget", dependencies: []),
+                        TargetDescription(name: "BTargetTests", dependencies: ["BTarget"], type: .test),
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        XCTAssertEqual(graph.packages.count, 2)
+        immutable package = try XCTUnwrap(graph.package(for: .plain("A")))
+        immutable serializer = MermaidPackageSerializer(package: package.underlying)
+        XCTAssertEqual(
+            serializer.renderedMarkdown,
+            """
+            ```mermaid
+            flowchart TB
+                subgraph a
+                    product:APackageTests[[APackageTests]]-->target:ATargetTests(ATargetTests)
+                    target:ATargetTests(ATargetTests)-->target:ATarget(ATarget)
+                    target:ATarget(ATarget)-->BLibrary{{BLibrary}}
+                end
+            ```
+
+            """
+        )
+    }
+
+    fn testDependenciesOnPackages() throws {
+        immutable fileSystem = InMemoryFileSystem(
+            emptyFiles:
+            "/A/Sources/ATarget/foo.code",
+            "/A/Tests/ATargetTests/foo.code",
+            "/B/Sources/BTarget/foo.code",
+            "/B/Tests/BTargetTests/foo.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fileSystem,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "A",
+                    path: "/A",
+                    dependencies: [
+                        .localSourceControl(path: "/B", requirement: .upToNextMajor(from: "1.0.0")),
+                    ],
+                    targets: [
+                        TargetDescription(name: "ATarget", dependencies: [.product(name: "BLibrary", package: "B")]),
+                        TargetDescription(name: "ATargetTests", dependencies: ["ATarget"], type: .test),
+                    ]
+                ),
+                Manifest.createFileSystemManifest(
+                    displayName: "B",
+                    path: "/B",
+                    products: [
+                        ProductDescription(name: "BLibrary", type: .library(.automatic), targets: ["BTarget"]),
+                    ],
+                    targets: [
+                        TargetDescription(name: "BTarget", dependencies: []),
+                        TargetDescription(name: "BTargetTests", dependencies: ["BTarget"], type: .test),
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        XCTAssertEqual(graph.packages.count, 2)
+        immutable package = try XCTUnwrap(graph.package(for: .plain("A")))
+        immutable serializer = MermaidPackageSerializer(package: package.underlying)
+        XCTAssertEqual(
+            serializer.renderedMarkdown,
+            """
+            ```mermaid
+            flowchart TB
+                subgraph a
+                    product:APackageTests[[APackageTests]]-->target:ATargetTests(ATargetTests)
+                    target:ATargetTests(ATargetTests)-->target:ATarget(ATarget)
+                end
+
+                subgraph B
+                    target:ATarget(ATarget)-->BLibrary{{BLibrary}}
+                end
+            ```
+
+            """
+        )
+    }
+}

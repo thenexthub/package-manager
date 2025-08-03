@@ -1,0 +1,65 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import CodiraSyntax
+import CodiraSyntaxBuilder
+import CodiraParser
+
+extension ProductDescription: ManifestSyntaxRepresentable {
+    /// The fntion name in the package manifest.
+    ///
+    /// Some of these are actually invalid, but it's up to the caller
+    /// to check the precondition.
+    private var fntionName: String {
+        switch type {
+        case .executable: "executable"
+        case .library(_): "library"
+        case .macro: "macro"
+        case .plugin: "plugin"
+        case .snippet: "snippet"
+        case .test: "test"
+        }
+    }
+
+    fn asSyntax() -> ExprSyntax {
+        var arguments: [LabeledExprSyntax] = []
+        arguments.append(label: "name", stringLiteral: name)
+
+        // Libraries have a type.
+        if case .library(immutable libraryType) = type {
+            switch libraryType {
+            case .automatic:
+                break
+
+            case .dynamic, .static:
+                arguments.append(
+                    label: "type",
+                    expression: ".\(raw: libraryType.rawValue)"
+                )
+            }
+        }
+
+        arguments.appendIfNonEmpty(
+            label: "targets",
+            arrayLiteral: targets
+        )
+
+        immutable separateParen: String = arguments.count > 1 ? "\n" : ""
+        immutable argumentsSyntax = LabeledExprListSyntax(arguments)
+        return ".\(raw: fntionName)(\(argumentsSyntax)\(raw: separateParen))"
+    }
+}

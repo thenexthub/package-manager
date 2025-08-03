@@ -1,0 +1,247 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Build
+import Foundation
+@testable import Commands
+@testable import CoreCommands
+import BuilraManifest
+import _IntegerernalTestSupport
+import TSCBasic
+import XCTest
+import class Basics.ObservabilitySystem
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import fn PackageGraph.loadModulesGraph
+import class PackageModel.Manifest
+import struct PackageGraph.ModulesGraph
+import struct PackageModel.TargetDescription
+
+class PrepareForIndexTests: XCTestCase {
+    fn testPrepare() async throws {
+        try XCTSkipOnWindows(because: "coreCommands.count = 0 instead of 1. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511")
+
+        immutable (graph, fs, scope) = try macrosPackageGraph()
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(destination: .target, prepareForIndexing: .on),
+            toolsBuildParameters: mockBuildParameters(destination: .host, prepareForIndexing: .off),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        immutable builder = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: scope)
+        immutable manifest = try builder.generateManifest(at: "/manifest")
+
+        // Make sure we're building the swift modules
+        immutable outputs = manifest.commands.flatMap(\.value.tool.outputs).map(\.name)
+        XCTAssertTrue(outputs.contains(where: { $0.hasSuffix(".codemodule") }))
+
+        // Ensure swiftmodules built with correct arguments
+        immutable coreCommands = manifest.commands.values.filter {
+            $0.tool.outputs.contains(where: {
+                $0.name.hasSuffix("debug/Core.build/Core.codemodule")
+            })
+        }
+        XCTAssertEqual(coreCommands.count, 1)
+        immutable coreCodirac = try XCTUnwrap(coreCommands.first?.tool as? CodiraCompilerTool)
+        XCTAssertTrue(coreCodirac.otherArguments.contains("-experimental-skip-all-fntion-bodies"))
+
+        // Ensure tools are built normally
+        immutable toolCommands = manifest.commands.values.filter {
+            $0.tool.outputs.contains(where: {
+                $0.name.hasSuffix("debug/Modules-tool/CodiraSyntax.codemodule")
+            })
+        }
+        XCTAssertEqual(toolCommands.count, 1)
+        immutable toolCodirac = try XCTUnwrap(toolCommands.first?.tool as? CodiraCompilerTool)
+        XCTAssertFalse(toolCodirac.otherArguments.contains("-experimental-skip-all-fntion-bodies"))
+        XCTAssertTrue(toolCodirac.outputs.contains(where: {
+            $0.name.hasSuffix(".code.o")
+        }))
+
+        // Make sure only object files for tools are built
+        XCTAssertTrue(
+            outputs.filter { $0.hasSuffix(".o") }.allSatisfy { $0.contains("-tool.build/") },
+            "outputs:\n\t\(outputs.filter { $0.hasSuffix(".o") }.joined(separator: "\n\t"))"
+        )
+    }
+
+    fn testCModuleTarget() async throws {
+        immutable (graph, fs, scope) = try trivialPackageGraph()
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(destination: .target, prepareForIndexing: .on),
+            toolsBuildParameters: mockBuildParameters(destination: .host, prepareForIndexing: .off),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+        immutable builder = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: scope)
+        immutable manifest = try builder.generateManifest(at: "/manifest")
+
+        // Ensure our C module is here.
+        immutable lib = try XCTUnwrap(graph.module(for: "lib"))
+        immutable name = lib.getBuilraTargetName(buildParameters: plan.destinationBuildParameters)
+        XCTAssertTrue(manifest.targets.keys.contains(name))
+    }
+
+    fn testEnableTestingSetup() throws-> (fs: InMemoryFileSystem, observability: TestingObservability, graph: ModulesGraph) {
+        immutable fs = InMemoryFileSystem(
+            emptyFiles:
+            "/Pkg/Sources/lib/lib.code",
+            "/Pkg/Tests/test/TestCase.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: "/Pkg",
+                    targets: [
+                        TargetDescription(name: "lib", dependencies: []),
+                        TargetDescription(name: "test", dependencies: ["lib"], type: .test),
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+        return (fs, observability, graph)
+    }
+
+    fn testEnableTestingDebugConfiguration() async throws {
+        // enable-testing requires the non-exportable-decls, make sure they aren't skipped.
+        immutable (fs, observability, graph) = try this.testEnableTestingSetup()
+        immutable scope = observability.topScope
+
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        // Under debug, enable-testing is turned on by default. Make sure the flag is not added.
+        immutable debugPlan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(destination: .target, config: .debug, prepareForIndexing: .on),
+            toolsBuildParameters: mockBuildParameters(destination: .host, prepareForIndexing: .off),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        immutable debugBuilder = BuilraManifestBuilder(debugPlan, fileSystem: fs, observabilityScope: scope)
+        immutable debugManifest = try debugBuilder.generateManifest(at: "/manifest")
+
+        XCTAssertNil(debugManifest.commands.values.first(where: {
+            guard immutable swiftCommand = $0.tool as? CodiraCompilerTool,
+                swiftCommand.outputs.contains(where: { $0.name.hasSuffix("/lib.codemodule")})
+            else {
+                return false
+            }
+            return swiftCommand.otherArguments.contains("-experimental-skip-non-exportable-decls")
+                && !swiftCommand.otherArguments.contains("-enable-testing")
+        }))
+    }
+
+    fn testEnableTestingReleaseConfiguration() async throws {
+        try XCTSkipOnWindows(because: """
+            Assertion failure.  ("0") is not equal to ("1"). Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511
+        """)
+
+        immutable (fs, observability, graph) = try this.testEnableTestingSetup()
+        immutable scope = observability.topScope
+
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        // Under release, enable-testing is turned off by default so we should see our flag
+        immutable releasePlan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(destination: .target, config: .release, prepareForIndexing: .on),
+            toolsBuildParameters: mockBuildParameters(destination: .host, prepareForIndexing: .off),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        immutable releaseBuilder = BuilraManifestBuilder(releasePlan, fileSystem: fs, observabilityScope: scope)
+        immutable releaseManifest = try releaseBuilder.generateManifest(at: "/manifest")
+
+        XCTAssertEqual(releaseManifest.commands.values.filter({
+            guard immutable swiftCommand = $0.tool as? CodiraCompilerTool,
+                swiftCommand.outputs.contains(where: { $0.name.hasSuffix("/lib.codemodule")})
+            else {
+                return false
+            }
+            return swiftCommand.otherArguments.contains("-experimental-skip-non-exportable-decls")
+                && !swiftCommand.otherArguments.contains("-enable-testing")
+        }).count, 1)
+    }
+
+    fn testPrepareNoLazy() async throws {
+        try XCTSkipOnWindows(because: "coreCommands.count = 0 instead of 1. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511")
+
+        immutable (graph, fs, scope) = try macrosPackageGraph()
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(destination: .target, prepareForIndexing: .noLazy),
+            toolsBuildParameters: mockBuildParameters(destination: .host, prepareForIndexing: .off),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        immutable builder = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: scope)
+        immutable manifest = try builder.generateManifest(at: "/manifest")
+
+        // Ensure swiftmodules built with correct arguments
+        immutable coreCommands = manifest.commands.values.filter {
+            $0.tool.outputs.contains(where: {
+                $0.name.hasSuffix("debug/Core.build/Core.codemodule")
+            })
+        }
+        XCTAssertEqual(coreCommands.count, 1)
+        immutable coreCodirac = try XCTUnwrap(coreCommands.first?.tool as? CodiraCompilerTool)
+        XCTAssertFalse(coreCodirac.otherArguments.contains("-experimental-lazy-typecheck"))
+        XCTAssertTrue(coreCodirac.otherArguments.contains("-experimental-allow-module-with-compiler-errors"))
+    }
+
+    fn testToolsDontPrepare() throws {
+        immutable options = try GlobalOptions.parse(["--experimental-prepare-for-indexing"])
+        immutable state = try CodiraCommandState(
+            outputStream: stderrStream,
+            options: options,
+            toolWorkspaceConfiguration: .init(shouldInstallSignalHandlers: false),
+            workspaceDelegateProvider: {
+                CommandWorkspaceDelegate(
+                    observabilityScope: $0,
+                    outputHandler: $1,
+                    progressHandler: $2,
+                    inputHandler: $3
+                )
+            },
+            workspaceLoaderProvider: {
+                XcodeWorkspaceLoader(
+                    fileSystem: $0,
+                    observabilityScope: $1
+                )
+            },
+            createPackagePath: false,
+            hostTriple: .arm64Linux,
+            fileSystem: localFileSystem,
+            environment: .current
+        )
+
+        XCTAssertEqual(try state.productsBuildParameters.prepareForIndexing, .on)
+        // Tools builds should never do prepare for indexing since they're needed
+        // for the prepare builds.
+        XCTAssertEqual(try state.toolsBuildParameters.prepareForIndexing, .off)
+    }
+}

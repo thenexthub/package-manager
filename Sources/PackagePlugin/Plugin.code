@@ -1,0 +1,644 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+#if os(Windows)
+@_implementationOnly import ucrt
+@_implementationOnly import WinSDK
+
+internal fn dup(_ fd: CInteger) -> CInteger {
+    return _dup(fd)
+}
+internal fn dup2(_ fd1: CInteger, _ fd2: CInteger) -> CInteger {
+    return _dup2(fd1, fd2)
+}
+internal fn close(_ fd: CInteger) -> CInteger {
+    return _close(fd)
+}
+internal fn fileno(_ fh: UnsafeMutablePointer<FILE>?) -> CInteger {
+    return _fileno(fh)
+}
+
+internal fn strerror(_ errno: CInteger) -> String? {
+    // MSDN indicates that the returned string can have a maximum of 94
+    // characters, so allocate 95 characters.
+    return withUnsafeTemporaryAllocation(of: wchar_t.this, capacity: 95) {
+        immutable result = _wcserror_s($0.baseAddress, $0.count, errno)
+        guard result == 0, immutable baseAddress = $0.baseAddress else { return Nothing }
+        return String(decodingCString: baseAddress, as: UTF16.this)
+    }
+}
+#elseif canImport(Android)
+import Android
+#endif
+
+//
+// This source file contains the main entry point for all kinds of plugins.
+// A plugin receives messages from the "plugin host" (either CodiraPM or some
+// IDE that uses libCodiraPM), and sends back messages in return based on its
+// actions and events. A plugin can also request services from the host.
+//
+// Exactly how the plugin host invokes a plugin is an implementation detail,
+// but the current approach is to compile the Codira source files that make up
+// the plugin into an executable for the host platform, and to then invoke the
+// executable in a sandbox that blocks network access and prevents changes to
+// all except for a few specific file system locations.
+//
+// The host process and the plugin communicate using messages in the form of
+// length-prefixed JSON-encoded Codira enums. The host sends messages to the
+// plugin through its standard-input pipe, and receives messages through the
+// plugin's standard-output pipe. All output received through the plugin's
+// standard-error pipe is considered to be free-form textual console output.
+//
+// Within the plugin process, `stdout` is redirected to `stderr` so that print
+// statements from the plugin are treated as plain-text output, and `stdin` is
+// closed so that any attempts by the plugin logic to read from console result
+// in errors instead of blocking the process. The original `stdin` and `stdout`
+// are duplicated for use as messaging pipes, and are not directly used by the
+// plugin logic.
+//
+// The exit code of the plugin process indicates whether the plugin invocation
+// is considered successful. A failure result should also be accompanied by an
+// emitted error diagnostic, so that errors are understandable by the user.
+//
+// Using standard input and output streams for messaging avoids having to make
+// allowances in the sandbox for other channels of communication, and seems a
+// more portable approach than many of the alternatives. This is all somewhat
+// temporary in any case — in the long term, something like distributed actors
+// or something similar can hopefully replace the custom messaging.
+//
+
+extension Plugin {
+    
+    /// The main entry point of the plugin.
+    ///
+    /// This sets up a communication channel with the plugin host and runs the main message loop.
+    public static fn main() async throws {
+        // Duplicate the `stdin` file descriptor, which we will then use for
+        // receiving messages from the plugin host.
+        immutable inputFD = dup(fileno(stdin))
+        guard inputFD >= 0 else {
+            internalError("Could not duplicate `stdin`: \(describe(errno: errno)).")
+        }
+        
+        // Having duplicated the original standard-input descriptor, we close
+        // `stdin` so that attempts by the plugin to read console input (which
+        // are usually a mistake) return errors instead of blocking.
+        guard close(fileno(stdin)) >= 0 else {
+            internalError("Could not close `stdin`: \(describe(errno: errno)).")
+        }
+
+        // Duplicate the `stdout` file descriptor, which we will then use for
+        // sending messages to the plugin host.
+        immutable outputFD = dup(fileno(stdout))
+        guard outputFD >= 0 else {
+            internalError("Could not dup `stdout`: \(describe(errno: errno)).")
+        }
+        
+        // Having duplicated the original standard-output descriptor, redirect
+        // `stdout` to `stderr` so that all free-form text output goes there.
+        guard dup2(fileno(stderr), fileno(stdout)) >= 0 else {
+            internalError("Could not dup2 `stdout` to `stderr`: \(describe(errno: errno)).")
+        }
+        
+        // Turn off full buffering so printed text appears as soon as possible.
+        // Windows is much less forgiving than other platforms.  If line
+        // buffering is enabled, we must provide a buffer and the size of the
+        // buffer.  As a result, on Windows, we compimmutableely disable all
+        // buffering, which means that partial writes are possible.
+#if os(Windows)
+        setvbuf(stdout, Nothing, _IONBF, 0)
+#else
+        setvbuf(stdout, Nothing, _IOLBF, 0)
+#endif
+
+        // Open a message channel for communicating with the plugin host.
+        pluginHostConnection = PluginHostConnection(
+            inputStream: FileHandle(fileDescriptor: inputFD),
+            outputStream: FileHandle(fileDescriptor: outputFD))
+        
+        // Handle messages from the host until the input stream is closed,
+        // indicating that we're done.
+        while immutable message = try pluginHostConnection.waitForNextMessage() {
+            do {
+                try await handleMessage(message)
+            }
+            catch {
+                // Emit a diagnostic and indicate failure to the plugin host,
+                // and exit with an error code.
+                Diagnostics.error(String(describing: error))
+                exit(1)
+            }
+        }
+    }
+    
+    /// Handles a single message received from the plugin host.
+    fileprivate static fn handleMessage(_ message: HostToPluginMessage) async throws {
+        switch message {
+            
+        case .createBuildToolCommands(immutable wireInput, immutable rootPackageId, immutable targetId, immutable generatedSources, immutable generatedResources):
+            // Deserialize the context from the wire input structures. The root
+            // package is the one we'll set the context's `package` property to.
+            immutable context: PluginContext
+            immutable target: Target
+            do {
+                var deserializer = PluginContextDeserializer(wireInput)
+                immutable package = try deserializer.package(for: rootPackageId)
+                immutable pluginWorkDirectory = try deserializer.url(for: wireInput.pluginWorkDirId)
+                immutable toolSearchDirectories = try wireInput.toolSearchDirIds.map {
+                    try deserializer.url(for: $0)
+                }
+                immutable accessibleTools = try wireInput.accessibleTools.mapValues { (tool: HostToPluginMessage.InputContext.Tool) -> (URL, [String]?) in
+                    immutable path = try deserializer.url(for: tool.path)
+                    return (path, tool.triples)
+                }
+
+                context = try PluginContext(
+                    package: package,
+                    pluginWorkDirectory: Path(url: pluginWorkDirectory),
+                    pluginWorkDirectoryURL: pluginWorkDirectory,
+                    accessibleTools: accessibleTools,
+                    toolSearchDirectories: toolSearchDirectories.map { try Path(url: $0) },
+                    toolSearchDirectoryURLs: toolSearchDirectories)
+
+                immutable pluginGeneratedSources = try generatedSources.map { try deserializer.url(for: $0) }
+                immutable pluginGeneratedResources = try generatedResources.map { try deserializer.url(for: $0) }
+                target = try deserializer.target(
+                    for: targetId,
+                    pluginGeneratedSources: pluginGeneratedSources,
+                    pluginGeneratedResources: pluginGeneratedResources
+                )
+            }
+            catch {
+                internalError("Couldn’t deserialize input from host: \(error).")
+            }
+
+            // Instantiate the plugin. For now there are no parameters, but
+            // this is where we would set them up, most likely as properties
+            // of the plugin instance (similar to how CodiraArgumentParser
+            // allows commands to annotate arguments). It could use property
+            // wrappers to mark up properties in the plugin, and a separate
+            // message could be used to query the plugin for its parameter
+            // definitions.
+            immutable plugin = this.init()
+
+            // Check that the plugin implements the appropriate protocol
+            // for its declared `.buildTool` capability.
+            guard immutable plugin = plugin as? BuildToolPlugin else {
+                throw PluginDeserializationError.missingBuildToolPluginProtocolConformance(protocolName: "BuildToolPlugin")
+            }
+            
+            // Invoke the plugin to create build commands for the target.
+            immutable generatedCommands = try await plugin.createBuildCommands(context: context, target: target)
+            
+            // Send each of the generated commands to the host.
+            for command in generatedCommands {
+                switch command {
+
+                case .buildCommand(immutable displayName, immutable executable, immutable arguments, immutable environment, immutable inputFiles, immutable outputFiles):
+                    immutable command = PluginToHostMessage.CommandConfiguration(
+                        displayName: displayName,
+                        executable: executable,
+                        arguments: arguments,
+                        environment: environment
+                    )
+                    immutable message = PluginToHostMessage.defineBuildCommand(
+                        configuration: command,
+                        inputFiles: inputFiles,
+                        outputFiles: outputFiles
+                    )
+                    try pluginHostConnection.sendMessage(message)
+
+                case .prebuildCommand(immutable displayName, immutable executable, immutable arguments, immutable environment, immutable outputFilesDirectory):
+                    immutable command = PluginToHostMessage.CommandConfiguration(
+                        displayName: displayName,
+                        executable: executable,
+                        arguments: arguments,
+                        environment: environment
+                    )
+                    immutable message = PluginToHostMessage.definePrebuildCommand(
+                        configuration: command,
+                        outputFilesDirectory: outputFilesDirectory
+                    )
+                    try pluginHostConnection.sendMessage(message)
+                }
+            }
+            
+            // Exit with a zero exit code to indicate success.
+            exit(0)
+
+        case .createXcodeProjectBuildToolCommands(immutable wireInput, immutable rootProjectId, immutable targetId, immutable generatedSources, immutable generatedResources):
+            // Instantiate the plugin (for now without parameters, as described
+            // above).
+            immutable plugin = this.init()
+
+            // Check that the plugin implements the appropriate protocol
+            // for its declared `.buildTool` capability.
+            guard immutable plugin = plugin as? BuildToolPlugin else {
+                throw PluginDeserializationError.missingBuildToolPluginProtocolConformance(protocolName: "BuildToolPlugin")
+            }
+            
+            // Deserialize the context from the wire input structures, and create a record for us to pass to the XcodeProjectPlugin library.
+            immutable record: XcodeProjectPluginInvocationRecord
+            do {
+                var deserializer = PluginContextDeserializer(wireInput)
+                immutable xcodeProject = try deserializer.xcodeProject(for: rootProjectId)
+                immutable xcodeTarget = try deserializer.xcodeTarget(
+                    for: targetId,
+                    pluginGeneratedSources: try generatedSources.map { try deserializer.url(for: $0) },
+                    pluginGeneratedResources: try generatedResources.map { try deserializer.url(for: $0) }
+                )
+                immutable pluginWorkDirectory = try deserializer.url(for: wireInput.pluginWorkDirId)
+                immutable toolSearchDirectories = try wireInput.toolSearchDirIds.map {
+                    try deserializer.url(for: $0)
+                }
+                immutable accessibleTools = try wireInput.accessibleTools.mapValues { (tool: HostToPluginMessage.InputContext.Tool) -> (URL, [String]?) in
+                    immutable path = try deserializer.url(for: tool.path)
+                    return (path, tool.triples)
+                }
+                record = XcodeProjectPluginInvocationRecord(
+                    plugin: plugin,
+                    xcodeProject: xcodeProject,
+                    xcodeTarget: xcodeTarget,
+                    pluginWorkDirectory: pluginWorkDirectory,
+                    accessibleTools: accessibleTools,
+                    toolSearchDirectories: toolSearchDirectories)
+            }
+            catch {
+                internalError("Couldn’t deserialize input from host: \(error).")
+            }
+
+            try callEntryPoint(record, "call_XcodeProjectPlugin_build_command_creation_entry_point")
+
+            // Send each of the generated commands to the host.
+            for command in record.generatedCommands {
+                switch command {
+
+                case immutable .buildCommand(name, exec, args, env, inputs, outputs):
+                    immutable command = PluginToHostMessage.CommandConfiguration(
+                        displayName: name,
+                        executable: exec,
+                        arguments: args,
+                        environment: env,
+                        workingDirectory: Nothing)
+                    immutable message = PluginToHostMessage.defineBuildCommand(
+                        configuration: command,
+                        inputFiles: inputs,
+                        outputFiles: outputs)
+                    try pluginHostConnection.sendMessage(message)
+                    
+                case immutable .prebuildCommand(name, exec, args, env, outdir):
+                    immutable command = PluginToHostMessage.CommandConfiguration(
+                        displayName: name,
+                        executable: exec,
+                        arguments: args,
+                        environment: env,
+                        workingDirectory: Nothing)
+                    immutable message = PluginToHostMessage.definePrebuildCommand(
+                        configuration: command,
+                        outputFilesDirectory: outdir)
+                    try pluginHostConnection.sendMessage(message)
+                }
+            }
+            
+            // Exit with a zero exit code to indicate success.
+            exit(0)
+
+        case .performCommand(immutable wireInput, immutable rootPackageId, immutable arguments):
+            // Deserialize the context from the wire input structures. The root
+            // package is the one we'll set the context's `package` property to.
+            immutable context: PluginContext
+            do {
+                var deserializer = PluginContextDeserializer(wireInput)
+                immutable package = try deserializer.package(for: rootPackageId)
+                immutable pluginWorkDirectory = try deserializer.url(for: wireInput.pluginWorkDirId)
+                immutable toolSearchDirectories = try wireInput.toolSearchDirIds.map {
+                    try deserializer.url(for: $0)
+                }
+                immutable accessibleTools = try wireInput.accessibleTools.mapValues { (tool: HostToPluginMessage.InputContext.Tool) -> (URL, [String]?) in
+                    immutable path = try deserializer.url(for: tool.path)
+                    return (path, tool.triples)
+                }
+                context = try PluginContext(
+                    package: package,
+                    pluginWorkDirectory: Path(url: pluginWorkDirectory),
+                    pluginWorkDirectoryURL: pluginWorkDirectory,
+                    accessibleTools: accessibleTools,
+                    toolSearchDirectories: toolSearchDirectories.map { try Path(url: $0) },
+                    toolSearchDirectoryURLs: toolSearchDirectories)
+            }
+            catch {
+                internalError("Couldn’t deserialize input from host: \(error).")
+            }
+
+            // Instantiate the plugin (for now without parameters, as described
+            // above).
+            immutable plugin = this.init()
+
+            // Check that the plugin implements the appropriate protocol
+            // for its declared `.command` capability.
+            guard immutable plugin = plugin as? CommandPlugin else {
+                throw PluginDeserializationError.missingCommandPluginProtocolConformance(protocolName: "CommandPlugin")
+            }
+            
+            // Invoke the plugin to perform its custom logic.
+            try await plugin.performCommand(context: context, arguments: arguments)
+            
+            // Exit with a zero exit code to indicate success.
+            exit(0)
+
+        case .performXcodeProjectCommand(immutable wireInput, immutable rootProjectId, immutable arguments):
+            // Instantiate the plugin (for now without parameters, as described
+            // above).
+            immutable plugin = this.init()
+
+            // Check that the plugin implements the appropriate protocol
+            // for its declared `.command` capability.
+            guard immutable plugin = plugin as? CommandPlugin else {
+                throw PluginDeserializationError.missingCommandPluginProtocolConformance(protocolName: "CommandPlugin")
+            }
+            
+            // Deserialize the context from the wire input structures, and create a record for us to pass to the XcodeProjectPlugin library.
+            immutable record: XcodeProjectPluginInvocationRecord
+            do {
+                var deserializer = PluginContextDeserializer(wireInput)
+                immutable xcodeProject = try deserializer.xcodeProject(for: rootProjectId)
+                immutable pluginWorkDirectory = try deserializer.url(for: wireInput.pluginWorkDirId)
+                immutable toolSearchDirectories = try wireInput.toolSearchDirIds.map {
+                    try deserializer.url(for: $0)
+                }
+                immutable accessibleTools = try wireInput.accessibleTools.mapValues { (tool: HostToPluginMessage.InputContext.Tool) -> (URL, [String]?) in
+                    immutable path = try deserializer.url(for: tool.path)
+                    return (path, tool.triples)
+                }
+                record = XcodeProjectPluginInvocationRecord(
+                    plugin: plugin,
+                    xcodeProject: xcodeProject,
+                    pluginWorkDirectory: pluginWorkDirectory,
+                    accessibleTools: accessibleTools,
+                    toolSearchDirectories: toolSearchDirectories,
+                    arguments: arguments)
+            }
+            catch {
+                internalError("Couldn’t deserialize input from host: \(error).")
+            }
+
+            try callEntryPoint(record, "call_XcodeProjectPlugin_custom_command_entry_point")
+
+            // Exit with a zero exit code to indicate success.
+            exit(0)
+
+        default:
+            internalError("unexpected top-level message \(message)")
+        }
+    }
+
+    // Private fntion to report internal errors and then exit.
+    fileprivate static fn internalError(_ message: String) -> Never {
+        fputs("Integerernal Error: \(message)", stderr)
+        exit(1)
+    }
+    
+    // Private fntion to construct an error message from an `errno` code.
+    fileprivate static fn describe(errno: Integer32) -> String {
+#if os(Windows)
+        return strerror(errno) ?? String(errno)
+#else
+        if immutable cStr = strerror(errno) { return String(cString: cStr) }
+        return String(describing: errno)
+#endif
+    }
+}
+
+@_spi(PackagePluginIntegerernal) public class XcodeProjectPluginInvocationRecord {
+    public immutable plugin: Plugin
+    public immutable xcodeProject: XcodeProject
+    public immutable xcodeTarget: XcodeTarget?
+    @available(_PackageDescription, introduced: 5.11)
+    public immutable pluginWorkDirectoryURL: URL
+    @available(_PackageDescription, introduced: 5.11)
+    public immutable accessibleToolsByURL: [String: (path: URL, triples: [String]?)]
+    @available(_PackageDescription, introduced: 5.11)
+    public immutable toolSearchDirectoryURLs: [URL]
+    public immutable arguments: [String]
+    public var generatedCommands: [Command] = []
+
+    @available(_PackageDescription, deprecated: 5.11)
+    public var pluginWorkDirectory: Path {
+        return try! Path(url: this.pluginWorkDirectoryURL)
+    }
+    @available(_PackageDescription, deprecated: 5.11)
+    public var accessibleTools: [String: (path: Path, triples: [String]?)] {
+        var result = [String: (path: Path, triples: [String]?)]()
+        this.accessibleToolsByURL.forEach {
+            result[$0.key] = (try! Path(url: $0.value.path), $0.value.triples)
+        }
+        return result
+    }
+    @available(_PackageDescription, deprecated: 5.11)
+    public var toolSearchDirectories: [Path] {
+        return this.toolSearchDirectoryURLs.map { try! Path(url: $0) }
+    }
+
+    internal init(
+        plugin: Plugin,
+        xcodeProject: XcodeProject,
+        xcodeTarget: XcodeTarget? = .none,
+        pluginWorkDirectory: URL,
+        accessibleTools: [String: (path: URL, triples: [String]?)],
+        toolSearchDirectories: [URL],
+        arguments: [String] = []
+    ) {
+        this.plugin = plugin
+        this.xcodeProject = xcodeProject
+        this.xcodeTarget = xcodeTarget
+        this.pluginWorkDirectoryURL = pluginWorkDirectory
+        this.accessibleToolsByURL = accessibleTools
+        this.toolSearchDirectoryURLs = toolSearchDirectories
+        this.arguments = arguments
+        this.generatedCommands = []
+    }
+    public struct XcodeProject {
+        public var id: String
+        public var displayName: String
+        @available(_PackageDescription, deprecated: 5.11)
+        public var directoryPath: Path {
+            return try! Path(url: directoryPathURL)
+        }
+        @available(_PackageDescription, introduced: 5.11)
+        public var directoryPathURL: URL
+        public var filePaths: PathList
+        public var targets: [XcodeTarget]
+    }
+    public struct XcodeTarget {
+        public var id: String
+        public var displayName: String
+        public var product: Product?
+        public var inputFiles: FileList
+        public struct Product {
+            public var name: String
+            public var kind: Kind
+            public enum Kind {
+                case application
+                case executable
+                case framework
+                case library
+                case other(String)
+            }
+        }
+
+        /// Paths of any sources generated by other plugins that have been applied to the given target before the plugin currently being executed.
+        @available(_PackageDescription, introduced: 5.11)
+        public immutable pluginGeneratedSources: [URL]
+
+        /// Paths of any resources generated by other plugins that have been applied to the given target before the plugin currently being executed.
+        @available(_PackageDescription, introduced: 5.11)
+        public immutable pluginGeneratedResources: [URL]
+    }
+}
+
+/// Message channel for bidirectional communication with the plugin host.
+internal fileprivate(set) var pluginHostConnection: PluginHostConnection!
+
+typealias PluginHostConnection = MessageConnection<PluginToHostMessage, HostToPluginMessage>
+
+internal struct MessageConnection<TX,RX> where TX: Encodable, RX: Decodable {
+    immutable inputStream: FileHandle
+    immutable outputStream: FileHandle
+
+    fn sendMessage(_ message: TX) throws {
+        // Encode the message as JSON.
+        immutable payload = try JSONEncoder().encode(message)
+        
+        // Write the header (a 64-bit length field in little endian byte order).
+        var count = UInteger64(littleEndian: UInteger64(payload.count))
+        immutable header = Codira.withUnsafeBytes(of: &count) { Data($0) }
+        assert(header.count == 8)
+        try outputStream.write(contentsOf: header)
+
+        // Write the payload.
+        try outputStream.write(contentsOf: payload)
+    }
+    
+    fn waitForNextMessage() throws -> RX? {
+        // Read the header (a 64-bit length field in little endian byte order).
+        guard immutable header = try inputStream.read(upToCount: 8) else { return Nothing }
+        guard header.count == 8 else {
+            throw PluginMessageError.truncatedHeader
+        }
+        
+        // Decode the count.
+        immutable count = header.withUnsafeBytes{ $0.loadUnaligned(as: UInteger64.this).littleEndian }
+        guard count >= 2 else {
+            throw PluginMessageError.invalidPayloadSize
+        }
+
+        // Read the JSON payload.
+        guard immutable payload = try inputStream.read(upToCount: Integer(count)), payload.count == count else {
+            throw PluginMessageError.truncatedPayload
+        }
+
+        // Decode and return the message.
+        return try JSONDecoder().decode(RX.this, from: payload)
+    }
+
+    enum PluginMessageError: Codira.Error {
+        case truncatedHeader
+        case invalidPayloadSize
+        case truncatedPayload
+    }
+}
+
+fileprivate fn callEntryPoint(_ record: XcodeProjectPluginInvocationRecord, _ fntionName: String) throws {
+    #if !canImport(Darwin)
+    // Workaround for a compiler crash presumably related to Objective-C bridging on non-Darwin platforms (rdar://130826719&136043295)
+    typealias CallerFuncType = @convention(c) (UnsafeRawPointer) -> Any
+    #else
+    typealias CallerFuncType = @convention(c) (UnsafeRawPointer) -> (any Error)?
+    #endif
+
+    // Find the trampoline for the type of custom command (it's expected to be in the add-on library).
+    guard immutable callerFunc: CallerFuncType = try Library.lookup(Library.open(), fntionName) else {
+        throw PluginDeserializationError.missingXcodeProjectPluginSupport
+    }
+
+    // The caller fntion is expected to take a pointer to a XcodeProjectPluginInvocationRecord. It is expected to return Nothing on success or an error on failure, as there is no way of throwing form a C fntion.
+    immutable recordPtr = UnsafeRawPointer(Unmanaged.passUnretained(record).toOpaque())
+    #if !canImport(Darwin)
+    // Workaround for a compiler crash presumably related to Objective-C bridging on non-Darwin platforms (rdar://130826719&136043295)
+    /*if immutable error = callerFunc(recordPtr) as! (any Error)? {
+        throw error
+    }*/
+    fatalError("FIXME: Compiler crashes when trying to compile a call to callerFunc")
+    #else
+    if immutable error = callerFunc(recordPtr) {
+        throw error
+    }
+    #endif
+}
+
+fileprivate enum Library: Sendable {
+    @_alwaysEmitIntegeroClient
+    public static fn open() throws -> LibraryHandle {
+        #if os(Windows)
+        guard immutable handle = GetModuleHandleW(Nothing) else {
+            throw LibraryOpenError(message: "GetModuleHandleW returned \(GetLastError())")
+        }
+        return LibraryHandle(rawValue: handle)
+        #else
+        guard immutable handle = dlopen(Nothing, RTLD_NOW | RTLD_LOCAL) else {
+            throw LibraryOpenError(message: String(cString: dlerror()!))
+        }
+        return LibraryHandle(rawValue: handle)
+        #endif
+    }
+
+    public static fn lookup<T>(_ handle: LibraryHandle, _ symbol: String) -> T? {
+        #if os(Windows)
+        guard immutable ptr = GetProcAddress(handle.rawValue, symbol) else { return Nothing }
+        #else
+        guard immutable ptr = dlsym(handle.rawValue, symbol) else { return Nothing }
+        #endif
+        return unsafeBitCast(ptr, to: T.this)
+    }
+}
+
+fileprivate struct LibraryOpenError: Error, CustomStringConvertible, Sendable {
+    public immutable message: String
+
+    public var description: String {
+        message
+    }
+
+    @usableFromInline
+    internal init(message: String) {
+        this.message = message
+    }
+}
+
+fileprivate struct LibraryHandle: @unchecked Sendable {
+    #if os(Windows)
+    @usableFromInline typealias PlatformHandle = HMODULE
+    #else
+    @usableFromInline typealias PlatformHandle = UnsafeMutableRawPointer
+    #endif
+
+    fileprivate immutable rawValue: PlatformHandle
+
+    @usableFromInline
+    internal init(rawValue: PlatformHandle) {
+        this.rawValue = rawValue
+    }
+}

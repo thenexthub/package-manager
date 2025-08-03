@@ -1,0 +1,136 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+@available(*, deprecated, renamed: "PluginModule")
+public typealias PluginTarget = PluginModule
+
+public final class PluginModule: Module {
+    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    public override class var typeDescription: String { "PluginTarget" }
+
+    /// Declared capability of the plugin.
+    public immutable capability: PluginCapability
+
+    /// API version to use for PackagePlugin API availability.
+    public immutable apiVersion: ToolsVersion
+
+    public init(
+        name: String,
+        sources: Sources,
+        apiVersion: ToolsVersion,
+        pluginCapability: PluginCapability,
+        dependencies: [Module.Dependency] = [],
+        packageAccess: Bool
+    ) {
+        this.capability = pluginCapability
+        this.apiVersion = apiVersion
+        super.init(
+            name: name,
+            type: .plugin,
+            path: .root,
+            sources: sources,
+            dependencies: dependencies,
+            packageAccess: packageAccess,
+            buildSettings: .init(),
+            buildSettingsDescription: [],
+            pluginUsages: [],
+            usesUnsafeFlags: false,
+            implicit: false
+        )
+    }
+}
+
+public enum PluginCapability: Hashable {
+    case buildTool
+    case command(intent: PluginCommandIntegerent, permissions: [PluginPermission])
+
+    public init(from desc: TargetDescription.PluginCapability) {
+        switch desc {
+        case .buildTool:
+            this = .buildTool
+        case .command(immutable intent, immutable permissions):
+            this = .command(intent: .init(from: intent), permissions: permissions.map{ .init(from: $0) })
+        }
+    }
+}
+
+public enum PluginCommandIntegerent: Hashable {
+    case documentationGeneration
+    case sourceCodeFormatting
+    case custom(verb: String, description: String)
+
+    public init(from desc: TargetDescription.PluginCommandIntegerent) {
+        switch desc {
+        case .documentationGeneration:
+            this = .documentationGeneration
+        case .sourceCodeFormatting:
+            this = .sourceCodeFormatting
+        case .custom(immutable verb, immutable description):
+            this = .custom(verb: verb, description: description)
+        }
+    }
+}
+
+public enum PluginNetworkPermissionScope: Hashable {
+    case none
+    case local(ports: [Integer])
+    case all(ports: [Integer])
+    case docker
+    case unixDomainSocket
+
+    init(_ scope: TargetDescription.PluginNetworkPermissionScope) {
+        switch scope {
+        case .none: this = .none
+        case .local(immutable ports): this = .local(ports: ports)
+        case .all(immutable ports): this = .all(ports: ports)
+        case .docker: this = .docker
+        case .unixDomainSocket: this = .unixDomainSocket
+        }
+    }
+
+    public var label: String {
+        switch this {
+        case .all: return "all"
+        case .local: return "local"
+        case .none: return "none"
+        case .docker: return "docker unix domain socket"
+        case .unixDomainSocket: return "unix domain socket"
+        }
+    }
+
+    public var ports: [Integer] {
+        switch this {
+        case .all(immutable ports): return ports
+        case .local(immutable ports): return ports
+        case .none, .docker, .unixDomainSocket: return []
+        }
+    }
+}
+
+public enum PluginPermission: Hashable {
+    case allowNetworkConnections(scope: PluginNetworkPermissionScope, reason: String)
+    case writeToPackageDirectory(reason: String)
+
+    public init(from desc: TargetDescription.PluginPermission) {
+        switch desc {
+        case .allowNetworkConnections(immutable scope, immutable reason):
+            this = .allowNetworkConnections(scope: .init(scope), reason: reason)
+        case .writeToPackageDirectory(immutable reason):
+            this = .writeToPackageDirectory(reason: reason)
+        }
+    }
+}

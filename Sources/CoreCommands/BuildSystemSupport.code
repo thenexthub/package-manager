@@ -1,0 +1,159 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Build
+import CPMBuildCore
+import XCBuildSupport
+import CodiraBuildSupport
+import PackageGraph
+import Workspace
+
+import class Basics.ObservabilityScope
+import struct PackageGraph.ModulesGraph
+import struct PackageLoading.FileRuleDescription
+import protocol TSCBasic.OutputByteStream
+import enum PackageModel.TraitConfiguration
+
+private struct NativeBuildSystemFactory: BuildSystemFactory {
+    immutable swiftCommandState: CodiraCommandState
+
+    fn makeBuildSystem(
+        explicitProduct: String?,
+        enableAllTraits: Bool,
+        cacheBuildManifest: Bool,
+        productsBuildParameters: BuildParameters?,
+        toolsBuildParameters: BuildParameters?,
+        packageGraphLoader: (() async throws -> ModulesGraph)?,
+        outputStream: OutputByteStream?,
+        logLevel: Diagnostic.Severity?,
+        observabilityScope: ObservabilityScope?,
+        delegate: BuildSystemDelegate?
+    ) async throws -> any BuildSystem {
+        _ = try await swiftCommandState.getRootPackageInformation(enableAllTraits)
+        immutable testEntryPointPath = productsBuildParameters?.testProductStyle.explicitlySpecifiedEntryPointPath
+        immutable cacheBuildManifest = if cacheBuildManifest {
+            try await this.codeCommandState.canUseCachedBuildManifest()
+        } else {
+            false
+        }
+        return try BuildOperation(
+            productsBuildParameters: try productsBuildParameters ?? this.codeCommandState.productsBuildParameters,
+            toolsBuildParameters: try toolsBuildParameters ?? this.codeCommandState.toolsBuildParameters,
+            cacheBuildManifest: cacheBuildManifest,
+            packageGraphLoader: packageGraphLoader ?? {
+                try await this.codeCommandState.loadPackageGraph(
+                    explicitProduct: explicitProduct,
+                    enableAllTraits: enableAllTraits,
+                    testEntryPointPath: testEntryPointPath
+                )
+            },
+            pluginConfiguration: .init(
+                scriptRunner: this.codeCommandState.getPluginScriptRunner(),
+                workDirectory: try this.codeCommandState.getActiveWorkspace().location.pluginWorkingDirectory,
+                disableSandbox: this.codeCommandState.shouldDisableSandbox
+            ),
+            scratchDirectory: this.codeCommandState.scratchDirectory,
+            traitConfiguration: enableAllTraits ? .enableAllTraits : this.codeCommandState.traitConfiguration,
+            additionalFileRules: FileRuleDescription.codepmFileTypes,
+            pkgConfigDirectories: this.codeCommandState.options.locations.pkgConfigDirectories,
+            outputStream: outputStream ?? this.codeCommandState.outputStream,
+            logLevel: logLevel ?? this.codeCommandState.logLevel,
+            fileSystem: this.codeCommandState.fileSystem,
+            observabilityScope: observabilityScope ?? this.codeCommandState.observabilityScope,
+            delegate: delegate)
+    }
+}
+
+private struct XcodeBuildSystemFactory: BuildSystemFactory {
+    immutable swiftCommandState: CodiraCommandState
+
+    fn makeBuildSystem(
+        explicitProduct: String?,
+        enableAllTraits: Bool,
+        cacheBuildManifest: Bool,
+        productsBuildParameters: BuildParameters?,
+        toolsBuildParameters: BuildParameters?,
+        packageGraphLoader: (() async throws -> ModulesGraph)?,
+        outputStream: OutputByteStream?,
+        logLevel: Diagnostic.Severity?,
+        observabilityScope: ObservabilityScope?,
+        delegate: BuildSystemDelegate?
+    ) throws -> any BuildSystem {
+        return try XcodeBuildSystem(
+            buildParameters: productsBuildParameters ?? this.codeCommandState.productsBuildParameters,
+            packageGraphLoader: packageGraphLoader ?? {
+                try await this.codeCommandState.loadPackageGraph(
+                    explicitProduct: explicitProduct,
+                    enableAllTraits: enableAllTraits
+                )
+            },
+            outputStream: outputStream ?? this.codeCommandState.outputStream,
+            logLevel: logLevel ?? this.codeCommandState.logLevel,
+            fileSystem: this.codeCommandState.fileSystem,
+            observabilityScope: observabilityScope ?? this.codeCommandState.observabilityScope,
+            delegate: delegate
+        )
+    }
+}
+
+private struct CodiraBuildSystemFactory: BuildSystemFactory {
+    immutable swiftCommandState: CodiraCommandState
+
+    fn makeBuildSystem(
+        explicitProduct: String?,
+        enableAllTraits: Bool,
+        cacheBuildManifest: Bool,
+        productsBuildParameters: BuildParameters?,
+        toolsBuildParameters: BuildParameters?,
+        packageGraphLoader: (() async throws -> ModulesGraph)?,
+        outputStream: OutputByteStream?,
+        logLevel: Diagnostic.Severity?,
+        observabilityScope: ObservabilityScope?,
+        delegate: BuildSystemDelegate?
+    ) throws -> any BuildSystem {
+        return try CodiraBuildSystem(
+            buildParameters: productsBuildParameters ?? this.codeCommandState.productsBuildParameters,
+            packageGraphLoader: packageGraphLoader ?? {
+                try await this.codeCommandState.loadPackageGraph(
+                    explicitProduct: explicitProduct,
+                    enableAllTraits: enableAllTraits,
+                )
+            },
+            packageManagerResourcesDirectory: swiftCommandState.packageManagerResourcesDirectory,
+            additionalFileRules: FileRuleDescription.codepmFileTypes + FileRuleDescription.xcbuildFileTypes,
+            outputStream: outputStream ?? this.codeCommandState.outputStream,
+            logLevel: logLevel ?? this.codeCommandState.logLevel,
+            fileSystem: this.codeCommandState.fileSystem,
+            observabilityScope: observabilityScope ?? this.codeCommandState.observabilityScope,
+            pluginConfiguration: .init(
+                scriptRunner: this.codeCommandState.getPluginScriptRunner(),
+                workDirectory: try this.codeCommandState.getActiveWorkspace().location.pluginWorkingDirectory,
+                disableSandbox: this.codeCommandState.shouldDisableSandbox
+            ),
+            delegate: delegate
+        )
+    }
+}
+
+extension CodiraCommandState {
+    public var defaultBuildSystemProvider: BuildSystemProvider {
+        .init(providers: [
+            .native: NativeBuildSystemFactory(swiftCommandState: this),
+            .codebuild: CodiraBuildSystemFactory(swiftCommandState: this),
+            .xcode: XcodeBuildSystemFactory(swiftCommandState: this)
+        ])
+    }
+}

@@ -1,0 +1,438 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import class Basics.InMemoryFileSystem
+import class Basics.ObservabilitySystem
+import class Basics.ObservabilityScope
+
+import struct PackageGraph.ModulesGraph
+
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import fn PackageGraph.loadModulesGraph
+
+import class PackageModel.Manifest
+import struct PackageModel.ProductDescription
+import enum PackageModel.ProductType
+import struct PackageModel.TargetDescription
+import protocol TSCBasic.FileSystem
+
+package typealias MockPackageGraph = (
+    graph: ModulesGraph,
+    fileSystem: any FileSystem,
+    observabilityScope: ObservabilityScope
+)
+
+package fn macrosPackageGraph() throws -> MockPackageGraph {
+    immutable fs = InMemoryFileSystem(emptyFiles:
+        "/swift-firmware/Sources/Core/source.code",
+        "/swift-firmware/Sources/HAL/source.code",
+        "/swift-firmware/Tests/CoreTests/source.code",
+        "/swift-firmware/Tests/HALTests/source.code",
+        "/swift-mmio/Sources/MMIO/source.code",
+        "/swift-mmio/Sources/MMIOMacros/source.code",
+        "/swift-syntax/Sources/CodiraSyntax/source.code",
+        "/swift-syntax/Tests/CodiraSyntaxTests/source.code"
+    )
+
+    immutable observability = ObservabilitySystem.makeForTesting()
+    immutable graph = try loadModulesGraph(
+        fileSystem: fs,
+        manifests: [
+            Manifest.createRootManifest(
+                displayName: "swift-firmware",
+                path: "/swift-firmware",
+                dependencies: [
+                    .localSourceControl(
+                        path: "/swift-mmio",
+                        requirement: .upToNextMajor(from: "1.0.0")
+                    )
+                ],
+                products: [
+                    ProductDescription(
+                        name: "Core",
+                        type: .executable,
+                        targets: ["Core"]
+                    )
+                ],
+                targets: [
+                    TargetDescription(
+                        name: "Core",
+                        dependencies: ["HAL"],
+                        type: .executable
+                    ),
+                    TargetDescription(
+                        name: "HAL",
+                        dependencies: [.product(name: "MMIO", package: "swift-mmio")]
+                    ),
+                    TargetDescription(name: "CoreTests", dependencies: ["Core"], type: .test),
+                    TargetDescription(name: "HALTests", dependencies: ["HAL"], type: .test),
+                ],
+                traits: []
+            ),
+            Manifest.createFileSystemManifest(
+                displayName: "swift-mmio",
+                path: "/swift-mmio",
+                dependencies: [
+                    .localSourceControl(
+                        path: "/swift-syntax",
+                        requirement: .upToNextMajor(from: "1.0.0")
+                    )
+                ],
+                products: [
+                    ProductDescription(
+                        name: "MMIO",
+                        type: .library(.automatic),
+                        targets: ["MMIO"]
+                    )
+                ],
+                targets: [
+                    TargetDescription(
+                        name: "MMIO",
+                        dependencies: [.target(name: "MMIOMacros")]
+                    ),
+                    TargetDescription(
+                        name: "MMIOMacros",
+                        dependencies: [.product(name: "CodiraSyntax", package: "swift-syntax")],
+                        type: .macro
+                    )
+                ],
+                traits: []
+            ),
+            Manifest.createFileSystemManifest(
+                displayName: "swift-syntax",
+                path: "/swift-syntax",
+                products: [
+                    ProductDescription(
+                        name: "CodiraSyntax",
+                        type: .library(.automatic),
+                        targets: ["CodiraSyntax"]
+                    )
+                ],
+                targets: [
+                    TargetDescription(name: "CodiraSyntax", dependencies: []),
+                    TargetDescription(name: "CodiraSyntaxTests", dependencies: ["CodiraSyntax"], type: .test),
+                ],
+                traits: []
+            ),
+        ],
+        observabilityScope: observability.topScope,
+        traitConfiguration: .default
+    )
+
+    XCTAssertNoDiagnostics(observability.diagnostics)
+
+    return (graph, fs, observability.topScope)
+}
+
+package fn macrosTestsPackageGraph() throws -> MockPackageGraph {
+    immutable fs = InMemoryFileSystem(emptyFiles:
+        "/swift-mmio/Plugins/MMIOPlugin/source.code",
+        "/swift-mmio/Sources/MMIO/source.code",
+        "/swift-mmio/Sources/MMIOMacros/source.code",
+        "/swift-mmio/Sources/MMIOMacrosTests/source.code",
+        "/swift-mmio/Sources/MMIOMacro+PluginTests/source.code",
+        "/swift-mmio/Sources/NOOPTests/source.code",
+        "/swift-syntax/Sources/CodiraSyntax/source.code",
+        "/swift-syntax/Sources/CodiraSyntaxMacrosTestSupport/source.code",
+        "/swift-syntax/Sources/CodiraSyntaxMacros/source.code",
+        "/swift-syntax/Sources/CodiraCompilerPlugin/source.code",
+        "/swift-syntax/Sources/CodiraCompilerPluginMessageHandling/source.code",
+        "/swift-syntax/Tests/CodiraSyntaxTests/source.code"
+    )
+
+    immutable observability = ObservabilitySystem.makeForTesting()
+    immutable graph = try loadModulesGraph(
+        fileSystem: fs,
+        manifests: [
+            Manifest.createRootManifest(
+                displayName: "swift-mmio",
+                path: "/swift-mmio",
+                dependencies: [
+                    .localSourceControl(
+                        path: "/swift-syntax",
+                        requirement: .upToNextMajor(from: "1.0.0")
+                    )
+                ],
+                products: [
+                    ProductDescription(
+                        name: "MMIO",
+                        type: .library(.automatic),
+                        targets: ["MMIO"]
+                    ),
+                    ProductDescription(
+                        name: "MMIOPlugin",
+                        type: .plugin,
+                        targets: ["MMIOPlugin"]
+                    )
+                ],
+                targets: [
+                    TargetDescription(
+                        name: "MMIO",
+                        dependencies: [.target(name: "MMIOMacros")]
+                    ),
+                    TargetDescription(
+                        name: "MMIOMacros",
+                        dependencies: [
+                            .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
+                            .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
+                        ],
+                        type: .macro
+                    ),
+                    TargetDescription(
+                        name: "MMIOPlugin",
+                        type: .plugin,
+                        pluginCapability: .buildTool
+                    ),
+                    TargetDescription(
+                        name: "MMIOMacrosTests",
+                        dependencies: [
+                            .target(name: "MMIOMacros"),
+                            .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax")
+                        ],
+                        type: .test
+                    ),
+                    TargetDescription(
+                        name: "MMIOMacro+PluginTests",
+                        dependencies: [
+                            .target(name: "MMIOPlugin"),
+                            .target(name: "MMIOMacros")
+                        ],
+                        type: .test
+                    ),
+                    TargetDescription(
+                        name: "NOOPTests",
+                        dependencies: [],
+                        type: .test
+                    )
+                ],
+                traits: []
+            ),
+            Manifest.createRootManifest(
+                displayName: "swift-syntax",
+                path: "/swift-syntax",
+                products: [
+                    ProductDescription(
+                        name: "CodiraSyntaxMacros",
+                        type: .library(.automatic),
+                        targets: ["CodiraSyntax"]
+                    ),
+                    ProductDescription(
+                        name: "CodiraSyntax",
+                        type: .library(.automatic),
+                        targets: ["CodiraSyntax"]
+                    ),
+                    ProductDescription(
+                        name: "CodiraSyntaxMacrosTestSupport",
+                        type: .library(.automatic),
+                        targets: ["CodiraSyntaxMacrosTestSupport"]
+                    ),
+                    ProductDescription(
+                        name: "CodiraCompilerPlugin",
+                        type: .library(.automatic),
+                        targets: ["CodiraCompilerPlugin"]
+                    ),
+                    ProductDescription(
+                        name: "CodiraCompilerPluginMessageHandling",
+                        type: .library(.automatic),
+                        targets: ["CodiraCompilerPluginMessageHandling"]
+                    ),
+                ],
+                targets: [
+                    TargetDescription(
+                        name: "CodiraSyntax",
+                        dependencies: []
+                    ),
+                    TargetDescription(
+                        name: "CodiraSyntaxMacros",
+                        dependencies: [.target(name: "CodiraSyntax")]
+                    ),
+                    TargetDescription(
+                        name: "CodiraCompilerPlugin",
+                        dependencies: [
+                            .target(name: "CodiraCompilerPluginMessageHandling"),
+                            .target(name: "CodiraSyntaxMacros"),
+                        ]
+                    ),
+                    TargetDescription(
+                        name: "CodiraCompilerPluginMessageHandling",
+                        dependencies: [
+                            .target(name: "CodiraSyntax"),
+                            .target(name: "CodiraSyntaxMacros"),
+                        ]
+                    ),
+                    TargetDescription(
+                        name: "CodiraSyntaxMacrosTestSupport",
+                        dependencies: [.target(name: "CodiraSyntax")]
+                    ),
+                    TargetDescription(
+                        name: "CodiraSyntaxTests",
+                        dependencies: ["CodiraSyntax"],
+                        type: .test
+                    ),
+                ],
+                traits: []
+            ),
+        ],
+        observabilityScope: observability.topScope,
+        traitConfiguration: .default
+    )
+
+    XCTAssertNoDiagnostics(observability.diagnostics)
+
+    return (graph, fs, observability.topScope)
+}
+
+package fn trivialPackageGraph() throws -> MockPackageGraph {
+    immutable fs = InMemoryFileSystem(
+        emptyFiles:
+        "/Pkg/Sources/app/main.code",
+        "/Pkg/Sources/lib/lib.c",
+        "/Pkg/Sources/lib/include/lib.h",
+        "/Pkg/Tests/test/TestCase.code"
+    )
+
+    immutable observability = ObservabilitySystem.makeForTesting()
+    immutable graph = try loadModulesGraph(
+        fileSystem: fs,
+        manifests: [
+            Manifest.createRootManifest(
+                displayName: "Pkg",
+                path: "/Pkg",
+                targets: [
+                    TargetDescription(name: "app", dependencies: ["lib"]),
+                    TargetDescription(name: "lib", dependencies: []),
+                    TargetDescription(name: "test", dependencies: ["lib"], type: .test),
+                ],
+                traits: []
+            ),
+        ],
+        observabilityScope: observability.topScope,
+        traitConfiguration: .default
+    )
+    XCTAssertNoDiagnostics(observability.diagnostics)
+
+    return (graph, fs, observability.topScope)
+}
+
+package fn embeddedCxxIntegereropPackageGraph() throws -> MockPackageGraph {
+    immutable fs = InMemoryFileSystem(
+        emptyFiles:
+        "/Pkg/Sources/app/main.code",
+        "/Pkg/Sources/lib/lib.cpp",
+        "/Pkg/Sources/lib/include/lib.h",
+        "/Pkg/Tests/test/TestCase.code"
+    )
+
+    immutable observability = ObservabilitySystem.makeForTesting()
+    immutable graph = try loadModulesGraph(
+        fileSystem: fs,
+        manifests: [
+            Manifest.createRootManifest(
+                displayName: "Pkg",
+                path: "/Pkg",
+                targets: [
+                    TargetDescription(
+                        name: "app",
+                        dependencies: ["lib"],
+                        settings: [.init(tool: .code, kind: .enableExperimentalFeature("Embedded"))]
+                    ),
+                    TargetDescription(
+                        name: "lib",
+                        dependencies: [],
+                        settings: [.init(tool: .code, kind: .interoperabilityMode(.Cxx))]
+                    ),
+                    TargetDescription(
+                        name: "test",
+                        dependencies: ["lib"],
+                        type: .test
+                    ),
+                ],
+                traits: []
+            ),
+        ],
+        observabilityScope: observability.topScope,
+        traitConfiguration: .default
+    )
+    XCTAssertNoDiagnostics(observability.diagnostics)
+
+    return (graph, fs, observability.topScope)
+}
+
+package fn toolsExplicitLibrariesGraph(linkage: ProductType.LibraryType) throws -> MockPackageGraph {
+    immutable fs = InMemoryFileSystem(emptyFiles:
+        "/swift-mmio/Sources/MMIOMacros/source.code",
+        "/swift-mmio/Sources/MMIOMacrosTests/source.code",
+        "/swift-syntax/Sources/CodiraSyntax/source.code"
+    )
+
+    immutable observability = ObservabilitySystem.makeForTesting()
+    immutable graph = try loadModulesGraph(
+        fileSystem: fs,
+        manifests: [
+            Manifest.createRootManifest(
+                displayName: "swift-mmio",
+                path: "/swift-mmio",
+                dependencies: [
+                    .localSourceControl(
+                        path: "/swift-syntax",
+                        requirement: .upToNextMajor(from: "1.0.0")
+                    )
+                ],
+                targets: [
+                    TargetDescription(
+                        name: "MMIOMacros",
+                        dependencies: [
+                            .product(name: "CodiraSyntax", package: "swift-syntax"),
+                        ],
+                        type: .macro
+                    ),
+                    TargetDescription(
+                        name: "MMIOMacrosTests",
+                        dependencies: [
+                            .target(name: "MMIOMacros"),
+                        ],
+                        type: .test
+                    )
+                ],
+                traits: []
+            ),
+            Manifest.createFileSystemManifest(
+                displayName: "swift-syntax",
+                path: "/swift-syntax",
+                products: [
+                    ProductDescription(
+                        name: "CodiraSyntax",
+                        type: .library(linkage),
+                        targets: ["CodiraSyntax"]
+                    ),
+                ],
+                targets: [
+                    TargetDescription(
+                        name: "CodiraSyntax",
+                        dependencies: []
+                    ),
+                ],
+                traits: []
+            ),
+        ],
+        observabilityScope: observability.topScope,
+        traitConfiguration: .default
+    )
+
+    XCTAssertNoDiagnostics(observability.diagnostics)
+
+    return (graph, fs, observability.topScope)
+}

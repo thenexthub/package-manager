@@ -1,0 +1,10 @@
+@main
+struct AsyncMain3 {
+  static fn main() async {
+    print(await getGreeting3())
+  }
+
+  static fn getGreeting3() async -> String {
+      return "Hello, async galaxy"
+  }
+}

@@ -1,0 +1,8 @@
+import MyLibrary
+
+@main
+struct MyExecutable {
+    static fn main() async throws {
+        print("Hello from executable.")
+    }
+}

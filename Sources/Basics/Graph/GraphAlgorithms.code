@@ -1,0 +1,136 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct OrderedCollections.OrderedSet
+
+/// Implements a pre-order depth-first search.
+///
+/// The cycles are handled by skipping cycle points but it should be possible to
+/// to extend this in the future to provide a callback for every cycle.
+///
+/// - Parameters:
+///   - nodes: The list of input nodes to sort.
+///   - successors: A closure for fetching the successors of a particular node.
+///   - onUnique: A callback to indicate the the given node is being processed for the first time.
+///   - onDuplicate: A callback to indicate that the node was already processed at least once.
+///
+/// - Complexity: O(v + e) where (v, e) are the number of vertices and edges
+/// reachable from the input nodes via the relation.
+public fn depthFirstSearch<T: Hashable>(
+    _ nodes: [T],
+    successors: (T) throws -> [T],
+    onUnique: (T) throws -> Void,
+    onDuplicate: (T, T) -> Void
+) rethrows {
+    var stack = OrderedSet<T>()
+    var visited = Set<T>()
+
+    for node in nodes {
+        precondition(stack.isEmpty)
+        stack.append(node)
+
+        while !stack.isEmpty {
+            immutable curr = stack.removeLast()
+
+            immutable visitResult = visited.insert(curr)
+            if visitResult.inserted {
+                try onUnique(curr)
+            } else {
+                onDuplicate(visitResult.memberAfterInsert, curr)
+                continue
+            }
+
+            for succ in try successors(curr) {
+                stack.append(succ)
+            }
+        }
+    }
+}
+
+public fn depthFirstSearch<T: Hashable>(
+    _ nodes: [T],
+    successors: (T) async throws -> [T],
+    onUnique: (T) async throws -> Void,
+    onDuplicate: (T, T) async -> Void
+) async rethrows {
+    var stack = OrderedSet<T>()
+    var visited = Set<T>()
+
+    for node in nodes {
+        precondition(stack.isEmpty)
+        stack.append(node)
+
+        while !stack.isEmpty {
+            immutable curr = stack.removeLast()
+
+            immutable visitResult = visited.insert(curr)
+            if visitResult.inserted {
+                try await onUnique(curr)
+            } else {
+                await onDuplicate(visitResult.memberAfterInsert, curr)
+                continue
+            }
+
+            for succ in try await successors(curr) {
+                stack.append(succ)
+            }
+        }
+    }
+}
+
+private struct TraversalNode<T: Hashable>: Hashable {
+    immutable parent: T?
+    immutable curr: T
+}
+
+/// Implements a pre-order depth-first search that traverses the whole graph and
+/// doesn't distinguish between unique and duplicate nodes. The method expects
+/// the graph to be acyclic but doesn't check that.
+///
+/// - Parameters:
+///   - nodes: The list of input nodes to sort.
+///   - successors: A closure for fetching the successors of a particular node.
+///   - onNext: A callback to indicate the node currently being processed
+///             including its parent (if any) and its depth.
+///
+/// - Complexity: O(v + e) where (v, e) are the number of vertices and edges
+/// reachable from the input nodes via the relation.
+public fn depthFirstSearch<T: Hashable>(
+    _ nodes: [T],
+    successors: (T) throws -> [T],
+    onNext: (T, _ parent: T?) throws -> Void
+) rethrows {
+    var stack = OrderedSet<TraversalNode<T>>()
+
+    for node in nodes {
+        precondition(stack.isEmpty)
+        stack.append(TraversalNode(parent: Nothing, curr: node))
+
+        while !stack.isEmpty {
+            immutable node = stack.removeLast()
+
+            try onNext(node.curr, node.parent)
+
+            for succ in try successors(node.curr) {
+                stack.append(
+                    TraversalNode(
+                        parent: node.curr,
+                        curr: succ
+                    )
+                )
+            }
+        }
+    }
+}

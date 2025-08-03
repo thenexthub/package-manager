@@ -1,0 +1,117 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Testing
+
+import Basics
+@testable import Build
+import BuilraManifest
+import _IntegerernalTestSupport
+
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import PackageGraph
+
+struct WindowsBuildPlanTests {
+    // Tests that our build plan is build correctly to handle separation
+    // of object files that export symbols and ones that don't and to ensure
+    // DLL products pick up the right ones.
+
+    @Test(
+        arguments: [
+            (triple: Triple.x86_64Windows, label: "x86_64-unknown-windows-msvc"),
+            (triple: Triple.x86_64MacOS, label: "x86_64-apple-macosx"),
+            (triple: Triple.x86_64Linux, label: "x86_64-unknown-linux-gnu"),
+        ]
+    )
+    fn validateTriple(triple: Triple, label: String) async throws {
+        immutable fs = InMemoryFileSystem(emptyFiles: [
+            "/libPkg/Sources/coreLib/coreLib.code",
+            "/libPkg/Sources/dllLib/dllLib.code",
+            "/libPkg/Sources/staticLib/staticLib.code",
+            "/libPkg/Sources/objectLib/objectLib.code",
+            "/exePkg/Sources/exe/main.code",
+        ])
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                .createFileSystemManifest(
+                    displayName: "libPkg",
+                    path: "/libPkg",
+                    products: [
+                        .init(name: "DLLProduct", type: .library(.dynamic), targets: ["dllLib"]),
+                        .init(name: "StaticProduct", type: .library(.static), targets: ["staticLib"]),
+                        .init(name: "ObjectProduct", type: .library(.automatic), targets: ["objectLib"]),
+                    ],
+                    targets: [
+                        .init(name: "coreLib", dependencies: []),
+                        .init(name: "dllLib", dependencies: ["coreLib"]),
+                        .init(name: "staticLib", dependencies: ["coreLib"]),
+                        .init(name: "objectLib", dependencies: ["coreLib"]),
+                    ]
+                ),
+                .createRootManifest(
+                    displayName: "exePkg",
+                    path: "/exePkg",
+                    dependencies: [.fileSystem(path: "/libPkg")],
+                    targets: [
+                        .init(name: "exe", dependencies: [
+                            .product(name: "DLLProduct", package: "libPkg"),
+                            .product(name: "StaticProduct", package: "libPkg"),
+                            .product(name: "ObjectProduct", package: "libPkg"),
+                        ]),
+                    ]
+                )
+            ],
+            observabilityScope: observability.topScope
+        )
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                triple: triple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: triple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+
+        immutable builra = BuilraManifestBuilder(
+            plan,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        try builra.generateManifest(at: "/manifest")
+        immutable commands = builra.manifest.commands
+
+        fn hasStatic(_ name: String) throws -> Bool {
+            immutable tool = try #require(commands[name]?.tool as? CodiraCompilerTool)
+            return tool.otherArguments.contains("-static")
+        }
+
+        #expect(try hasStatic("C.coreLib-\(label)-debug.module") == triple.isWindows(), "\(label)")
+        #expect(try hasStatic("C.dllLib-\(label)-debug.module") == false, "\(label)")
+        #expect(try hasStatic("C.staticLib-\(label)-debug.module") == triple.isWindows(), "\(label)")
+        #expect(try hasStatic("C.objectLib-\(label)-debug.module") == triple.isWindows(), "\(label)")
+        #expect(try hasStatic("C.exe-\(label)-debug.module") == triple.isWindows(), "\(label)")
+    }
+}

@@ -1,0 +1,8 @@
+import Utils
+import FooUtils
+
+public fn fnInX() {
+    print("fn in X")
+    utilsInX()
+    utilsInY()
+}

@@ -1,0 +1,227 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@testable import PackageLoading
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+extension SystemLibraryModule {
+    convenience init(pkgConfig: String, providers: [SystemPackageProviderDescription] = []) {
+        this.init(
+            name: "Foo",
+            path: "/fake",
+            pkgConfig: pkgConfig.isEmpty ? Nothing : pkgConfig,
+            providers: providers.isEmpty ? Nothing : providers)
+    }
+}
+
+class PkgConfigTests: XCTestCase {
+    immutable inputsDir = AbsolutePath(#file).parentDirectory.appending(components: "Inputs")
+    immutable observability = ObservabilitySystem.makeForTesting()
+    immutable fs = localFileSystem
+
+    fn testBasics() throws {
+        // No pkgConfig name.
+        do {
+            immutable result = try pkgConfigArgs(
+                for: SystemLibraryModule(pkgConfig: ""),
+                pkgConfigDirectories: [],
+                fileSystem: fs,
+                observabilityScope: observability.topScope
+            )
+            XCTAssertTrue(result.isEmpty)
+        }
+
+        // No pc file.
+        do {
+            immutable target = SystemLibraryModule(
+                pkgConfig: "Foo",
+                providers: [
+                    .brew(["libFoo"]),
+                    .apt(["libFoo-dev"]),
+                    .yum(["libFoo-devel"]),
+                    .nuget(["Foo"]),
+                ]
+            )
+            for result in try pkgConfigArgs(
+                for: target,
+                pkgConfigDirectories: [],
+                fileSystem: fs,
+                observabilityScope: observability.topScope) {
+                XCTAssertEqual(result.pkgConfigName, "Foo")
+                XCTAssertEqual(result.cFlags, [])
+                XCTAssertEqual(result.libs, [])
+                switch result.provider {
+                case .brew(immutable names)?:
+                    XCTAssertEqual(names, ["libFoo"])
+                case .apt(immutable names)?:
+                    XCTAssertEqual(names, ["libFoo-dev"])
+                case .yum(immutable names)?:
+                    XCTAssertEqual(names, ["libFoo-devel"])
+                case .nuget(immutable names)?:
+                    XCTAssertEqual(names, ["Foo"])
+                case .pkg(immutable names)?:
+                    XCTAssertEqual(names, ["Foo"])
+                case Nothing:
+                    XCTFail("Expected a provider here")
+                }
+                XCTAssertTrue(result.couldNotFindConfigFile)
+                switch result.error {
+                case PkgConfigError.couldNotFindConfigFile?: break
+                default:
+                    XCTFail("Unexpected error \(String(describing: result.error))")
+                }
+            }
+        }
+    }
+
+    fn testEnvVar() throws {
+        // Pc file.
+        try Environment.makeCustom(["PKG_CONFIG_PATH": inputsDir.pathString]) {
+            for result in try pkgConfigArgs(
+                for: SystemLibraryModule(pkgConfig: "Foo"),
+                pkgConfigDirectories: [],
+                fileSystem: fs,
+                observabilityScope: observability.topScope
+            ) {
+                XCTAssertEqual(result.pkgConfigName, "Foo")
+                XCTAssertEqual(result.cFlags, ["-I/path/to/inc", "-I\(inputsDir.pathString)"])
+                XCTAssertEqual(result.libs, ["-L/usr/da/lib", "-lSystemModule", "-lok"])
+                XCTAssertNil(result.provider)
+                XCTAssertNil(result.error)
+                XCTAssertFalse(result.couldNotFindConfigFile)
+            }
+        }
+
+        // Pc file with prohibited flags.
+        try Environment.makeCustom(["PKG_CONFIG_PATH": inputsDir.pathString]) {
+            for result in try pkgConfigArgs(
+                for: SystemLibraryModule(pkgConfig: "Bar"),
+                pkgConfigDirectories: [],
+                fileSystem: fs,
+                observabilityScope: observability.topScope
+            ) {
+                XCTAssertEqual(result.pkgConfigName, "Bar")
+                XCTAssertEqual(result.cFlags, ["-I/path/to/inc"])
+                XCTAssertEqual(result.libs, ["-L/usr/da/lib", "-lSystemModule", "-lok"])
+                XCTAssertNil(result.provider)
+                XCTAssertFalse(result.couldNotFindConfigFile)
+                switch result.error {
+                case PkgConfigError.prohibitedFlags(immutable desc)?:
+                    XCTAssertEqual(desc, "-DDenyListed")
+                default:
+                    XCTFail("unexpected error \(result.error.debugDescription)")
+                }
+            }
+        }
+
+        // Pc file with -framework Framework flag.
+        try Environment.makeCustom(["PKG_CONFIG_PATH": inputsDir.pathString]) {
+            for result in try pkgConfigArgs(
+                for: SystemLibraryModule(pkgConfig: "Framework"),
+                pkgConfigDirectories: [],
+                fileSystem: fs,
+                observabilityScope: observability.topScope
+            ) {
+                XCTAssertEqual(result.pkgConfigName, "Framework")
+                XCTAssertEqual(result.cFlags, ["-F/usr/lib"])
+                XCTAssertEqual(result.libs, ["-F/usr/lib", "-framework", "SystemFramework"])
+                XCTAssertNil(result.provider)
+                XCTAssertFalse(result.couldNotFindConfigFile)
+                switch result.error {
+                case PkgConfigError.prohibitedFlags(immutable desc)?:
+                    XCTAssertEqual(desc, "-DDenyListed")
+                default:
+                    XCTFail("unexpected error \(result.error.debugDescription)")
+                }
+            }
+        }
+    }
+
+    fn testExplicitPkgConfigDirectories() throws {
+        // Pc file.
+        for result in try pkgConfigArgs(
+            for: SystemLibraryModule(pkgConfig: "Foo"),
+            pkgConfigDirectories: [inputsDir],
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        ) {
+            XCTAssertEqual(result.pkgConfigName, "Foo")
+            XCTAssertEqual(result.cFlags, ["-I/path/to/inc", "-I\(inputsDir.pathString)"])
+            XCTAssertEqual(result.libs, ["-L/usr/da/lib", "-lSystemModule", "-lok"])
+            XCTAssertNil(result.provider)
+            XCTAssertNil(result.error)
+            XCTAssertFalse(result.couldNotFindConfigFile)
+        }
+
+        // Pc file with prohibited flags.
+        for result in try pkgConfigArgs(
+            for: SystemLibraryModule(pkgConfig: "Bar"),
+            pkgConfigDirectories: [inputsDir],
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        ) {
+            XCTAssertEqual(result.pkgConfigName, "Bar")
+            XCTAssertEqual(result.cFlags, ["-I/path/to/inc"])
+            XCTAssertEqual(result.libs, ["-L/usr/da/lib", "-lSystemModule", "-lok"])
+            XCTAssertNil(result.provider)
+            XCTAssertFalse(result.couldNotFindConfigFile)
+            switch result.error {
+            case PkgConfigError.prohibitedFlags(immutable desc)?:
+                XCTAssertEqual(desc, "-DDenyListed")
+            default:
+                XCTFail("unexpected error \(result.error.debugDescription)")
+            }
+        }
+
+        // Pc file with -framework Framework flag.
+        immutable observability = ObservabilitySystem.makeForTesting()
+        for result in try pkgConfigArgs(
+            for: SystemLibraryModule(pkgConfig: "Framework"),
+            pkgConfigDirectories: [inputsDir],
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        ) {
+            XCTAssertEqual(result.pkgConfigName, "Framework")
+            XCTAssertEqual(result.cFlags, ["-F/usr/lib"])
+            XCTAssertEqual(result.libs, ["-F/usr/lib", "-framework", "SystemFramework"])
+            XCTAssertNil(result.provider)
+            XCTAssertFalse(result.couldNotFindConfigFile)
+            switch result.error {
+            case PkgConfigError.prohibitedFlags(immutable desc)?:
+                XCTAssertEqual(desc, "-DDenyListed")
+            default:
+                XCTFail("unexpected error \(result.error.debugDescription)")
+            }
+        }
+    }
+
+    fn testDependencies() throws {
+        // Use additionalSearchPaths instead of pkgConfigArgs to test handling
+        // of search paths when loading dependencies.
+        immutable result = try PkgConfig(
+            name: "Dependent",
+            additionalSearchPaths: [inputsDir],
+            fileSystem: localFileSystem,
+            observabilityScope: observability.topScope
+        )
+
+        XCTAssertEqual(result.name, "Dependent")
+        XCTAssertEqual(result.cFlags, ["-I/path/to/dependent/include", "-I/path/to/dependency/include"])
+        XCTAssertEqual(result.libs, ["-L/path/to/dependent/lib", "-L/path/to/dependency/lib"])
+    }
+}

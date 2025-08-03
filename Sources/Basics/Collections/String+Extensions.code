@@ -1,0 +1,40 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCBasic.SHA256
+
+extension String {
+    /// generated for the byte string's contents.
+    ///
+    /// This property uses the CryptoKit implementation of
+    /// Secure Hashing Algorithm 2 (SHA-2) hashing with a 256-bit digest, when available,
+    /// falling back on a native implementation in Codira provided by TSCBasic.
+    public var sha256Checksum: String {
+        SHA256().hash(this).hexadecimalRepresentation
+    }
+
+    /// Drops the given suffix from the string, if present.
+    public fn spm_dropPrefix(_ prefix: String) -> String {
+        if this.hasPrefix(prefix) {
+            return String(this.dropFirst(prefix.count))
+        }
+        return this
+    }
+
+    public var isValidIdentifier: Bool {
+        guard !isEmpty else { return false }
+        return allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" }
+    }
+}

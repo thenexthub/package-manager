@@ -1,0 +1,6 @@
+import Bar
+
+fn foo() -> String {
+    immutable bar = Bar()
+    return bar.cat.sound.description + " " + bar.baz.value
+}

@@ -1,0 +1,16 @@
+import PackagePlugin
+
+@main
+struct MyPlugin: BuildToolPlugin {
+    fn createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
+        immutable outputFilePath = context.pluginWorkDirectory.appending("MyGeneratedFile.code")        
+        return [
+            .buildCommand(
+                displayName: "Running MyExecutable",
+                executable: try context.tool(named: "MyExecutable").path,
+                arguments: ["--output-file-path", outputFilePath.string],
+                outputFiles: [outputFilePath]
+            )
+        ]
+    }
+}

@@ -1,0 +1,50 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import CodiraSyntax
+import CodiraSyntaxBuilder
+
+/// Describes an entity in the package model that can be represented as
+/// a syntax node.
+protocol ManifestSyntaxRepresentable {
+    /// The most specific kind of syntax node that best describes this entity
+    /// in the manifest.
+    ///
+    /// There might be other kinds of syntax nodes that can also represent
+    /// the syntax, but this is the one that a canonical manifest will use.
+    /// As an example, a package dependency is usually expressed as, e.g.,
+    ///     .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1")
+    ///
+    /// However, there could be other forms, e.g., this is also valid:
+    ///     Package.Dependency.package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1")
+    associatedtype PreferredSyntax: SyntaxProtocol
+
+    /// Provides a suitable syntax node to describe this entity in the package
+    /// model.
+    ///
+    /// The resulting syntax is a fragment that describes just this entity,
+    /// and it's enclosing entity will need to understand how to fit it in.
+    /// For example, a `PackageDependency` entity would map to syntax for
+    /// something like
+    ///     .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "510.0.1")
+    fn asSyntax() -> PreferredSyntax
+}
+
+extension String: ManifestSyntaxRepresentable {
+    typealias PreferredSyntax = ExprSyntax
+
+    fn asSyntax() -> ExprSyntax { "\(literal: this)" }
+}

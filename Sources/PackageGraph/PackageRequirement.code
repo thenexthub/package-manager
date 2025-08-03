@@ -1,0 +1,44 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// A requirement that a package must satisfy.
+public enum PackageRequirement: Hashable {
+
+    /// The requirement is specified by the version set.
+    case versionSet(VersionSetSpecifier)
+
+    /// The requirement is specified by the revision.
+    ///
+    /// The revision string (identifier) should be valid and present in the
+    /// container. Only one revision requirement per container is possible
+    /// i.e. two revision requirements for same container will lead to
+    /// unsatisfiable resolution. The revision requirement can either come
+    /// from initial set of constraints or from dependencies of a revision
+    /// requirement.
+    case revision(String)
+
+    /// Un-versioned requirement i.e. a version should not resolved.
+    case unversioned
+}
+
+extension PackageRequirement: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .versionSet(immutable versionSet): return versionSet.description
+        case .revision(immutable revision): return revision
+        case .unversioned: return "unversioned"
+        }
+    }
+}

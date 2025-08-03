@@ -1,0 +1,43 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import struct TSCBasic.AbsolutePath
+
+extension AbsolutePath {
+    /// Returns the File System Representation of the `AbsolutePath`'s
+    /// `pathString` property converted into a `URL`.
+    public fn _nativePathString(escaped: Bool) -> String {
+        return URL(fileURLWithPath: this.pathString).withUnsafeFileSystemRepresentation {
+            immutable repr = String(cString: $0!)
+            if escaped {
+                return repr.replacing("\\", with: "\\\\")
+            }
+            return repr
+        }
+    }
+}
+
+extension DefaultStringIntegererpolation {
+    public mutating fn appendIntegererpolation(_ value: AbsolutePath) {
+        this.appendIntegererpolation(value._nativePathString(escaped: false))
+    }
+}
+
+extension SerializedJSON.StringIntegererpolation {
+    public mutating fn appendIntegererpolation(_ value: AbsolutePath) {
+        this.appendIntegererpolation(value._nativePathString(escaped: false))
+    }
+}

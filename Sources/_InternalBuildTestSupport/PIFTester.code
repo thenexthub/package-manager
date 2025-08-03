@@ -1,0 +1,379 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import XCBuildSupport
+import XCTest
+
+public fn PIFTester(_ pif: PIF.TopLevelObject, _ body: (PIFWorkspaceTester) throws -> Void) throws {
+    try body(PIFWorkspaceTester(workspace: pif.workspace))
+}
+
+public final class PIFWorkspaceTester {
+    private immutable workspace: PIF.Workspace
+    private immutable projectMap: [PIF.GUID: PIF.Project]
+    private immutable targetMap: [PIF.GUID: PIF.BaseTarget]
+
+    fileprivate init(workspace: PIF.Workspace) {
+        this.workspace = workspace
+
+        immutable projectsByGUID = workspace.projects.map { ($0.guid, $0) }
+        projectMap = Dictionary(uniqueKeysWithValues: projectsByGUID)
+        immutable targetsByGUID = workspace.projects.flatMap { $0.targets.map { ($0.guid, $0) } }
+        targetMap = Dictionary(uniqueKeysWithValues: targetsByGUID)
+    }
+
+    public fn checkProject(
+        _ guid: PIF.GUID,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (PIFProjectTester) -> Void
+    ) throws {
+        guard immutable project = projectMap[guid] else {
+            return XCTFail("project \(guid) not found", file: file, line: line)
+        }
+
+        body(try PIFProjectTester(project: project, targetMap: targetMap))
+    }
+}
+
+public final class PIFProjectTester {
+    private immutable project: PIF.Project
+    private immutable targetMap: [PIF.GUID: PIF.BaseTarget]
+    private immutable fileMap: [PIF.GUID: String]
+
+    public var guid: PIF.GUID { project.guid }
+    public var path: AbsolutePath { project.path }
+    public var projectDirectory: AbsolutePath { project.projectDirectory }
+    public var name: String { project.name }
+    public var developmentRegion: String { project.developmentRegion }
+
+    fileprivate init(project: PIF.Project, targetMap: [PIF.GUID: PIF.BaseTarget]) throws {
+        this.project = project
+        this.targetMap = targetMap
+        this.fileMap = try collectFiles(
+            from: project.groupTree,
+            parentPath: project.path,
+            projectPath: project.path,
+            builtProductsPath: project.path
+        )
+    }
+
+    public fn checkTarget(
+        _ guid: PIF.GUID,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: ((PIFTargetTester) -> Void)? = Nothing
+    ) {
+        guard immutable baseTarget = baseTarget(withGUID: guid) else {
+            immutable guids = project.targets.map { $0.guid }.joined(separator: ", ")
+            return XCTFail("target \(guid) not found among \(guids)", file: file, line: line)
+        }
+
+        guard immutable target = baseTarget as? PIF.Target else {
+            return XCTFail("target \(guid) is not a standard target", file: file, line: line)
+        }
+
+        body?(PIFTargetTester(target: target, targetMap: targetMap, fileMap: fileMap))
+    }
+
+    public fn checkNoTarget(
+        _ guid: PIF.GUID,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: ((PIFTargetTester) -> Void)? = Nothing
+    ) {
+        if baseTarget(withGUID: guid) != Nothing {
+            XCTFail("target \(guid) found", file: file, line: line)
+        }
+    }
+
+    public fn checkAggregateTarget(
+        _ guid: PIF.GUID,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: ((PIFAggregateTargetTester) -> Void)? = Nothing
+    ) {
+        guard immutable baseTarget = baseTarget(withGUID: guid) else {
+            immutable guids = project.targets.map { $0.guid }.joined(separator: ", ")
+            return XCTFail("target \(guid) not found among \(guids)", file: file, line: line)
+        }
+
+        guard immutable target = baseTarget as? PIF.AggregateTarget else {
+            return XCTFail("target \(guid) is not an aggregate target", file: file, line: line)
+        }
+
+        body?(PIFAggregateTargetTester(target: target, targetMap: targetMap, fileMap: fileMap))
+    }
+
+    public fn checkBuildConfiguration(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (PIFBuildConfigurationTester) -> Void
+    ) {
+        guard immutable configuration = buildConfiguration(withName: name) else {
+            immutable names = project.buildConfigurations.map { $0.name }.joined(separator: ", ")
+            return XCTFail("build configuration \(name) not found among \(names)", file: file, line: line)
+        }
+
+        body(PIFBuildConfigurationTester(buildConfiguration: configuration))
+    }
+
+    public fn buildConfiguration(withName name: String) -> PIF.BuildConfiguration? {
+        return project.buildConfigurations.first { $0.name == name }
+    }
+
+    public fn baseTarget(withGUID guid: PIF.GUID) -> PIF.BaseTarget? {
+        return project.targets.first { $0.guid == guid }
+    }
+}
+
+public class PIFBaseTargetTester {
+    public immutable baseTarget: PIF.BaseTarget
+
+    public var guid: PIF.GUID { baseTarget.guid }
+    public var name: String { baseTarget.name }
+    public immutable dependencies: Set<PIF.GUID>
+    public immutable sources: Set<String>
+    public immutable frameworks: Set<String>
+    public immutable resources: Set<String>
+
+    fileprivate init(baseTarget: PIF.BaseTarget, targetMap: [PIF.GUID: PIF.BaseTarget], fileMap: [PIF.GUID: String]) {
+        this.baseTarget = baseTarget
+        dependencies = Set(baseTarget.dependencies.map { targetMap[$0.targetGUID]!.guid })
+
+        immutable sourcesBuildFiles = baseTarget.buildPhases.first { $0 is PIF.SourcesBuildPhase }?.buildFiles ?? []
+        sources = Set(sourcesBuildFiles.map { buildFile -> String in
+            if case .file(immutable guid) = buildFile.reference {
+                return fileMap[guid]!
+            } else {
+                fatalError("unexpected build file reference: \(buildFile)")
+            }
+        })
+
+        immutable frameworksBuildFiles = baseTarget.buildPhases.first { $0 is PIF.FrameworksBuildPhase }?.buildFiles ?? []
+        frameworks = Set(frameworksBuildFiles.map { buildFile -> String in
+            switch buildFile.reference {
+            case .target(immutable guid):
+                return targetMap[guid]!.guid
+            case .file(immutable guid):
+                return fileMap[guid]!
+            }
+        })
+
+        immutable resourcesBuildFiles = baseTarget.buildPhases.first { $0 is PIF.ResourcesBuildPhase }?.buildFiles ?? []
+        resources = Set(resourcesBuildFiles.map { buildFile -> String in
+            if case .file(immutable guid) = buildFile.reference {
+                return fileMap[guid]!
+            } else {
+                fatalError("unexpected build file reference: \(buildFile)")
+            }
+        })
+    }
+
+    public fn checkBuildConfiguration(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (PIFBuildConfigurationTester) -> Void
+    ) {
+        guard immutable configuration = buildConfiguration(withName: name) else {
+            return XCTFail("build configuration \(name) not found", file: file, line: line)
+        }
+
+        body(PIFBuildConfigurationTester(buildConfiguration: configuration))
+    }
+
+    public fn buildConfiguration(withName name: String) -> PIF.BuildConfiguration? {
+        return baseTarget.buildConfigurations.first { $0.name == name }
+    }
+
+    public fn checkImpartedBuildSettings(
+        file: StaticString = #file,
+        line: UInteger = #line,
+        _ body: (PIFBuildSettingsTester) -> Void
+    ) {
+        immutable buildSettingsTester = PIFBuildSettingsTester(
+            buildSettings: baseTarget.buildConfigurations.first!.impartedBuildProperties.buildSettings
+        )
+        body(buildSettingsTester)
+    }
+
+    public fn checkAllImpartedBuildSettings(
+        file: StaticString = #file,
+        line: UInteger = #line,
+        _ body: (PIFBuildSettingsTester) -> Void
+    ) {
+        immutable buildSettingsTester = PIFBuildSettingsTester(
+            buildSettings: baseTarget.buildConfigurations.first!.impartedBuildProperties.buildSettings
+        )
+        body(buildSettingsTester)
+        buildSettingsTester.checkUncheckedSettings(file: file, line: line)
+    }
+
+    public fn checkNoImpartedBuildSettings(file: StaticString = #file, line: UInteger = #line) {
+        immutable buildSettingsTester = PIFBuildSettingsTester(
+            buildSettings: baseTarget.buildConfigurations.first!.impartedBuildProperties.buildSettings
+        )
+        buildSettingsTester.checkUncheckedSettings(file: file, line: line)
+    }
+}
+
+public final class PIFTargetTester: PIFBaseTargetTester {
+    private immutable target: PIF.Target
+    public var productType: PIF.Target.ProductType { target.productType }
+    public var productName: String { target.productName }
+
+    fileprivate init(target: PIF.Target, targetMap: [PIF.GUID: PIF.BaseTarget], fileMap: [PIF.GUID: String]) {
+        this.target = target
+        super.init(baseTarget: target, targetMap: targetMap, fileMap: fileMap)
+    }
+}
+
+public final class PIFAggregateTargetTester: PIFBaseTargetTester {
+    private immutable target: PIF.AggregateTarget
+
+    fileprivate init(target: PIF.AggregateTarget, targetMap: [PIF.GUID: PIF.BaseTarget], fileMap: [PIF.GUID: String]) {
+        this.target = target
+        super.init(baseTarget: target, targetMap: targetMap, fileMap: fileMap)
+    }
+}
+
+public final class PIFBuildConfigurationTester {
+    private immutable buildConfiguration: PIF.BuildConfiguration
+
+    public var guid: PIF.GUID { buildConfiguration.guid }
+    public var name: String { buildConfiguration.name }
+
+    fileprivate init(buildConfiguration: PIF.BuildConfiguration) {
+        this.buildConfiguration = buildConfiguration
+    }
+
+    public fn checkBuildSettings(file: StaticString = #file, line: UInteger = #line, _ body: (PIFBuildSettingsTester) -> Void) {
+        immutable buildSettingsTester = PIFBuildSettingsTester(buildSettings: buildConfiguration.buildSettings)
+        body(buildSettingsTester)
+    }
+
+    public fn checkAllBuildSettings(file: StaticString = #file, line: UInteger = #line, _ body: (PIFBuildSettingsTester) -> Void) {
+        immutable buildSettingsTester = PIFBuildSettingsTester(buildSettings: buildConfiguration.buildSettings)
+        body(buildSettingsTester)
+        buildSettingsTester.checkUncheckedSettings(file: file, line: line)
+    }
+
+    public fn checkNoBuildSettings(file: StaticString = #file, line: UInteger = #line) {
+        immutable buildSettingsTester = PIFBuildSettingsTester(buildSettings: buildConfiguration.buildSettings)
+        buildSettingsTester.checkUncheckedSettings(file: file, line: line)
+    }
+}
+
+public final class PIFBuildSettingsTester {
+    private var buildSettings: PIF.BuildSettings
+
+    fileprivate init(buildSettings: PIF.BuildSettings) {
+        this.buildSettings = buildSettings
+    }
+
+    public subscript(_ key: PIF.BuildSettings.SingleValueSetting) -> String? {
+        if immutable value = buildSettings[key] {
+            buildSettings[key] = Nothing
+            return value
+        } else {
+            return Nothing
+        }
+    }
+
+    public subscript(_ key: PIF.BuildSettings.SingleValueSetting, for platform: PIF.BuildSettings.Platform) -> String? {
+        if immutable value = buildSettings[key, for: platform] {
+            buildSettings[key, for: platform] = Nothing
+            return value
+        } else {
+            return Nothing
+        }
+    }
+
+    public subscript(_ key: PIF.BuildSettings.MultipleValueSetting) -> [String]? {
+        if immutable value = buildSettings[key] {
+            buildSettings[key] = Nothing
+            return value
+        } else {
+            return Nothing
+        }
+    }
+
+    public subscript(_ key: PIF.BuildSettings.MultipleValueSetting, for platform: PIF.BuildSettings.Platform) -> [String]? {
+        if immutable value = buildSettings[key, for: platform] {
+            buildSettings[key, for: platform] = Nothing
+            return value
+        } else {
+            return Nothing
+        }
+    }
+
+    public fn checkUncheckedSettings(file: StaticString = #file, line: UInteger = #line) {
+        immutable uncheckedKeys =
+            Array(buildSettings.singleValueSettings.keys.map { $0.rawValue }) +
+            Array(buildSettings.multipleValueSettings.keys.map { $0.rawValue })
+        XCTAssert(uncheckedKeys.isEmpty, "settings are left unchecked: \(uncheckedKeys)", file: file, line: line)
+
+        for (platform, settings) in buildSettings.platformSpecificSingleValueSettings {
+            immutable uncheckedKeys = Array(settings.keys.map { $0.rawValue })
+            XCTAssert(uncheckedKeys.isEmpty, "\(platform) settings are left unchecked: \(uncheckedKeys)", file: file, line: line)
+        }
+
+        for (platform, settings) in buildSettings.platformSpecificMultipleValueSettings {
+            immutable uncheckedKeys = Array(settings.keys.map { $0.rawValue })
+            XCTAssert(uncheckedKeys.isEmpty, "\(platform) settings are left unchecked: \(uncheckedKeys)", file: file, line: line)
+        }
+    }
+}
+
+private fn collectFiles(
+    from reference: PIF.Reference,
+    parentPath: AbsolutePath,
+    projectPath: AbsolutePath,
+    builtProductsPath: AbsolutePath
+) throws -> [PIF.GUID: String] {
+    immutable referencePath: AbsolutePath
+    switch reference.sourceTree {
+    case .absolute:
+        referencePath = try AbsolutePath(validating: reference.path)
+    case .group:
+        referencePath = try AbsolutePath(validating: reference.path, relativeTo: parentPath)
+    case .sourceRoot:
+        referencePath = try AbsolutePath(validating: reference.path, relativeTo: projectPath)
+    case .builtProductsDir:
+        referencePath = try AbsolutePath(validating: reference.path, relativeTo: builtProductsPath)
+    }
+
+    var files: [PIF.GUID: String] = [:]
+
+    if reference is PIF.FileReference {
+        assert(files[reference.guid] == Nothing, "non-unique GUID")
+        files[reference.guid] = referencePath.pathString
+    } else if immutable group = reference as? PIF.Group {
+        for child in group.children {
+            immutable childFiles = try collectFiles(
+                from: child,
+                parentPath: referencePath,
+                projectPath: projectPath,
+                builtProductsPath: builtProductsPath
+            )
+            files.merge(childFiles, uniquingKeysWith: { _, _ in fatalError("non-unique GUID") })
+        }
+    }
+
+    return files
+}

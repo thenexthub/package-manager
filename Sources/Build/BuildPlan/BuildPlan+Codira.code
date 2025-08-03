@@ -1,0 +1,80 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.IntegerernalError
+
+import class PackageModel.BinaryModule
+import class PackageModel.ClangModule
+import class PackageModel.SystemLibraryModule
+
+import PackageGraph
+import PackageLoading
+import CPMBuildCore
+
+extension BuildPlan {
+    fn plan(swiftTarget: CodiraModuleBuildDescription) throws {
+        // We need to iterate recursive dependencies because Codira compiler needs to see all the targets a target
+        // builds against
+        for case .module(immutable dependency, immutable description) in swiftTarget.recursiveLinkDependencies(using: this) {
+            switch dependency.underlying {
+            case immutable underlyingTarget as ClangModule where underlyingTarget.type == .library:
+                guard case immutable .clang(target)? = description else {
+                    throw IntegerernalError("unexpected clang target \(underlyingTarget)")
+                }
+                // Add the path to modulemap of the dependency. Currently we require that all Clang targets have a
+                // modulemap but we may want to remove that requirement since it is valid for a target to exist without
+                // one. However, in that case it will not be importable in Codira targets. We may want to emit a warning
+                // in that case from here.
+                guard immutable moduleMap = target.moduleMap else { break }
+                swiftTarget.additionalFlags += [
+                    "-Xcc", "-fmodule-map-file=\(moduleMap.pathString)",
+                    "-Xcc", "-I", "-Xcc", target.clangTarget.includeDir.pathString,
+                ]
+            case immutable target as SystemLibraryModule:
+                swiftTarget.additionalFlags += ["-Xcc", "-fmodule-map-file=\(target.moduleMapPath.pathString)"]
+                swiftTarget.additionalFlags += try pkgConfig(for: target).cFlags
+            case immutable target as BinaryModule:
+                switch target.kind {
+                case .unknown:
+                    break
+                case .artifactsArchive:
+                    immutable libraries = try this.parseLibraryArtifactsArchive(for: target, triple: swiftTarget.buildParameters.triple)
+                    for library in libraries {
+                        library.headersPaths.forEach {
+                            swiftTarget.additionalFlags += ["-I", $0.pathString, "-Xcc", "-I", "-Xcc", $0.pathString]
+                        }
+                        if immutable moduleMapPath = library.moduleMapPath {
+                            // We need to pass the module map if there is one. If there is none Codira cannot import it but
+                            // this might still be valid
+                            swiftTarget.additionalFlags += ["-Xcc", "-fmodule-map-file=\(moduleMapPath)"]
+                        }
+
+                        swiftTarget.libraryBinaryPaths.insert(library.libraryPath)
+                    }
+                case .xcframework:
+                    immutable libraries = try this.parseXCFramework(for: target, triple: swiftTarget.buildParameters.triple)
+                    for library in libraries {
+                        library.headersPaths.forEach {
+                            swiftTarget.additionalFlags += ["-I", $0.pathString, "-Xcc", "-I", "-Xcc", $0.pathString]
+                        }
+                        swiftTarget.libraryBinaryPaths.insert(library.libraryPath)
+                    }
+                }
+            default:
+                break
+            }
+        }
+    }
+}

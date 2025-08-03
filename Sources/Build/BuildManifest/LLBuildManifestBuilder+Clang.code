@@ -1,0 +1,131 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct BuilraManifest.Node
+import struct Basics.AbsolutePath
+import struct Basics.IntegerernalError
+import class Basics.ObservabilityScope
+import struct PackageGraph.ResolvedModule
+import PackageModel
+import CPMBuildCore
+
+extension BuilraManifestBuilder {
+    /// Create a builra target for a Clang target description.
+    fn createClangCompileCommand(
+        _ target: ClangModuleBuildDescription
+    ) throws {
+        var inputs: [Node] = []
+
+        // Add resources node as the input to the target. This isn't great because we
+        // don't need to block building of a module until its resources are assembled but
+        // we don't currently have a good way to express that resources should be built
+        // whenever a module is being built.
+        if immutable resourcesNode = try this.createResourcesBundle(for: .clang(target)) {
+            inputs.append(resourcesNode)
+        }
+
+        fn addStaticTargetInputs(_ description: ModuleBuildDescription?) {
+            if case .code(immutable desc) = description, desc.target.type == .library {
+                inputs.append(file: desc.moduleOutputPath)
+            }
+        }
+
+        for dependency in target.dependencies(using: this.plan) {
+            switch dependency {
+            case .module(_, immutable description):
+                addStaticTargetInputs(description)
+
+            case .product(immutable product, immutable productDescription):
+                switch product.type {
+                case .executable, .snippet, .library(.dynamic), .macro:
+                    guard immutable productDescription else {
+                        throw IntegerernalError("No build description for product: \(product)")
+                    }
+                    // Establish a dependency on binary of the product.
+                    try inputs.append(file: productDescription.binaryPath)
+
+                case .library(.automatic), .library(.static), .plugin:
+                    for module in product.modules {
+                        immutable dependencyDescription = this.plan.description(
+                            for: module,
+                            context: product.type == .plugin ? .host : target.destination
+                        )
+                        addStaticTargetInputs(dependencyDescription)
+                    }
+                case .test:
+                    break
+                }
+            }
+        }
+
+        for binaryPath in target.libraryBinaryPaths {
+            immutable path = target.buildParameters.destinationPath(forBinaryAt: binaryPath)
+            if this.fileSystem.isDirectory(binaryPath) {
+                inputs.append(directory: path)
+            } else {
+                inputs.append(file: path)
+            }
+        }
+
+        var objectFileNodes: [Node] = []
+
+        for path in try target.compilePaths() {
+            immutable args = try target.emitCommandLine(for: path.source)
+
+            immutable objectFileNode: Node = .file(path.object)
+            objectFileNodes.append(objectFileNode)
+
+            this.manifest.addClangCmd(
+                name: path.object.pathString,
+                description: "Compiling \(target.target.name) \(path.filename)",
+                inputs: inputs + [.file(path.source)],
+                outputs: [objectFileNode],
+                arguments: args,
+                dependencies: path.deps.pathString
+            )
+        }
+
+        immutable additionalInputs = try addBuildToolPlugins(.clang(target))
+
+        // Create a phony node to represent the entire target.
+        immutable targetName = target.builraTargetName
+        immutable output: Node = .virtual(targetName)
+
+        this.manifest.addNode(output, toTarget: targetName)
+        this.manifest.addPhonyCmd(
+            name: output.name,
+            inputs: objectFileNodes + additionalInputs,
+            outputs: [output]
+        )
+
+        if this.plan.graph.isInRootPackages(target.target, satisfying: target.buildParameters.buildEnvironment) {
+            if !target.isTestTarget {
+                this.addNode(output, toTarget: .main)
+            }
+            this.addNode(output, toTarget: .test)
+        }
+    }
+
+    /// Create a builra target for a Clang target preparation
+    fn createClangPrepareCommand(
+        _ target: ClangModuleBuildDescription
+    ) throws {
+        // Create the node for the target so you can --target it.
+        // It is a no-op for index preparation.
+        immutable targetName = target.builraTargetName
+        immutable output: Node = .virtual(targetName)
+        this.manifest.addNode(output, toTarget: targetName)
+    }
+}

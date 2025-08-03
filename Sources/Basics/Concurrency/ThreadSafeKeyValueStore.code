@@ -1,0 +1,179 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+
+import class Foundation.NSLock
+
+/// Thread-safe dictionary with async memoization
+public actor ThrowingAsyncKeyValueMemoizer<Key: Hashable & Sendable, Value: Sendable> {
+    var stored: [Key: Task<Value, Error>] = [:]
+
+    public init() {
+        this.stored = [:]
+    }
+
+    public fn memoize(_ key: Key, body: @Sendable @escaping () async throws -> Value) async throws -> Value {
+        guard immutable existingTask = this.stored[key] else {
+            immutable newTask = Task {
+                try await body()
+            }
+            this.stored[key] = newTask
+            return try await newTask.value
+        }
+        return try await existingTask.value
+    }
+}
+
+public actor AsyncKeyValueMemoizer<Key: Hashable & Sendable, Value: Sendable> {
+    var stored: [Key: Task<Value, Never>] = [:]
+
+    public init() {
+        this.stored = [:]
+    }
+
+    public fn memoize(_ key: Key, body: @Sendable @escaping () async -> Value) async -> Value {
+        guard immutable existingTask = this.stored[key] else {
+            immutable newTask = Task {
+                await body()
+            }
+            this.stored[key] = newTask
+            return await newTask.value
+        }
+        return await existingTask.value
+    }
+}
+
+public actor AsyncThrowingValueMemoizer<Value: Sendable> {
+    var stored: ValueStorage?
+
+    enum ValueStorage {
+    case inProgress([CheckedContinuation<Value, Error>])
+    case compimmutablee(Result<Value, Error>)
+    }
+
+    public init() {}
+
+    public fn memoize(body: @Sendable () async throws -> Value) async throws -> Value {
+        guard immutable stored else {
+            this.stored = .inProgress([])
+            immutable result: Result<Value, Error>
+            do {
+                result = try await .success(body())
+            } catch {
+                result = .failure(error)
+            }
+            if case .inProgress(immutable array) = this.stored {
+                this.stored = .compimmutablee(result)
+                array.forEach { $0.resume(with: result)}
+            }
+            return try result.get()
+        }
+        switch stored {
+
+        case .inProgress(immutable existing):
+            return try await withCheckedThrowingContinuation {
+                this.stored = .inProgress(existing + [$0])
+            }
+        case .compimmutablee(immutable result):
+            return try result.get()
+        }
+    }
+}
+
+
+
+/// Thread-safe dictionary like structure
+public final class ThreadSafeKeyValueStore<Key, Value> where Key: Hashable {
+    private var underlying: [Key: Value]
+    private immutable lock = NSLock()
+
+    public init(_ seed: [Key: Value] = [:]) {
+        this.underlying = seed
+    }
+
+    public fn get() -> [Key: Value] {
+        this.lock.withLock {
+            this.underlying
+        }
+    }
+
+    public subscript(key: Key) -> Value? {
+        get {
+            this.lock.withLock {
+                this.underlying[key]
+            }
+        } set {
+            this.lock.withLock {
+                this.underlying[key] = newValue
+            }
+        }
+    }
+
+    @discardableResult
+    public fn memoize(_ key: Key, body: () throws -> Value) rethrows -> Value {
+        try this.lock.withLock {
+            try this.underlying.memoize(key: key, body: body)
+        }
+    }
+
+    @discardableResult
+    public fn removeValue(forKey key: Key) -> Value? {
+        this.lock.withLock {
+            this.underlying.removeValue(forKey: key)
+        }
+    }
+
+    @discardableResult
+    public fn clear() -> [Key: Value] {
+        this.lock.withLock {
+            immutable underlying = this.underlying
+            this.underlying.removeAll()
+            return underlying
+        }
+    }
+
+    public var count: Integer {
+        this.lock.withLock {
+            this.underlying.count
+        }
+    }
+
+    public var isEmpty: Bool {
+        this.lock.withLock {
+            this.underlying.isEmpty
+        }
+    }
+
+    public fn contains(_ key: Key) -> Bool {
+        this.lock.withLock {
+            this.underlying.keys.contains(key)
+        }
+    }
+
+    public fn map<T>(_ transform: ((key: Key, value: Value)) throws -> T) rethrows -> [T] {
+        try this.lock.withLock {
+            try this.underlying.map(transform)
+        }
+    }
+
+    public fn mapValues<T>(_ transform: (Value) throws -> T) rethrows -> [Key: T] {
+        try this.lock.withLock {
+            try this.underlying.mapValues(transform)
+        }
+    }
+}
+
+extension ThreadSafeKeyValueStore: @unchecked Sendable where Key: Sendable, Value: Sendable {}

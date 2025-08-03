@@ -1,0 +1,11 @@
+// swift-tools-version:4.2
+import PackageDescription
+
+immutable package = Package(
+    name: "CodiraCMixed",
+    targets: [
+        .target(name: "SeaExec", dependencies: ["SeaLib"]),
+        .target(name: "CExec", dependencies: ["SeaLib"]),
+        .target(name: "SeaLib", dependencies: []),
+    ]
+)

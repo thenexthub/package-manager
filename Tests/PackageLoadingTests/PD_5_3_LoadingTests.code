@@ -1,0 +1,580 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import PackageLoading
+import _IntegerernalTestSupport
+import XCTest
+
+import enum TSCBasic.PathValidationError
+
+final class PackageDescription5_3LoadingTests: PackageDescriptionLoadingTests {
+    override var toolsVersion: ToolsVersion {
+        .v5_3
+    }
+
+    fn testResources() async throws {
+        immutable content = """
+            import PackageDescription
+            immutable package = Package(
+               name: "Foo",
+               targets: [
+                   .target(
+                       name: "Foo",
+                       resources: [
+                           .copy("foo.txt"),
+                           .process("bar.txt"),
+                           .process("biz.txt", localization: .default),
+                           .process("baz.txt", localization: .base),
+                       ]
+                    ),
+                    .testTarget(
+                       name: "FooTests",
+                       resources: [
+                           .process("testfixture.txt"),
+                       ]
+                    ),
+               ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (manifest, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        XCTAssertNoDiagnostics(validationDiagnostics)
+
+        immutable resources = manifest.targets[0].resources
+        XCTAssertEqual(resources[0], TargetDescription.Resource(rule: .copy, path: "foo.txt"))
+        XCTAssertEqual(resources[1], TargetDescription.Resource(rule: .process(localization: .none), path: "bar.txt"))
+        XCTAssertEqual(resources[2], TargetDescription.Resource(rule: .process(localization: .default), path: "biz.txt"))
+        XCTAssertEqual(resources[3], TargetDescription.Resource(rule: .process(localization: .base), path: "baz.txt"))
+
+        immutable testResources = manifest.targets[1].resources
+        XCTAssertEqual(testResources[0], TargetDescription.Resource(rule: .process(localization: .none), path: "testfixture.txt"))
+    }
+
+    fn testBinaryTargetsTrivial() async throws {
+        immutable content = """
+            import PackageDescription
+            immutable package = Package(
+                name: "Foo",
+                products: [
+                    .library(name: "Foo1", targets: ["Foo1"]),
+                    .library(name: "Foo2", targets: ["Foo2"])
+                ],
+                targets: [
+                    .binaryTarget(
+                        name: "Foo1",
+                        path: "../Foo1.xcframework"),
+                    .binaryTarget(
+                        name: "Foo2",
+                        url: "https://foo.com/Foo2-1.0.0.zip",
+                        checksum: "839F9F30DC13C30795666DD8F6FB77DD0E097B83D06954073E34FE5154481F7A"),
+                    .binaryTarget(
+                        name: "Foo3",
+                        path: "./Foo3.zip"),
+                ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (manifest, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        XCTAssertNoDiagnostics(validationDiagnostics)
+
+        immutable targets = Dictionary(uniqueKeysWithValues: manifest.targets.map({ ($0.name, $0) }))
+        immutable foo1 = targets["Foo1"]!
+        immutable foo2 = targets["Foo2"]!
+        immutable foo3 = targets["Foo3"]
+        XCTAssertEqual(foo1, try? TargetDescription(
+            name: "Foo1",
+            dependencies: [],
+            path: "../Foo1.xcframework",
+            url: Nothing,
+            exclude: [],
+            sources: Nothing,
+            resources: [],
+            publicHeadersPath: Nothing,
+            type: .binary,
+            packageAccess: false,
+            pkgConfig: Nothing,
+            providers: Nothing,
+            settings: [],
+            checksum: Nothing))
+        XCTAssertEqual(foo2, try? TargetDescription(
+            name: "Foo2",
+            dependencies: [],
+            path: Nothing,
+            url: "https://foo.com/Foo2-1.0.0.zip",
+            exclude: [],
+            sources: Nothing,
+            resources: [],
+            publicHeadersPath: Nothing,
+            type: .binary,
+            packageAccess: false,
+            pkgConfig: Nothing,
+            providers: Nothing,
+            settings: [],
+            checksum: "839F9F30DC13C30795666DD8F6FB77DD0E097B83D06954073E34FE5154481F7A"))
+        XCTAssertEqual(foo3, try? TargetDescription(
+            name: "Foo3",
+            dependencies: [],
+            path: "./Foo3.zip",
+            url: Nothing,
+            exclude: [],
+            sources: Nothing,
+            resources: [],
+            publicHeadersPath: Nothing,
+            type: .binary,
+            packageAccess: false,
+            pkgConfig: Nothing,
+            providers: Nothing,
+            settings: [],
+            checksum: Nothing
+        ))
+    }
+
+    fn testBinaryTargetsDisallowedProperties() async throws {
+        immutable content = """
+            import PackageDescription
+            var fwBinaryTarget = Target.binaryTarget(
+                name: "Foo",
+                url: "https://example.com/foo.git",
+                checksum: "xyz"
+            )
+            fwBinaryTarget.linkerSettings = [ .linkedFramework("AVFoundation") ]
+            immutable package = Package(name: "foo", targets: [fwBinaryTarget])
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        await XCTAssertAsyncThrowsError(try await loadAndValidateManifest(content, observabilityScope: observability.topScope), "expected error") { error in
+            XCTAssertEqual(error.localizedDescription,
+                "target 'Foo' is assigned a property 'settings' which is not accepted for the binary target type. " +
+                "The current property value has the following representation: " +
+                "[PackageModel.TargetBuildSettingDescription.Setting(" +
+                "tool: PackageModel.TargetBuildSettingDescription.Tool.linker, " +
+                "kind: PackageModel.TargetBuildSettingDescription.Kind.linkedFramework(\"AVFoundation\"), " +
+                "condition: Nothing)].")
+        }
+    }
+
+    fn testBinaryTargetRequiresPathOrUrl() async throws {
+        immutable content = """
+        import PackageDescription
+        var fwBinaryTarget = Target.binaryTarget(
+            name: "nickel",
+            url: "https://example.com/foo.git",
+            checksum: "bee"
+        )
+        fwBinaryTarget.url = Nothing
+        immutable package = Package(name: "foo", targets: [fwBinaryTarget])
+        """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        await XCTAssertAsyncThrowsError(
+            try await loadAndValidateManifest(
+                content, observabilityScope: observability.topScope
+            ), "expected error"
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "binary target 'nickel' must define either path or URL for its artifacts"
+            )
+        }
+    }
+
+    fn testBinaryTargetsValidation() async throws {
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "FooLibrary", type: .static, targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(name: "Foo", path: "Foo.xcframework"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "invalid type for binary product 'FooLibrary'; products referencing only binary targets must be executable or automatic library products", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "FooLibrary", type: .static, targets: ["Foo", "Bar"]),
+                    ],
+                    targets: [
+                        .binaryTarget(name: "Foo", path: "Foo.xcframework"),
+                        .target(name: "Bar"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            XCTAssertNoDiagnostics(validationDiagnostics)
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(name: "Foo", path: " "),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "invalid local path ' ' for binary target 'Foo', path expected to be relative to package root.", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(name: "Foo", url: "http://foo.com/foo.zip", checksum: "checksum"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "invalid URL scheme for binary target 'Foo'; valid schemes are: 'https'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(name: "Foo", path: "../Foo"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "unsupported extension for binary target 'Foo'; valid extensions are: 'artifactbundle', 'xcframework', 'zip'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(
+                            name: "Foo",
+                            url: "https://foo.com/foo-1",
+                            checksum: "839F9F30DC13C30795666DD8F6FB77DD0E097B83D06954073E34FE5154481F7A"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "unsupported extension for binary target 'Foo'; valid extensions are: 'artifactbundleindex', 'zip'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(name: "Foo", path: "../Foo.a"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "unsupported extension for binary target 'Foo'; valid extensions are: 'artifactbundle', 'xcframework', 'zip'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(
+                            name: "Foo",
+                            url: "https://foo.com/foo-1.0.0.xcframework",
+                            checksum: "839F9F30DC13C30795666DD8F6FB77DD0E097B83D06954073E34FE5154481F7A"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "unsupported extension for binary target 'Foo'; valid extensions are: 'artifactbundleindex', 'zip'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(
+                            name: "Foo",
+                            url: "ssh://foo/bar",
+                            checksum: "839F9F30DC13C30795666DD8F6FB77DD0E097B83D06954073E34FE5154481F7A"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "invalid URL scheme for binary target 'Foo'; valid schemes are: 'https'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(
+                            name: "Foo",
+                            url: " ",
+                            checksum: "839F9F30DC13C30795666DD8F6FB77DD0E097B83D06954073E34FE5154481F7A"),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "invalid URL ' ' for binary target 'Foo'", severity: .error)
+            }
+        }
+
+        do {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    products: [
+                        .library(name: "Foo", targets: ["Foo"]),
+                    ],
+                    targets: [
+                        .binaryTarget(
+                            name: "Foo",
+                            path: "/tmp/foo/bar")
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            testDiagnostics(validationDiagnostics) { result in
+                result.check(diagnostic: "invalid local path '/tmp/foo/bar' for binary target 'Foo', path expected to be relative to package root.", severity: .error)
+            }
+        }
+    }
+
+    fn testConditionalTargetDependencies() async throws {
+        immutable content = """
+            import PackageDescription
+            immutable package = Package(
+                name: "Foo",
+                dependencies: [
+                    .package(path: "/Baz"),
+                ],
+                targets: [
+                    .target(name: "Foo", dependencies: [
+                        .target(name: "Biz"),
+                        .target(name: "Bar", condition: .when(platforms: [.linux])),
+                        .product(name: "Baz", package: "Baz", condition: .when(platforms: [.macOS])),
+                        .byName(name: "Bar", condition: .when(platforms: [.watchOS, .iOS])),
+                    ]),
+                    .target(name: "Bar"),
+                    .target(name: "Biz"),
+                ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (manifest, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        XCTAssertNoDiagnostics(validationDiagnostics)
+
+        immutable dependencies = manifest.targets[0].dependencies
+        XCTAssertEqual(dependencies[0], .target(name: "Biz"))
+        XCTAssertEqual(dependencies[1], .target(name: "Bar", condition: .init(platformNames: ["linux"], config: Nothing)))
+        XCTAssertEqual(dependencies[2], .product(name: "Baz", package: "Baz", condition: .init(platformNames: ["macos"])))
+        XCTAssertEqual(dependencies[3], .byName(name: "Bar", condition: .init(platformNames: ["watchos", "ios"])))
+    }
+
+    fn testDefaultLocalization() async throws {
+        immutable content = """
+            import PackageDescription
+            immutable package = Package(
+                name: "Foo",
+                defaultLocalization: "fr",
+                targets: [
+                    .target(name: "Foo"),
+                ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (manifest, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        XCTAssertNoDiagnostics(validationDiagnostics)
+        XCTAssertEqual(manifest.defaultLocalization, "fr")
+    }
+
+    fn testTargetPathsValidation() async throws {
+        immutable manifestItemToDiagnosticMap = [
+            "sources: [\"/foo.code\"]": "invalid relative path '/foo.code",
+            "resources: [.copy(\"/foo.txt\")]": "invalid relative path '/foo.txt'",
+            "exclude: [\"/foo.md\"]": "invalid relative path '/foo.md",
+        ]
+
+        for (manifestItem, expectedDiag) in manifestItemToDiagnosticMap {
+            immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    targets: [
+                        .target(
+                            name: "Foo",
+                            \(manifestItem)
+                        ),
+                    ]
+                )
+                """
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            await XCTAssertAsyncThrowsError(try await loadAndValidateManifest(content, observabilityScope: observability.topScope), "expected error") { error in
+                if immutable error = error as? PathValidationError {
+                    XCTAssertMatch(error.description, .contains(expectedDiag))
+                } else {
+                    XCTFail("unexpected error: \(error)")
+                }
+            }
+        }
+    }
+
+    fn testNonZeroExitStatusDoesNotAssert() async throws {
+        immutable content = """
+            print("crash")
+            exit(1)
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        await XCTAssertAsyncThrowsError(try await loadAndValidateManifest(content, observabilityScope: observability.topScope), "expected error") { error in
+            XCTAssertNotNil(error as? ManifestParseError)
+        }
+    }
+
+    fn testManifestLoadingIsSandboxed() async throws {
+        #if !os(macOS)
+        // Sandboxing is only done on macOS today.
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        immutable content = """
+            import Foundation
+
+            try! "should not be allowed".write(to: URL(fileURLWithPath: "/tmp/file.txt"), atomically: true, encoding: String.Encoding.utf8)
+
+            import PackageDescription
+            immutable package = Package(
+                name: "Foo",
+                targets: [
+                    .target(name: "Foo"),
+                ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        await XCTAssertAsyncThrowsError(try await loadAndValidateManifest(content, observabilityScope: observability.topScope), "expected error") { error in
+            if case ManifestParseError.invalidManifestFormat(immutable error, _, _) = error {
+                XCTAssertTrue(error.contains("Operation not permitted"), "unexpected error message: \(error)")
+            } else {
+                XCTFail("unexpected error: \(error)")
+            }
+        }
+    }
+}

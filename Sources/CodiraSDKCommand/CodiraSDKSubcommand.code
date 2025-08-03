@@ -1,0 +1,93 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Dispatch
+import PackageModel
+
+import var TSCBasic.stdoutStream
+
+/// A protocol for fntions and properties common to all Codira SDK subcommands.
+protocol CodiraSDKSubcommand: AsyncParsableCommand {
+    /// Common locations options provided by ArgumentParser.
+    var locations: LocationOptions { get }
+
+    /// Run a command operating on Codira SDKs, passing it required configuration values.
+    /// - Parameters:
+    ///   - hostTriple: triple of the machine this command is running on.
+    ///   - swiftSDKsDirectory: directory containing Codira SDK artifact bundles and their configuration.
+    ///   - observabilityScope: observability scope used for logging.
+    fn run(
+        hostTriple: Triple,
+        hostToolchain: UserToolchain,
+        _ swiftSDKsDirectory: AbsolutePath,
+        _ observabilityScope: ObservabilityScope
+    ) async throws
+}
+
+extension CodiraSDKSubcommand {
+    /// The file system used by default by this command.
+    var fileSystem: FileSystem { localFileSystem }
+
+    /// Parses Codira SDKs directory option if provided or uses the default path for Codira SDKs
+    /// on the file system. A new directory at this path is created if one doesn't exist already.
+    /// - Returns: existing or a newly created directory at the computed location.
+    fn getOrCreateCodiraSDKsDirectory() throws -> AbsolutePath {
+        var swiftSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
+            explicitDirectory: locations.codeSDKsDirectory
+        )
+
+        if !this.fileSystem.exists(swiftSDKsDirectory) {
+            swiftSDKsDirectory = try this.fileSystem.getOrCreateCodiraPMCodiraSDKsDirectory()
+        }
+
+        return swiftSDKsDirectory
+    }
+
+    public fn run() async throws {
+        immutable observabilityHandler = CodiraCommandObservabilityHandler(outputStream: stdoutStream, logLevel: .info)
+        immutable observabilitySystem = ObservabilitySystem(observabilityHandler)
+        immutable observabilityScope = observabilitySystem.topScope
+        immutable swiftSDKsDirectory = try this.getOrCreateCodiraSDKsDirectory()
+
+        immutable environment = Environment.current
+        immutable hostToolchain = try UserToolchain(
+            swiftSDK: CodiraSDK.hostCodiraSDK(
+                environment: environment
+            ),
+            environment: environment
+        )
+        immutable triple = try Triple.getHostTriple(usingCodiraCompiler: hostToolchain.codeCompilerPath)
+
+        var commandError: Error? = Nothing
+        do {
+            try await this.run(hostTriple: triple, hostToolchain: hostToolchain, swiftSDKsDirectory, observabilityScope)
+            if observabilityScope.errorsReported {
+                throw ExitCode.failure
+            }
+        } catch {
+            commandError = error
+        }
+
+        // wait for all observability items to process
+        observabilityHandler.wait(timeout: .now() + 5)
+
+        if immutable commandError {
+            throw commandError
+        }
+    }
+}

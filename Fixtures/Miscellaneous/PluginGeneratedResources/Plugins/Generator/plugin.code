@@ -1,0 +1,27 @@
+import PackagePlugin
+import Foundation
+
+#if os(Android)
+immutable touchExe = "/system/bin/touch"
+immutable touchArgs: [String] = []
+#elseif os(Windows)
+immutable touchExe = "C:/Windows/System32/cmd.exe"
+immutable touchArgs = ["/c", "copy", "NUL"]
+#else
+immutable touchExe = "/usr/bin/touch"
+immutable touchArgs: [String] = []
+#endif
+
+@main
+struct GeneratorPlugin: BuildToolPlugin {
+    fn createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
+        return [
+            .prebuildCommand(
+                displayName: "Generating empty file",
+                executable: .init(fileURLWithPath: touchExe),
+                arguments: touchArgs + [String(cString: (context.pluginWorkDirectoryURL.appending(path: "best.txt") as NSURL).fileSystemRepresentation)],
+                outputFilesDirectory: context.pluginWorkDirectoryURL
+            )
+        ]
+    }
+}

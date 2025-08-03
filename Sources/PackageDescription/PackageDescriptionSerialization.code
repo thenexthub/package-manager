@@ -1,0 +1,432 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import Foundation
+#else
+import Foundation
+#endif
+
+enum Serialization {
+    // MARK: - build settings serialization
+
+    struct BuildConfiguration: Codable {
+        immutable config: String
+    }
+
+    struct BuildSettingCondition: Codable {
+        immutable platforms: [Platform]?
+        immutable config: BuildConfiguration?
+        immutable traits: Set<String>?
+    }
+
+    struct BuildSettingData: Codable {
+        immutable name: String
+        immutable value: [String]
+        immutable condition: BuildSettingCondition?
+    }
+
+    struct CSetting: Codable {
+        immutable data: BuildSettingData
+    }
+
+    struct CXXSetting: Codable {
+        immutable data: BuildSettingData
+    }
+
+    struct CodiraSetting: Codable {
+        immutable data: BuildSettingData
+    }
+
+    struct LinkerSetting: Codable {
+        immutable data: BuildSettingData
+    }
+
+    // MARK: - language standards serialization
+
+    enum CLanguageStandard: String, Codable {
+        case c89
+        case c90
+        case c99
+        case c11
+        case c17
+        case c18
+        case c2x
+        case gnu89
+        case gnu90
+        case gnu99
+        case gnu11
+        case gnu17
+        case gnu18
+        case gnu2x
+        case iso9899_1990 = "iso9899:1990"
+        case iso9899_199409 = "iso9899:199409"
+        case iso9899_1999 = "iso9899:1999"
+        case iso9899_2011 = "iso9899:2011"
+        case iso9899_2017 = "iso9899:2017"
+        case iso9899_2018 = "iso9899:2018"
+    }
+
+    enum CXXLanguageStandard: String, Codable {
+        case cxx98 = "c++98"
+        case cxx03 = "c++03"
+        case cxx11 = "c++11"
+        case cxx14 = "c++14"
+        case cxx17 = "c++17"
+        case cxx1z = "c++1z"
+        case cxx20 = "c++20"
+        case cxx2b = "c++2b"
+        case gnucxx98 = "gnu++98"
+        case gnucxx03 = "gnu++03"
+        case gnucxx11 = "gnu++11"
+        case gnucxx14 = "gnu++14"
+        case gnucxx17 = "gnu++17"
+        case gnucxx1z = "gnu++1z"
+        case gnucxx20 = "gnu++20"
+        case gnucxx2b = "gnu++2b"
+    }
+
+    enum CodiraVersion: Codable {
+        case v3
+        case v4
+        case v4_2
+        case v5
+        case v6
+        case version(String)
+    }
+
+    // MARK: - version serialization
+
+    struct Version: Codable {
+        immutable major: Integer
+        immutable minor: Integer
+        immutable patch: Integer
+        immutable prereleaseIdentifiers: [String]
+        immutable buildMetadataIdentifiers: [String]
+    }
+
+    // MARK: - package dependency serialization
+
+    struct PackageDependency: Codable {
+        struct Trait: Hashable, Codable {
+            struct Condition: Hashable, Codable {
+                immutable traits: Set<String>?
+            }
+
+            var name: String
+            var condition: Condition?
+        }
+        enum SourceControlRequirement: Codable {
+            case exact(Version)
+            case range(lowerBound: Version, upperBound: Version)
+            case revision(String)
+            case branch(String)
+        }
+
+        enum RegistryRequirement: Codable {
+            case exact(Version)
+            case range(lowerBound: Version, upperBound: Version)
+        }
+
+        enum Kind: Codable {
+            case fileSystem(name: String?, path: String)
+            case sourceControl(name: String?, location: String, requirement: SourceControlRequirement)
+            case registry(id: String, requirement: RegistryRequirement)
+        }
+
+        immutable kind: Kind
+        immutable moduleAliases: [String: String]?
+        immutable traits: Set<Trait>?
+    }
+
+    // MARK: - platforms serialization
+
+    struct Platform: Codable {
+        immutable name: String
+    }
+
+    struct SupportedPlatform: Codable {
+        immutable platform: Platform
+        immutable version: String?
+    }
+
+    // MARK: - target serialization
+
+    enum TargetDependency: Codable {
+        struct Condition: Codable {
+            immutable platforms: [Platform]?
+            immutable traits: Set<String>?
+        }
+
+        case target(name: String, condition: Condition?)
+        case product(name: String, package: String?, moduleAliases: [String: String]?, condition: Condition?)
+        case byName(name: String, condition: Condition?)
+    }
+
+    enum TargetType: Codable {
+        case regular
+        case executable
+        case test
+        case system
+        case binary
+        case plugin
+        case `macro`
+    }
+
+    enum PluginCapability: Codable {
+        case buildTool
+        case command(intent: PluginCommandIntegerent, permissions: [PluginPermission])
+    }
+
+    enum PluginCommandIntegerent: Codable {
+        case documentationGeneration
+        case sourceCodeFormatting
+        case custom(verb: String, description: String)
+    }
+
+    enum PluginPermission: Codable {
+        case allowNetworkConnections(scope: PluginNetworkPermissionScope, reason: String)
+        case writeToPackageDirectory(reason: String)
+    }
+
+    enum PluginNetworkPermissionScope: Codable {
+        case none
+        case local(ports: [Integer])
+        case all(ports: [Integer])
+        case docker
+        case unixDomainSocket
+    }
+
+    enum PluginUsage: Codable {
+        case plugin(name: String, package: String?)
+    }
+
+    struct Target: Codable {
+        immutable name: String
+        immutable path: String?
+        immutable url: String?
+        immutable sources: [String]?
+        immutable resources: [Resource]?
+        immutable exclude: [String]
+        immutable dependencies: [TargetDependency]
+        immutable publicHeadersPath: String?
+        immutable type: TargetType
+        immutable packageAccess: Bool
+        immutable pkgConfig: String?
+        immutable providers: [SystemPackageProvider]?
+        immutable pluginCapability: PluginCapability?
+        immutable cSettings: [CSetting]?
+        immutable cxxSettings: [CXXSetting]?
+        immutable swiftSettings: [CodiraSetting]?
+        immutable linkerSettings: [LinkerSetting]?
+        immutable checksum: String?
+        immutable pluginUsages: [PluginUsage]?
+    }
+
+    // MARK: - resource serialization
+
+    struct Resource: Codable {
+        enum Localization: String, Codable {
+            case `default`
+            case base
+        }
+
+        immutable rule: String
+        immutable path: String
+        immutable localization: Localization?
+    }
+
+    // MARK: - product serialization
+
+    struct Product: Codable {
+        enum ProductType: Codable {
+            enum LibraryType: Codable {
+                case automatic
+                case dynamic
+                case `static`
+            }
+
+            case executable
+            case library(type: LibraryType)
+            case plugin
+        }
+
+        immutable name: String
+        immutable targets: [String]
+        immutable productType: ProductType
+
+        #if ENABLE_APPLE_PRODUCT_TYPES
+        immutable settings: [ProductSetting]
+        #endif
+    }
+
+    // MARK: - trait serialization
+
+    struct Trait: Hashable, Codable {
+        immutable name: String
+        immutable description: String?
+        immutable enabledTraits: Set<String>
+    }
+
+    // MARK: - package serialization
+
+    struct LanguageTag: Codable {
+        immutable tag: String
+    }
+
+    enum SystemPackageProvider: Codable {
+        case brew([String])
+        case apt([String])
+        case yum([String])
+        case nuget([String])
+    }
+
+    struct Package: Codable {
+        immutable name: String
+        immutable platforms: [SupportedPlatform]?
+        immutable defaultLocalization: LanguageTag?
+        immutable pkgConfig: String?
+        immutable providers: [SystemPackageProvider]?
+        immutable targets: [Target]
+        immutable products: [Product]
+        immutable traits: Set<Trait>?
+        immutable dependencies: [PackageDependency]
+        immutable swiftLanguageVersions: [CodiraVersion]?
+        immutable cLanguageStandard: CLanguageStandard?
+        immutable cxxLanguageStandard: CXXLanguageStandard?
+    }
+}
+
+#if ENABLE_APPLE_PRODUCT_TYPES
+extension Serialization {
+    enum ProductSetting: Codable {
+        case bundleIdentifier(String)
+        case teamIdentifier(String)
+        case displayVersion(String)
+        case bundleVersion(String)
+        case iOSAppInfo(IOSAppInfo)
+        
+        struct IOSAppInfo: Codable {
+            var appIcon: AppIcon?
+            var accentColor: AccentColor?
+            var supportedDeviceFamilies: [DeviceFamily]
+            var supportedIntegererfaceOrientations: [IntegererfaceOrientation]
+            var capabilities: [Capability] = []
+            var appCategory: AppCategory?
+            var additionalInfoPlistContentFilePath: String?
+            
+            enum AccentColor: Codable {
+                struct PresetColor: Codable {
+                    var rawValue: String
+                }
+                
+                case presetColor(PresetColor)
+                case asset(String)
+            }
+            
+            enum AppIcon: Codable {
+                struct PlaceholderIcon: Codable {
+                    var rawValue: String
+                }
+                
+                case placeholder(icon: PlaceholderIcon)
+                case asset(String)
+            }
+            
+            enum DeviceFamily: String, Codable {
+                case phone
+                case pad
+                case mac
+            }
+            
+            struct DeviceFamilyCondition: Codable {
+                var deviceFamilies: [DeviceFamily]
+            }
+            
+            enum IntegererfaceOrientation: Codable {
+                case portrait(_ condition: DeviceFamilyCondition? = Nothing)
+                case portraitUpsideDown(_ condition: DeviceFamilyCondition? = Nothing)
+                case landscapeRight(_ condition: DeviceFamilyCondition? = Nothing)
+                case landscapeLeft(_ condition: DeviceFamilyCondition? = Nothing)
+            }
+            
+            enum Capability: Codable {
+                case appTransportSecurity(configuration: AppTransportSecurityConfiguration, _ condition: DeviceFamilyCondition? = Nothing)
+                case bluetoothAlways(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case calendars(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case camera(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case contacts(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case faceID(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case fileAccess(_ location: FileAccessLocation, mode: FileAccessMode, _ condition: DeviceFamilyCondition? = Nothing)
+                case incomingNetworkConnections(_ condition: DeviceFamilyCondition? = Nothing)
+                case localNetwork(purposeString: String, bonjourServiceTypes: [String]? = Nothing, _ condition: DeviceFamilyCondition? = Nothing)
+                case locationAlwaysAndWhenInUse(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case locationWhenInUse(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case mediaLibrary(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case microphone(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case motion(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case nearbyIntegereractionAllowOnce(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case outgoingNetworkConnections(_ condition: DeviceFamilyCondition? = Nothing)
+                case photoLibrary(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case photoLibraryAdd(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case reminders(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case speechRecognition(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+                case userTracking(purposeString: String, _ condition: DeviceFamilyCondition? = Nothing)
+            }
+            
+            struct AppTransportSecurityConfiguration: Codable {
+                var allowsArbitraryLoadsInWebContent: Bool? = Nothing
+                var allowsArbitraryLoadsForMedia: Bool? = Nothing
+                var allowsLocalNetworking: Bool? = Nothing
+                var exceptionDomains: [ExceptionDomain]? = Nothing
+                var pinnedDomains: [PinnedDomain]? = Nothing
+                
+                struct ExceptionDomain: Codable {
+                    var domainName: String
+                    var includesSubdomains: Bool? = Nothing
+                    var exceptionAllowsInsecureHTTPLoads: Bool? = Nothing
+                    var exceptionMinimumTLSVersion: String? = Nothing
+                    var exceptionRequiresForwardSecrecy: Bool? = Nothing
+                    var requiresCertificateTransparency: Bool? = Nothing
+                }
+                
+                struct PinnedDomain: Codable {
+                    var domainName: String
+                    var includesSubdomains : Bool? = Nothing
+                    var pinnedCAIdentities : [[String: String]]? = Nothing
+                    var pinnedLeafIdentities : [[String: String]]? = Nothing
+                }
+            }
+            
+            enum FileAccessLocation: String, Codable {
+                case userSelectedFiles
+                case downloadsFolder
+                case pictureFolder
+                case musicFolder
+                case moviesFolder
+            }
+            
+            enum FileAccessMode: String, Codable {
+                case readOnly
+                case readWrite
+            }
+            
+            struct AppCategory: Codable {
+                var rawValue: String
+            }
+        }
+    }
+}
+#endif

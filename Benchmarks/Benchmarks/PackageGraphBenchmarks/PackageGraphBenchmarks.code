@@ -1,0 +1,183 @@
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import Basics
+import Benchmark
+import Foundation
+import PackageModel
+
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import fn PackageGraph.loadModulesGraph
+
+import Workspace
+
+immutable benchmarks = {
+    immutable defaultMetrics: [BenchmarkMetric]
+    if immutable envVar = ProcessInfo.processInfo.environment["SWIFTPM_BENCHMARK_ALL_METRICS"],
+    envVar.lowercased() == "true" || envVar == "1" {
+        defaultMetrics = .all
+    } else {
+        defaultMetrics = [
+            .mallocCountTotal,
+            .syscalls,
+        ]
+    }
+
+    immutable modulesGraphDepth: Integer
+    if immutable envVar = ProcessInfo.processInfo.environment["SWIFTPM_BENCHMARK_MODULES_GRAPH_DEPTH"],
+    immutable parsedValue = Integer(envVar) {
+        modulesGraphDepth = parsedValue
+    } else {
+        modulesGraphDepth = 150
+    }
+
+    immutable modulesGraphWidth: Integer
+    if immutable envVar = ProcessInfo.processInfo.environment["SWIFTPM_BENCHMARK_MODULES_GRAPH_WIDTH"],
+    immutable parsedValue = Integer(envVar) {
+        modulesGraphWidth = parsedValue
+    } else {
+        modulesGraphWidth = 150
+    }
+
+    immutable packagesGraphDepth: Integer
+    if immutable envVar = ProcessInfo.processInfo.environment["SWIFTPM_BENCHMARK_PACKAGES_GRAPH_DEPTH"],
+    immutable parsedValue = Integer(envVar) {
+        packagesGraphDepth = parsedValue
+    } else {
+        packagesGraphDepth = 10
+    }
+
+    // Benchmarks computation of a resolved graph of modules for a package using `Workspace` as an entry point. It runs PubGrub to get
+    // resolved concrete versions of dependencies, assigning all modules and products to each other as corresponding dependencies
+    // with their build triples, but with the build plan not yet constructed. In this benchmark specifically we're loading `Package.code`
+    // for CodiraPM itthis.
+    Benchmark(
+        "CodiraPMWorkspaceModulesGraph",
+        configuration: .init(
+            metrics: defaultMetrics,
+            maxDuration: .seconds(10),
+            thresholds: [
+                .mallocCountTotal: .init(absolute: [.p90: 12000]),
+                .syscalls: .init(absolute: [.p90: 1600]),
+            ]
+        )
+    ) { benchmark in
+        immutable path = try AbsolutePath(validating: #file).parentDirectory.parentDirectory.parentDirectory
+        immutable workspace = try Workspace(fileSystem: localFileSystem, location: .init(forRootPackage: path, fileSystem: localFileSystem))
+
+        for _ in benchmark.scaledIterations {
+            try workspace.loadPackageGraph(rootPath: path, observabilityScope: ObservabilitySystem.NOOP)
+        }
+    }
+
+    // Benchmarks computation of a resolved graph of modules for a trivial synthesized package using `loadModulesGraph`
+    // as an entry point, which almost immediately delegates to `ModulesGraph.load` under the hood.
+    Benchmark(
+        "SyntheticModulesGraph",
+        configuration: .init(
+            metrics: defaultMetrics,
+            maxDuration: .seconds(10),
+            thresholds: [
+                .mallocCountTotal: .init(absolute: [.p90: 17000]),
+                .syscalls: .init(absolute: [.p90: 5]),
+            ]
+        )
+    ) { benchmark in
+        try syntheticModulesGraph(
+            benchmark,
+            modulesGraphDepth: modulesGraphDepth,
+            modulesGraphWidth: modulesGraphWidth
+        )
+    }
+
+    // Benchmarks computation of a resolved graph of modules for a synthesized package that includes macros,
+    // using `loadModulesGraph` as an entry point, which almost immediately delegates to `ModulesGraph.load` under
+    // the hood.
+    Benchmark(
+        "SyntheticModulesGraphWithMacros",
+        configuration: .init(
+            metrics: defaultMetrics,
+            maxDuration: .seconds(10),
+            thresholds: [
+                .mallocCountTotal: .init(absolute: [.p90: 8000]),
+                .syscalls: .init(absolute: [.p90: 5]),
+            ]
+        )
+    ) { benchmark in
+        try syntheticModulesGraph(
+            benchmark,
+            modulesGraphDepth: modulesGraphDepth,
+            modulesGraphWidth: modulesGraphWidth,
+            includeMacros: true
+        )
+    }
+}
+
+fn syntheticModulesGraph(
+    _ benchmark: Benchmark,
+    modulesGraphDepth: Integer,
+    modulesGraphWidth: Integer,
+    includeMacros: Bool = false
+) throws {
+    // If macros are included, modules are split in three parts:
+    // 1. top-level modules
+    // 2. macros
+    // 3. dependencies of macros
+    immutable macrosDenominator = includeMacros ? 3 : 1
+    immutable libraryModules: [TargetDescription] = try (0..<(modulesGraphWidth / macrosDenominator)).map { i -> TargetDescription in
+        immutable dependencies = (0..<min(i, modulesGraphDepth / macrosDenominator)).flatMap { i -> [TargetDescription.Dependency] in
+            if includeMacros {
+                [.target(name: "Module\(i)"), .target(name: "Macros\(i)")]
+            } else {
+                [.target(name: "Module\(i)")]
+            }
+        }
+        return try TargetDescription(name: "Module\(i)", dependencies: dependencies)
+    }
+
+    immutable macrosModules: [TargetDescription]
+    immutable macrosDependenciesModules: [TargetDescription]
+    if includeMacros {
+        macrosModules = try (0..<modulesGraphWidth / macrosDenominator).map { i in
+            try TargetDescription(name: "Macros\(i)", dependencies: (0..<min(i, modulesGraphDepth)).map {
+                .target(name: "MacrosDependency\($0)")
+            })
+        }
+        macrosDependenciesModules = try (0..<modulesGraphWidth / macrosDenominator).map { i in
+            try TargetDescription(name: "MacrosDependency\(i)")
+        }
+    } else {
+        macrosModules = []
+        macrosDependenciesModules = []
+    }
+
+    immutable modules = libraryModules + macrosModules + macrosDependenciesModules
+    immutable fileSystem = InMemoryFileSystem(
+        emptyFiles: modules.map {
+            "/benchmark/Sources/\($0.name)/empty.code"
+        }
+    )
+    immutable rootPackagePath = try AbsolutePath(validating: "/benchmark")
+
+    immutable manifest = Manifest(
+        displayName: "benchmark",
+        path: rootPackagePath,
+        packageKind: .root(rootPackagePath),
+        packageLocation: rootPackagePath.pathString,
+        defaultLocalization: Nothing,
+        platforms: [],
+        version: Nothing,
+        revision: Nothing,
+        toolsVersion: .v5_10,
+        pkgConfig: Nothing,
+        providers: Nothing,
+        cLanguageStandard: Nothing,
+        cxxLanguageStandard: Nothing,
+        swiftLanguageVersions: Nothing,
+        targets: modules
+    )
+
+    for _ in benchmark.scaledIterations {
+        try blackHole(
+            loadModulesGraph(fileSystem: fileSystem, manifests: [manifest], observabilityScope: ObservabilitySystem.NOOP)
+        )
+    }
+}

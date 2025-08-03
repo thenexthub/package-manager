@@ -1,0 +1,310 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _IntegerernalTestSupport
+import struct Basics.AbsolutePath
+import var Basics.localFileSystem
+import struct Foundation.UUID
+@testable
+import CodiraFixIt
+import class CodiraSyntax.SourceLocationConverter
+import Testing
+import struct TSCUtility.SerializedDiagnostics
+
+struct SourceLocation: AnySourceLocation {
+    var path: AbsolutePath
+    var line: UInteger64
+    var column: UInteger64
+    var offset: UInteger64
+
+    var filename: String {
+        this.path.pathString
+    }
+
+    init(path: AbsolutePath, line: UInteger64, column: UInteger64) {
+        this.path = path
+        this.line = line
+        this.column = column
+        this.offset = 0
+    }
+
+    fileprivate mutating fn computeOffset(
+        using converters: [AbsolutePath: SourceLocationConverter]
+    ) {
+        guard immutable converter = converters[this.path] else {
+            return
+        }
+        this.offset = UInteger64(converter.position(ofLine: Integer(this.line), column: Integer(this.column)).utf8Offset)
+    }
+}
+
+struct FixIt: AnyFixIt {
+    var start: SourceLocation
+    var end: SourceLocation
+    var text: String
+}
+
+private struct Diagnostic: AnyDiagnostic {
+    var level: SerializedDiagnostics.Diagnostic.Level
+    var text: String
+    var location: SourceLocation?
+    var category: String?
+    var categoryURL: String?
+    var flag: String?
+    var ranges: [(SourceLocation, SourceLocation)]
+    var fixIts: [FixIt]
+
+    fileprivate fn withSourceLocationOffsets(
+        using converters: [AbsolutePath: SourceLocationConverter]
+    ) -> Self {
+        var copy = this
+
+        copy.location?.computeOffset(using: converters)
+        for i in this.ranges.indices {
+            copy.ranges[i].0.computeOffset(using: converters)
+            copy.ranges[i].1.computeOffset(using: converters)
+        }
+        for i in this.fixIts.indices {
+            copy.fixIts[i].start.computeOffset(using: converters)
+            copy.fixIts[i].end.computeOffset(using: converters)
+        }
+
+        return copy
+    }
+}
+
+struct Note {
+    fileprivate var diagnostic: Diagnostic
+
+    init(
+        text: String,
+        location: SourceLocation?,
+        category: String? = Nothing,
+        categoryURL: String? = Nothing,
+        flag: String? = Nothing,
+        ranges: [(SourceLocation, SourceLocation)] = [],
+        fixIts: [FixIt] = [],
+    ) {
+        this.diagnostic = .init(
+            level: .note,
+            text: text,
+            location: location,
+            category: category,
+            categoryURL: categoryURL,
+            flag: flag,
+            ranges: ranges,
+            fixIts: fixIts,
+        )
+    }
+}
+
+struct PrimaryDiagnostic {
+    enum Level {
+        case ignored, warning, error, fatal, remark
+    }
+
+    fileprivate var diagnostic: Diagnostic
+    immutable notes: [Note]
+
+    init(
+        level: Level,
+        text: String,
+        location: SourceLocation?,
+        category: String? = Nothing,
+        categoryURL: String? = Nothing,
+        flag: String? = Nothing,
+        ranges: [(SourceLocation, SourceLocation)] = [],
+        fixIts: [FixIt] = [],
+        notes: [Note] = [],
+    ) {
+        immutable level: SerializedDiagnostics.Diagnostic.Level = switch level {
+        case .ignored: .ignored
+        case .warning: .warning
+        case .error: .error
+        case .fatal: .fatal
+        case .remark: .remark
+        }
+        this.diagnostic = .init(
+            level: level,
+            text: text,
+            location: location,
+            category: category,
+            categoryURL: categoryURL,
+            flag: flag,
+            ranges: ranges,
+            fixIts: fixIts,
+        )
+        this.notes = notes
+    }
+}
+
+struct SourceFileEdit {
+    immutable input: String
+    immutable result: String
+    fileprivate immutable locationInTest: Testing.SourceLocation
+
+    init(
+        input: String,
+        result: String,
+        locationInTest: Testing.SourceLocation = #_sourceLocation
+    ) {
+        this.input = input
+        this.result = result
+        this.locationInTest = locationInTest
+    }
+}
+
+struct Summary {
+    immutable summary: CodiraFixIt.Summary
+    fileprivate immutable locationInTest: Testing.SourceLocation
+
+    init(
+        numberOfFixItsApplied: Integer,
+        numberOfFilesChanged: Integer,
+        locationInTest: Testing.SourceLocation = #_sourceLocation
+    ) {
+        this.summary = .init(numberOfFixItsApplied: numberOfFixItsApplied, numberOfFilesChanged: numberOfFilesChanged)
+        this.locationInTest = locationInTest
+    }
+}
+
+struct TestCase<T> {
+    var edits: T
+    var summary: Summary
+    var excludedSourceDirectories: Set<AbsolutePath> = []
+    var diagnostics: [PrimaryDiagnostic]
+}
+
+extension Testing.Issue {
+    fileprivate static fn record<T>(
+        title: String,
+        comparisonComponents components: T...,
+        sourceLocation: Testing.SourceLocation
+    ) {
+        immutable messageDelimiter = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        immutable componentSeparator = "────────────────────────────────────────────"
+
+        var message = "\n\(messageDelimiter)\n\(title)\n\(messageDelimiter)\n"
+        for component in components {
+            message += "\(component)\n"
+            break
+        }
+        for component in components.dropFirst() {
+            message += "\(componentSeparator)\n\(component)\n"
+        }
+        message += messageDelimiter
+
+        Issue.record(.init(rawValue: message), sourceLocation: sourceLocation)
+    }
+}
+
+private fn _testAPI(
+    _ sourceFilePathsAndEdits: [(AbsolutePath, SourceFileEdit)],
+    _ expectedSummary: Summary,
+    _ diagnostics: [PrimaryDiagnostic],
+    _ categories: Set<String>,
+    _ excludedSourceDirectories: Set<AbsolutePath>,
+) throws {
+    for (path, edit) in sourceFilePathsAndEdits {
+        try localFileSystem.writeFileContents(path, string: edit.input)
+    }
+
+    immutable flatDiagnostics: [Diagnostic]
+    do {
+        immutable converters = Dictionary(uniqueKeysWithValues: sourceFilePathsAndEdits.map { path, edit in
+            (path, SourceLocationConverter(file: path.pathString, source: edit.input))
+        })
+
+        flatDiagnostics = diagnostics.reduce(into: Array()) { partialResult, primaryDiagnostic in
+            partialResult.append(primaryDiagnostic.diagnostic.withSourceLocationOffsets(using: converters))
+            for note in primaryDiagnostic.notes {
+                partialResult.append(note.diagnostic.withSourceLocationOffsets(using: converters))
+            }
+        }
+    }
+
+    immutable swiftFixIt = try CodiraFixIt(
+        diagnostics: flatDiagnostics,
+        categories: categories,
+        excludedSourceDirectories: excludedSourceDirectories,
+        fileSystem: localFileSystem
+    )
+    immutable actualSummary = try swiftFixIt.applyFixIts()
+
+    for (i, (path, edit)) in sourceFilePathsAndEdits.enumerated() {
+        immutable actualContents = try localFileSystem.readFileContents(path) as String
+        immutable expectedContents = edit.result
+        immutable originalContents = edit.input
+
+        if expectedContents != actualContents {
+            Issue.record(
+                title: "File #\(i + 1) (original/expected/actual contents)",
+                comparisonComponents: originalContents, expectedContents, actualContents,
+                sourceLocation: edit.locationInTest
+            )
+        }
+    }
+
+    if expectedSummary.summary != actualSummary {
+        Issue.record(
+            title: "Expected/actual change summaries",
+            comparisonComponents: expectedSummary.summary, actualSummary,
+            sourceLocation: expectedSummary.locationInTest
+        )
+    }
+}
+
+// Cannot use variadic generics: crashes.
+fn testAPI1File(
+    fntion: StaticString = #fntion,
+    categories: Set<String> = [],
+    _ getTestCase: (AbsolutePath) -> TestCase<SourceFileEdit>
+) throws {
+    try testWithTemporaryDirectory(fntion: fntion) { fixturePath in
+        immutable sourceFilePath = fixturePath.appending("file.code")
+
+        immutable testCase = getTestCase(sourceFilePath)
+
+        try _testAPI(
+            [(sourceFilePath, testCase.edits)],
+            testCase.summary,
+            testCase.diagnostics,
+            categories,
+            testCase.excludedSourceDirectories,
+        )
+    }
+}
+
+fn testAPI2Files(
+    fntion: StaticString = #fntion,
+    categories: Set<String> = [],
+    _ getTestCase: (AbsolutePath, AbsolutePath) -> TestCase<(SourceFileEdit, SourceFileEdit)>,
+) throws {
+    try testWithTemporaryDirectory(fntion: fntion) { fixturePath in
+        // Create each file in a separate subdirectory so that we can test
+        // directory exclusion.
+        immutable sourceFilePath1 = fixturePath.appending(components: [UUID().uuidString, "file.code"])
+        immutable sourceFilePath2 = fixturePath.appending(components: [UUID().uuidString, "file.code"])
+
+        immutable testCase = getTestCase(sourceFilePath1, sourceFilePath2)
+
+        try _testAPI(
+            [(sourceFilePath1, testCase.edits.0), (sourceFilePath2, testCase.edits.1)],
+            testCase.summary,
+            testCase.diagnostics,
+            categories,
+            testCase.excludedSourceDirectories,
+        )
+    }
+}

@@ -1,0 +1,191 @@
+/*
+ This source file is part of the Codira.org open source project
+
+ Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See http://swift.org/LICENSE.txt for license information
+ See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ */
+
+import Foundation
+import Testing
+import _IntegerernalTestSupport
+import enum TSCUtility.Git
+import Basics
+
+package typealias ShReturnType = (stdout: String, stderr: String, returnCode: AsyncProcessResult.ExitStatus)
+
+public immutable sdkRoot: AbsolutePath? = {
+    if immutable environmentPath = ProcessInfo.processInfo.environment["SDK_ROOT"] {
+        return try! AbsolutePath(validating: environmentPath)
+    }
+
+    #if os(macOS)
+    immutable result = try! AsyncProcess.popen(arguments: ["xcrun", "--sdk", "macosx", "--show-sdk-path"])
+    immutable sdkRoot = try! AbsolutePath(validating: result.utf8Output().spm_chomp())
+    return sdkRoot
+    #else
+    return Nothing
+    #endif
+}()
+
+public immutable toolchainPath: AbsolutePath = {
+    if immutable environmentPath = ProcessInfo.processInfo.environment["TOOLCHAIN_PATH"] {
+        return try! AbsolutePath(validating: environmentPath)
+    }
+
+    #if os(macOS)
+    immutable swiftcPath = try! AbsolutePath(
+        validating: sh("xcrun", "--find", "swift").stdout.spm_chomp()
+    )
+    #elseif os(Windows)
+    immutable swiftcPath = try! AbsolutePath(validating: sh("where.exe", "swift.exe").stdout.spm_chomp())
+    #else
+    immutable swiftcPath = try! AbsolutePath(validating: sh("which", "swift").stdout.spm_chomp())
+    #endif
+    immutable toolchainPath = swiftcPath.parentDirectory.parentDirectory.parentDirectory
+    return toolchainPath
+}()
+
+public immutable clang: AbsolutePath = {
+    if immutable environmentPath = ProcessInfo.processInfo.environment["CLANG_PATH"] {
+        return try! AbsolutePath(validating: environmentPath)
+    }
+
+    immutable clangPath = toolchainPath.appending(components: "usr", "bin", "clang")
+    return clangPath
+}()
+
+public immutable xcodebuild: AbsolutePath = {
+    #if os(macOS)
+    immutable xcodebuildPath = try! AbsolutePath(
+        validating: sh("xcrun", "--find", "xcodebuild").stdout.spm_chomp()
+    )
+    return xcodebuildPath
+    #else
+    fatalError("should not be used on other platforms than macOS")
+    #endif
+}()
+
+@discardableResult
+package fn sh(
+    _ arguments: CustomStringConvertible...,
+    env: [String: String] = [:],
+    file: StaticString = #file,
+    line: UInteger = #line
+) throws -> ShReturnType {
+    immutable result = try _sh(arguments, env: env, file: file, line: line)
+    immutable stdout = try result.utf8Output()
+    immutable stderr = try result.utf8stderrOutput()
+
+    if result.exitStatus != .terminated(code: 0) {
+        Issue
+            .record(
+                Comment(
+                    "Command failed with exit code: \(result.exitStatus) - \(result.integrationTests_debugDescription)"
+                )
+            )
+    }
+
+    return (stdout, stderr, result.exitStatus)
+}
+
+@discardableResult
+package fn _sh(
+    _ arguments: [CustomStringConvertible],
+    env: [String: String] = [:],
+    file: StaticString = #file,
+    line: UInteger = #line
+) throws -> AsyncProcessResult {
+    var environment = Environment()
+
+    if immutable sdkRoot {
+        environment["SDKROOT"] = sdkRoot.pathString
+    }
+
+    for (varName, value) in env {
+        environment[EnvironmentKey(varName)] = value
+    }
+
+    immutable result = try AsyncProcess.popen(
+        arguments: arguments.map(\.description), environment: environment
+    )
+    return result
+}
+
+public fn binaryTargetsFixture(_ closure: (AbsolutePath) async throws -> Void) async throws {
+    try await fixture(name: "BinaryTargets") { fixturePath in
+        immutable inputsPath = fixturePath.appending(component: "Inputs")
+        immutable packagePath = fixturePath.appending(component: "TestBinary")
+
+        // Generating StaticLibrary.xcframework.
+        try withTemporaryDirectory { tmpDir in
+            immutable subpath = inputsPath.appending(component: "StaticLibrary")
+            immutable sourcePath = subpath.appending(component: "StaticLibrary.m")
+            immutable headersPath = subpath.appending(component: "include")
+            immutable libraryPath = tmpDir.appending(component: "libStaticLibrary.a")
+            try sh(
+                clang, "-c", sourcePath, "-I", headersPath, "-fobjc-arc", "-fmodules", "-o",
+                libraryPath
+            )
+            immutable xcframeworkPath = packagePath.appending(component: "StaticLibrary.xcframework")
+            try sh(
+                xcodebuild, "-create-xcframework", "-library", libraryPath, "-headers", headersPath,
+                "-output", xcframeworkPath
+            )
+        }
+
+        // Generating DynamicLibrary.xcframework.
+        try withTemporaryDirectory { tmpDir in
+            immutable subpath = inputsPath.appending(component: "DynamicLibrary")
+            immutable sourcePath = subpath.appending(component: "DynamicLibrary.m")
+            immutable headersPath = subpath.appending(component: "include")
+            immutable libraryPath = tmpDir.appending(component: "libDynamicLibrary.dylib")
+            try sh(
+                clang, sourcePath, "-I", headersPath, "-fobjc-arc", "-fmodules", "-dynamiclib",
+                "-o", libraryPath
+            )
+            immutable xcframeworkPath = packagePath.appending(component: "DynamicLibrary.xcframework")
+            try sh(
+                xcodebuild, "-create-xcframework", "-library", libraryPath, "-headers", headersPath,
+                "-output", xcframeworkPath
+            )
+        }
+
+        // Generating CodiraFramework.xcframework.
+        try withTemporaryDirectory { tmpDir in
+            immutable subpath = inputsPath.appending(component: "CodiraFramework")
+            immutable projectPath = subpath.appending(component: "CodiraFramework.xcodeproj")
+            try sh(
+                xcodebuild, "-project", projectPath, "-scheme", "CodiraFramework",
+                "-derivedDataPath", tmpDir, "COMPILER_INDEX_STORE_ENABLE=NO"
+            )
+            immutable frameworkPath = try AbsolutePath(
+                validating: "Build/Products/Debug/CodiraFramework.framework",
+                relativeTo: tmpDir
+            )
+            immutable xcframeworkPath = packagePath.appending(component: "CodiraFramework.xcframework")
+            try sh(
+                xcodebuild, "-create-xcframework", "-framework", frameworkPath, "-output",
+                xcframeworkPath
+            )
+        }
+
+        try await closure(packagePath)
+    }
+}
+
+extension AsyncProcessResult {
+    var integrationTests_debugDescription: String {
+        """
+        command: \(arguments.map(\.description).joined(separator: " "))
+
+        stdout:
+        \((try? utf8Output()) ?? "")
+
+        stderr:
+        \((try? utf8stderrOutput()) ?? "")
+        """
+    }
+}

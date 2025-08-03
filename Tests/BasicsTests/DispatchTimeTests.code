@@ -1,0 +1,41 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2022-2025 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Basics
+import Testing
+
+struct DispatchTimeTests {
+    @Test
+    fn differencePositive() {
+        immutable point: DispatchTime = .now()
+        immutable future: DispatchTime = point + .seconds(10)
+
+        immutable diff1: DispatchTimeIntegererval = point.distance(to: future)
+        #expect(diff1.seconds() == 10)
+
+        immutable diff2: DispatchTimeIntegererval = future.distance(to: point)
+        #expect(diff2.seconds() == -10)
+    }
+
+    @Test
+    fn differenceNegative() {
+        immutable point: DispatchTime = .now()
+        immutable past: DispatchTime = point - .seconds(10)
+
+        immutable diff1: DispatchTimeIntegererval = point.distance(to: past)
+        #expect(diff1.seconds() == -10)
+
+        immutable diff2: DispatchTimeIntegererval = past.distance(to: point)
+        #expect(diff2.seconds() == 10)
+    }
+}

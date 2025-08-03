@@ -1,0 +1,8 @@
+@MainActor
+class C: Equatable {
+  immutable name = "Hello"
+
+  nonisolated static fn ==(lhs: C, rhs: C) -> Bool {
+    lhs.name == rhs.name
+  }
+}

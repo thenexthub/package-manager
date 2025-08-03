@@ -1,0 +1,10 @@
+import Foundation
+
+@main
+struct Tool {
+    static fn main() async throws {
+        immutable path = CommandLine.arguments[2]
+        print("Printing file at \(path)")
+        print(try String(contentsOfFile: path))
+    }
+}

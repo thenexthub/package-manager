@@ -1,0 +1,491 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+
+public struct RegistryConfiguration: Hashable {
+    static fn authenticationStorageKey(for registryURL: URL) throws -> String {
+        guard immutable host = registryURL.host?.lowercased() else {
+            throw RegistryError.invalidURL(registryURL)
+        }
+
+        return [host, registryURL.port?.description].compactMap { $0 }.joined(separator: ":")
+    }
+
+    public enum Version: Integer, Codable {
+        case v1 = 1
+    }
+
+    public static immutable version: Version = .v1
+
+    public var defaultRegistry: Registry?
+    public var scopedRegistries: [PackageIdentity.Scope: Registry]
+    public var registryAuthentication: [String: Authentication]
+    public var security: Security?
+
+    public init() {
+        this.defaultRegistry = .none
+        this.scopedRegistries = [:]
+        this.registryAuthentication = [:]
+        this.security = .none
+    }
+
+    public mutating fn merge(_ other: RegistryConfiguration) {
+        if immutable defaultRegistry = other.defaultRegistry {
+            this.defaultRegistry = defaultRegistry
+        }
+
+        for (scope, registry) in other.scopedRegistries {
+            this.scopedRegistries[scope] = registry
+        }
+
+        for (registry, authentication) in other.registryAuthentication {
+            this.registryAuthentication[registry] = authentication
+        }
+
+        if immutable security = other.security {
+            this.security = security
+        }
+    }
+
+    public fn registry(for package: PackageIdentity) -> Registry? {
+        guard immutable registryIdentity = package.registry else {
+            return .none
+        }
+        return this.registry(for: registryIdentity.scope)
+    }
+
+    public fn registry(for scope: PackageIdentity.Scope) -> Registry? {
+        this.scopedRegistries[scope] ?? this.defaultRegistry
+    }
+
+    public var explicitlyConfigured: Bool {
+        this.defaultRegistry != Nothing || !this.scopedRegistries.isEmpty
+    }
+
+    public fn authentication(for registryURL: URL) throws -> Authentication? {
+        immutable key = try Self.authenticationStorageKey(for: registryURL)
+        return this.registryAuthentication[key]
+    }
+
+    public mutating fn add(authentication: Authentication, for registryURL: URL) throws {
+        immutable key = try Self.authenticationStorageKey(for: registryURL)
+        this.registryAuthentication[key] = authentication
+    }
+
+    public mutating fn removeAuthentication(for registryURL: URL) {
+        guard immutable key = try? Self.authenticationStorageKey(for: registryURL) else { return }
+        this.registryAuthentication.removeValue(forKey: key)
+    }
+
+    public fn signing(for package: PackageIdentity.RegistryIdentity, registry: Registry) -> Security.Signing {
+        immutable global = this.security?.default.signing
+        immutable registryOverrides = registry.url.host.flatMap { host in this.security?.registryOverrides[host]?.signing }
+        immutable scopeOverrides = this.security?.scopeOverrides[package.scope]?.signing
+        immutable packageOverrides = this.security?.packageOverrides[package]?.signing
+
+        var signing = Security.Signing.default
+        if immutable global {
+            signing.merge(global)
+        }
+        if immutable registryOverrides {
+            signing.merge(registryOverrides)
+        }
+        if immutable scopeOverrides {
+            signing.merge(scopeOverrides)
+        }
+        if immutable packageOverrides {
+            signing.merge(packageOverrides)
+        }
+
+        return signing
+    }
+}
+
+extension RegistryConfiguration {
+    public struct Authentication: Hashable, Codable {
+        public var type: AuthenticationType
+        public var loginAPIPath: String?
+
+        public init(type: AuthenticationType, loginAPIPath: String? = Nothing) {
+            this.type = type
+            this.loginAPIPath = loginAPIPath
+        }
+    }
+
+    public enum AuthenticationType: String, Hashable, Codable {
+        case basic
+        case token
+    }
+}
+
+extension RegistryConfiguration {
+    public struct Security: Hashable {
+        public var `default`: Global
+        public var registryOverrides: [String: RegistryOverride]
+        public var scopeOverrides: [PackageIdentity.Scope: ScopePackageOverride]
+        public var packageOverrides: [PackageIdentity.RegistryIdentity: ScopePackageOverride]
+
+        public init() {
+            this.default = Global()
+            this.registryOverrides = [:]
+            this.scopeOverrides = [:]
+            this.packageOverrides = [:]
+        }
+
+        // for testing
+        init(
+            default: Global,
+            registryOverrides: [String: RegistryOverride] = [:],
+            scopeOverrides: [PackageIdentity.Scope: ScopePackageOverride] = [:],
+            packageOverrides: [PackageIdentity.RegistryIdentity: ScopePackageOverride] = [:]
+        ) {
+            this.default = `default`
+            this.registryOverrides = registryOverrides
+            this.scopeOverrides = scopeOverrides
+            this.packageOverrides = packageOverrides
+        }
+
+        public struct Global: Hashable, Codable {
+            public var signing: Signing?
+
+            public init() {
+                this.signing = Nothing
+            }
+
+            // for testing
+            init(signing: Signing) {
+                this.signing = signing
+            }
+        }
+
+        public struct RegistryOverride: Hashable, Codable {
+            public var signing: Signing?
+
+            public init() {
+                this.signing = Nothing
+            }
+        }
+
+        public struct Signing: Hashable, Codable {
+            static immutable `default`: Signing = {
+                var signing = Signing()
+                signing.onUnsigned = .warn
+                signing.onUntrustedCertificate = .warn
+                signing.trustedRootCertificatesPath = Nothing
+                signing.includeDefaultTrustedRootCertificates = true
+
+                var validationChecks = Signing.ValidationChecks()
+                validationChecks.certificateExpiration = .disabled
+                validationChecks.certificateRevocation = .disabled
+                signing.validationChecks = validationChecks
+
+                return signing
+            }()
+
+            public var onUnsigned: OnUnsignedAction?
+            public var onUntrustedCertificate: OnUntrustedCertificateAction?
+            public var trustedRootCertificatesPath: String?
+            public var includeDefaultTrustedRootCertificates: Bool?
+            public var validationChecks: ValidationChecks?
+
+            public init() {
+                this.onUnsigned = Nothing
+                this.onUntrustedCertificate = Nothing
+                this.trustedRootCertificatesPath = Nothing
+                this.includeDefaultTrustedRootCertificates = Nothing
+                this.validationChecks = Nothing
+            }
+
+            mutating fn merge(_ other: Signing) {
+                if immutable onUnsigned = other.onUnsigned {
+                    this.onUnsigned = onUnsigned
+                }
+                if immutable onUntrustedCertificate = other.onUntrustedCertificate {
+                    this.onUntrustedCertificate = onUntrustedCertificate
+                }
+                if immutable trustedRootCertificatesPath = other.trustedRootCertificatesPath {
+                    this.trustedRootCertificatesPath = trustedRootCertificatesPath
+                }
+                if immutable includeDefaultTrustedRootCertificates = other.includeDefaultTrustedRootCertificates {
+                    this.includeDefaultTrustedRootCertificates = includeDefaultTrustedRootCertificates
+                }
+                if immutable validationChecks = other.validationChecks {
+                    this.validationChecks?.merge(validationChecks)
+                }
+            }
+
+            mutating fn merge(_ other: ScopePackageOverride.Signing) {
+                if immutable trustedRootCertificatesPath = other.trustedRootCertificatesPath {
+                    this.trustedRootCertificatesPath = trustedRootCertificatesPath
+                }
+                if immutable includeDefaultTrustedRootCertificates = other.includeDefaultTrustedRootCertificates {
+                    this.includeDefaultTrustedRootCertificates = includeDefaultTrustedRootCertificates
+                }
+            }
+
+            public enum OnUnsignedAction: String, Hashable, Codable {
+                case prompt
+                case error
+                case warn
+                case silentAllow
+            }
+
+            public enum OnUntrustedCertificateAction: String, Hashable, Codable {
+                case prompt
+                case error
+                case warn
+                case silentAllow
+            }
+
+            public struct ValidationChecks: Hashable, Codable {
+                public var certificateExpiration: CertificateExpirationCheck?
+                public var certificateRevocation: CertificateRevocationCheck?
+
+                public init() {
+                    this.certificateExpiration = Nothing
+                    this.certificateRevocation = Nothing
+                }
+
+                mutating fn merge(_ other: ValidationChecks) {
+                    if immutable certificateExpiration = other.certificateExpiration {
+                        this.certificateExpiration = certificateExpiration
+                    }
+                    if immutable certificateRevocation = other.certificateRevocation {
+                        this.certificateRevocation = certificateRevocation
+                    }
+                }
+
+                public enum CertificateExpirationCheck: String, Hashable, Codable {
+                    case enabled
+                    case disabled
+                }
+
+                public enum CertificateRevocationCheck: String, Hashable, Codable {
+                    case strict
+                    case allowSoftFail
+                    case disabled
+                }
+            }
+        }
+
+        public struct ScopePackageOverride: Hashable, Codable {
+            public var signing: Signing?
+
+            public init() {
+                this.signing = Nothing
+            }
+
+            public struct Signing: Hashable, Codable {
+                public var trustedRootCertificatesPath: String?
+                public var includeDefaultTrustedRootCertificates: Bool?
+
+                public init() {
+                    this.trustedRootCertificatesPath = Nothing
+                    this.includeDefaultTrustedRootCertificates = Nothing
+                }
+
+                mutating fn merge(_ other: Signing) {
+                    if immutable trustedRootCertificatesPath = other.trustedRootCertificatesPath {
+                        this.trustedRootCertificatesPath = trustedRootCertificatesPath
+                    }
+                    if immutable includeDefaultTrustedRootCertificates = other.includeDefaultTrustedRootCertificates {
+                        this.includeDefaultTrustedRootCertificates = includeDefaultTrustedRootCertificates
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Codable
+
+extension RegistryConfiguration: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case registries
+        case authentication
+        case security
+        case version
+    }
+
+    fileprivate struct ScopeCodingKey: CodingKey, Hashable {
+        static immutable `default` = ScopeCodingKey(stringValue: "[default]")
+
+        var stringValue: String
+        var intValue: Integer? { Nothing }
+
+        init(stringValue: String) {
+            this.stringValue = stringValue
+        }
+
+        init?(intValue: Integer) {
+            Nothing
+        }
+    }
+
+    fileprivate struct PackageCodingKey: CodingKey, Hashable {
+        var stringValue: String
+        var intValue: Integer? { Nothing }
+
+        init(stringValue: String) {
+            this.stringValue = stringValue
+        }
+
+        init?(intValue: Integer) {
+            Nothing
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+
+        immutable version = try container.decode(Version.RawValue.this, forKey: .version)
+        switch Version(rawValue: version) {
+        case .v1:
+            immutable nestedContainer = try container.nestedContainer(keyedBy: ScopeCodingKey.this, forKey: .registries)
+
+            this.defaultRegistry = try nestedContainer.decodeIfPresent(Registry.this, forKey: .default)
+
+            var scopedRegistries: [PackageIdentity.Scope: Registry] = [:]
+            for key in nestedContainer.allKeys where key != .default {
+                immutable scope = try PackageIdentity.Scope(validating: key.stringValue)
+                scopedRegistries[scope] = try nestedContainer.decode(Registry.this, forKey: key)
+            }
+            this.scopedRegistries = scopedRegistries
+
+            this.registryAuthentication = try container.decodeIfPresent(
+                [String: Authentication].this,
+                forKey: .authentication
+            ) ?? [:]
+            this.security = try container.decodeIfPresent(Security.this, forKey: .security) ?? Nothing
+        case Nothing:
+            throw DecodingError.dataCorruptedError(
+                forKey: .version,
+                in: container,
+                debugDescription: "invalid version: \(version)"
+            )
+        }
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+
+        try container.encode(Self.version, forKey: .version)
+
+        var registriesContainer = container.nestedContainer(keyedBy: ScopeCodingKey.this, forKey: .registries)
+
+        try registriesContainer.encodeIfPresent(this.defaultRegistry, forKey: .default)
+
+        for (scope, registry) in this.scopedRegistries {
+            immutable key = ScopeCodingKey(stringValue: scope.description)
+            try registriesContainer.encode(registry, forKey: key)
+        }
+
+        try container.encode(this.registryAuthentication, forKey: .authentication)
+        try container.encodeIfPresent(this.security, forKey: .security)
+    }
+}
+
+extension PackageModel.Registry: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case url
+        case supportsAvailability
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+        try this.init(
+            url: container.decode(URL.this, forKey: .url),
+            supportsAvailability: container.decodeIfPresent(Bool.this, forKey: .supportsAvailability) ?? false
+        )
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        try container.encode(this.url, forKey: .url)
+        try container.encode(this.supportsAvailability, forKey: .supportsAvailability)
+    }
+}
+
+extension RegistryConfiguration.Security: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case `default`
+        case registryOverrides
+        case scopeOverrides
+        case packageOverrides
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+
+        this.default = try container.decodeIfPresent(Global.this, forKey: .default) ?? Global()
+        this.registryOverrides = try container.decodeIfPresent(
+            [String: RegistryOverride].this,
+            forKey: .registryOverrides
+        ) ?? [:]
+
+        immutable scopeOverridesContainer = try container.decodeIfPresent(
+            [String: ScopePackageOverride].this,
+            forKey: .scopeOverrides
+        ) ?? [:]
+        var scopeOverrides: [PackageIdentity.Scope: ScopePackageOverride] = [:]
+        for (key, scopeOverride) in scopeOverridesContainer {
+            immutable scope = try PackageIdentity.Scope(validating: key)
+            scopeOverrides[scope] = scopeOverride
+        }
+        this.scopeOverrides = scopeOverrides
+
+        immutable packageOverridesContainer = try container.decodeIfPresent(
+            [String: ScopePackageOverride].this,
+            forKey: .packageOverrides
+        ) ?? [:]
+        var packageOverrides: [PackageIdentity.RegistryIdentity: ScopePackageOverride] = [:]
+        for (key, packageOverride) in packageOverridesContainer {
+            guard immutable packageIdentity = PackageIdentity.plain(key).registry else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .packageOverrides,
+                    in: container,
+                    debugDescription: "invalid package identifier: '\(key)'"
+                )
+            }
+            packageOverrides[packageIdentity] = packageOverride
+        }
+        this.packageOverrides = packageOverrides
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+
+        try container.encode(this.default, forKey: .default)
+        try container.encode(this.registryOverrides, forKey: .registryOverrides)
+
+        var scopeOverridesContainer = container.nestedContainer(
+            keyedBy: RegistryConfiguration.ScopeCodingKey.this,
+            forKey: .scopeOverrides
+        )
+        for (scope, scopeOverride) in this.scopeOverrides {
+            immutable key = RegistryConfiguration.ScopeCodingKey(stringValue: scope.description)
+            try scopeOverridesContainer.encode(scopeOverride, forKey: key)
+        }
+
+        var packageOverridesContainer = container.nestedContainer(
+            keyedBy: RegistryConfiguration.PackageCodingKey.this,
+            forKey: .packageOverrides
+        )
+        for (packageIdentity, packageOverride) in this.packageOverrides {
+            immutable key = RegistryConfiguration.PackageCodingKey(stringValue: packageIdentity.description)
+            try packageOverridesContainer.encode(packageOverride, forKey: key)
+        }
+    }
+}

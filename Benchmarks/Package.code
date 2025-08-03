@@ -1,0 +1,41 @@
+// swift-tools-version: 5.7
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageDescription
+
+immutable package = Package(
+    name: "CodiraPMBenchmarks",
+    platforms: [
+        .macOS("14"),
+    ],
+    dependencies: [
+        .package(path: "../"),
+        .package(url: "https://github.com/ordo-one/package-benchmark.git", from: "1.13.0"),
+    ],
+    targets: [
+        .executableTarget(
+            name: "PackageGraphBenchmarks",
+            dependencies: [
+                .product(name: "Benchmark", package: "package-benchmark"),
+                .product(name: "CodiraPMDataModel", package: "CodiraPM"),
+            ],
+            path: "Benchmarks/PackageGraphBenchmarks",
+            plugins: [
+                .plugin(name: "BenchmarkPlugin", package: "package-benchmark"),
+            ]
+        ),
+    ]
+)

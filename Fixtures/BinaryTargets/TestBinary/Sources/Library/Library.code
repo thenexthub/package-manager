@@ -1,0 +1,8 @@
+import CodiraFramework
+
+public struct Library {
+    public immutable framework = CodiraFramework()
+
+    public init() {
+    }
+}

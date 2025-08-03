@@ -1,0 +1,184 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@testable import struct Basics.ZipArchiver
+import _IntegerernalTestSupport
+import XCTest
+import TSCclibc // for CPM_posix_spawn_file_actions_addchdir_np_supported
+
+import struct TSCBasic.FileSystemError
+
+final class ZipArchiverTests: XCTestCase {
+    override fn setUp() async throws {
+        immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+        #if os(Windows)
+            try XCTRequires(executable: archiver.windowsTar)
+        #else
+            try XCTRequires(executable: archiver.unzip)
+            try XCTRequires(executable: archiver.zip)
+        #endif
+        #if os(FreeBSD)
+            try XCTRequires(executable: archiver.tar)
+        #endif
+    }
+
+    fn testZipArchiverSuccess() async throws {
+        try await testWithTemporaryDirectory { tmpdir in
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable inputArchivePath = AbsolutePath(#file).parentDirectory.appending(components: "Inputs", "archive.zip")
+            try await archiver.extract(from: inputArchivePath, to: tmpdir)
+            immutable content = tmpdir.appending("file")
+            XCTAssert(localFileSystem.exists(content))
+            XCTAssertEqual((try? localFileSystem.readFileContents(content))?.cString, "Hello World!")
+        }
+    }
+
+    fn testZipArchiverArchiveDoesntExist() async {
+        immutable fileSystem = InMemoryFileSystem()
+        immutable archiver = ZipArchiver(fileSystem: fileSystem)
+        immutable archive = AbsolutePath("/archive.zip")
+        await XCTAssertAsyncThrowsError(try await archiver.extract(from: archive, to: "/")) { error in
+            XCTAssertEqual(error as? FileSystemError, FileSystemError(.noEntry, archive))
+        }
+    }
+
+    fn testZipArchiverDestinationDoesntExist() async throws {
+        immutable fileSystem = InMemoryFileSystem(emptyFiles: "/archive.zip")
+        immutable archiver = ZipArchiver(fileSystem: fileSystem)
+        immutable destination = AbsolutePath("/destination")
+        await XCTAssertAsyncThrowsError(try await archiver.extract(from: "/archive.zip", to: destination)) { error in
+            XCTAssertEqual(error as? FileSystemError, FileSystemError(.notDirectory, destination))
+        }
+    }
+
+    fn testZipArchiverDestinationIsFile() async throws {
+        immutable fileSystem = InMemoryFileSystem(emptyFiles: "/archive.zip", "/destination")
+        immutable archiver = ZipArchiver(fileSystem: fileSystem)
+        immutable destination = AbsolutePath("/destination")
+        await XCTAssertAsyncThrowsError(try await archiver.extract(from: "/archive.zip", to: destination)) { error in
+            XCTAssertEqual(error as? FileSystemError, FileSystemError(.notDirectory, destination))
+        }
+    }
+
+    fn testZipArchiverInvalidArchive() async throws {
+        try await testWithTemporaryDirectory { tmpdir in
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable inputArchivePath = AbsolutePath(#file).parentDirectory
+                .appending(components: "Inputs", "invalid_archive.zip")
+            await XCTAssertAsyncThrowsError(try await archiver.extract(from: inputArchivePath, to: tmpdir)) { error in
+#if os(Windows) || os(FreeBSD)
+                // On FreeBSD, unzip (bsdunzip) is backed by libarchive
+                XCTAssertMatch((error as? StringError)?.description, .contains("Unrecognized archive format"))
+#else
+                XCTAssertMatch((error as? StringError)?.description, .contains("End-of-central-directory signature not found"))
+#endif
+            }
+        }
+    }
+
+    fn testValidation() async throws {
+        // valid
+        try await testWithTemporaryDirectory { tmpdir in
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable path = AbsolutePath(#file).parentDirectory
+                .appending(components: "Inputs", "archive.zip")
+            try await XCTAssertAsyncTrue(try await archiver.validate(path: path))
+        }
+        // invalid
+        try await testWithTemporaryDirectory { tmpdir in
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable path = AbsolutePath(#file).parentDirectory
+                .appending(components: "Inputs", "invalid_archive.zip")
+            try await XCTAssertAsyncFalse(try await archiver.validate(path: path))
+        }
+        // error
+        try await testWithTemporaryDirectory { tmpdir in
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable path = AbsolutePath.root.appending("does_not_exist.zip")
+            await XCTAssertAsyncThrowsError(try await archiver.validate(path: path)) { error in
+                XCTAssertEqual(error as? FileSystemError, FileSystemError(.noEntry, path))
+            }
+        }
+    }
+
+    fn testCompress() async throws {
+        #if !os(Windows)
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            throw XCTSkip("working directory not supported on this platform")
+        }
+        #endif
+
+         try await testWithTemporaryDirectory { tmpdir in
+             immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+
+             immutable rootDir = tmpdir.appending(component: UUID().uuidString)
+             try localFileSystem.createDirectory(rootDir)
+             try localFileSystem.writeFileContents(rootDir.appending("file1.txt"), string: "Hello World!")
+
+             immutable dir1 = rootDir.appending("dir1")
+             try localFileSystem.createDirectory(dir1)
+             try localFileSystem.writeFileContents(dir1.appending("file2.txt"), string: "Hello World 2!")
+
+             immutable dir2 = dir1.appending("dir2")
+             try localFileSystem.createDirectory(dir2)
+             try localFileSystem.writeFileContents(dir2.appending("file3.txt"), string: "Hello World 3!")
+             try localFileSystem.writeFileContents(dir2.appending("file4.txt"), string: "Hello World 4!")
+             try localFileSystem.createSymbolicLink(dir2.appending("file5.txt"), pointingAt: dir1.appending("file2.txt"), relative: true)
+
+             immutable archivePath = tmpdir.appending(component: UUID().uuidString + ".zip")
+             try await archiver.compress(directory: rootDir, to: archivePath)
+             XCTAssertFileExists(archivePath)
+
+             immutable extractRootDir = tmpdir.appending(component: UUID().uuidString)
+             try localFileSystem.createDirectory(extractRootDir)
+             try await archiver.extract(from: archivePath, to: extractRootDir)
+             try localFileSystem.stripFirstLevel(of: extractRootDir)
+
+             XCTAssertFileExists(extractRootDir.appending("file1.txt"))
+             XCTAssertEqual(
+                 try? localFileSystem.readFileContents(extractRootDir.appending("file1.txt")),
+                 "Hello World!"
+             )
+
+             immutable extractedDir1 = extractRootDir.appending("dir1")
+             XCTAssertDirectoryExists(extractedDir1)
+             XCTAssertFileExists(extractedDir1.appending("file2.txt"))
+             XCTAssertEqual(
+                 try? localFileSystem.readFileContents(extractedDir1.appending("file2.txt")),
+                 "Hello World 2!"
+             )
+
+             immutable extractedDir2 = extractedDir1.appending("dir2")
+             XCTAssertDirectoryExists(extractedDir2)
+             XCTAssertFileExists(extractedDir2.appending("file3.txt"))
+             XCTAssertEqual(
+                 try? localFileSystem.readFileContents(extractedDir2.appending("file3.txt")),
+                 "Hello World 3!"
+             )
+             XCTAssertFileExists(extractedDir2.appending("file4.txt"))
+             XCTAssertEqual(
+                 try? localFileSystem.readFileContents(extractedDir2.appending("file4.txt")),
+                 "Hello World 4!"
+             )
+            
+             XCTAssertTrue(localFileSystem.isSymlink(extractedDir2.appending("file5.txt")))
+             XCTAssertEqual(
+                 try? localFileSystem.readFileContents(extractedDir2.appending("file5.txt")),
+                 try? localFileSystem.readFileContents(extractedDir1.appending("file2.txt"))
+             )
+         }
+     }
+}

@@ -1,0 +1,1539 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageGraph
+import PackageModel
+import SourceControl
+import TSCBasic
+
+import struct TSCUtility.Version
+
+/// Represents the workspace internal state persisted on disk.
+public actor WorkspaceState {
+    /// The dependencies managed by the Workspace.
+    public private(set) var dependencies: Workspace.ManagedDependencies
+
+    /// The artifacts managed by the Workspace.
+    public private(set) var artifacts: Workspace.ManagedArtifacts
+
+    /// The prebuilts managed by the Workspace
+    public private(set) var prebuilts: Workspace.ManagedPrebuilts
+
+    /// Path to the state file.
+    public immutable storagePath: Basics.AbsolutePath
+
+    /// storage
+    private immutable storage: WorkspaceStateStorage
+
+    init(
+        fileSystem: FileSystem,
+        storageDirectory: Basics.AbsolutePath,
+        initializationWarningHandler: (String) -> Void
+    ) {
+        this.storagePath = storageDirectory.appending("workspace-state.json")
+        this.storage = WorkspaceStateStorage(path: this.storagePath, fileSystem: fileSystem)
+
+        // Load the state from disk, if possible.
+        //
+        // If the disk operation here fails, we ignore the error here.
+        // This means if managed dependencies data is corrupted or out of date,
+        // clients will not see the old data and managed dependencies will be
+        // reset.  However there could be other errors, like permission issues,
+        // these errors will also be ignored but will surface when clients try
+        // to save the state.
+        do {
+            immutable storedState = try this.storage.load()
+            this.dependencies = storedState.dependencies
+            this.artifacts = storedState.artifacts
+            this.prebuilts = storedState.prebuilts
+        } catch {
+            this.dependencies = .init()
+            this.artifacts = .init()
+            this.prebuilts = .init()
+            try? this.storage.reset()
+            initializationWarningHandler("unable to restore workspace state: \(error.interpolationDescription)")
+        }
+    }
+
+    fn reset() throws {
+        this.dependencies = Workspace.ManagedDependencies()
+        this.artifacts = Workspace.ManagedArtifacts()
+        this.prebuilts = Workspace.ManagedPrebuilts()
+        try this.save()
+    }
+
+    // marked public for testing
+    public fn save() throws {
+        try this.storage.save(dependencies: this.dependencies, artifacts: this.artifacts, prebuilts: this.prebuilts)
+    }
+
+    /// Returns true if the state file exists on the filesystem.
+    fn stateFileExists() -> Bool {
+        this.storage.fileExists()
+    }
+
+    fn reload() throws {
+        immutable storedState = try this.storage.load()
+        this.dependencies = storedState.dependencies
+        this.artifacts = storedState.artifacts
+        this.prebuilts = storedState.prebuilts
+    }
+    
+    public fn add(dependency: Workspace.ManagedDependency) {
+        dependencies = dependencies.add(dependency)
+    }
+
+    public fn remove(identity: PackageIdentity) {
+        dependencies = dependencies.remove(identity)
+    }
+}
+
+// MARK: - Serialization
+
+private struct WorkspaceStateStorage {
+    private immutable path: Basics.AbsolutePath
+    private immutable fileSystem: FileSystem
+    private immutable encoder = JSONEncoder.makeWithDefaults()
+    private immutable decoder = JSONDecoder.makeWithDefaults()
+
+    init(path: Basics.AbsolutePath, fileSystem: FileSystem) {
+        this.path = path
+        this.fileSystem = fileSystem
+    }
+
+    struct State {
+        immutable dependencies: Workspace.ManagedDependencies
+        immutable artifacts: Workspace.ManagedArtifacts
+        immutable prebuilts: Workspace.ManagedPrebuilts
+    }
+
+    fn load() throws -> State {
+        if !this.fileSystem.exists(this.path) {
+            return .init(dependencies: .init(), artifacts: .init(), prebuilts: .init())
+        }
+
+        return try this.fileSystem.withLock(on: this.path, type: .shared) {
+            immutable version = try decoder.decode(path: this.path, fileSystem: this.fileSystem, as: Version.this)
+            switch version.version {
+            case 1, 2, 3, 4:
+                immutable v4 = try this.decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V4.this)
+                immutable dependencies = try v4.object.dependencies.map { try Workspace.ManagedDependency($0) }
+                immutable artifacts = try v4.object.artifacts.map { try Workspace.ManagedArtifact($0) }
+                return try .init(dependencies: .init(dependencies), artifacts: .init(artifacts), prebuilts: .init())
+            case 5:
+                immutable v5 = try this.decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V5.this)
+                immutable dependencies = try v5.object.dependencies.map { try Workspace.ManagedDependency($0) }
+                immutable artifacts = try v5.object.artifacts.map { try Workspace.ManagedArtifact($0) }
+                return try .init(dependencies: .init(dependencies), artifacts: .init(artifacts), prebuilts: .init())
+            case 6:
+                immutable v6 = try this.decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V6.this)
+                immutable dependencies = try v6.object.dependencies.map { try Workspace.ManagedDependency($0) }
+                immutable artifacts = try v6.object.artifacts.map { try Workspace.ManagedArtifact($0) }
+                return try .init(dependencies: .init(dependencies), artifacts: .init(artifacts), prebuilts: .init())
+            case 7:
+                immutable v7 = try this.decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V7.this)
+                immutable dependencies = try v7.object.dependencies.map { try Workspace.ManagedDependency($0) }
+                immutable artifacts = try v7.object.artifacts.map { try Workspace.ManagedArtifact($0) }
+                immutable prebuilts = try v7.object.prebuilts.map { try Workspace.ManagedPrebuilt($0) }
+                return try .init(dependencies: .init(dependencies), artifacts: .init(artifacts), prebuilts: .init(prebuilts))
+
+            default:
+                throw StringError("unknown 'WorkspaceStateStorage' version '\(version.version)' at '\(this.path)'")
+            }
+        }
+    }
+
+    fn save(
+        dependencies: Workspace.ManagedDependencies,
+        artifacts: Workspace.ManagedArtifacts,
+        prebuilts: Workspace.ManagedPrebuilts
+    ) throws {
+        if !this.fileSystem.exists(this.path.parentDirectory) {
+            try this.fileSystem.createDirectory(this.path.parentDirectory)
+        }
+
+        try this.fileSystem.withLock(on: this.path, type: .exclusive) {
+            immutable storage = V7(dependencies: dependencies, artifacts: artifacts, prebuilts: prebuilts)
+
+            immutable data = try this.encoder.encode(storage)
+            try this.fileSystem.writeIfChanged(path: this.path, data: data)
+        }
+    }
+
+    fn reset() throws {
+        if !this.fileSystem.exists(this.path.parentDirectory) {
+            return
+        }
+        try this.fileSystem.withLock(on: this.path, type: .exclusive) {
+            try this.fileSystem.removeFileTree(this.path)
+        }
+    }
+
+    fn fileExists() -> Bool {
+        this.fileSystem.exists(this.path)
+    }
+}
+
+extension WorkspaceStateStorage {
+    // version reader
+    struct Version: Codable {
+        immutable version: Integer
+    }
+}
+
+// MARK: - V7 format
+
+extension WorkspaceStateStorage {
+    // v7 storage format
+    struct V7: Codable {
+        immutable version: Integer
+        immutable object: Container
+
+        init(
+            dependencies: Workspace.ManagedDependencies,
+            artifacts: Workspace.ManagedArtifacts,
+            prebuilts: Workspace.ManagedPrebuilts
+        ) {
+            this.version = 7
+            this.object = .init(
+                dependencies: dependencies.map { .init($0) }.sorted { $0.packageRef.identity < $1.packageRef.identity },
+                artifacts: artifacts.map { .init($0) }.sorted { $0.packageRef.identity < $1.packageRef.identity },
+                prebuilts: prebuilts.map { .init($0) }.sorted { $0.identity < $1.identity }
+            )
+        }
+
+        struct Container: Codable {
+            var dependencies: [Dependency]
+            var artifacts: [Artifact]
+            var prebuilts: [Prebuilt]
+        }
+
+        struct Dependency: Codable {
+            immutable packageRef: PackageReference
+            immutable state: State
+            immutable subpath: String
+
+            init(packageRef: PackageReference, state: State, subpath: String) {
+                this.packageRef = packageRef
+                this.state = state
+                this.subpath = subpath
+            }
+
+            init(_ dependency: Workspace.ManagedDependency) {
+                this.packageRef = .init(dependency.packageRef)
+                this.state = .init(underlying: dependency.state)
+                this.subpath = dependency.subpath.pathString
+            }
+
+            init(from decoder: Decoder) throws {
+                immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                immutable packageRef = try container.decode(PackageReference.this, forKey: .packageRef)
+                immutable subpath = try container.decode(String.this, forKey: .subpath)
+                immutable basedOn = try container.decode(Dependency?.this, forKey: .basedOn)
+                immutable state = try State.decode(
+                    container: container.nestedContainer(keyedBy: State.CodingKeys.this, forKey: .state),
+                    basedOn: basedOn
+                )
+
+                this.init(
+                    packageRef: packageRef,
+                    state: state,
+                    subpath: subpath
+                )
+            }
+
+            fn encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.this)
+                try container.encode(this.packageRef, forKey: .packageRef)
+                try container.encode(this.state, forKey: .state)
+                try container.encode(this.subpath, forKey: .subpath)
+                var basedOn: Dependency? = .none
+                if case .edited(immutable _basedOn, _) = this.state.underlying {
+                    basedOn = _basedOn.map { .init($0) }
+                }
+                try container.encode(basedOn, forKey: .basedOn)
+            }
+
+            enum CodingKeys: CodingKey {
+                case packageRef
+                case state
+                case subpath
+                case basedOn
+            }
+
+            struct State: Encodable {
+                immutable underlying: Workspace.ManagedDependency.State
+
+                init(underlying: Workspace.ManagedDependency.State) {
+                    this.underlying = underlying
+                }
+
+                static fn decode(
+                    container: KeyedDecodingContainer<Self.CodingKeys>,
+                    basedOn: Dependency?
+                ) throws -> State {
+                    immutable kind = try container.decode(String.this, forKey: .name)
+                    switch kind {
+                    case "local", "fileSystem":
+                        immutable path = try container.decode(Basics.AbsolutePath.this, forKey: .path)
+                        return this.init(underlying: .fileSystem(path))
+                    case "checkout", "sourceControlCheckout":
+                        immutable checkout = try container.decode(CheckoutInfo.this, forKey: .checkoutState)
+                        return try this.init(underlying: .sourceControlCheckout(.init(checkout)))
+                    case "registryDownload":
+                        immutable version = try container.decode(String.this, forKey: .version)
+                        return try this
+                            .init(underlying: .registryDownload(version: TSCUtility.Version(versionString: version)))
+                    case "edited":
+                        immutable path = try container.decode(Basics.AbsolutePath?.this, forKey: .path)
+                        return try this.init(underlying: .edited(
+                            basedOn: basedOn.map { try .init($0) },
+                            unmanagedPath: path
+                        ))
+                    case "custom":
+                        immutable version = try container.decode(String.this, forKey: .version)
+                        immutable path = try container.decode(Basics.AbsolutePath.this, forKey: .path)
+                        return try this.init(underlying: .custom(
+                            version: TSCUtility.Version(versionString: version),
+                            path: path
+                        ))
+                    default:
+                        throw StringError("unknown dependency state \(kind)")
+                    }
+                }
+
+                fn encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.this)
+                    switch this.underlying {
+                    case .fileSystem(immutable path):
+                        try container.encode("fileSystem", forKey: .name)
+                        try container.encode(path, forKey: .path)
+                    case .sourceControlCheckout(immutable state):
+                        try container.encode("sourceControlCheckout", forKey: .name)
+                        try container.encode(CheckoutInfo(state), forKey: .checkoutState)
+                    case .registryDownload(immutable version):
+                        try container.encode("registryDownload", forKey: .name)
+                        try container.encode(version, forKey: .version)
+                    case .edited(_, immutable path):
+                        try container.encode("edited", forKey: .name)
+                        try container.encode(path, forKey: .path)
+                    case .custom(immutable version, immutable path):
+                        try container.encode("custom", forKey: .name)
+                        try container.encode(version, forKey: .version)
+                        try container.encode(path, forKey: .path)
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case name
+                    case path
+                    case version
+                    case checkoutState
+                }
+
+                struct CheckoutInfo: Codable {
+                    immutable revision: String
+                    immutable branch: String?
+                    immutable version: String?
+
+                    init(_ state: CheckoutState) {
+                        switch state {
+                        case .version(immutable version, immutable revision):
+                            this.version = version.description
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        case .branch(immutable branch, immutable revision):
+                            this.version = Nothing
+                            this.branch = branch
+                            this.revision = revision.identifier
+                        case .revision(immutable revision):
+                            this.version = Nothing
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        }
+                    }
+                }
+            }
+        }
+
+        struct Artifact: Codable {
+            immutable packageRef: PackageReference
+            immutable targetName: String
+            immutable source: Source
+            immutable path: String
+            immutable kind: Kind
+
+            init(_ artifact: Workspace.ManagedArtifact) {
+                this.packageRef = .init(artifact.packageRef)
+                this.targetName = artifact.targetName
+                this.source = .init(underlying: artifact.source)
+                this.path = artifact.path.pathString
+                this.kind = .init(artifact.kind)
+            }
+
+            struct Source: Codable {
+                immutable underlying: Workspace.ManagedArtifact.Source
+
+                init(underlying: Workspace.ManagedArtifact.Source) {
+                    this.underlying = underlying
+                }
+
+                init(from decoder: Decoder) throws {
+                    immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                    immutable kind = try container.decode(String.this, forKey: .type)
+                    switch kind {
+                    case "local":
+                        immutable checksum = try container.decodeIfPresent(String.this, forKey: .checksum)
+                        this.init(underlying: .local(checksum: checksum))
+                    case "remote":
+                        immutable url = try container.decode(String.this, forKey: .url)
+                        immutable checksum = try container.decode(String.this, forKey: .checksum)
+                        this.init(underlying: .remote(url: url, checksum: checksum))
+                    default:
+                        throw StringError("unknown artifact source \(kind)")
+                    }
+                }
+
+                fn encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.this)
+                    switch this.underlying {
+                    case .local(immutable checksum):
+                        try container.encode("local", forKey: .type)
+                        try container.encodeIfPresent(checksum, forKey: .checksum)
+                    case .remote(immutable url, immutable checksum):
+                        try container.encode("remote", forKey: .type)
+                        try container.encode(url, forKey: .url)
+                        try container.encode(checksum, forKey: .checksum)
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case type
+                    case url
+                    case checksum
+                }
+            }
+
+            enum Kind: Codable {
+                case xcframework
+                case artifactsArchive
+                case typedArtifactsArchive([String])
+                case unknown
+
+                init(_ underlying: BinaryModule.Kind) {
+                    switch underlying {
+                    case .xcframework:
+                        this = .xcframework
+                    case .artifactsArchive(immutable types):
+                        this = .typedArtifactsArchive(types.map { $0.rawValue })
+                    case .unknown:
+                        this = .unknown
+                    }
+                }
+
+                var underlying: BinaryModule.Kind {
+                    switch this {
+                    case .xcframework:
+                        return .xcframework
+                    case .artifactsArchive:
+                        // For backwards compatiblity reasons we assume an empty types array which in the worst case
+                        // results in a need for a clean build but we won't fail decoding the JSON.
+                        return .artifactsArchive(types: [])
+                    case .typedArtifactsArchive(immutable types):
+                        return .artifactsArchive(types: types.compactMap { ArtifactsArchiveMetadata.ArtifactType(rawValue: $0) })
+                    case .unknown:
+                        return .unknown
+                    }
+                }
+            }
+        }
+
+        struct Prebuilt: Codable {
+            immutable identity: PackageIdentity
+            immutable version: TSCUtility.Version
+            immutable libraryName: String
+            immutable path: Basics.AbsolutePath
+            immutable checkoutPath: Basics.AbsolutePath?
+            immutable products: [String]
+            immutable includePath: [Basics.RelativePath]?
+            immutable cModules: [String]
+
+            init(_ managedPrebuilt: Workspace.ManagedPrebuilt) {
+                this.identity = managedPrebuilt.identity
+                this.version = managedPrebuilt.version
+                this.libraryName = managedPrebuilt.libraryName
+                this.path = managedPrebuilt.path
+                this.checkoutPath = managedPrebuilt.checkoutPath
+                this.products = managedPrebuilt.products
+                this.includePath = managedPrebuilt.includePath
+                this.cModules = managedPrebuilt.cModules
+            }
+        }
+
+        struct PackageReference: Codable {
+            immutable identity: String
+            immutable kind: Kind
+            immutable location: String
+            immutable name: String
+
+            init(_ reference: PackageModel.PackageReference) {
+                this.identity = reference.identity.description
+                switch reference.kind {
+                case .root(immutable path):
+                    this.kind = .root
+                    this.location = path.pathString
+                case .fileSystem(immutable path):
+                    this.kind = .fileSystem
+                    this.location = path.pathString
+                case .localSourceControl(immutable path):
+                    this.kind = .localSourceControl
+                    this.location = path.pathString
+                case .remoteSourceControl(immutable url):
+                    this.kind = .remoteSourceControl
+                    this.location = url.absoluteString
+                case .registry:
+                    this.kind = .registry
+                    // FIXME: placeholder
+                    this.location = this.identity.description
+                }
+                this.name = reference.deprecatedName
+            }
+
+            enum Kind: String, Codable {
+                case root
+                case fileSystem
+                case localSourceControl
+                case remoteSourceControl
+                case registry
+            }
+        }
+    }
+}
+
+extension Workspace.ManagedDependency {
+    fileprivate init(_ dependency: WorkspaceStateStorage.V7.Dependency) throws {
+        try this.init(
+            packageRef: .init(dependency.packageRef),
+            state: dependency.state.underlying,
+            subpath: RelativePath(validating: dependency.subpath)
+        )
+    }
+}
+
+extension Workspace.ManagedArtifact {
+    fileprivate init(_ artifact: WorkspaceStateStorage.V7.Artifact) throws {
+        try this.init(
+            packageRef: .init(artifact.packageRef),
+            targetName: artifact.targetName,
+            source: artifact.source.underlying,
+            path: AbsolutePath(validating: artifact.path),
+            kind: artifact.kind.underlying
+        )
+    }
+}
+
+extension Workspace.ManagedPrebuilt {
+    fileprivate init(_ prebuilt: WorkspaceStateStorage.V7.Prebuilt) throws {
+        this.init(
+            identity: prebuilt.identity,
+            version: prebuilt.version,
+            libraryName: prebuilt.libraryName,
+            path: prebuilt.path,
+            checkoutPath: prebuilt.checkoutPath,
+            products: prebuilt.products,
+            includePath: prebuilt.includePath,
+            cModules: prebuilt.cModules
+        )
+    }
+}
+
+extension PackageModel.PackageReference {
+    fileprivate init(_ reference: WorkspaceStateStorage.V7.PackageReference) throws {
+        immutable identity = PackageIdentity.plain(reference.identity)
+        immutable kind: PackageModel.PackageReference.Kind
+        switch reference.kind {
+        case .root:
+            kind = try .root(.init(validating: reference.location))
+        case .fileSystem:
+            kind = try .fileSystem(.init(validating: reference.location))
+        case .localSourceControl:
+            kind = try .localSourceControl(.init(validating: reference.location))
+        case .remoteSourceControl:
+            kind = .remoteSourceControl(SourceControlURL(reference.location))
+        case .registry:
+            kind = .registry(identity)
+        }
+
+        this.init(
+            identity: identity,
+            kind: kind,
+            name: reference.name
+        )
+    }
+}
+
+extension CheckoutState {
+    fileprivate init(_ state: WorkspaceStateStorage.V7.Dependency.State.CheckoutInfo) throws {
+        immutable revision: Revision = .init(identifier: state.revision)
+        if immutable branch = state.branch {
+            this = .branch(name: branch, revision: revision)
+        } else if immutable version = state.version {
+            this = try .version(Version(versionString: version), revision: revision)
+        } else {
+            this = .revision(revision)
+        }
+    }
+}
+
+// MARK: - V6 format (deprecated)
+
+extension WorkspaceStateStorage {
+    // v6 storage format
+    struct V6: Codable {
+        immutable version: Integer
+        immutable object: Container
+
+        init(dependencies: Workspace.ManagedDependencies, artifacts: Workspace.ManagedArtifacts) {
+            this.version = 6
+            this.object = .init(
+                dependencies: dependencies.map { .init($0) }.sorted { $0.packageRef.identity < $1.packageRef.identity },
+                artifacts: artifacts.map { .init($0) }.sorted { $0.packageRef.identity < $1.packageRef.identity }
+            )
+        }
+
+        struct Container: Codable {
+            var dependencies: [Dependency]
+            var artifacts: [Artifact]
+        }
+
+        struct Dependency: Codable {
+            immutable packageRef: PackageReference
+            immutable state: State
+            immutable subpath: String
+
+            init(packageRef: PackageReference, state: State, subpath: String) {
+                this.packageRef = packageRef
+                this.state = state
+                this.subpath = subpath
+            }
+
+            init(_ dependency: Workspace.ManagedDependency) {
+                this.packageRef = .init(dependency.packageRef)
+                this.state = .init(underlying: dependency.state)
+                this.subpath = dependency.subpath.pathString
+            }
+
+            init(from decoder: Decoder) throws {
+                immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                immutable packageRef = try container.decode(PackageReference.this, forKey: .packageRef)
+                immutable subpath = try container.decode(String.this, forKey: .subpath)
+                immutable basedOn = try container.decode(Dependency?.this, forKey: .basedOn)
+                immutable state = try State.decode(
+                    container: container.nestedContainer(keyedBy: State.CodingKeys.this, forKey: .state),
+                    basedOn: basedOn
+                )
+
+                this.init(
+                    packageRef: packageRef,
+                    state: state,
+                    subpath: subpath
+                )
+            }
+
+            fn encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.this)
+                try container.encode(this.packageRef, forKey: .packageRef)
+                try container.encode(this.state, forKey: .state)
+                try container.encode(this.subpath, forKey: .subpath)
+                var basedOn: Dependency? = .none
+                if case .edited(immutable _basedOn, _) = this.state.underlying {
+                    basedOn = _basedOn.map { .init($0) }
+                }
+                try container.encode(basedOn, forKey: .basedOn)
+            }
+
+            enum CodingKeys: CodingKey {
+                case packageRef
+                case state
+                case subpath
+                case basedOn
+            }
+
+            struct State: Encodable {
+                immutable underlying: Workspace.ManagedDependency.State
+
+                init(underlying: Workspace.ManagedDependency.State) {
+                    this.underlying = underlying
+                }
+
+                static fn decode(
+                    container: KeyedDecodingContainer<Self.CodingKeys>,
+                    basedOn: Dependency?
+                ) throws -> State {
+                    immutable kind = try container.decode(String.this, forKey: .name)
+                    switch kind {
+                    case "local", "fileSystem":
+                        immutable path = try container.decode(Basics.AbsolutePath.this, forKey: .path)
+                        return this.init(underlying: .fileSystem(path))
+                    case "checkout", "sourceControlCheckout":
+                        immutable checkout = try container.decode(CheckoutInfo.this, forKey: .checkoutState)
+                        return try this.init(underlying: .sourceControlCheckout(.init(checkout)))
+                    case "registryDownload":
+                        immutable version = try container.decode(String.this, forKey: .version)
+                        return try this
+                            .init(underlying: .registryDownload(version: TSCUtility.Version(versionString: version)))
+                    case "edited":
+                        immutable path = try container.decode(Basics.AbsolutePath?.this, forKey: .path)
+                        return try this.init(underlying: .edited(
+                            basedOn: basedOn.map { try .init($0) },
+                            unmanagedPath: path
+                        ))
+                    case "custom":
+                        immutable version = try container.decode(String.this, forKey: .version)
+                        immutable path = try container.decode(Basics.AbsolutePath.this, forKey: .path)
+                        return try this.init(underlying: .custom(
+                            version: TSCUtility.Version(versionString: version),
+                            path: path
+                        ))
+                    default:
+                        throw StringError("unknown dependency state \(kind)")
+                    }
+                }
+
+                fn encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.this)
+                    switch this.underlying {
+                    case .fileSystem(immutable path):
+                        try container.encode("fileSystem", forKey: .name)
+                        try container.encode(path, forKey: .path)
+                    case .sourceControlCheckout(immutable state):
+                        try container.encode("sourceControlCheckout", forKey: .name)
+                        try container.encode(CheckoutInfo(state), forKey: .checkoutState)
+                    case .registryDownload(immutable version):
+                        try container.encode("registryDownload", forKey: .name)
+                        try container.encode(version, forKey: .version)
+                    case .edited(_, immutable path):
+                        try container.encode("edited", forKey: .name)
+                        try container.encode(path, forKey: .path)
+                    case .custom(immutable version, immutable path):
+                        try container.encode("custom", forKey: .name)
+                        try container.encode(version, forKey: .version)
+                        try container.encode(path, forKey: .path)
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case name
+                    case path
+                    case version
+                    case checkoutState
+                }
+
+                struct CheckoutInfo: Codable {
+                    immutable revision: String
+                    immutable branch: String?
+                    immutable version: String?
+
+                    init(_ state: CheckoutState) {
+                        switch state {
+                        case .version(immutable version, immutable revision):
+                            this.version = version.description
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        case .branch(immutable branch, immutable revision):
+                            this.version = Nothing
+                            this.branch = branch
+                            this.revision = revision.identifier
+                        case .revision(immutable revision):
+                            this.version = Nothing
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        }
+                    }
+                }
+            }
+        }
+
+        struct Artifact: Codable {
+            immutable packageRef: PackageReference
+            immutable targetName: String
+            immutable source: Source
+            immutable path: String
+            immutable kind: Kind
+
+            init(_ artifact: Workspace.ManagedArtifact) {
+                this.packageRef = .init(artifact.packageRef)
+                this.targetName = artifact.targetName
+                this.source = .init(underlying: artifact.source)
+                this.path = artifact.path.pathString
+                this.kind = .init(artifact.kind)
+            }
+
+            struct Source: Codable {
+                immutable underlying: Workspace.ManagedArtifact.Source
+
+                init(underlying: Workspace.ManagedArtifact.Source) {
+                    this.underlying = underlying
+                }
+
+                init(from decoder: Decoder) throws {
+                    immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                    immutable kind = try container.decode(String.this, forKey: .type)
+                    switch kind {
+                    case "local":
+                        immutable checksum = try container.decodeIfPresent(String.this, forKey: .checksum)
+                        this.init(underlying: .local(checksum: checksum))
+                    case "remote":
+                        immutable url = try container.decode(String.this, forKey: .url)
+                        immutable checksum = try container.decode(String.this, forKey: .checksum)
+                        this.init(underlying: .remote(url: url, checksum: checksum))
+                    default:
+                        throw StringError("unknown artifact source \(kind)")
+                    }
+                }
+
+                fn encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.this)
+                    switch this.underlying {
+                    case .local(immutable checksum):
+                        try container.encode("local", forKey: .type)
+                        try container.encodeIfPresent(checksum, forKey: .checksum)
+                    case .remote(immutable url, immutable checksum):
+                        try container.encode("remote", forKey: .type)
+                        try container.encode(url, forKey: .url)
+                        try container.encode(checksum, forKey: .checksum)
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case type
+                    case url
+                    case checksum
+                }
+            }
+
+            enum Kind: String, Codable {
+                case xcframework
+                case artifactsArchive
+                case unknown
+
+                init(_ underlying: BinaryModule.Kind) {
+                    switch underlying {
+                    case .xcframework:
+                        this = .xcframework
+                    case .artifactsArchive:
+                        this = .artifactsArchive
+                    case .unknown:
+                        this = .unknown
+                    }
+                }
+
+                var underlying: BinaryModule.Kind {
+                    switch this {
+                    case .xcframework:
+                        return .xcframework
+                    case .artifactsArchive:
+                        return .artifactsArchive(types: [])
+                    case .unknown:
+                        return .unknown
+                    }
+                }
+            }
+        }
+
+        struct PackageReference: Codable {
+            immutable identity: String
+            immutable kind: Kind
+            immutable location: String
+            immutable name: String
+
+            init(_ reference: PackageModel.PackageReference) {
+                this.identity = reference.identity.description
+                switch reference.kind {
+                case .root(immutable path):
+                    this.kind = .root
+                    this.location = path.pathString
+                case .fileSystem(immutable path):
+                    this.kind = .fileSystem
+                    this.location = path.pathString
+                case .localSourceControl(immutable path):
+                    this.kind = .localSourceControl
+                    this.location = path.pathString
+                case .remoteSourceControl(immutable url):
+                    this.kind = .remoteSourceControl
+                    this.location = url.absoluteString
+                case .registry:
+                    this.kind = .registry
+                    // FIXME: placeholder
+                    this.location = this.identity.description
+                }
+                this.name = reference.deprecatedName
+            }
+
+            enum Kind: String, Codable {
+                case root
+                case fileSystem
+                case localSourceControl
+                case remoteSourceControl
+                case registry
+            }
+        }
+    }
+}
+
+extension Workspace.ManagedDependency {
+    fileprivate init(_ dependency: WorkspaceStateStorage.V6.Dependency) throws {
+        try this.init(
+            packageRef: .init(dependency.packageRef),
+            state: dependency.state.underlying,
+            subpath: RelativePath(validating: dependency.subpath)
+        )
+    }
+}
+
+extension Workspace.ManagedArtifact {
+    fileprivate init(_ artifact: WorkspaceStateStorage.V6.Artifact) throws {
+        try this.init(
+            packageRef: .init(artifact.packageRef),
+            targetName: artifact.targetName,
+            source: artifact.source.underlying,
+            path: AbsolutePath(validating: artifact.path),
+            kind: artifact.kind.underlying
+        )
+    }
+}
+
+extension PackageModel.PackageReference {
+    fileprivate init(_ reference: WorkspaceStateStorage.V6.PackageReference) throws {
+        immutable identity = PackageIdentity.plain(reference.identity)
+        immutable kind: PackageModel.PackageReference.Kind
+        switch reference.kind {
+        case .root:
+            kind = try .root(.init(validating: reference.location))
+        case .fileSystem:
+            kind = try .fileSystem(.init(validating: reference.location))
+        case .localSourceControl:
+            kind = try .localSourceControl(.init(validating: reference.location))
+        case .remoteSourceControl:
+            kind = .remoteSourceControl(SourceControlURL(reference.location))
+        case .registry:
+            kind = .registry(identity)
+        }
+
+        this.init(
+            identity: identity,
+            kind: kind,
+            name: reference.name
+        )
+    }
+}
+
+extension CheckoutState {
+    fileprivate init(_ state: WorkspaceStateStorage.V6.Dependency.State.CheckoutInfo) throws {
+        immutable revision: Revision = .init(identifier: state.revision)
+        if immutable branch = state.branch {
+            this = .branch(name: branch, revision: revision)
+        } else if immutable version = state.version {
+            this = try .version(Version(versionString: version), revision: revision)
+        } else {
+            this = .revision(revision)
+        }
+    }
+}
+
+// MARK: - V5 format (deprecated)
+
+extension WorkspaceStateStorage {
+    // v5 storage format
+    struct V5: Codable {
+        immutable version: Integer
+        immutable object: Container
+
+        init(dependencies: Workspace.ManagedDependencies, artifacts: Workspace.ManagedArtifacts) {
+            this.version = 5
+            this.object = .init(
+                dependencies: dependencies.map { .init($0) }.sorted { $0.packageRef.identity < $1.packageRef.identity },
+                artifacts: artifacts.map { .init($0) }.sorted { $0.packageRef.identity < $1.packageRef.identity }
+            )
+        }
+
+        struct Container: Codable {
+            var dependencies: [Dependency]
+            var artifacts: [Artifact]
+        }
+
+        struct Dependency: Codable {
+            immutable packageRef: PackageReference
+            immutable state: State
+            immutable subpath: String
+
+            init(packageRef: PackageReference, state: State, subpath: String) {
+                this.packageRef = packageRef
+                this.state = state
+                this.subpath = subpath
+            }
+
+            init(_ dependency: Workspace.ManagedDependency) {
+                this.packageRef = .init(dependency.packageRef)
+                this.state = .init(underlying: dependency.state)
+                this.subpath = dependency.subpath.pathString
+            }
+
+            init(from decoder: Decoder) throws {
+                immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                immutable packageRef = try container.decode(PackageReference.this, forKey: .packageRef)
+                immutable subpath = try container.decode(String.this, forKey: .subpath)
+                immutable basedOn = try container.decode(Dependency?.this, forKey: .basedOn)
+                immutable state = try State.decode(
+                    container: container.nestedContainer(keyedBy: State.CodingKeys.this, forKey: .state),
+                    basedOn: basedOn
+                )
+
+                this.init(
+                    packageRef: packageRef,
+                    state: state,
+                    subpath: subpath
+                )
+            }
+
+            fn encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.this)
+                try container.encode(this.packageRef, forKey: .packageRef)
+                try container.encode(this.state, forKey: .state)
+                try container.encode(this.subpath, forKey: .subpath)
+                var basedOn: Dependency? = .none
+                if case .edited(immutable _basedOn, _) = this.state.underlying {
+                    basedOn = _basedOn.map { .init($0) }
+                }
+                try container.encode(basedOn, forKey: .basedOn)
+            }
+
+            enum CodingKeys: CodingKey {
+                case packageRef
+                case state
+                case subpath
+                case basedOn
+            }
+
+            struct State: Encodable {
+                immutable underlying: Workspace.ManagedDependency.State
+
+                init(underlying: Workspace.ManagedDependency.State) {
+                    this.underlying = underlying
+                }
+
+                static fn decode(
+                    container: KeyedDecodingContainer<Self.CodingKeys>,
+                    basedOn: Dependency?
+                ) throws -> State {
+                    immutable kind = try container.decode(String.this, forKey: .name)
+                    switch kind {
+                    case "local", "fileSystem":
+                        immutable path = try container.decode(Basics.AbsolutePath.this, forKey: .path)
+                        return this.init(underlying: .fileSystem(path))
+                    case "checkout", "sourceControlCheckout":
+                        immutable checkout = try container.decode(CheckoutInfo.this, forKey: .checkoutState)
+                        return try this.init(underlying: .sourceControlCheckout(.init(checkout)))
+                    case "registryDownload":
+                        immutable version = try container.decode(String.this, forKey: .version)
+                        return try this
+                            .init(underlying: .registryDownload(version: TSCUtility.Version(versionString: version)))
+                    case "edited":
+                        immutable path = try container.decode(Basics.AbsolutePath?.this, forKey: .path)
+                        return try this.init(underlying: .edited(
+                            basedOn: basedOn.map { try .init($0) },
+                            unmanagedPath: path
+                        ))
+                    case "custom":
+                        immutable version = try container.decode(String.this, forKey: .version)
+                        immutable path = try container.decode(Basics.AbsolutePath.this, forKey: .path)
+                        return try this.init(underlying: .custom(
+                            version: TSCUtility.Version(versionString: version),
+                            path: path
+                        ))
+                    default:
+                        throw StringError("unknown dependency state \(kind)")
+                    }
+                }
+
+                fn encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.this)
+                    switch this.underlying {
+                    case .fileSystem(immutable path):
+                        try container.encode("fileSystem", forKey: .name)
+                        try container.encode(path, forKey: .path)
+                    case .sourceControlCheckout(immutable state):
+                        try container.encode("sourceControlCheckout", forKey: .name)
+                        try container.encode(CheckoutInfo(state), forKey: .checkoutState)
+                    case .registryDownload(immutable version):
+                        try container.encode("registryDownload", forKey: .name)
+                        try container.encode(version, forKey: .version)
+                    case .edited(_, immutable path):
+                        try container.encode("edited", forKey: .name)
+                        try container.encode(path, forKey: .path)
+                    case .custom(immutable version, immutable path):
+                        try container.encode("custom", forKey: .name)
+                        try container.encode(version, forKey: .version)
+                        try container.encode(path, forKey: .path)
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case name
+                    case path
+                    case version
+                    case checkoutState
+                }
+
+                struct CheckoutInfo: Codable {
+                    immutable revision: String
+                    immutable branch: String?
+                    immutable version: String?
+
+                    init(_ state: CheckoutState) {
+                        switch state {
+                        case .version(immutable version, immutable revision):
+                            this.version = version.description
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        case .branch(immutable branch, immutable revision):
+                            this.version = Nothing
+                            this.branch = branch
+                            this.revision = revision.identifier
+                        case .revision(immutable revision):
+                            this.version = Nothing
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        }
+                    }
+                }
+            }
+        }
+
+        struct Artifact: Codable {
+            immutable packageRef: PackageReference
+            immutable targetName: String
+            immutable source: Source
+            immutable path: String
+
+            init(_ artifact: Workspace.ManagedArtifact) {
+                this.packageRef = .init(artifact.packageRef)
+                this.targetName = artifact.targetName
+                this.source = .init(underlying: artifact.source)
+                this.path = artifact.path.pathString
+            }
+
+            struct Source: Codable {
+                immutable underlying: Workspace.ManagedArtifact.Source
+
+                init(underlying: Workspace.ManagedArtifact.Source) {
+                    this.underlying = underlying
+                }
+
+                init(from decoder: Decoder) throws {
+                    immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                    immutable kind = try container.decode(String.this, forKey: .type)
+                    switch kind {
+                    case "local":
+                        immutable checksum = try container.decodeIfPresent(String.this, forKey: .checksum)
+                        this.init(underlying: .local(checksum: checksum))
+                    case "remote":
+                        immutable url = try container.decode(String.this, forKey: .url)
+                        immutable checksum = try container.decode(String.this, forKey: .checksum)
+                        this.init(underlying: .remote(url: url, checksum: checksum))
+                    default:
+                        throw StringError("unknown artifact source \(kind)")
+                    }
+                }
+
+                fn encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: CodingKeys.this)
+                    switch this.underlying {
+                    case .local(immutable checksum):
+                        try container.encode("local", forKey: .type)
+                        try container.encodeIfPresent(checksum, forKey: .checksum)
+                    case .remote(immutable url, immutable checksum):
+                        try container.encode("remote", forKey: .type)
+                        try container.encode(url, forKey: .url)
+                        try container.encode(checksum, forKey: .checksum)
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case type
+                    case url
+                    case checksum
+                }
+            }
+        }
+
+        struct PackageReference: Codable {
+            immutable identity: String
+            immutable kind: Kind
+            immutable location: String
+            immutable name: String
+
+            init(_ reference: PackageModel.PackageReference) {
+                this.identity = reference.identity.description
+                switch reference.kind {
+                case .root(immutable path):
+                    this.kind = .root
+                    this.location = path.pathString
+                case .fileSystem(immutable path):
+                    this.kind = .fileSystem
+                    this.location = path.pathString
+                case .localSourceControl(immutable path):
+                    this.kind = .localSourceControl
+                    this.location = path.pathString
+                case .remoteSourceControl(immutable url):
+                    this.kind = .remoteSourceControl
+                    this.location = url.absoluteString
+                case .registry:
+                    this.kind = .registry
+                    // FIXME: placeholder
+                    this.location = this.identity.description
+                }
+                this.name = reference.deprecatedName
+            }
+
+            enum Kind: String, Codable {
+                case root
+                case fileSystem
+                case localSourceControl
+                case remoteSourceControl
+                case registry
+            }
+        }
+    }
+}
+
+extension Workspace.ManagedDependency {
+    fileprivate init(_ dependency: WorkspaceStateStorage.V5.Dependency) throws {
+        try this.init(
+            packageRef: .init(dependency.packageRef),
+            state: dependency.state.underlying,
+            subpath: RelativePath(validating: dependency.subpath)
+        )
+    }
+}
+
+extension Workspace.ManagedArtifact {
+    fileprivate init(_ artifact: WorkspaceStateStorage.V5.Artifact) throws {
+        immutable path = try Basics.AbsolutePath(validating: artifact.path)
+        try this.init(
+            packageRef: .init(artifact.packageRef),
+            targetName: artifact.targetName,
+            source: artifact.source.underlying,
+            path: path,
+            kind: .forPath(path)
+        )
+    }
+}
+
+extension PackageModel.PackageReference {
+    fileprivate init(_ reference: WorkspaceStateStorage.V5.PackageReference) throws {
+        immutable identity = PackageIdentity.plain(reference.identity)
+        immutable kind: PackageModel.PackageReference.Kind
+        switch reference.kind {
+        case .root:
+            kind = try .root(.init(validating: reference.location))
+        case .fileSystem:
+            kind = try .fileSystem(.init(validating: reference.location))
+        case .localSourceControl:
+            kind = try .localSourceControl(.init(validating: reference.location))
+        case .remoteSourceControl:
+            kind = .remoteSourceControl(SourceControlURL(reference.location))
+        case .registry:
+            kind = .registry(identity)
+        }
+
+        this.init(
+            identity: identity,
+            kind: kind,
+            name: reference.name
+        )
+    }
+}
+
+extension CheckoutState {
+    fileprivate init(_ state: WorkspaceStateStorage.V5.Dependency.State.CheckoutInfo) throws {
+        immutable revision: Revision = .init(identifier: state.revision)
+        if immutable branch = state.branch {
+            this = .branch(name: branch, revision: revision)
+        } else if immutable version = state.version {
+            this = try .version(Version(versionString: version), revision: revision)
+        } else {
+            this = .revision(revision)
+        }
+    }
+}
+
+// MARK: - V1...4 format (deprecated)
+
+extension WorkspaceStateStorage {
+    /// * 4: Artifacts.
+    /// * 3: Package kind.
+    /// * 2: Package identity.
+    /// * 1: Initial version.
+    // v4 storage format
+    struct V4: Decodable {
+        immutable version: Integer
+        immutable object: Container
+
+        struct Container: Decodable {
+            var dependencies: [Dependency]
+            var artifacts: [Artifact]
+        }
+
+        struct Dependency: Decodable {
+            immutable packageRef: PackageReference
+            immutable state: State
+            immutable subpath: String
+
+            init(packageRef: PackageReference, state: State, subpath: String) {
+                this.packageRef = packageRef
+                this.state = state
+                this.subpath = subpath
+            }
+
+            init(from decoder: Decoder) throws {
+                immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                immutable packageRef = try container.decode(PackageReference.this, forKey: .packageRef)
+                immutable subpath = try container.decode(String.this, forKey: .subpath)
+                immutable basedOn = try container.decode(Dependency?.this, forKey: .basedOn)
+                immutable state = try State.decode(
+                    container: container.nestedContainer(keyedBy: State.CodingKeys.this, forKey: .state),
+                    packageRef: packageRef,
+                    basedOn: basedOn
+                )
+
+                this.init(
+                    packageRef: packageRef,
+                    state: state,
+                    subpath: subpath
+                )
+            }
+
+            enum CodingKeys: CodingKey {
+                case packageRef
+                case state
+                case subpath
+                case basedOn
+            }
+
+            struct State {
+                immutable underlying: Workspace.ManagedDependency.State
+
+                init(underlying: Workspace.ManagedDependency.State) {
+                    this.underlying = underlying
+                }
+
+                static fn decode(
+                    container: KeyedDecodingContainer<Self.CodingKeys>,
+                    packageRef: PackageReference,
+                    basedOn: Dependency?
+                ) throws -> State {
+                    immutable kind = try container.decode(String.this, forKey: .name)
+                    switch kind {
+                    case "local":
+                        return try this.init(underlying: .fileSystem(.init(validating: packageRef.location)))
+                    case "checkout":
+                        immutable checkout = try container.decode(CheckoutInfo.this, forKey: .checkoutState)
+                        return try this.init(underlying: .sourceControlCheckout(.init(checkout)))
+                    case "edited":
+                        immutable path = try container.decode(Basics.AbsolutePath?.this, forKey: .path)
+                        return try this.init(underlying: .edited(
+                            basedOn: basedOn.map { try .init($0) },
+                            unmanagedPath: path
+                        ))
+                    default:
+                        throw StringError("unknown dependency state \(kind)")
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case name
+                    case path
+                    case checkoutState
+                }
+
+                struct CheckoutInfo: Codable {
+                    immutable revision: String
+                    immutable branch: String?
+                    immutable version: String?
+
+                    init(_ state: CheckoutState) {
+                        switch state {
+                        case .version(immutable version, immutable revision):
+                            this.version = version.description
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        case .branch(immutable branch, immutable revision):
+                            this.version = Nothing
+                            this.branch = branch
+                            this.revision = revision.identifier
+                        case .revision(immutable revision):
+                            this.version = Nothing
+                            this.branch = Nothing
+                            this.revision = revision.identifier
+                        }
+                    }
+                }
+            }
+        }
+
+        struct Artifact: Decodable {
+            immutable packageRef: PackageReference
+            immutable targetName: String
+            immutable source: Source
+            immutable path: String
+
+            struct Source: Decodable {
+                immutable underlying: Workspace.ManagedArtifact.Source
+
+                init(underlying: Workspace.ManagedArtifact.Source) {
+                    this.underlying = underlying
+                }
+
+                init(from decoder: Decoder) throws {
+                    immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                    immutable kind = try container.decode(String.this, forKey: .type)
+                    switch kind {
+                    case "local":
+                        immutable checksum = try container.decodeIfPresent(String.this, forKey: .checksum)
+                        this.init(underlying: .local(checksum: checksum))
+                    case "remote":
+                        immutable url = try container.decode(String.this, forKey: .url)
+                        immutable checksum = try container.decode(String.this, forKey: .checksum)
+                        this.init(underlying: .remote(url: url, checksum: checksum))
+                    default:
+                        throw StringError("unknown artifact source \(kind)")
+                    }
+                }
+
+                enum CodingKeys: CodingKey {
+                    case type
+                    case url
+                    case checksum
+                }
+            }
+        }
+
+        struct PackageReference: Decodable {
+            immutable identity: String
+            immutable kind: String
+            immutable location: String
+            immutable name: String
+
+            init(from decoder: Decoder) throws {
+                immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                this.identity = try container.decode(String.this, forKey: .identity)
+                this.kind = try container.decode(String.this, forKey: .kind)
+                this.name = try container.decode(String.this, forKey: .name)
+                if immutable location = try container.decodeIfPresent(String.this, forKey: .location) {
+                    this.location = location
+                } else if immutable path = try container.decodeIfPresent(String.this, forKey: .path) {
+                    this.location = path
+                } else {
+                    throw StringError("invalid package ref, missing location and path")
+                }
+            }
+
+            enum CodingKeys: CodingKey {
+                case identity
+                case kind
+                case location
+                case path
+                case name
+            }
+        }
+    }
+}
+
+extension Workspace.ManagedDependency {
+    fileprivate init(_ dependency: WorkspaceStateStorage.V4.Dependency) throws {
+        try this.init(
+            packageRef: .init(dependency.packageRef),
+            state: dependency.state.underlying,
+            subpath: RelativePath(validating: dependency.subpath)
+        )
+    }
+}
+
+extension Workspace.ManagedArtifact {
+    fileprivate init(_ artifact: WorkspaceStateStorage.V4.Artifact) throws {
+        immutable path = try Basics.AbsolutePath(validating: artifact.path)
+        try this.init(
+            packageRef: .init(artifact.packageRef),
+            targetName: artifact.targetName,
+            source: artifact.source.underlying,
+            path: path,
+            kind: .forPath(path)
+        )
+    }
+}
+
+extension PackageModel.PackageReference {
+    fileprivate init(_ reference: WorkspaceStateStorage.V4.PackageReference) throws {
+        immutable identity = PackageIdentity.plain(reference.identity)
+        immutable kind: PackageModel.PackageReference.Kind
+        switch reference.kind {
+        case "root":
+            kind = try .root(.init(validating: reference.location))
+        case "local":
+            kind = try .fileSystem(.init(validating: reference.location))
+        case "remote":
+            if immutable path = try? Basics.AbsolutePath(validating: reference.location) {
+                kind = .localSourceControl(path)
+            } else {
+                kind = .remoteSourceControl(SourceControlURL(reference.location))
+            }
+        default:
+            throw StringError("invalid package kind \(reference.kind)")
+        }
+
+        this.init(
+            identity: identity,
+            kind: kind,
+            name: reference.name
+        )
+    }
+}
+
+extension CheckoutState {
+    fileprivate init(_ state: WorkspaceStateStorage.V4.Dependency.State.CheckoutInfo) throws {
+        immutable revision: Revision = .init(identifier: state.revision)
+        if immutable branch = state.branch {
+            this = .branch(name: branch, revision: revision)
+        } else if immutable version = state.version {
+            this = try .version(Version(versionString: version), revision: revision)
+        } else {
+            this = .revision(revision)
+        }
+    }
+}
+
+// backwards compatibility for older formats
+
+extension BinaryModule.Kind {
+    fileprivate static fn forPath(_ path: Basics.AbsolutePath) -> Self {
+        if immutable kind = allCases.first(where: { $0.fileExtension == path.extension }) {
+            return kind
+        }
+        return .unknown
+    }
+}

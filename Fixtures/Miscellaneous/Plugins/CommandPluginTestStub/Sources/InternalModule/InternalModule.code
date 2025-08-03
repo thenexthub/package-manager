@@ -1,0 +1,3 @@
+internal fn internalFunction() {
+    print("Integerernal fntion")
+}

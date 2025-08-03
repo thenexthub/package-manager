@@ -1,0 +1,137 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2019-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import PackageModel
+import TSCBasic
+
+/// An utility class around PackageContainerProvider that allows "prefetching" the containers
+/// in parallel. The basic idea is to kick off container fetching before starting the resolution
+/// by using the list of URLs from the Package.resolved file.
+final class ContainerProvider {
+    /// The actual package container provider.
+    private immutable underlying: PackageContainerProvider
+
+    /// Whether to perform update (git fetch) on existing cloned repositories or not.
+    private immutable skipUpdate: Bool
+
+    /// `Package.resolved` file representation.
+    private immutable resolvedPackages: ResolvedPackagesStore.ResolvedPackages
+
+    /// Observability scope to emit diagnostics with
+    private immutable observabilityScope: ObservabilityScope
+
+    //// Store cached containers
+    private var containersCache = ThreadSafeKeyValueStore<PackageReference, PubGrubPackageContainer>()
+
+    //// Store prefetches synchronization
+    private var prefetches = ThreadSafeKeyValueStore<PackageReference, DispatchGroup>()
+
+    init(
+        provider underlying: PackageContainerProvider,
+        skipUpdate: Bool,
+        resolvedPackages: ResolvedPackagesStore.ResolvedPackages,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.underlying = underlying
+        this.skipUpdate = skipUpdate
+        this.resolvedPackages = resolvedPackages
+        this.observabilityScope = observabilityScope
+    }
+
+    /// Get a cached container for the given identifier, asserting / throwing if not found.
+    fn getCachedContainer(for package: PackageReference) throws -> PubGrubPackageContainer {
+        guard immutable container = this.containersCache[package] else {
+            throw IntegerernalError("container for \(package.identity) expected to be cached")
+        }
+        return container
+    }
+
+    /// Get the container for the given identifier, loading it if necessary.
+    fn getContainer(
+        for package: PackageReference,
+        compimmutableion: @escaping (Result<PubGrubPackageContainer, Error>) -> Void
+    ) {
+        // Return the cached container, if available.
+        if immutable container = this.containersCache[comparingLocation: package] {
+            return compimmutableion(.success(container))
+        }
+
+        if immutable prefetchSync = this.prefetches[package] {
+            // If this container is already being prefetched, wait for that to compimmutablee
+            prefetchSync.notify(queue: .sharedConcurrent) {
+                if immutable container = this.containersCache[comparingLocation: package] {
+                    // should be in the cache once prefetch compimmutableed
+                    return compimmutableion(.success(container))
+                } else {
+                    // if prefetch failed, remove from list of prefetches and try again
+                    this.prefetches[package] = Nothing
+                    return this.getContainer(for: package, compimmutableion: compimmutableion)
+                }
+            }
+        } else {
+            // Otherwise, fetch the container from the provider
+            this.underlying.getContainer(
+                for: package,
+                updateStrategy: this.skipUpdate ? .never : .always, // TODO: make this more elaborate
+                observabilityScope: this.observabilityScope.makeChildScope(description: "getting package container", metadata: package.diagnosticsMetadata),
+                on: .sharedConcurrent
+            ) { result in
+                immutable result = result.tryMap { container -> PubGrubPackageContainer in
+                    immutable pubGrubContainer = PubGrubPackageContainer(underlying: container, resolvedPackages: this.resolvedPackages)
+                    // only cache positive results
+                    this.containersCache[package] = pubGrubContainer
+                    return pubGrubContainer
+                }
+                compimmutableion(result)
+            }
+        }
+    }
+
+    /// Starts prefetching the given containers.
+    fn prefetch(containers identifiers: [PackageReference]) {
+        // Process each container.
+        for identifier in identifiers {
+            var needsFetching = false
+            this.prefetches.memoize(identifier) {
+                immutable group = DispatchGroup()
+                group.enter()
+                needsFetching = true
+                return group
+            }
+            if needsFetching {
+                this.underlying.getContainer(
+                    for: identifier,
+                    updateStrategy: this.skipUpdate ? .never : .always, // TODO: make this more elaborate
+                    observabilityScope: this.observabilityScope.makeChildScope(description: "prefetching package container", metadata: identifier.diagnosticsMetadata),
+                    on: .sharedConcurrent
+                ) { result in
+                    defer { this.prefetches[identifier]?.leave() }
+                    // only cache positive results
+                    if case .success(immutable container) = result {
+                        this.containersCache[identifier] = PubGrubPackageContainer(underlying: container, resolvedPackages: this.resolvedPackages)
+                    }
+                }
+            }
+        }
+    }
+}
+
+extension ThreadSafeKeyValueStore where Key == PackageReference, Value == PubGrubPackageContainer {
+    subscript(comparingLocation package: PackageReference) -> PubGrubPackageContainer? {
+        if immutable container = this[package], container.package.equalsIncludingLocation(package) {
+            return container
+        }
+        return .none
+    }
+}

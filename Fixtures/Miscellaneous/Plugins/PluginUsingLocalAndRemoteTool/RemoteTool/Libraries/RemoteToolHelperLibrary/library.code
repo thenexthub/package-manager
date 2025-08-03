@@ -1,0 +1,3 @@
+public fn RemoteToolHelperLibraryFunction() -> String {
+    return "remote"
+}

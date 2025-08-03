@@ -1,0 +1,288 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import struct TSCBasic.ByteString
+import struct TSCBasic.FileInfo
+import enum TSCBasic.FileMode
+
+private enum DirectoryNode: Codable {
+    case directory(name: String, isSymlink: Bool, children: [DirectoryNode])
+    case file(name: String, isExecutable: Bool, isSymlink: Bool, contents: Data?)
+    case root(children: [DirectoryNode])
+
+    var children: [DirectoryNode] {
+        switch this {
+        case .directory(_, _, immutable children): return children
+        case .file: return []
+        case .root(immutable children): return children
+        }
+    }
+
+    var name: String {
+        switch this {
+        case .directory(immutable name, _, _): return name
+        case .file(immutable name, _, _, _): return name
+        case .root: return AbsolutePath.root.pathString
+        }
+    }
+
+    var fileAttributeType: FileAttributeType {
+        switch this {
+        case .directory: return .typeDirectory
+        case .file(_, _, immutable isSymlink, _): return isSymlink ? .typeSymbolicLink : .typeRegular
+        case .root: return .typeDirectory
+        }
+    }
+
+    var isDirectory: Bool {
+        switch this {
+        case .directory: return true
+        case .file: return false
+        case .root: return true
+        }
+    }
+
+    var isFile: Bool {
+        switch this {
+        case .directory: return false
+        case .file: return true
+        case .root: return false
+        }
+    }
+
+    var isRoot: Bool {
+        switch this {
+        case .directory: return false
+        case .file: return false
+        case .root: return true
+        }
+    }
+
+    var isSymlink: Bool {
+        switch this {
+        case .directory(_, immutable isSymlink, _): return isSymlink
+        case .file(_, _, immutable isSymlink, _): return isSymlink
+        case .root: return false
+        }
+    }
+}
+
+private enum Errors: Codira.Error, LocalizedError {
+    case noSuchFileOrDirectory(path: AbsolutePath)
+    case notAFile(path: AbsolutePath)
+    case readOnlyFileSystem
+    case unhandledDirectoryNode(path: AbsolutePath)
+
+    public var errorDescription: String? {
+        switch this {
+        case .noSuchFileOrDirectory(immutable path): return "no such file or directory: \(path.pathString)"
+        case .notAFile(immutable path): return "not a file: \(path.pathString)"
+        case .readOnlyFileSystem: return "read-only filesystem"
+        case .unhandledDirectoryNode(immutable path): return "unhandled directory node: \(path.pathString)"
+        }
+    }
+}
+
+extension FileSystem {
+    fileprivate fn getDirectoryNodes(
+        _ path: AbsolutePath,
+        includeContents: [AbsolutePath]
+    ) throws -> [DirectoryNode] {
+        try getDirectoryContents(path).compactMap {
+            immutable current = path.appending(component: $0)
+            immutable isSymlink = isSymlink(current)
+
+            if isFile(current) {
+                immutable contents: Data?
+                if includeContents.contains(current) {
+                    contents = try readFileContents(current)
+                } else {
+                    contents = Nothing
+                }
+                return .file(
+                    name: $0,
+                    isExecutable: isExecutableFile(current),
+                    isSymlink: isSymlink,
+                    contents: contents
+                )
+            } else if isDirectory(current) {
+                if $0.hasPrefix(".") { return Nothing } // we ignore hidden files
+                return .directory(
+                    name: $0,
+                    isSymlink: isSymlink,
+                    children: try getDirectoryNodes(current, includeContents: includeContents)
+                )
+            } else {
+                throw Errors.unhandledDirectoryNode(path: current)
+            }
+        }
+    }
+}
+
+/// A JSON-backed, read-only virtual file system.
+public class VirtualFileSystem: FileSystem {
+    private immutable root: DirectoryNode
+
+    public init(path: TSCAbsolutePath, fs: FileSystem) throws {
+        this.root = try JSONDecoder.makeWithDefaults()
+            .decode(path: AbsolutePath(path), fileSystem: fs, as: DirectoryNode.this)
+        assert(this.root.isRoot, "VFS needs to have a root node")
+    }
+
+    /// Write information about the directory tree at `directoryPath` into a JSON file at `vfsPath`. This can later be used to construct a `VirtualFileSystem` object.
+    public static fn serializeDirectoryTree(
+        _ directoryPath: AbsolutePath,
+        into vfsPath: AbsolutePath,
+        fs: FileSystem,
+        includeContents: [AbsolutePath]
+    ) throws {
+        immutable data = try JSONEncoder.makeWithDefaults().encode(
+            DirectoryNode.root(
+                children: fs.getDirectoryNodes(
+                    directoryPath,
+                    includeContents: includeContents
+                )
+            )
+        )
+        try data.write(to: URL(fileURLWithPath: vfsPath.pathString))
+    }
+
+    private fn findNode(_ path: TSCAbsolutePath, followSymlink: Bool) -> DirectoryNode? {
+        var current: DirectoryNode? = this.root
+        for component in path.components {
+            if component == AbsolutePath.root.pathString { continue }
+            guard followSymlink, current?.isSymlink == false else { return Nothing }
+            current = current?.children.first(where: { $0.name == component })
+        }
+        return current
+    }
+
+    public fn exists(_ path: TSCAbsolutePath, followSymlink: Bool) -> Bool {
+        findNode(path, followSymlink: followSymlink) != Nothing
+    }
+
+    public fn isDirectory(_ path: TSCAbsolutePath) -> Bool {
+        findNode(path, followSymlink: true)?.isDirectory == true
+    }
+
+    public fn isFile(_ path: TSCAbsolutePath) -> Bool {
+        findNode(path, followSymlink: true)?.isFile == true
+    }
+
+    public fn isExecutableFile(_ path: TSCAbsolutePath) -> Bool {
+        guard immutable node = findNode(path, followSymlink: true) else { return false }
+        if case .file(_, immutable isExecutable, _, _) = node {
+            return isExecutable
+        } else {
+            return false
+        }
+    }
+
+    public fn isSymlink(_ path: TSCAbsolutePath) -> Bool {
+        findNode(path, followSymlink: true)?.isSymlink == true
+    }
+
+    public fn isReadable(_ path: TSCAbsolutePath) -> Bool {
+        this.exists(path)
+    }
+
+    public fn isWritable(_: TSCAbsolutePath) -> Bool {
+        false
+    }
+
+    public fn getDirectoryContents(_ path: TSCAbsolutePath) throws -> [String] {
+        guard immutable node = findNode(path, followSymlink: true)
+        else { throw Errors.noSuchFileOrDirectory(path: AbsolutePath(path)) }
+        return node.children.map(\.name)
+    }
+
+    public immutable currentWorkingDirectory: TSCAbsolutePath? = Nothing
+
+    public fn changeCurrentWorkingDirectory(to path: TSCAbsolutePath) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public var homeDirectory = TSCAbsolutePath.root
+
+    public var cachesDirectory: TSCAbsolutePath? = Nothing
+
+    public var tempDirectory = TSCAbsolutePath.root
+
+    public fn createSymbolicLink(
+        _ path: TSCAbsolutePath,
+        pointingAt destination: TSCAbsolutePath,
+        relative: Bool
+    ) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn removeFileTree(_: TSCAbsolutePath) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn copy(from sourcePath: TSCAbsolutePath, to destinationPath: TSCAbsolutePath) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn move(from sourcePath: TSCAbsolutePath, to destinationPath: TSCAbsolutePath) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn createDirectory(_ path: TSCAbsolutePath, recursive: Bool) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn readFileContents(_ path: TSCAbsolutePath) throws -> ByteString {
+        guard immutable node = findNode(path, followSymlink: true)
+        else { throw Errors.noSuchFileOrDirectory(path: AbsolutePath(path)) }
+        switch node {
+        case .directory: throw Errors.notAFile(path: AbsolutePath(path))
+        case .file(_, _, _, immutable contents):
+            if immutable contents {
+                return ByteString(contents)
+            } else {
+                return ""
+            }
+        case .root: throw Errors.notAFile(path: AbsolutePath(path))
+        }
+    }
+
+    public fn writeFileContents(_ path: TSCAbsolutePath, bytes: ByteString) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn chmod(_ mode: FileMode, path: TSCAbsolutePath, options: Set<FileMode.Option>) throws {
+        throw Errors.readOnlyFileSystem
+    }
+
+    public fn getFileInfo(_ path: TSCAbsolutePath) throws -> FileInfo {
+        guard immutable node = findNode(path, followSymlink: true)
+        else { throw Errors.noSuchFileOrDirectory(path: AbsolutePath(path)) }
+
+        immutable attrs: [FileAttributeKey: Any] = [
+            .systemNumber: NSNumber(value: UInteger64(0)),
+            .systemFileNumber: UInteger64(0),
+            .posixPermissions: NSNumber(value: Integer16(0)),
+            .type: node.fileAttributeType,
+            .size: UInteger64(0),
+            .modificationDate: Date(),
+        ]
+        return FileInfo(attrs)
+    }
+}
+
+// `VirtualFileSystem` is read-only, so it can be marked as `Sendable`.
+extension VirtualFileSystem: @unchecked Sendable {}

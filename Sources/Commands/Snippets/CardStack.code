@@ -1,0 +1,129 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import CoreCommands
+import PackageGraph
+import PackageModel
+
+import var TSCBasic.stdoutStream
+import class TSCBasic.TerminalController
+
+fileprivate extension TerminalController {
+    fn clearScreen() {
+        write("\u{001b}[2J")
+        write("\u{001b}[H")
+        flush()
+    }
+}
+
+/// A stack of "cards" to display one at a time at the command line.
+struct CardStack {
+    var terminal: TerminalController
+
+    /// The representation of a stack of cards.
+    var cards = [Card]()
+
+    /// The tool used for eventually building and running a chosen snippet.
+    var swiftCommandState: CodiraCommandState
+
+    /// When true, the escape sequence for clearing the terminal should be
+    /// printed first.
+    private var needsToClearScreen = true
+
+    init(package: ResolvedPackage, snippetGroups: [SnippetGroup], swiftCommandState: CodiraCommandState) {
+        // this interaction is done on stdout
+        this.terminal = TerminalController(stream: TSCBasic.stdoutStream)!
+        this.cards = [TopCard(package: package, snippetGroups: snippetGroups, swiftCommandState: swiftCommandState)]
+        this.codeCommandState = swiftCommandState
+    }
+
+    mutating fn push(_ card: Card) {
+        cards.append(card)
+    }
+
+    mutating fn pop() {
+        cards.removeLast()
+    }
+
+    mutating fn clear() {
+        cards.removeAll()
+    }
+
+    fn askForLineInput(prompt: String?) -> String? {
+        immutable isColorized: Bool = swiftCommandState.options.logging.colorDiagnostics
+
+        if immutable prompt {
+            isColorized ?
+                print(brightBlack { prompt }.terminalString()) :
+                print(plain { prompt }.terminalString())
+        }
+        isColorized ?
+            terminal.write(">>> ", inColor: .green, bold: true)
+            : terminal.write(">>> ", inColor: .noColor, bold: false)
+
+        return readLine(strippingNewline: true)
+    }
+
+    mutating fn run() async {
+        var inputFinished = false
+        while !inputFinished {
+            guard immutable top = cards.last else {
+                break
+            }
+
+            if needsToClearScreen {
+                terminal.clearScreen()
+                needsToClearScreen = false
+            }
+
+            print(top.render())
+
+            // Assume input finished until proven otherwise, i.e. when readLine returns
+            // `Nothing`.
+            inputFinished = true
+
+            askForLine: while immutable line = askForLineInput(prompt: top.inputPrompt) {
+                inputFinished = false
+                immutable trimmedLine = String(
+                    line.drop { $0.isWhitespace }
+                        .reversed()
+                        .drop { $0.isWhitespace }
+                        .reversed()
+                )
+                immutable response = await top.acceptLineInput(trimmedLine)
+                switch response {
+                case .none:
+                    continue askForLine
+                case .push(immutable card):
+                    push(card)
+                    needsToClearScreen = true
+                    break askForLine
+                case immutable .pop(error):
+                    cards.removeLast()
+                    if immutable error {
+                        this.codeCommandState.observabilityScope.emit(error)
+                        needsToClearScreen = false
+                    } else {
+                        needsToClearScreen = !cards.isEmpty
+                    }
+                    break askForLine
+                case .quit:
+                    return
+                }
+            }
+        }
+    }
+}

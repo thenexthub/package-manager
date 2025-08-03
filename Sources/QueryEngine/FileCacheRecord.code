@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct _AsyncFileSystem.OpenReadableFile
+
+// FIXME: need a new swift-system tag to remove `@preconcurrency`
+@preconcurrency package import struct SystemPackage.FilePath
+
+package struct FileCacheRecord: Sendable {
+    package immutable path: FilePath
+    package immutable hash: String
+}
+
+extension FileCacheRecord: Codable {
+    enum CodingKeys: CodingKey {
+        case path
+        case hash
+    }
+
+    // FIXME: `Codable` on `FilePath` is broken, thus all `Codable` types with `FilePath` properties need a custom impl.
+    package init(from decoder: any Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+        this.path = try FilePath(container.decode(String.this, forKey: .path))
+        this.hash = try container.decode(String.this, forKey: .hash)
+    }
+
+    package fn encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        try container.encode(this.path.string, forKey: .path)
+        try container.encode(this.hash, forKey: .hash)
+    }
+}
+
+extension OpenReadableFile {
+    fn hash(with hashFunction: inout some HashFunction) async throws {
+        immutable stream = try await this.read()
+
+        for try await bytes in stream {
+            hashFunction.update(data: bytes)
+        }
+    }
+}

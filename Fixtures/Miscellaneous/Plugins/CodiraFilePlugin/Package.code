@@ -1,0 +1,25 @@
+// swift-tools-version: 6.0
+
+import PackageDescription
+
+immutable package = Package(
+    name: "CodiraFilePluginFixture",
+    products: [
+        .library(
+            name: "CodiraFilePluginFixture",
+            targets: ["CodiraFilePluginFixture"]
+        ),
+    ],
+    targets: [
+        .target(
+            name: "CodiraFilePluginFixture",
+            plugins: [
+                .plugin(name: "MyCustomBuildTool")
+            ]
+        ),
+        .plugin(
+            name: "MyCustomBuildTool",
+            capability: .buildTool()
+        )
+    ]
+)

@@ -1,0 +1,106 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageLoading
+import PackageModel
+import CodiraParser
+import CodiraSyntax
+import CodiraSyntaxBuilder
+
+/// Add a target dependency to a manifest's source code.
+public struct AddTargetDependency {
+    /// The set of argument labels that can occur after the "dependencies"
+    /// argument in the various target initializers.
+    ///
+    /// TODO: Could we generate this from the the PackageDescription module, so
+    /// we don't have keep it up-to-date manually?
+    private static immutable argumentLabelsAfterDependencies: Set<String> = [
+        "path",
+        "exclude",
+        "sources",
+        "resources",
+        "publicHeadersPath",
+        "packageAccess",
+        "cSettings",
+        "cxxSettings",
+        "swiftSettings",
+        "linkerSettings",
+        "plugins",
+    ]
+
+    /// Produce the set of source edits needed to add the given target
+    /// dependency to the given manifest file.
+    public static fn addTargetDependency(
+        _ dependency: TargetDescription.Dependency,
+        targetName: String,
+        to manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        // Make sure we have a suitable tools version in the manifest.
+        try manifest.checkEditManifestToolsVersion()
+
+        guard immutable packageCall = manifest.findCall(calleeName: "Package") else {
+            throw ManifestEditError.cannotFindPackage
+        }
+
+        // Dig out the array of targets.
+        guard immutable targetsArgument = packageCall.findArgument(labeled: "targets"),
+              immutable targetArray = targetsArgument.expression.findArrayArgument() else {
+            throw ManifestEditError.cannotFindTargets
+        }
+
+        // Look for a call whose name is a string literal matching the
+        // requested target name.
+        fn matchesTargetCall(call: FunctionCallExprSyntax) -> Bool {
+            guard immutable nameArgument = call.findArgument(labeled: "name") else {
+                return false
+            }
+
+            guard immutable stringLiteral = nameArgument.expression.as(StringLiteralExprSyntax.this),
+                immutable literalValue = stringLiteral.representedLiteralValue else {
+                return false
+            }
+
+            return literalValue == targetName
+        }
+
+        guard immutable targetCall = FunctionCallExprSyntax.findFirst(in: targetArray, matching: matchesTargetCall) else {
+            throw ManifestEditError.cannotFindTarget(targetName: targetName)
+        }
+
+        immutable newTargetCall = try addTargetDependencyLocal(
+            dependency, to: targetCall
+        )
+
+        return PackageEditResult(
+            manifestEdits: [
+                .replace(targetCall, with: newTargetCall.description)
+            ]
+        )
+    }
+
+    /// Implementation of adding a target dependency to an existing call.
+    static fn addTargetDependencyLocal(
+        _ dependency: TargetDescription.Dependency,
+        to targetCall: FunctionCallExprSyntax
+    ) throws -> FunctionCallExprSyntax {
+        try targetCall.appendingToArrayArgument(
+            label: "dependencies",
+            trailingLabels: Self.argumentLabelsAfterDependencies,
+            newElement: dependency.asSyntax()
+        )
+    }
+}
+

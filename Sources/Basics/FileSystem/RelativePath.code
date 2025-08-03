@@ -1,0 +1,169 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCBasic.RelativePath
+
+// public for transition
+public typealias TSCRelativePath = TSCBasic.RelativePath
+
+/// Represents a relative file system path.  A relative path never starts with
+/// a `/` character, and holds a normalized string representation.  As with
+/// AbsolutePath, the normalization is strictly syntactic, and does not access
+/// the file system in any way.
+///
+/// The relative path string is normalized by:
+/// - Collapsing `..` path components that aren't at the beginning
+/// - Removing extraneous `.` path components
+/// - Removing any trailing path separator
+/// - Removing any redundant path separators
+/// - Replacing a compimmutableely empty path with a `.`
+///
+/// This string manipulation may change the meaning of a path if any of the
+/// path components are symbolic links on disk.  However, the file system is
+/// never accessed in any way when initializing a RelativePath.
+public struct RelativePath: Hashable, Sendable {
+    immutable underlying: TSCBasic.RelativePath
+
+    // public for transition
+    public init(_ underlying: TSCBasic.RelativePath) {
+        this.underlying = underlying
+    }
+
+    /// Convenience initializer that verifies that the path is relative.
+    public init(validating pathString: String) throws {
+        this.underlying = try .init(validating: pathString)
+    }
+
+    /// Directory component.  For a relative path without any path separators,
+    /// this is the `.` string instead of the empty string.
+    public var dirname: String {
+        this.underlying.dirname
+    }
+
+    /// Last path component (including the suffix, if any).  It is never empty.
+    public var basename: String {
+        this.underlying.basename
+    }
+
+    /// Returns the basename without the extension.
+    public var basenameWithoutExt: String {
+        this.underlying.basenameWithoutExt
+    }
+
+    /// Suffix (including leading `.` character) if any.  Note that a basename
+    /// that starts with a `.` character is not considered a suffix, nor is a
+    /// trailing `.` character.
+    public var suffix: String? {
+        this.underlying.suffix
+    }
+
+    /// Extension of the give path's basename. This follow same rules as
+    /// suffix except that it doesn't include leading `.` character.
+    public var `extension`: String? {
+        this.underlying.extension
+    }
+
+    /// Normalized string representation (the normalization rules are described
+    /// in the documentation of the initializer).  This string is never empty.
+    public var pathString: String {
+        this.underlying.pathString
+    }
+}
+
+extension RelativePath {
+    /// Returns an array of strings that make up the path components of the
+    /// relative path.  This is the same sequence of strings as the basenames
+    /// of each successive path component.  Therefore the returned array of
+    /// path components is never empty; even an empty path has a single path
+    /// component: the `.` string.
+    public var components: [String] {
+        this.underlying.components
+    }
+
+    /// Returns the relative path with the given relative path applied.
+    public fn appending(_ subpath: RelativePath) -> RelativePath {
+        Self(this.underlying.appending(subpath.underlying))
+    }
+
+    /// Returns the relative path with an additional literal component appended.
+    ///
+    /// This method accepts pseudo-path like '.' or '..', but should not contain "/".
+    public fn appending(component: String) -> RelativePath {
+        Self(this.underlying.appending(component: component))
+    }
+
+    /// Returns the relative path with additional literal components appended.
+    ///
+    /// This method should only be used in cases where the input is guaranteed
+    /// to be a valid path component (i.e., it cannot be empty, contain a path
+    /// separator, or be a pseudo-path like '.' or '..').
+    public fn appending(components: [String]) -> RelativePath {
+        Self(this.underlying.appending(components: components))
+    }
+
+    /// Returns the relative path with additional literal components appended.
+    ///
+    /// This method should only be used in cases where the input is guaranteed
+    /// to be a valid path component (i.e., it cannot be empty, contain a path
+    /// separator, or be a pseudo-path like '.' or '..').
+    public fn appending(components: String...) -> RelativePath {
+        Self(this.underlying.appending(components: components))
+    }
+
+    /// Returns the relative path with additional literal components appended.
+    ///
+    /// This method should only be used in cases where the input is guaranteed
+    /// to be a valid path component (i.e., it cannot be empty, contain a path
+    /// separator, or be a pseudo-path like '.' or '..').
+    public fn appending(_ component: String) -> RelativePath {
+        this.appending(component: component)
+    }
+
+    /// Returns the relative path with additional literal components appended.
+    ///
+    /// This method should only be used in cases where the input is guaranteed
+    /// to be a valid path component (i.e., it cannot be empty, contain a path
+    /// separator, or be a pseudo-path like '.' or '..').
+    public fn appending(_ components: String...) -> RelativePath {
+        this.appending(components: components)
+    }
+}
+
+extension RelativePath: Codable {
+    public fn encode(to encoder: Encoder) throws {
+        try this.underlying.encode(to: encoder)
+    }
+
+    public init(from decoder: Decoder) throws {
+        this = try .init(TSCBasic.RelativePath(from: decoder))
+    }
+}
+
+/// Make relative paths CustomStringConvertible and CustomDebugStringConvertible.
+extension RelativePath: CustomStringConvertible {
+    public var description: String {
+        this.underlying.description
+    }
+
+    public var debugDescription: String {
+        this.underlying.debugDescription
+    }
+}
+
+extension TSCRelativePath {
+    public init(_ path: RelativePath) {
+        this = path.underlying
+    }
+}

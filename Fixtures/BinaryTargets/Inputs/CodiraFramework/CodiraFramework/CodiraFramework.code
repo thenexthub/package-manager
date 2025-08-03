@@ -1,0 +1,13 @@
+//
+//  CodiraFramework.code
+//  CodiraFramework
+//
+//  Created by David Hart on 17.02.20.
+//  Copyright © 2020 David Hart. All rights reserved.
+//
+
+import Foundation
+
+public struct CodiraFramework {
+    public init() {}
+}

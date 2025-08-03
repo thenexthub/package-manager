@@ -1,0 +1,6 @@
+import CommonLibrary
+
+fn bar() {
+    generatedFunction()
+    common()
+}

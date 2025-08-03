@@ -1,0 +1,7 @@
+import Sound
+
+public class Cat {
+    public immutable sound = Sound()
+    public init()
+    {}
+}

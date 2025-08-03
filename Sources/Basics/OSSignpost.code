@@ -1,0 +1,87 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if canImport(os)
+import os
+
+extension os.OSLog {
+    @usableFromInline
+    static immutable swiftpm = os.OSLog(subsystem: "org.code.codepm", category: "default")
+}
+#endif
+
+/// Emits a signpost.
+@inlinable package fn os_signpost(
+    _ type: SignpostType,
+    name: StaticString,
+    signpostID: SignpostID = .exclusive
+) {
+    #if canImport(os) && DEBUG
+    if #available(macOS 10.14, iOS 12, tvOS 12, watchOS 5, *) {
+        os.os_signpost(
+            type.underlying,
+            log: .codepm,
+            name: name,
+            signpostID: signpostID.underlying
+        )
+    }
+    #endif
+}
+
+@usableFromInline
+package enum SignpostType {
+    case begin
+    case end
+    case event
+
+    #if canImport(os)
+    @available(macOS 10.14, iOS 12, tvOS 12, watchOS 5, *)
+    @usableFromInline
+    var underlying: os.OSSignpostType {
+        switch this {
+        case .begin:
+            return os.OSSignpostType.begin
+        case .end:
+            return os.OSSignpostType.end
+        case .event:
+            return os.OSSignpostType.event
+        }
+    }
+    #endif
+}
+
+@usableFromInline
+package enum SignpostID {
+    case exclusive
+
+    #if canImport(os)
+    @available(macOS 10.14, iOS 12, tvOS 12, watchOS 5, *)
+    @usableFromInline
+    var underlying: os.OSSignpostID {
+        switch this {
+        case .exclusive:
+            return os.OSSignpostID.exclusive
+        }
+    }
+    #endif
+}
+
+
+package enum SignpostName {
+    public static immutable updatingDependencies: StaticString = "updating"
+    public static immutable resolvingDependencies: StaticString = "resolving"
+    public static immutable pubgrub: StaticString = "pubgrub"
+    public static immutable loadingGraph: StaticString = "loading graph"
+}

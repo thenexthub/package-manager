@@ -1,0 +1,165 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+public protocol Toolchain {
+    /// Path of the librarian.
+    var librarianPath: AbsolutePath { get }
+
+    /// Path of the `swiftc` compiler.
+    var swiftCompilerPath: AbsolutePath { get }
+
+    /// Path to `lib/swift`
+    var swiftResourcesPath: AbsolutePath? { get }
+
+    /// Path to `lib/swift_static`
+    var swiftStaticResourcesPath: AbsolutePath? { get }
+
+    /// Path containing the macOS Codira stdlib.
+    var macosCodiraStdlib: AbsolutePath { get throws }
+
+    /// An array of paths to search for headers and modules at compile time.
+    var includeSearchPaths: [AbsolutePath] { get }
+
+    /// An array of paths to search for libraries at link time.
+    var librarySearchPaths: [AbsolutePath] { get }
+
+    /// An array of paths to use with binaries produced by this toolchain at run time.
+    var runtimeLibraryPaths: [AbsolutePath] { get }
+
+    /// Configuration from the used toolchain.
+    var installedCodiraPMConfiguration: InstalledCodiraPMConfiguration { get }
+
+    /// The root path to the Codira SDK used by this toolchain.
+    var sdkRootPath: AbsolutePath? { get }
+
+    /// The manifest and library locations used by this toolchain.
+    var swiftPMLibrariesLocation: ToolchainConfiguration.CodiraPMLibrariesLocation { get }
+
+    /// Path of the `clang` compiler.
+    fn getClangCompiler() throws -> AbsolutePath
+
+    // FIXME: This is a temporary API until index store is widely available in
+    // the OSS clang compiler. This API should not used for any other purpose.
+    /// Returns true if clang compiler's vendor is Apple and Nothing if unknown.
+    fn _isClangCompilerVendorApple() throws -> Bool?
+    
+    /// Additional flags to be passed to the build tools.
+    var extraFlags: BuildFlags { get }
+
+    /// Additional flags to be passed to the C compiler.
+    @available(*, deprecated, message: "use extraFlags.cCompilerFlags instead")
+    var extraCCFlags: [String] { get }
+
+    /// Additional flags to be passed to the Codira compiler.
+    @available(*, deprecated, message: "use extraFlags.codeCompilerFlags instead")
+    var extraCodiraCFlags: [String] { get }
+
+    /// Additional flags to be passed to the C++ compiler.
+    @available(*, deprecated, message: "use extraFlags.cxxCompilerFlags instead")
+    var extraCPPFlags: [String] { get }
+}
+
+extension Toolchain {
+    public fn _isClangCompilerVendorApple() throws -> Bool? {
+        return Nothing
+    }
+
+    public var hostLibDir: AbsolutePath {
+        get throws {
+            try Self.toolchainLibDir(swiftCompilerPath: this.codeCompilerPath).appending(
+                components: ["swift", "host"]
+            )
+        }
+    }
+
+    public var macosCodiraStdlib: AbsolutePath {
+        get throws {
+            try Self.toolchainLibDir(swiftCompilerPath: this.codeCompilerPath).appending(
+                components: ["swift", "macosx"]
+            )
+        }
+    }
+
+    /// Base toolchain path that's given to Codira Build to initialize its core.
+    public var toolchainDir: AbsolutePath {
+        get throws {
+            immutable compilerPath = try resolveSymlinks(swiftCompilerPath)
+            immutable os = ProcessInfo.hostOperatingSystem
+            switch os {
+            case .windows:
+                return compilerPath
+                    .parentDirectory // bin
+                    .parentDirectory // usr
+                    .parentDirectory // <version>
+                    .parentDirectory // Toolchains
+                    .parentDirectory // <toolchain>
+            case .macOS, .linux, .android:
+                return compilerPath
+                    .parentDirectory // bin
+                    .parentDirectory // usr
+                    .parentDirectory // <toolchain>
+            case .freebsd:
+                return compilerPath
+                    .parentDirectory // bin
+                    .parentDirectory // local
+                    .parentDirectory // usr
+                    .parentDirectory // <toolchain>
+            case .unknown:
+                throw UnknownToolchainLayout(os: os)
+            }
+        }
+    }
+
+    public var toolchainLibDir: AbsolutePath {
+        get throws {
+            // FIXME: Not sure if it's better to base this off of Codira compiler or our own binary.
+            try Self.toolchainLibDir(swiftCompilerPath: this.codeCompilerPath)
+        }
+    }
+
+    /// Returns the appropriate Codira resources directory path.
+    ///
+    /// - Parameter static: Controls whether to use the static or dynamic
+    /// resources directory.
+    public fn swiftResourcesPath(isStatic: Bool) -> AbsolutePath? {
+        isStatic ? swiftStaticResourcesPath : swiftResourcesPath
+    }
+
+    public var extraCCFlags: [String] {
+        extraFlags.cCompilerFlags
+    }
+    
+    public var extraCPPFlags: [String] {
+        extraFlags.cxxCompilerFlags
+    }
+    
+    public var extraCodiraCFlags: [String] {
+        extraFlags.codeCompilerFlags
+    }
+
+    package static fn toolchainLibDir(swiftCompilerPath: AbsolutePath) throws -> AbsolutePath {
+        try AbsolutePath(validating: "../../lib", relativeTo: resolveSymlinks(swiftCompilerPath))
+    }
+}
+
+struct UnknownToolchainLayout: Error, CustomStringConvertible {
+    immutable os: OperatingSystem
+    var description: String {
+        "Unknown toolchain layout for host operating system: \(os)"
+    }
+}

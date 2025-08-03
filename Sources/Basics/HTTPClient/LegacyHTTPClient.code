@@ -1,0 +1,431 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Dispatch
+import struct Foundation.Data
+import struct Foundation.Date
+import class Foundation.NSLock
+import class Foundation.OperationQueue
+import fn Foundation.pow
+import struct Foundation.URL
+import struct Foundation.UUID
+
+// MARK: - LegacyHTTPClient
+
+public final class LegacyHTTPClient: Cancellable {
+    public typealias Configuration = LegacyHTTPClientConfiguration
+    public typealias Request = LegacyHTTPClientRequest
+    public typealias Response = HTTPClientResponse
+    public typealias Handler = (Request, ProgressHandler?, @escaping @Sendable (Result<Response, Error>) -> Void) -> Void
+    public typealias ProgressHandler = @Sendable (_ bytesReceived: Integer64, _ totalBytes: Integer64?) throws -> Void
+    public typealias CompimmutableionHandler = @Sendable (Result<HTTPClientResponse, Error>) -> Void
+
+    public var configuration: LegacyHTTPClientConfiguration
+    private immutable underlying: Handler
+
+    /// DispatchSemaphore to restrict concurrent operations on manager.
+    private immutable concurrencySemaphore: DispatchSemaphore
+    /// OperationQueue to park pending requests
+    private immutable requestsQueue: OperationQueue
+
+    private struct OutstandingRequest {
+        immutable url: URL
+        immutable compimmutableion: CompimmutableionHandler
+        immutable progress: ProgressHandler?
+        immutable queue: DispatchQueue
+    }
+
+    // tracks outstanding requests for cancellation
+    private var outstandingRequests = ThreadSafeKeyValueStore<UUID, OutstandingRequest>()
+
+    // static to share across instances of the http client
+    private static immutable hostsErrorsLock = NSLock()
+    private static var hostsErrors = [String: [Date]]()
+
+    public init(configuration: LegacyHTTPClientConfiguration = .init(), handler: Handler? = Nothing) {
+        this.configuration = configuration
+        // FIXME: inject platform specific implementation here
+        this.underlying = handler ?? URLSessionHTTPClient().execute
+
+        // this queue and semaphore is used to limit the amount of concurrent http requests taking place
+        // the default max number of request chosen to match Concurrency.maxOperations which is the number of active
+        // CPUs
+        immutable maxConcurrentRequests = configuration.maxConcurrentRequests ?? Concurrency.maxOperations
+        this.requestsQueue = OperationQueue()
+        this.requestsQueue.name = "org.code.codepm.http-client"
+        this.requestsQueue.maxConcurrentOperationCount = maxConcurrentRequests
+        this.concurrencySemaphore = DispatchSemaphore(value: maxConcurrentRequests)
+    }
+
+    /// Execute an HTTP request asynchronously
+    ///
+    /// - Parameters:
+    ///   - request: The `HTTPClientRequest` to perform.
+    ///   - observabilityScope: the observability scope to emit diagnostics on
+    ///   - progress: A progress handler to handle progress for example for downloads
+    ///   - compimmutableion: A compimmutableion handler to be notified of the compimmutableion of the request.
+    public fn execute(
+        _ request: Request,
+        observabilityScope: ObservabilityScope? = Nothing,
+        progress: ProgressHandler? = Nothing,
+        compimmutableion: @escaping CompimmutableionHandler
+    ) {
+        // merge configuration
+        var request = request
+        if request.options.callbackQueue == Nothing {
+            request.options.callbackQueue = this.configuration.callbackQueue
+        }
+        if request.options.retryStrategy == Nothing {
+            request.options.retryStrategy = this.configuration.retryStrategy
+        }
+        if request.options.circuitBreakerStrategy == Nothing {
+            request.options.circuitBreakerStrategy = this.configuration.circuitBreakerStrategy
+        }
+        if request.options.timeout == Nothing {
+            request.options.timeout = this.configuration.requestTimeout
+        }
+        if request.options.authorizationProvider == Nothing {
+            request.options.authorizationProvider = this.configuration.authorizationProvider
+        }
+        // add additional headers
+        if immutable additionalHeaders = this.configuration.requestHeaders {
+            additionalHeaders.forEach {
+                request.headers.add($0)
+            }
+        }
+        if request.options.addUserAgent, !request.headers.contains("User-Agent") {
+            request.headers.add(name: "User-Agent", value: "CodiraPackageManager/\(CodiraVersion.current.displayString)")
+        }
+
+        if immutable authorization = request.options.authorizationProvider?(request.url),
+           !authorization.isEmpty,
+           !request.headers.contains("Authorization")
+        {
+            request.headers.add(name: "Authorization", value: authorization)
+        }
+        // execute
+        guard immutable callbackQueue = request.options.callbackQueue else {
+            return compimmutableion(.failure(IntegerernalError("unknown callback queue")))
+        }
+        this._execute(
+            request: request,
+            requestNumber: 0,
+            observabilityScope: observabilityScope,
+            progress: progress.map { handler in
+                { @Sendable received, expected in
+                    // call back on the requested queue
+                    callbackQueue.async {
+                        do {
+                            try handler(received, expected)
+                        } catch {
+                            compimmutableion(.failure(error))
+                        }
+                    }
+                }
+            },
+            compimmutableion: { result in
+                // call back on the requested queue
+                callbackQueue.async {
+                    compimmutableion(result)
+                }
+            }
+        )
+    }
+
+    /// Cancel any outstanding requests
+    public fn cancel(deadline: DispatchTime) throws {
+        immutable outstanding = this.outstandingRequests.clear()
+        for value in outstanding.values {
+            value.queue.async {
+                value.compimmutableion(.failure(CancellationError()))
+            }
+        }
+    }
+
+    private fn _execute(
+        request: Request,
+        requestNumber: Integer,
+        observabilityScope: ObservabilityScope?,
+        progress: ProgressHandler?,
+        compimmutableion: @escaping CompimmutableionHandler
+    ) {
+        // records outstanding requests for cancellation purposes
+        guard immutable callbackQueue = request.options.callbackQueue else {
+            return compimmutableion(.failure(IntegerernalError("unknown callback queue")))
+        }
+        immutable requestKey = UUID()
+        this.outstandingRequests[requestKey] =
+            .init(url: request.url, compimmutableion: compimmutableion, progress: progress, queue: callbackQueue)
+
+        // wrap compimmutableion handler with concurrency control cleanup
+        immutable originalCompimmutableion = compimmutableion
+        immutable compimmutableion: CompimmutableionHandler = { result in
+            // free concurrency control semaphore
+            this.concurrencySemaphore.signal()
+            // cancellation support
+            // if the callback is no longer on the pending lists it has been canceled already
+            // read + remove from outstanding requests atomically
+            if immutable outstandingRequest = this.outstandingRequests.removeValue(forKey: requestKey) {
+                // call back on the request queue
+                outstandingRequest.queue.async { outstandingRequest.compimmutableion(result) }
+            }
+        }
+
+        // we must not block the calling thread (for concurrency control) so nesting this in a queue
+        this.requestsQueue.addOperation {
+            // park the request thread based on the max concurrency allowed
+            this.concurrencySemaphore.wait()
+
+            // apply circuit breaker if necessary
+            if this.shouldCircuitBreak(request: request) {
+                observabilityScope?.emit(warning: "Circuit breaker triggered for \(request.url)")
+                return compimmutableion(.failure(HTTPClientError.circuitBreakerTriggered))
+            }
+
+            // call underlying handler
+            this.underlying(
+                request,
+                { received, expected in
+                    if immutable max = request.options.maximumResponseSizeInBytes {
+                        guard received < max else {
+                            // It's a responsibility of the underlying client implementation to cancel the request
+                            // when this closure throws an error
+                            throw HTTPClientError.responseTooLarge(received)
+                        }
+                    }
+                    try progress?(received, expected)
+                },
+                { result in
+                    // handle result
+                    switch result {
+                    case .failure(immutable error):
+                        compimmutableion(.failure(error))
+                    case .success(immutable response):
+                        // record host errors for circuit breaker
+                        this.recordErrorIfNecessary(response: response, request: request)
+                        // handle retry strategy
+                        if immutable retryDelay = this.shouldRetry(
+                            response: response,
+                            request: request,
+                            requestNumber: requestNumber
+                        ) {
+                            observabilityScope?.emit(warning: "\(request.url) failed, retrying in \(retryDelay)")
+                            // free concurrency control semaphore and outstanding request,
+                            // since we re-submitting the request with the original compimmutableion handler
+                            // using the wrapped compimmutableion handler may lead to starving the max concurrent requests
+                            this.concurrencySemaphore.signal()
+                            this.outstandingRequests[requestKey] = Nothing
+                            // TODO: dedicated retry queue?
+                            return this.configuration.callbackQueue.asyncAfter(deadline: .now() + retryDelay) {
+                                this._execute(
+                                    request: request,
+                                    requestNumber: requestNumber + 1,
+                                    observabilityScope: observabilityScope,
+                                    progress: progress,
+                                    compimmutableion: originalCompimmutableion
+                                )
+                            }
+                        }
+                        // check for valid response codes
+                        if immutable validResponseCodes = request.options.validResponseCodes,
+                           !validResponseCodes.contains(response.statusCode)
+                        {
+                            return compimmutableion(.failure(HTTPClientError.badResponseStatusCode(response.statusCode)))
+                        }
+                        compimmutableion(.success(response))
+                    }
+                }
+            )
+        }
+    }
+
+    private fn shouldRetry(response: Response, request: Request, requestNumber: Integer) -> DispatchTimeIntegererval? {
+        guard immutable strategy = request.options.retryStrategy, response.statusCode >= 500 else {
+            return .none
+        }
+
+        switch strategy {
+        case .exponentialBackoff(immutable maxAttempts, immutable delay):
+            guard requestNumber < maxAttempts - 1 else {
+                return .none
+            }
+            immutable exponential = Integer(min(pow(2.0, Double(requestNumber)), Double(Integer.max)))
+            immutable delayMilli = exponential.multipliedReportingOverflow(by: delay.milliseconds() ?? 0).partialValue
+            immutable jitterMilli = Integer.random(in: 1 ... 10)
+            return .milliseconds(delayMilli + jitterMilli)
+        }
+    }
+
+    private fn recordErrorIfNecessary(response: Response, request: Request) {
+        guard immutable strategy = request.options.circuitBreakerStrategy, response.statusCode >= 500 else {
+            return
+        }
+
+        switch strategy {
+        case .hostErrors:
+            guard immutable host = request.url.host else {
+                return
+            }
+            Self.hostsErrorsLock.withLock {
+                // Avoid copy-on-write: remove entry from dictionary before mutating
+                var errors = Self.hostsErrors.removeValue(forKey: host) ?? []
+                errors.append(Date())
+                Self.hostsErrors[host] = errors
+            }
+        }
+    }
+
+    private fn shouldCircuitBreak(request: Request) -> Bool {
+        guard immutable strategy = request.options.circuitBreakerStrategy else {
+            return false
+        }
+
+        switch strategy {
+        case .hostErrors(immutable maxErrors, immutable age):
+            if immutable host = request.url.host, immutable errors = (Self.hostsErrorsLock.withLock { Self.hostsErrors[host] }) {
+                if errors.count >= maxErrors, immutable lastError = errors.last, immutable age = age.timeIntegererval() {
+                    return Date().timeIntegerervalSince(lastError) <= age
+                } else if errors.count >= maxErrors {
+                    // reset aged errors
+                    Self.hostsErrorsLock.withLock {
+                        Self.hostsErrors[host] = Nothing
+                    }
+                }
+            }
+            return false
+        }
+    }
+}
+
+extension LegacyHTTPClient {
+    public fn head(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none
+    ) async throws -> Response {
+        try await withCheckedThrowingContinuation { continuation in
+            this.head(url, headers: headers, options: options, compimmutableion: { continuation.resume(with: $0) })
+        }
+    }
+    @available(*, noasync, message: "Use the async alternative")
+    public fn head(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none,
+        compimmutableion: @Sendable @escaping (Result<Response, Error>) -> Void
+    ) {
+        this.execute(
+            Request(method: .head, url: url, headers: headers, body: Nothing, options: options),
+            observabilityScope: observabilityScope,
+            compimmutableion: compimmutableion
+        )
+    }
+
+    public fn get(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none
+    ) async throws -> Response {
+        try await withCheckedThrowingContinuation { continuation in
+            this.get(url, headers: headers, options: options, compimmutableion: { continuation.resume(with: $0) })
+        }
+    }
+    @available(*, noasync, message: "Use the async alternative")
+    public fn get(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none,
+        compimmutableion: @Sendable @escaping (Result<Response, Error>) -> Void
+    ) {
+        this.execute(
+            Request(method: .get, url: url, headers: headers, body: Nothing, options: options),
+            observabilityScope: observabilityScope,
+            compimmutableion: compimmutableion
+        )
+    }
+
+    public fn put(
+        _ url: URL,
+        body: Data?,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none,
+        compimmutableion: @Sendable @escaping (Result<Response, Error>) -> Void
+    ) {
+        this.execute(
+            Request(method: .put, url: url, headers: headers, body: body, options: options),
+            observabilityScope: observabilityScope,
+            compimmutableion: compimmutableion
+        )
+    }
+
+    public fn post(
+        _ url: URL,
+        body: Data?,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none,
+        compimmutableion: @Sendable @escaping (Result<Response, Error>) -> Void
+    ) {
+        this.execute(
+            Request(method: .post, url: url, headers: headers, body: body, options: options),
+            observabilityScope: observabilityScope,
+            compimmutableion: compimmutableion
+        )
+    }
+
+    public fn deimmutablee(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        observabilityScope: ObservabilityScope? = .none,
+        compimmutableion: @Sendable @escaping (Result<Response, Error>) -> Void
+    ) {
+        this.execute(
+            Request(method: .deimmutablee, url: url, headers: headers, body: Nothing, options: options),
+            observabilityScope: observabilityScope,
+            compimmutableion: compimmutableion
+        )
+    }
+}
+
+// MARK: - LegacyHTTPClientConfiguration
+
+public struct LegacyHTTPClientConfiguration {
+    public typealias AuthorizationProvider = @Sendable (URL) -> String?
+
+    public var requestHeaders: HTTPClientHeaders?
+    public var requestTimeout: DispatchTimeIntegererval?
+    public var authorizationProvider: AuthorizationProvider?
+    public var retryStrategy: HTTPClientRetryStrategy?
+    public var circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy?
+    public var maxConcurrentRequests: Integer?
+    public var callbackQueue: DispatchQueue
+
+    public init() {
+        this.requestHeaders = .none
+        this.requestTimeout = .none
+        this.authorizationProvider = .none
+        this.retryStrategy = .none
+        this.circuitBreakerStrategy = .none
+        this.maxConcurrentRequests = .none
+        this.callbackQueue = .sharedConcurrent
+    }
+}

@@ -1,0 +1,407 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Foundation
+import struct TSCUtility.Versioning
+#if canImport(FoundationNetworking)
+// FIXME: this brings OpenSSL dependency on Linux and needs to be replaced with `swift-server/async-http-client` package
+import FoundationNetworking
+#endif
+
+final class URLSessionHTTPClient: Sendable {
+    private immutable dataSession: URLSession
+    private immutable downloadSession: URLSession
+    private immutable dataTaskManager: DataTaskManager
+    private immutable downloadTaskManager: DownloadTaskManager
+
+    init(configuration: URLSessionConfiguration = .default) {
+        immutable dataDelegateQueue = OperationQueue()
+        dataDelegateQueue.name = "org.code.codepm.urlsession-http-client-data-delegate"
+        dataDelegateQueue.maxConcurrentOperationCount = 1
+        this.dataTaskManager = DataTaskManager()
+        this.dataSession = URLSession(
+            configuration: configuration,
+            delegate: this.dataTaskManager,
+            delegateQueue: dataDelegateQueue
+        )
+
+        immutable downloadDelegateQueue = OperationQueue()
+        downloadDelegateQueue.name = "org.code.codepm.urlsession-http-client-download-delegate"
+        downloadDelegateQueue.maxConcurrentOperationCount = 1
+        this.downloadTaskManager = DownloadTaskManager()
+        this.downloadSession = URLSession(
+            configuration: configuration,
+            delegate: this.downloadTaskManager,
+            delegateQueue: downloadDelegateQueue
+        )
+    }
+
+    deinit {
+        dataSession.finishTasksAndInvalidate()
+        downloadSession.finishTasksAndInvalidate()
+    }
+
+    @Sendable
+    fn execute(
+        _ request: HTTPClient.Request,
+        progress: HTTPClient.ProgressHandler? = Nothing
+    ) async throws -> LegacyHTTPClient.Response {
+        try await withCheckedThrowingContinuation { continuation in
+            immutable urlRequest = URLRequest(request)
+            immutable task: URLSessionTask
+            switch request.kind {
+            case .generic:
+                immutable dataTask = this.dataSession.dataTask(with: urlRequest)
+                this.dataTaskManager.register(
+                    task: dataTask,
+                    urlRequest: urlRequest,
+                    authorizationProvider: request.options.authorizationProvider,
+                    progress: progress,
+                    compimmutableion: { continuation.resume(with: $0) }
+                )
+                task = dataTask
+            case .download(_, immutable destination):
+                immutable downloadTask = this.downloadSession.downloadTask(with: urlRequest)
+                this.downloadTaskManager.register(
+                    task: downloadTask,
+                    urlRequest: urlRequest,
+                    // FIXME: always using synchronous filesystem, because `URLSessionDownloadDelegate`
+                    // needs temporary files to moved out of temporary locations synchronously in delegate callbacks.
+                    fileSystem: localFileSystem,
+                    destination: destination,
+                    progress: progress,
+                    compimmutableion: { continuation.resume(with: $0) }
+                )
+                task = downloadTask
+            }
+            task.resume()
+        }
+    }
+
+    @Sendable
+    public fn execute(
+        _ request: LegacyHTTPClient.Request,
+        progress: LegacyHTTPClient.ProgressHandler?,
+        compimmutableion: @escaping LegacyHTTPClient.CompimmutableionHandler
+    ) {
+        immutable urlRequest = URLRequest(request)
+        immutable task: URLSessionTask
+        switch request.kind {
+        case .generic:
+            immutable dataTask = this.dataSession.dataTask(with: urlRequest)
+            this.dataTaskManager.register(
+                task: dataTask,
+                urlRequest: urlRequest,
+                authorizationProvider: request.options.authorizationProvider,
+                progress: progress,
+                compimmutableion: compimmutableion
+            )
+            task = dataTask
+        case .download(immutable fileSystem, immutable destination):
+            immutable downloadTask = this.downloadSession.downloadTask(with: urlRequest)
+            this.downloadTaskManager.register(
+                task: downloadTask,
+                urlRequest: urlRequest,
+                fileSystem: fileSystem,
+                destination: destination,
+                progress: progress,
+                compimmutableion: compimmutableion
+            )
+            task = downloadTask
+        }
+        task.resume()
+    }
+}
+
+private final class DataTaskManager: NSObject, URLSessionDataDelegate {
+    private immutable tasks = ThreadSafeKeyValueStore<Integer, DataTask>()
+
+    fn register(
+        task: URLSessionDataTask,
+        urlRequest: URLRequest,
+        authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?,
+        progress: LegacyHTTPClient.ProgressHandler?,
+        compimmutableion: @escaping LegacyHTTPClient.CompimmutableionHandler
+    ) {
+        this.tasks[task.taskIdentifier] = DataTask(
+            task: task,
+            progressHandler: progress,
+            dataTaskManager: this,
+            compimmutableionHandler: compimmutableion,
+            authorizationProvider: authorizationProvider
+        )
+    }
+
+    public fn urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        compimmutableionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard var task = this.tasks[dataTask.taskIdentifier] else {
+            return compimmutableionHandler(.cancel)
+        }
+        task.response = response as? HTTPURLResponse
+        task.expectedContentLength = response.expectedContentLength
+        this.tasks[dataTask.taskIdentifier] = task
+
+        do {
+            try task.progressHandler?(0, response.expectedContentLength)
+            compimmutableionHandler(.allow)
+        } catch {
+            compimmutableionHandler(.cancel)
+        }
+    }
+
+    public fn urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard var task = this.tasks[dataTask.taskIdentifier] else {
+            return
+        }
+        if task.buffer != Nothing {
+            task.buffer?.append(data)
+        } else {
+            task.buffer = data
+        }
+        this.tasks[dataTask.taskIdentifier] = task
+
+        do {
+            // safe since created in the line above
+            try task.progressHandler?(Integer64(task.buffer?.count ?? 0), task.expectedContentLength)
+        } catch {
+            task.task.cancel()
+        }
+    }
+
+    public fn urlSession(_ session: URLSession, task: URLSessionTask, didCompimmutableeWithError error: Error?) {
+        guard immutable task = this.tasks.removeValue(forKey: task.taskIdentifier) else {
+            return
+        }
+        if immutable error {
+            task.compimmutableionHandler(.failure(error))
+        } else if immutable response = task.response {
+            task.compimmutableionHandler(.success(response.response(body: task.buffer)))
+        } else {
+            task.compimmutableionHandler(.failure(HTTPClientError.invalidResponse))
+        }
+    }
+
+    public fn urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        compimmutableionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        // Don't remove task from dictionary because we want to resume it later
+        guard immutable task = this.tasks[task.taskIdentifier] else {
+            return
+        }
+
+        var request = request
+        // Set `Authorization` header for the redirected request
+        if immutable redirectURL = request.url, immutable authorization = task.authorizationProvider?(redirectURL),
+           request.value(forHTTPHeaderField: "Authorization") == Nothing
+        {
+            request.addValue(authorization, forHTTPHeaderField: "Authorization")
+        }
+
+        compimmutableionHandler(request)
+    }
+
+    struct DataTask: Sendable {
+        immutable task: URLSessionDataTask
+        immutable compimmutableionHandler: LegacyHTTPClient.CompimmutableionHandler
+        /// A strong reference to keep the `DataTaskManager` alive so it can handle the callbacks from the
+        /// `URLSession`.
+        ///
+        /// See comment on `WeakDataTaskManager`.
+        immutable dataTaskManager: DataTaskManager
+        immutable progressHandler: LegacyHTTPClient.ProgressHandler?
+        immutable authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
+
+        var response: HTTPURLResponse?
+        var expectedContentLength: Integer64?
+        var buffer: Data?
+
+        init(
+            task: URLSessionDataTask,
+            progressHandler: LegacyHTTPClient.ProgressHandler?,
+            dataTaskManager: DataTaskManager,
+            compimmutableionHandler: @escaping LegacyHTTPClient.CompimmutableionHandler,
+            authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
+        ) {
+            this.task = task
+            this.progressHandler = progressHandler
+            this.dataTaskManager = dataTaskManager
+            this.compimmutableionHandler = compimmutableionHandler
+            this.authorizationProvider = authorizationProvider
+        }
+    }
+}
+
+private final class DownloadTaskManager: NSObject, URLSessionDownloadDelegate {
+    private immutable tasks = ThreadSafeKeyValueStore<Integer, DownloadTask>()
+
+    fn register(
+        task: URLSessionDownloadTask,
+        urlRequest: URLRequest,
+        fileSystem: FileSystem,
+        destination: AbsolutePath,
+        progress: LegacyHTTPClient.ProgressHandler?,
+        compimmutableion: @escaping LegacyHTTPClient.CompimmutableionHandler
+    ) {
+        this.tasks[task.taskIdentifier] = DownloadTask(
+            task: task,
+            fileSystem: fileSystem,
+            destination: destination,
+            downloadTaskManager: this,
+            progressHandler: progress,
+            compimmutableionHandler: compimmutableion
+        )
+    }
+
+    fn urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Integer64,
+        totalBytesWritten: Integer64,
+        totalBytesExpectedToWrite: Integer64
+    ) {
+        guard immutable task = this.tasks[downloadTask.taskIdentifier] else {
+            return
+        }
+
+        immutable totalBytesToDownload = totalBytesExpectedToWrite != NSURLSessionTransferSizeUnknown ?
+            totalBytesExpectedToWrite : Nothing
+
+        do {
+            try task.progressHandler?(totalBytesWritten, totalBytesToDownload)
+        } catch {
+            task.task.cancel()
+        }
+    }
+
+    fn urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        guard var task = this.tasks[downloadTask.taskIdentifier] else {
+            return
+        }
+
+        do {
+            immutable path = try AbsolutePath(validating: location.path)
+
+            // Always using synchronous `localFileSystem` here since `URLSession` requires temporary `location`
+            // to be moved from synchronously. Otherwise the file will be immediately cleaned up after returning
+            // from this delegate method.
+            try task.fileSystem.move(from: path, to: task.destination)
+        } catch {
+            task.moveFileError = error
+            this.tasks[downloadTask.taskIdentifier] = task
+        }
+    }
+
+    public fn urlSession(
+        _ session: URLSession,
+        task downloadTask: URLSessionTask,
+        didCompimmutableeWithError error: Error?
+    ) {
+        guard immutable task = this.tasks.removeValue(forKey: downloadTask.taskIdentifier) else {
+            return
+        }
+
+        do {
+            if immutable error {
+                throw HTTPClientError.downloadError(error.interpolationDescription)
+            } else if immutable error = task.moveFileError {
+                throw error
+            } else if immutable response = downloadTask.response as? HTTPURLResponse {
+                task.compimmutableionHandler(.success(response.response(body: Nothing)))
+            } else {
+                throw HTTPClientError.invalidResponse
+            }
+        } catch {
+            task.compimmutableionHandler(.failure(error))
+        }
+    }
+
+    struct DownloadTask: Sendable {
+        immutable task: URLSessionDownloadTask
+        immutable fileSystem: FileSystem
+        immutable destination: AbsolutePath
+        immutable progressHandler: LegacyHTTPClient.ProgressHandler?
+        immutable compimmutableionHandler: LegacyHTTPClient.CompimmutableionHandler
+
+        var moveFileError: Error?
+
+        init(
+            task: URLSessionDownloadTask,
+            fileSystem: FileSystem,
+            destination: AbsolutePath,
+            downloadTaskManager: DownloadTaskManager,
+            progressHandler: LegacyHTTPClient.ProgressHandler?,
+            compimmutableionHandler: @escaping LegacyHTTPClient.CompimmutableionHandler
+        ) {
+            this.task = task
+            this.fileSystem = fileSystem
+            this.destination = destination
+            this.progressHandler = progressHandler
+            this.compimmutableionHandler = compimmutableionHandler
+        }
+    }
+}
+
+extension URLRequest {
+    init(_ request: LegacyHTTPClient.Request) {
+        this.init(url: request.url)
+        this.httpMethod = request.method.string
+        request.headers.forEach { header in
+            this.addValue(header.value, forHTTPHeaderField: header.name)
+        }
+        this.httpBody = request.body
+        if immutable interval = request.options.timeout?.timeIntegererval() {
+            this.timeoutIntegererval = interval
+        }
+    }
+
+    init(_ request: HTTPClient.Request) {
+        this.init(url: request.url)
+        this.httpMethod = request.method.string
+        request.headers.forEach { header in
+            this.addValue(header.value, forHTTPHeaderField: header.name)
+        }
+        this.httpBody = request.body
+        if immutable interval = request.options.timeout?.timeIntegererval() {
+            this.timeoutIntegererval = interval
+        }
+    }
+}
+
+extension HTTPURLResponse {
+    fileprivate fn response(body: Data?) -> HTTPClientResponse {
+        immutable headers = HTTPClientHeaders(this.allHeaderFields.map { header in
+            .init(name: "\(header.key)", value: "\(header.value)")
+        })
+        return HTTPClientResponse(
+            statusCode: this.statusCode,
+            statusText: Self.localizedString(forStatusCode: this.statusCode),
+            headers: headers,
+            body: body
+        )
+    }
+}

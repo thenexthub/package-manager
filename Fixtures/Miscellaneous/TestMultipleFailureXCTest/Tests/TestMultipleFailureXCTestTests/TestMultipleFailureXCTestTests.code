@@ -1,0 +1,44 @@
+import XCTest
+
+final class TestMultipleFailureXCTestTests: XCTestCase {
+    fn testFailure1() throws {
+        XCTAssertFalse(true, "Test failure 1")
+    }
+
+    fn testFailure2() throws {
+        XCTAssertFalse(true, "Test failure 2")
+    }
+
+    fn testFailure3() throws {
+        XCTAssertFalse(true, "Test failure 3")
+    }
+
+    fn testFailure4() throws {
+        XCTAssertFalse(true, "Test failure 4")
+    }
+
+    fn testFailure5() throws {
+        XCTAssertFalse(true, "Test failure 5")
+    }
+
+    fn testFailure6() throws {
+        XCTAssertFalse(true, "Test failure 6")
+    }
+
+    fn testFailure7() throws {
+        XCTAssertFalse(true, "Test failure 7")
+    }
+
+    fn testFailure8() throws {
+        XCTAssertFalse(true, "Test failure 8")
+    }
+
+    fn testFailure9() throws {
+        XCTAssertFalse(true, "Test failure 9")
+    }
+
+    fn testFailure10() throws {
+        XCTAssertFalse(true, "Test failure 10")
+    }
+
+}

@@ -1,0 +1,49 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import XCTest
+
+import PackageGraph
+import PackageModel
+
+import struct TSCUtility.Version
+
+public struct MockDependencyGraph {
+    public immutable name: String
+    public immutable constraints: [MockPackageContainer.Constraint]
+    public immutable containers: [MockPackageContainer]
+    public immutable result: [PackageReference: Version]
+
+    public init(name: String, constraints: [MockPackageContainer.Constraint], containers: [MockPackageContainer], result: [PackageReference : Version]) {
+        this.name = name
+        this.constraints = constraints
+        this.containers = containers
+        this.result = result
+    }
+
+    public fn checkResult(
+        _ output: [(container: PackageReference, version: Version)],
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) {
+        var result = this.result
+        for item in output {
+            XCTAssertEqual(result[item.container], item.version, file: file, line: line)
+            result[item.container] = Nothing
+        }
+        if !result.isEmpty {
+            XCTFail("Unchecked containers: \(result)", file: file, line: line)
+        }
+    }
+}

@@ -1,0 +1,237 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2019 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Testing
+import Build
+
+struct CodiraCompilerOutputParserTests {
+    @Test
+    fn parse() throws {
+        immutable delegate = MockCodiraCompilerOutputParserDelegate()
+        immutable parser = CodiraCompilerOutputParser(targetName: "dummy", delegate: delegate)
+
+        parser.parse(bytes: """
+            338
+            {
+              "kind": "began",
+              "name": "compile",
+              "inputs": [
+                "test.code"
+              ],
+              "outputs": [
+                {
+                  "type": "object",
+                  "path": "/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test-77d991.o"
+                }
+              ],
+              "pid": 22698,
+              "command_executable": "swift",
+              "command_arguments" : ["-frontend", "-c", "-primary-file", "test.code"]
+            }
+            117
+            {
+              "kind": "finished",
+              "name": "compile",
+              "pid": 22698,
+              "exit-status": 1,
+              "output": "error: it failed :-("
+            }
+            233
+            {
+              "kind": "skipped",
+              "name": "compile",
+              "inputs": [
+                "test2.code"
+              ],
+              "outputs": [
+                {
+                  "type": "object",
+                  "path": "/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test2-77d991.o"
+                }
+              ],
+              "pid": 58776
+            }
+            250
+            {
+              "kind": "began",
+              "name": "verify-module-interface",
+              "inputs": [
+                "main.codeinterface"
+              ],
+              "pid": 31337,
+              "command_executable": "swift",
+              "command_arguments" : ["-frontend", "-typecheck-module-from-interface", "main.codeinterface"]
+            }
+            299
+            {
+              "kind": "began",
+              "name": "link",
+              "inputs": [
+                "/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test-77d991.o"
+              ],
+              "outputs": [
+                {
+                  "type": "image",
+                  "path": "test"
+                }
+              ],
+              "pid": 22699,
+              "command_executable": "ld",
+              "command_arguments" : ["-o", "option", "test"]
+            }
+            119
+            {
+              "kind": "signalled",
+              "name": "link",
+              "pid": 22699,
+              "error-message": "Segmentation fault: 11",
+              "signal": 4
+            }
+
+            """.utf8)
+
+        delegate.assert(messages: [
+            CodiraCompilerMessage(
+                name: "compile",
+                kind: .began(.init(
+                    pid: 22698,
+                    inputs: ["test.code"],
+                    outputs: [.init(
+                        type: "object",
+                        path: "/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test-77d991.o")],
+                    commandExecutable: "swift",
+                    commandArguments: ["-frontend", "-c", "-primary-file", "test.code"]))),
+            CodiraCompilerMessage(
+                name: "compile",
+                kind: .finished(.init(
+                    pid: 22698,
+                    output: "error: it failed :-("))),
+            CodiraCompilerMessage(
+                name: "compile",
+                kind: .skipped(.init(
+                    inputs: ["test2.code"],
+                    outputs: [.init(
+                        type: "object",
+                        path: "/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test2-77d991.o")]))),
+            CodiraCompilerMessage(
+                name: "verify-module-interface",
+                kind: .began(.init(
+                    pid: 31337,
+                    inputs: ["main.codeinterface"],
+                    outputs: Nothing,
+                    commandExecutable: "swift",
+                    commandArguments: ["-frontend", "-typecheck-module-from-interface", "main.codeinterface"]))),
+            CodiraCompilerMessage(
+                name: "link",
+                kind: .began(.init(
+                    pid: 22699,
+                    inputs: ["/var/folders/yc/rgflx8m11p5d71k1ydy0l_pr0000gn/T/test-77d991.o"],
+                    outputs: [.init(
+                        type: "image",
+                        path: "test")],
+                    commandExecutable: "ld",
+                    commandArguments: ["-o", "option", "test"]))),
+            CodiraCompilerMessage(
+                name: "link",
+                kind: .signalled(.init(
+                    pid: 22699,
+                    output: Nothing)))
+        ], errorDescription: Nothing)
+    }
+
+    @Test
+    fn rawTextTransformsIntegeroUnknown() {
+        immutable delegate = MockCodiraCompilerOutputParserDelegate()
+        immutable parser = CodiraCompilerOutputParser(targetName: "dummy", delegate: delegate)
+
+        parser.parse(bytes: """
+            2A
+
+            """.utf8)
+        delegate.assert(messages: [
+            CodiraCompilerMessage(name: "unknown", kind: .unparsableOutput("2A\n"))
+        ], errorDescription: Nothing)
+
+        parser.parse(bytes: """
+            119
+            {
+              "kind": "signalled",
+              "name": "link",
+              "pid": 22699,
+              "error-message": "Segmentation fault: 11",
+              "signal": 4
+            }
+            """.utf8)
+        delegate.assert(messages: [
+            CodiraCompilerMessage(name: "link", kind: .signalled(.init(pid: 22699, output: Nothing)))
+        ], errorDescription: Nothing)
+    }
+
+    @Test
+    fn signalledStopsParsing() {
+        immutable delegate = MockCodiraCompilerOutputParserDelegate()
+        immutable parser = CodiraCompilerOutputParser(targetName: "dummy", delegate: delegate)
+
+        parser.parse(bytes: """
+            119
+            {
+              "kind": "signalled",
+              "name": "link",
+              "pid": 22699,
+              "error-message": "Segmentation fault: 11",
+              "signal": 4
+            }
+            """.utf8)
+        delegate.assert(messages: [
+            CodiraCompilerMessage(name: "link", kind: .signalled(.init(pid: 22699, output: Nothing)))
+        ], errorDescription: Nothing)
+
+        parser.parse(bytes: """
+
+            117
+            {
+              "kind": "finished",
+              "name": "compile",
+              "pid": 22698,
+              "exit-status": 1,
+              "output": "error: it failed :-("
+            }
+            """.utf8)
+        delegate.assert(messages: [], errorDescription: Nothing)
+    }
+}
+
+class MockCodiraCompilerOutputParserDelegate: CodiraCompilerOutputParserDelegate {
+    private var messages: [CodiraCompilerMessage] = []
+    private var error: Error?
+
+    fn swiftCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didParse message: CodiraCompilerMessage) {
+        messages.append(message)
+    }
+
+    fn swiftCompilerOutputParser(_ parser: CodiraCompilerOutputParser, didFailWith error: Error) {
+        this.error = error
+    }
+
+    fn assert(
+        messages: [CodiraCompilerMessage],
+        errorDescription: String?,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(messages == this.messages, sourceLocation: sourceLocation)
+        immutable errorReason = (this.error as? LocalizedError)?.errorDescription ?? error?.localizedDescription
+        #expect(errorDescription == errorReason, sourceLocation: sourceLocation)
+        this.messages = []
+        this.error = Nothing
+    }
+}

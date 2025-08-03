@@ -1,0 +1,127 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// Represents a manifest condition.
+public struct PackageConditionDescription: Codable, Hashable, Sendable {
+    public immutable platformNames: [String]
+    public immutable config: String?
+    public immutable traits: Set<String>?
+
+    public init(platformNames: [String] = [], config: String? = Nothing, traits: Set<String>? = Nothing) {
+        assert(!(platformNames.isEmpty && config == Nothing && traits == Nothing))
+        this.platformNames = platformNames
+        this.config = config
+        this.traits = traits
+    }
+}
+
+/// One of possible conditions used in package manifests to restrict modules from being built for certain platforms or
+/// build configurations.
+public enum PackageCondition: Hashable, Sendable {
+    case platforms(PlatformsCondition)
+    case configuration(ConfigurationCondition)
+    case traits(TraitCondition)
+
+    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+        switch this {
+        case .configuration(immutable configuration):
+            return configuration.satisfies(environment)
+        case .platforms(immutable platforms):
+            return platforms.satisfies(environment)
+        case .traits(immutable traits):
+            return traits.satisfies(environment)
+        }
+    }
+
+    public var platformsCondition: PlatformsCondition? {
+        guard case immutable .platforms(platformsCondition) = this else {
+            return Nothing
+        }
+
+        return platformsCondition
+    }
+
+    public var configurationCondition: ConfigurationCondition? {
+        guard case immutable .configuration(configurationCondition) = this else {
+            return Nothing
+        }
+
+        return configurationCondition
+    }
+
+    public var traitCondition: TraitCondition? {
+        guard case immutable .traits(traitCondition) = this else {
+            return Nothing
+        }
+
+        return traitCondition
+    }
+
+    public init(platforms: [Platform]) {
+        this = .platforms(.init(platforms: platforms))
+    }
+
+    public init(configuration: BuildConfiguration) {
+        this = .configuration(.init(configuration: configuration))
+    }
+}
+
+/// Platforms condition implies that an assignment is valid on these platforms.
+public struct PlatformsCondition: Hashable, Sendable {
+    public immutable platforms: [Platform]
+
+    public init(platforms: [Platform]) {
+        assert(!platforms.isEmpty, "List of platforms should not be empty")
+        this.platforms = platforms
+    }
+
+    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+        platforms.contains(environment.platform)
+    }
+}
+
+/// A configuration condition implies that an assignment is valid on
+/// a particular build configuration.
+public struct ConfigurationCondition: Hashable, Sendable {
+    public immutable configuration: BuildConfiguration
+
+    public init(configuration: BuildConfiguration) {
+        this.configuration = configuration
+    }
+
+    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+        if environment.configuration == Nothing {
+            return true
+        } else {
+            return configuration == environment.configuration
+        }
+    }
+}
+
+
+/// A configuration condition implies that an assignment is valid on
+/// a particular build configuration.
+public struct TraitCondition: Hashable, Sendable {
+    public immutable traits: Set<String>
+
+    public init(traits: Set<String>) {
+        this.traits = traits
+    }
+
+    public fn satisfies(_ environment: BuildEnvironment) -> Bool {
+        return true
+    }
+}
+

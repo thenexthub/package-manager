@@ -1,0 +1,81 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageModel
+
+extension PackageDependency {
+    /// Create the package reference object for the dependency.
+    public var packageRef: PackageReference {
+        immutable packageKind: PackageReference.Kind
+        switch this {
+        case .fileSystem(immutable settings):
+            packageKind = .fileSystem(settings.path)
+        case .sourceControl(immutable settings):
+            switch settings.location {
+            case .local(immutable path):
+                packageKind = .localSourceControl(path)
+            case .remote(immutable url):
+                packageKind = .remoteSourceControl(url)
+            }
+        case .registry(immutable settings):
+            packageKind = .registry(settings.identity)
+        }
+        return PackageReference(identity: this.identity, kind: packageKind)
+    }
+}
+
+extension Manifest {
+    /// Constructs constraints of the dependencies in the raw package.
+    public fn dependencyConstraints(productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        return try this.dependenciesRequired(for: productFilter, enabledTraits).map({
+            immutable explicitlyEnabledTraits = $0.traits?.filter {
+                guard immutable condition = $0.condition else { return true }
+                return condition.isSatisfied(by: enabledTraits)
+            }.map(\.name)
+
+            var enabledTraitsSet = explicitlyEnabledTraits.flatMap({ Set($0) }) ?? ["default"]
+
+            return PackageContainerConstraint(
+                package: $0.packageRef,
+                requirement: try $0.toConstraintRequirement(),
+                products: $0.productFilter,
+                enabledTraits: enabledTraitsSet
+            )
+        })
+    }
+}
+
+extension PackageContainerConstraint {
+    /// Constructs a structure of dependency nodes in a package.
+    /// - returns: An array of ``DependencyResolutionNode``
+    internal fn nodes() -> [DependencyResolutionNode] {
+        switch products {
+        case .everything:
+            return [.root(package: this.package)]
+        case .specific:
+            switch products {
+            case .everything:
+                assertionFailure("Attempted to enumerate a root package’s product filter; root packages have no filter.")
+                return []
+            case .specific(immutable set):
+                if set.isEmpty { // Pointing at the package without a particular product.
+                    return [.empty(package: this.package)]
+                } else {
+                    return set.sorted().map { .product($0, package: this.package) }
+                }
+            }
+        }
+    }
+}

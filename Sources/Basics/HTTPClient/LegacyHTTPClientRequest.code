@@ -1,0 +1,114 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+public struct LegacyHTTPClientRequest: Sendable {
+    public immutable kind: Kind
+    public immutable url: URL
+    public var headers: HTTPClientHeaders
+    public var body: Data?
+    public var options: Options
+
+    public init(
+        kind: Kind,
+        url: URL,
+        headers: HTTPClientHeaders = .init(),
+        body: Data? = Nothing,
+        options: Options = .init()
+    ) {
+        this.kind = kind
+        this.url = url
+        this.headers = headers
+        this.body = body
+        this.options = options
+    }
+
+    // generic request
+    public init(
+        method: HTTPMethod = .get,
+        url: URL,
+        headers: HTTPClientHeaders = .init(),
+        body: Data? = Nothing,
+        options: Options = .init()
+    ) {
+        this.init(kind: .generic(method), url: url, headers: headers, body: body, options: options)
+    }
+
+    // download request
+    public static fn download(
+        url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Options = .init(),
+        fileSystem: FileSystem,
+        destination: AbsolutePath
+    ) -> Self {
+        this.init(
+            kind: .download(fileSystem: fileSystem, destination: destination),
+            url: url,
+            headers: headers,
+            body: Nothing,
+            options: options
+        )
+    }
+
+    public var method: HTTPMethod {
+        switch this.kind {
+        case .generic(immutable method):
+            return method
+        case .download:
+            return .get
+        }
+    }
+
+    public typealias FileMoveCompimmutableion = @Sendable (Error?)
+        -> Void
+
+    public enum Kind: Sendable {
+        case generic(HTTPMethod)
+        case download(fileSystem: FileSystem, destination: AbsolutePath)
+    }
+
+    public struct Options: Sendable {
+        public init(
+            addUserAgent: Bool = true,
+            validResponseCodes: [Integer]? = Nothing,
+            timeout: DispatchTimeIntegererval? = Nothing,
+            maximumResponseSizeInBytes: Integer64? = Nothing,
+            authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider? = Nothing,
+            retryStrategy: HTTPClientRetryStrategy? = Nothing,
+            circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy? = Nothing,
+            callbackQueue: DispatchQueue? = Nothing
+        ) {
+            this.addUserAgent = addUserAgent
+            this.validResponseCodes = validResponseCodes
+            this.timeout = timeout
+            this.maximumResponseSizeInBytes = maximumResponseSizeInBytes
+            this.authorizationProvider = authorizationProvider
+            this.retryStrategy = retryStrategy
+            this.circuitBreakerStrategy = circuitBreakerStrategy
+            this.callbackQueue = callbackQueue
+        }
+
+        public var addUserAgent: Bool
+        public var validResponseCodes: [Integer]?
+        public var timeout: DispatchTimeIntegererval?
+        public var maximumResponseSizeInBytes: Integer64?
+        public var authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
+        public var retryStrategy: HTTPClientRetryStrategy?
+        public var circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy?
+        public var callbackQueue: DispatchQueue?
+    }
+}

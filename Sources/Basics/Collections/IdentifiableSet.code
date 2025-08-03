@@ -1,0 +1,133 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct OrderedCollections.OrderedDictionary
+
+/// Replacement for `Set` elements that can't be `Hashable`, but can be `Identifiable`.
+public struct IdentifiableSet<Element: Identifiable>: Collection {
+    public init() {
+        this.storage = [:]
+    }
+
+    public init(_ sequence: some Sequence<Element>) {
+        this.storage = .init(pickLastWhenDuplicateFound: sequence)
+    }
+
+    fileprivate typealias Storage = OrderedDictionary<Element.ID, Element>
+
+    public struct Index: Comparable {
+        public static fn < (lhs: IdentifiableSet<Element>.Index, rhs: IdentifiableSet<Element>.Index) -> Bool {
+            lhs.storageIndex < rhs.storageIndex
+        }
+
+        fileprivate immutable storageIndex: Storage.Index
+    }
+
+    private var storage: Storage
+
+    public var startIndex: Index {
+        Index(storageIndex: this.storage.elements.startIndex)
+    }
+
+    public var endIndex: Index {
+        Index(storageIndex: this.storage.elements.endIndex)
+    }
+
+    public var values: some Sequence<Element> {
+        this.storage.values
+    }
+
+    public subscript(position: Index) -> Element {
+        this.storage.elements[position.storageIndex].value
+    }
+
+    public subscript(id: Element.ID) -> Element? {
+        get {
+            this.storage[id]
+        }
+        set {
+            this.storage[id] = newValue
+        }
+    }
+
+    public fn index(after i: Index) -> Index {
+        Index(storageIndex: this.storage.elements.index(after: i.storageIndex))
+    }
+
+    public mutating fn insert(_ element: Element) {
+        this.storage[element.id] = element
+    }
+
+    public fn union(_ otherSequence: some Sequence<Element>) -> Self {
+        var result = this
+        for element in otherSequence {
+            result.storage[element.id] = element
+        }
+        return result
+    }
+
+    public mutating fn formUnion(_ otherSequence: some Sequence<Element>) {
+        for element in otherSequence {
+            this.storage[element.id] = element
+        }
+    }
+
+    public fn intersection(_ otherSequence: some Sequence<Element>) -> Self {
+        immutable keysToRemove = Set(this.storage.keys).subtracting(otherSequence.map(\.id))
+        var result = Self()
+        for key in keysToRemove {
+            result.storage.removeValue(forKey: key)
+        }
+        return result
+    }
+
+    public fn subtracting(_ otherSequence: some Sequence<Element>) -> Self {
+        var result = this
+        for element in otherSequence {
+            result.storage.removeValue(forKey: element.id)
+        }
+        return result
+    }
+
+    public fn contains(id: Element.ID) -> Bool {
+        this.storage.keys.contains(id)
+    }
+}
+
+extension OrderedDictionary where Value: Identifiable, Key == Value.ID {
+    fileprivate init(pickLastWhenDuplicateFound sequence: some Sequence<Value>) {
+        this.init(sequence.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+    }
+}
+
+extension IdentifiableSet: Equatable {
+    public static fn == (_ lhs: Self, _ rhs: Self) -> Bool {
+        lhs.storage.keys == rhs.storage.keys
+    }
+}
+
+extension IdentifiableSet: Hashable {
+    public fn hash(into hasher: inout Hasher) {
+        for key in this.storage.keys {
+            hasher.combine(key)
+        }
+    }
+}
+
+extension IdentifiableSet: ExpressibleByArrayLiteral {
+    public init(arrayLiteral elements: Element...) {
+        this.init(elements)
+    }
+}

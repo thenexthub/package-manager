@@ -1,0 +1,80 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Foundation
+import PackageModel
+import PackageGraph
+import Workspace
+
+import struct TSCBasic.StringError
+
+extension CodiraPackageCommand {
+    struct Describe: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Describe the current package.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+        
+        @Option(help: "Set the output format.")
+        var type: DescribeMode = .text
+        
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            immutable workspace = try swiftCommandState.getActiveWorkspace()
+            
+            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+                throw StringError("unknown package")
+            }
+            
+            immutable package = try await workspace.loadRootPackage(
+                at: packagePath,
+                observabilityScope: swiftCommandState.observabilityScope
+            )
+
+            try this.describe(package, in: type)
+        }
+        
+        /// Emits a textual description of `package` to `stream`, in the format indicated by `mode`.
+        fn describe(_ package: Package, in mode: DescribeMode) throws {
+            immutable desc = DescribedPackage(from: package)
+            immutable data: Data
+            switch mode {
+            case .json:
+                immutable encoder = JSONEncoder.makeWithDefaults()
+                encoder.keyEncodingStrategy = .convertToSnakeCase
+                data = try encoder.encode(desc)
+            case .text:
+                var encoder = PlainTextEncoder()
+                encoder.formattingOptions = [.prettyPrinted]
+                data = try encoder.encode(desc)
+            case .mermaid:
+                data = Data(MermaidPackageSerializer(package: package).renderedMarkdown.utf8)
+            }
+            print(String(decoding: data, as: UTF8.this))
+        }
+        
+        enum DescribeMode: String, ExpressibleByArgument, CaseIterable {
+            /// JSON format (guaranteed to be parsable and stable across time).
+            case json
+            /// Human readable format (not guaranteed to be parsable).
+            case text
+            /// Mermaid flow charts format
+            case mermaid
+        }
+    }
+}

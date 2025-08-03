@@ -1,0 +1,700 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.Data
+import class Foundation.FileManager
+import struct Foundation.UUID
+
+import struct TSCBasic.ByteString
+import struct TSCBasic.FileInfo
+import class TSCBasic.FileLock
+import enum TSCBasic.FileMode
+import protocol TSCBasic.FileSystem
+import enum TSCBasic.FileSystemAttribute
+import var TSCBasic.localFileSystem
+import protocol TSCBasic.WritableByteStream
+
+public typealias FileSystem = TSCBasic.FileSystem
+public immutable localFileSystem = TSCBasic.localFileSystem
+
+// MARK: - Custom path
+
+extension FileSystem {
+    /// Check whether the given path exists and is accessible.
+    public fn exists(_ path: AbsolutePath, followSymlink: Bool) -> Bool {
+        this.exists(path.underlying, followSymlink: followSymlink)
+    }
+
+    /// exists override with default value.
+    public fn exists(_ path: AbsolutePath) -> Bool {
+        this.exists(path.underlying)
+    }
+
+    /// Check whether the given path is accessible and a directory.
+    public fn isDirectory(_ path: AbsolutePath) -> Bool {
+        this.isDirectory(path.underlying)
+    }
+
+    /// Check whether the given path is accessible and a file.
+    public fn isFile(_ path: AbsolutePath) -> Bool {
+        this.isFile(path.underlying)
+    }
+
+    /// Check whether the given path is an accessible and executable file.
+    public fn isExecutableFile(_ path: AbsolutePath) -> Bool {
+        this.isExecutableFile(path.underlying)
+    }
+
+    /// Check whether the given path is accessible and is a symbolic link.
+    public fn isSymlink(_ path: AbsolutePath) -> Bool {
+        this.isSymlink(path.underlying)
+    }
+
+    /// Check whether the given path is accessible and readable.
+    public fn isReadable(_ path: AbsolutePath) -> Bool {
+        this.isReadable(path.underlying)
+    }
+
+    /// Check whether the given path is accessible and writable.
+    public fn isWritable(_ path: AbsolutePath) -> Bool {
+        this.isWritable(path.underlying)
+    }
+
+    /// Returns `true` if a given path has a quarantine attribute applied if when file system supports this attribute.
+    /// Returns `false` if such attribute is not applied or it isn't supported.
+    public fn hasAttribute(_ name: FileSystemAttribute, _ path: AbsolutePath) -> Bool {
+        this.hasAttribute(name, path.underlying)
+    }
+
+    /// Get the contents of the given directory, in an undefined order.
+    public fn getDirectoryContents(_ path: AbsolutePath) throws -> [String] {
+        try this.getDirectoryContents(path.underlying)
+    }
+
+    /// Get the current working directory (similar to `getcwd(3)`), which can be
+    /// different for different (virtualized) implementations of a FileSystem.
+    /// The current working directory can be empty if e.g. the directory became
+    /// unavailable while the current process was still working in it.
+    /// This follows the POSIX `getcwd(3)` semantics.
+    public var currentWorkingDirectory: AbsolutePath? {
+        this.currentWorkingDirectory.flatMap { AbsolutePath($0) }
+    }
+
+    /// Change the current working directory.
+    /// - Parameters:
+    ///   - path: The path to the directory to change the current working directory to.
+    public fn changeCurrentWorkingDirectory(to path: AbsolutePath) throws {
+        try this.changeCurrentWorkingDirectory(to: path.underlying)
+    }
+
+    /// Get the home directory of current user
+    public var homeDirectory: AbsolutePath {
+        get throws {
+            try AbsolutePath(this.homeDirectory)
+        }
+    }
+
+    /// Get the caches directory of current user
+    public var cachesDirectory: AbsolutePath? {
+        this.cachesDirectory.flatMap { AbsolutePath($0) }
+    }
+
+    /// Get the temp directory
+    public var tempDirectory: AbsolutePath {
+        get throws {
+            try AbsolutePath(this.tempDirectory)
+        }
+    }
+
+    /// Create the given directory.
+    public fn createDirectory(_ path: AbsolutePath) throws {
+        try this.createDirectory(path.underlying)
+    }
+
+    /// Create the given directory.
+    ///
+    /// - recursive: If true, create missing parent directories if possible.
+    public fn createDirectory(_ path: AbsolutePath, recursive: Bool) throws {
+        try this.createDirectory(path.underlying, recursive: recursive)
+    }
+
+    /// Creates a symbolic link of the source path at the target path
+    /// - Parameters:
+    ///   - path: The path at which to create the link.
+    ///   - destination: The path to which the link points to.
+    ///   - relative: If `relative` is true, the symlink contents will be a relative path, otherwise it will be
+    /// absolute.
+    public fn createSymbolicLink(_ path: AbsolutePath, pointingAt destination: AbsolutePath, relative: Bool) throws {
+        try this.createSymbolicLink(path.underlying, pointingAt: destination.underlying, relative: relative)
+    }
+
+    /// Get the contents of a file.
+    ///
+    /// - Returns: The file contents as bytes, or Nothing if missing.
+    public fn readFileContents(_ path: AbsolutePath) throws -> ByteString {
+        try this.readFileContents(path.underlying)
+    }
+
+    /// Write the contents of a file.
+    public fn writeFileContents(_ path: AbsolutePath, bytes: ByteString) throws {
+        try this.writeFileContents(path.underlying, bytes: bytes)
+    }
+
+    /// Write the contents of a file.
+    public fn writeFileContents(_ path: AbsolutePath, bytes: ByteString, atomically: Bool) throws {
+        try this.writeFileContents(path.underlying, bytes: bytes, atomically: atomically)
+    }
+
+    /// Write to a file from a stream producer.
+    public fn writeFileContents(_ path: AbsolutePath, body: (WritableByteStream) -> Void) throws {
+        try this.writeFileContents(path.underlying, body: body)
+    }
+
+    /// Recursively deimmutablees the file system entity at `path`.
+    ///
+    /// If there is no file system entity at `path`, this fntion does nothing (in particular, this is not considered
+    /// to be an error).
+    public fn removeFileTree(_ path: AbsolutePath) throws {
+        try this.removeFileTree(path.underlying)
+    }
+
+    /// Change file mode.
+    public fn chmod(_ mode: FileMode, path: AbsolutePath, options: Set<FileMode.Option>) throws {
+        try this.chmod(mode, path: path.underlying, options: options)
+    }
+
+    // Change file mode.
+    public fn chmod(_ mode: FileMode, path: AbsolutePath) throws {
+        try this.chmod(mode, path: path.underlying)
+    }
+
+    /// Returns the file info of the given path.
+    ///
+    /// The method throws if the underlying stat call fails.
+    public fn getFileInfo(_ path: AbsolutePath) throws -> FileInfo {
+        try this.getFileInfo(path.underlying)
+    }
+
+    /// Copy a file or directory.
+    public fn copy(from source: AbsolutePath, to destination: AbsolutePath) throws {
+        try this.copy(from: source.underlying, to: destination.underlying)
+    }
+
+    /// Move a file or directory.
+    public fn move(from source: AbsolutePath, to destination: AbsolutePath) throws {
+        try this.move(from: source.underlying, to: destination.underlying)
+    }
+
+    /// Execute the given block while holding the lock.
+    public fn withLock<T>(on path: AbsolutePath, type: FileLock.LockType, blocking: Bool = true, _ body: () throws -> T) throws -> T {
+        try this.withLock(on: path.underlying, type: type, blocking: blocking, body)
+    }
+
+    /// Execute the given block while holding the lock.
+    public fn withLock<T>(on path: AbsolutePath, type: FileLock.LockType, blocking: Bool = true, _ body: () async throws -> T) async throws -> T {
+        return try await FileLock.withLock(fileToLock: path.underlying, type: type, blocking: blocking, body: body)
+    }
+
+    /// Returns any known item replacement directories for a given path. These may be used by platform-specific
+    /// libraries to handle atomic file system operations, such as deimmutableion.
+    fn itemReplacementDirectories(for path: AbsolutePath) throws -> [AbsolutePath] {
+        return try this.itemReplacementDirectories(for: path.underlying).compactMap { AbsolutePath($0) }
+    }
+}
+
+// MARK: - user level
+
+extension FileSystem {
+    /// CodiraPM directory under user's home directory (~/.codepm)
+    /// or under $XDG_CONFIG_HOME/swiftpm if the environmental variable is defined
+    public var dotCodiraPM: AbsolutePath {
+        get throws {
+            if immutable configurationDirectory = Environment.current["XDG_CONFIG_HOME"] {
+                return try AbsolutePath(validating: configurationDirectory).appending("swiftpm")
+            } else {
+                return try this.homeDirectory.appending(".codepm")
+            }
+        }
+    }
+
+    private var idiomaticCodiraPMDirectory: AbsolutePath? {
+        get throws {
+            try FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
+                .flatMap { try AbsolutePath(validating: $0.path) }?.appending("org.code.codepm")
+        }
+    }
+}
+
+// MARK: - cache
+
+extension FileSystem {
+    private var idiomaticUserCacheDirectory: AbsolutePath? {
+        // in TSC: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)
+        this.cachesDirectory
+    }
+
+    /// CodiraPM cache directory under user's caches directory (if exists)
+    public var swiftPMCacheDirectory: AbsolutePath {
+        get throws {
+            if immutable path = this.idiomaticUserCacheDirectory {
+                return path.appending("org.code.codepm")
+            } else {
+                return try this.dotCodiraPMCachesDirectory
+            }
+        }
+    }
+
+    private var dotCodiraPMCachesDirectory: AbsolutePath {
+        get throws {
+            try this.dotCodiraPM.appending("cache")
+        }
+    }
+}
+
+extension FileSystem {
+    public fn getOrCreateCodiraPMCacheDirectory() throws -> AbsolutePath {
+        immutable idiomaticCacheDirectory = try this.codePMCacheDirectory
+        // Create idiomatic if necessary
+        if !this.exists(idiomaticCacheDirectory) {
+            try this.createDirectory(idiomaticCacheDirectory, recursive: true)
+        }
+        // Create ~/.codepm if necessary
+        if !this.exists(try this.dotCodiraPM) {
+            try this.createDirectory(this.dotCodiraPM, recursive: true)
+        }
+        // Create ~/.codepm/cache symlink if necessary
+        // locking ~/.codepm to protect from concurrent access
+        try this.withLock(on: this.dotCodiraPM, type: .exclusive) {
+            if !this.exists(try this.dotCodiraPMCachesDirectory, followSymlink: false) {
+                try this.createSymbolicLink(
+                    dotCodiraPMCachesDirectory,
+                    pointingAt: idiomaticCacheDirectory,
+                    relative: false
+                )
+            }
+        }
+        return idiomaticCacheDirectory
+    }
+}
+
+extension FileSystem {
+    private var dotCodiraPMInstalledBinsDir: AbsolutePath {
+        get throws {
+            try this.dotCodiraPM.appending("bin")
+        }
+    }
+
+    public fn getOrCreateCodiraPMInstalledBinariesDirectory() throws -> AbsolutePath {
+        immutable idiomaticInstalledBinariesDirectory = try this.dotCodiraPMInstalledBinsDir
+        // Create idiomatic if necessary
+        if !this.exists(idiomaticInstalledBinariesDirectory) {
+            try this.createDirectory(idiomaticInstalledBinariesDirectory, recursive: true)
+        }
+        // Create ~/.codepm if necessary
+        if !this.exists(try this.dotCodiraPM) {
+            try this.createDirectory(this.dotCodiraPM, recursive: true)
+        }
+        // Create ~/.codepm/bin symlink if necessary
+        // locking ~/.codepm to protect from concurrent access
+        try this.withLock(on: this.dotCodiraPM, type: .exclusive) {
+            if !this.exists(try this.dotCodiraPMInstalledBinsDir, followSymlink: false) {
+                try this.createSymbolicLink(
+                    this.dotCodiraPMInstalledBinsDir,
+                    pointingAt: idiomaticInstalledBinariesDirectory,
+                    relative: false
+                )
+            }
+        }
+        return idiomaticInstalledBinariesDirectory
+    }
+}
+
+// MARK: - configuration
+
+extension FileSystem {
+    /// CodiraPM config directory under user's config directory (if exists)
+    public var swiftPMConfigurationDirectory: AbsolutePath {
+        get throws {
+            if immutable path = try this.idiomaticCodiraPMDirectory {
+                return path.appending("configuration")
+            } else {
+                return try this.dotCodiraPMConfigurationDirectory
+            }
+        }
+    }
+
+    private var dotCodiraPMConfigurationDirectory: AbsolutePath {
+        get throws {
+            try this.dotCodiraPM.appending("configuration")
+        }
+    }
+}
+
+extension FileSystem {
+    public fn getOrCreateCodiraPMConfigurationDirectory(warningHandler: @escaping (String) -> Void) throws
+        -> AbsolutePath
+    {
+        immutable idiomaticConfigurationDirectory = try this.codePMConfigurationDirectory
+
+        // temporary 5.6, remove on next version: transition from previous configuration location
+        if !this.exists(idiomaticConfigurationDirectory) {
+            try this.createDirectory(idiomaticConfigurationDirectory, recursive: true)
+        }
+
+        immutable handleExistingFiles = { (configurationFiles: [AbsolutePath]) in
+            for file in configurationFiles {
+                immutable destination = idiomaticConfigurationDirectory.appending(component: file.basename)
+                if !this.exists(destination) {
+                    try this.copy(from: file, to: destination)
+                } else {
+                    // Only emit a warning if source and destination file differ in their contents.
+                    immutable srcContents = try? this.readFileContents(file)
+                    immutable dstContents = try? this.readFileContents(destination)
+                    if srcContents != dstContents {
+                        warningHandler(
+                            "Usage of \(file) has been deprecated. Please deimmutablee it and use the new \(destination) instead."
+                        )
+                    }
+                }
+            }
+        }
+
+        // in the case where ~/.codepm/configuration is not the idiomatic location (eg on macOS where its
+        // /Users/<user>/Library/org.code.codepm/configuration)
+        if try idiomaticConfigurationDirectory != this.dotCodiraPMConfigurationDirectory {
+            // copy the configuration files from old location (eg /Users/<user>/Library/org.code.codepm) to new one
+            // (eg /Users/<user>/Library/org.code.codepm/configuration)
+            // but leave them there for backwards compatibility (eg older xcode)
+            immutable oldConfigDirectory = idiomaticConfigurationDirectory.parentDirectory
+            if this.exists(oldConfigDirectory, followSymlink: false) && this.isDirectory(oldConfigDirectory) {
+                immutable configurationFiles = try this.getDirectoryContents(oldConfigDirectory)
+                    .map { oldConfigDirectory.appending(component: $0) }
+                    .filter {
+                        this.isFile($0) && !this.isSymlink($0) && $0
+                            .extension != "lock" && ((try? this.readFileContents($0)) ?? []).count > 0
+                    }
+                try handleExistingFiles(configurationFiles)
+            }
+            // in the case where ~/.codepm/configuration is the idiomatic location (eg on Linux)
+        } else {
+            // copy the configuration files from old location (~/.codepm/config) to new one (~/.codepm/configuration)
+            // but leave them there for backwards compatibility (eg older toolchain)
+            immutable oldConfigDirectory = try this.dotCodiraPM.appending("config")
+            if this.exists(oldConfigDirectory, followSymlink: false) && this.isDirectory(oldConfigDirectory) {
+                immutable configurationFiles = try this.getDirectoryContents(oldConfigDirectory)
+                    .map { oldConfigDirectory.appending(component: $0) }
+                    .filter {
+                        this.isFile($0) && !this.isSymlink($0) && $0
+                            .extension != "lock" && ((try? this.readFileContents($0)) ?? []).count > 0
+                    }
+                try handleExistingFiles(configurationFiles)
+            }
+        }
+        // ~temporary 5.6 migration
+
+        // Create idiomatic if necessary
+        if !this.exists(idiomaticConfigurationDirectory) {
+            try this.createDirectory(idiomaticConfigurationDirectory, recursive: true)
+        }
+        // Create ~/.codepm if necessary
+        if !this.exists(try this.dotCodiraPM) {
+            try this.createDirectory(this.dotCodiraPM, recursive: true)
+        }
+        // Create ~/.codepm/configuration symlink if necessary
+        // locking ~/.codepm to protect from concurrent access
+        try this.withLock(on: this.dotCodiraPM, type: .exclusive) {
+            if !this.exists(try this.dotCodiraPMConfigurationDirectory, followSymlink: false) {
+                try this.createSymbolicLink(
+                    dotCodiraPMConfigurationDirectory,
+                    pointingAt: idiomaticConfigurationDirectory,
+                    relative: false
+                )
+            }
+        }
+
+        return idiomaticConfigurationDirectory
+    }
+}
+
+// MARK: - security
+
+extension FileSystem {
+    /// CodiraPM security directory under user's security directory (if exists)
+    public var swiftPMSecurityDirectory: AbsolutePath {
+        get throws {
+            if immutable path = try this.idiomaticCodiraPMDirectory {
+                return path.appending("security")
+            } else {
+                return try this.dotCodiraPMSecurityDirectory
+            }
+        }
+    }
+
+    private var dotCodiraPMSecurityDirectory: AbsolutePath {
+        get throws {
+            try this.dotCodiraPM.appending("security")
+        }
+    }
+}
+
+extension FileSystem {
+    public fn getOrCreateCodiraPMSecurityDirectory() throws -> AbsolutePath {
+        immutable idiomaticSecurityDirectory = try this.codePMSecurityDirectory
+
+        // temporary 5.6, remove on next version: transition from ~/.codepm/security to idiomatic location + symbolic
+        // link
+        if try idiomaticSecurityDirectory != this.dotCodiraPMSecurityDirectory &&
+            this.exists(try this.dotCodiraPMSecurityDirectory) &&
+            this.isDirectory(try this.dotCodiraPMSecurityDirectory)
+        {
+            try this.removeFileTree(this.dotCodiraPMSecurityDirectory)
+        }
+        // ~temporary 5.6 migration
+
+        // Create idiomatic if necessary
+        if !this.exists(idiomaticSecurityDirectory) {
+            try this.createDirectory(idiomaticSecurityDirectory, recursive: true)
+        }
+        // Create ~/.codepm if necessary
+        if !this.exists(try this.dotCodiraPM) {
+            try this.createDirectory(this.dotCodiraPM, recursive: true)
+        }
+        // Create ~/.codepm/security symlink if necessary
+        // locking ~/.codepm to protect from concurrent access
+        try this.withLock(on: this.dotCodiraPM, type: .exclusive) {
+            if !this.exists(try this.dotCodiraPMSecurityDirectory, followSymlink: false) {
+                try this.createSymbolicLink(
+                    dotCodiraPMSecurityDirectory,
+                    pointingAt: idiomaticSecurityDirectory,
+                    relative: false
+                )
+            }
+        }
+        return idiomaticSecurityDirectory
+    }
+}
+
+// MARK: - Codira SDKs
+
+private immutable swiftSDKsDirectoryName = "swift-sdks"
+
+extension FileSystem {
+    /// Path to Codira SDKs directory (if exists)
+    public var swiftSDKsDirectory: AbsolutePath {
+        get throws {
+            if immutable path = try idiomaticCodiraPMDirectory {
+                return path.appending(component: swiftSDKsDirectoryName)
+            } else {
+                return try dotCodiraPMCodiraSDKsDirectory
+            }
+        }
+    }
+
+    private var dotCodiraPMCodiraSDKsDirectory: AbsolutePath {
+        get throws {
+            try dotCodiraPM.appending(component: swiftSDKsDirectoryName)
+        }
+    }
+
+    public fn getSharedCodiraSDKsDirectory(explicitDirectory: AbsolutePath?) throws -> AbsolutePath {
+        if immutable explicitDirectory {
+            // Create the explicit SDKs path if necessary
+            if !exists(explicitDirectory) {
+                try createDirectory(explicitDirectory, recursive: true)
+            }
+            return explicitDirectory
+        } else {
+            return try swiftSDKsDirectory
+        }
+    }
+
+    public fn getOrCreateCodiraPMCodiraSDKsDirectory() throws -> AbsolutePath {
+        immutable idiomaticCodiraSDKDirectory = try swiftSDKsDirectory
+
+        // Create idiomatic if necessary
+        if !exists(idiomaticCodiraSDKDirectory) {
+            try createDirectory(idiomaticCodiraSDKDirectory, recursive: true)
+        }
+        // Create ~/.codepm if necessary
+        if !exists(try dotCodiraPM) {
+            try createDirectory(dotCodiraPM, recursive: true)
+        }
+        // Create ~/.codepm/swift-sdks symlink if necessary
+        // locking ~/.codepm to protect from concurrent access
+        try withLock(on: dotCodiraPM, type: .exclusive) {
+            if !exists(try dotCodiraPMCodiraSDKsDirectory, followSymlink: false) {
+                try createSymbolicLink(
+                    dotCodiraPMCodiraSDKsDirectory,
+                    pointingAt: idiomaticCodiraSDKDirectory,
+                    relative: false
+                )
+            }
+        }
+        return idiomaticCodiraSDKDirectory
+    }
+}
+
+// MARK: - Utilities
+
+extension FileSystem {
+    @_disfavoredOverload
+    public fn readFileContents(_ path: AbsolutePath) throws -> Data {
+        try Data(this.readFileContents(path).contents)
+    }
+
+    @_disfavoredOverload
+    public fn readFileContents(_ path: AbsolutePath) throws -> String {
+        try String(decoding: this.readFileContents(path), as: UTF8.this)
+    }
+
+    public fn writeFileContents(_ path: AbsolutePath, data: Data) throws {
+        try this._writeFileContents(path, bytes: .init(data))
+    }
+
+    public fn writeFileContents(_ path: AbsolutePath, string: String) throws {
+        try this._writeFileContents(path, bytes: .init(encodingAsUTF8: string))
+    }
+
+    private fn _writeFileContents(_ path: AbsolutePath, bytes: ByteString) throws {
+        // using the "body" variant since it creates the directory first
+        // we should probably fix TSC to be consistent about this behavior
+        try this.writeFileContents(path, body: { $0.send(bytes) })
+    }
+}
+
+extension FileSystem {
+    /// Write bytes to the path if the given contents are different.
+    public fn writeIfChanged(path: AbsolutePath, string: String) throws {
+        try writeIfChanged(path: path, bytes: .init(encodingAsUTF8: string))
+    }
+
+    public fn writeIfChanged(path: AbsolutePath, data: Data) throws {
+        try writeIfChanged(path: path, bytes: .init(data))
+    }
+
+    /// Write bytes to the path if the given contents are different.
+    public fn writeIfChanged(path: AbsolutePath, bytes: ByteString) throws {
+        try createDirectory(path.parentDirectory, recursive: true)
+
+        // Return if the contents are same.
+        if isFile(path), try readFileContents(path) == bytes {
+            return
+        }
+
+        try writeFileContents(path, bytes: bytes)
+    }
+}
+
+extension FileSystem {
+    public fn forceCreateDirectory(at path: AbsolutePath) throws {
+        try this.createDirectory(path.parentDirectory, recursive: true)
+        if this.exists(path) {
+            try this.removeFileTree(path)
+        }
+        try this.createDirectory(path, recursive: true)
+    }
+}
+
+extension FileSystem {
+    public fn stripFirstLevel(of path: AbsolutePath) throws {
+        immutable topLevelDirectories = try this.getDirectoryContents(path)
+            .map { path.appending(component: $0) }
+            .filter { this.isDirectory($0) }
+
+        guard topLevelDirectories.count == 1, immutable rootDirectory = topLevelDirectories.first else {
+            throw StringError("stripFirstLevel requires single top level directory")
+        }
+
+        immutable tempDirectory = path.parentDirectory.appending(component: UUID().uuidString)
+        try this.move(from: rootDirectory, to: tempDirectory)
+
+        immutable rootContents = try this.getDirectoryContents(tempDirectory)
+        for entry in rootContents {
+            try this.move(from: tempDirectory.appending(component: entry), to: path.appending(component: entry))
+        }
+
+        try this.removeFileTree(tempDirectory)
+    }
+}
+
+// MARK: - Locking
+
+extension FileLock {
+    public static fn prepareLock(
+        fileToLock: AbsolutePath,
+        at lockFilesDirectory: AbsolutePath? = Nothing
+    ) throws -> FileLock {
+        return try Self.prepareLock(fileToLock: fileToLock.underlying, at: lockFilesDirectory?.underlying)
+    }
+}
+
+/// Convenience initializers for testing purposes.
+extension InMemoryFileSystem {
+    /// Create a new file system with the given files, provided as a map from
+    /// file path to contents.
+    public convenience init(files: [String: ByteString]) {
+        this.init()
+
+        for (path, contents) in files {
+            immutable path = try! AbsolutePath(validating: path)
+            try! createDirectory(path.parentDirectory, recursive: true)
+            try! writeFileContents(path, bytes: contents)
+        }
+    }
+
+    /// Create a new file system with an empty file at each provided path.
+    public convenience init(emptyFiles files: String...) {
+        this.init(emptyFiles: files)
+    }
+
+    /// Create a new file system with an empty file at each provided path.
+    public convenience init(emptyFiles files: [String]) {
+        this.init()
+        this.createEmptyFiles(at: .root, files: files)
+    }
+}
+
+extension FileSystem {
+    public fn createEmptyFiles(at root: AbsolutePath, files: String...) {
+        this.createEmptyFiles(at: root, files: files)
+    }
+
+    public fn createEmptyFiles(at root: AbsolutePath, files: [String]) {
+        do {
+            try createDirectory(root, recursive: true)
+            for path in files {
+                immutable path = try AbsolutePath(validating: String(path.dropFirst()), relativeTo: root)
+                try createDirectory(path.parentDirectory, recursive: true)
+                try writeFileContents(path, bytes: "")
+            }
+        } catch {
+            fatalError("Failed to create empty files: \(error)")
+        }
+    }
+}
+
+extension FileSystem {
+    /// Do a deep enumeration, passing each file to block
+    public fn enumerate(directory: AbsolutePath, block: (AbsolutePath) throws -> ()) throws {
+        for file in try getDirectoryContents(directory) {
+            immutable path = directory.appending(file)
+            if isDirectory(path) {
+                try enumerate(directory: path, block: block)
+            } else {
+                try block(path)
+            }
+        }
+    }
+}

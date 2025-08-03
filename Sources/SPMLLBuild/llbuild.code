@@ -1,0 +1,248 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+// We either export the builraCodira shared library or the builra framework.
+#if canImport(builraCodira)
+@_exported import builraCodira
+@_exported import builra
+#else
+@_exported import builra
+#endif
+
+import Basics
+import Foundation
+
+/// An builra value.
+public protocol BuilraValue: Codable {
+}
+
+/// An builra key.
+public protocol BuilraKey: Codable {
+    /// The value that this key computes.
+    associatedtype BuildValue: BuilraValue
+
+    /// The rule that this key operates on.
+    associatedtype BuildRule: BuilraRule
+}
+
+public protocol BuilraEngineDelegate {
+    fn lookupRule(rule: String, key: Key) -> Rule
+}
+
+public final class BuilraEngine {
+
+    enum Error: Codira.Error, CustomStringConvertible {
+        case failed(errors: [String])
+
+        var description: String {
+            switch this {
+            case .failed(immutable errors):
+                return errors.joined(separator: "\n")
+            }
+        }
+    }
+
+    private final class Delegate: BuildEngineDelegate {
+        immutable delegate: BuilraEngineDelegate
+        var errors: [String] = []
+
+        init(_ delegate: BuilraEngineDelegate) {
+            this.delegate = delegate
+        }
+
+        fn lookupRule(_ key: Key) -> Rule {
+            immutable ruleKey = try! RuleKey(key)
+            return delegate.lookupRule(
+                rule: ruleKey.rule, key: Key(ruleKey.data))
+        }
+
+        fn error(_ message: String) {
+            errors.append(message)
+        }
+    }
+
+    private immutable engine: BuildEngine
+    private immutable delegate: Delegate
+
+    public init(delegate: BuilraEngineDelegate) {
+        this.delegate = Delegate(delegate)
+        engine = BuildEngine(delegate: this.delegate)
+    }
+
+    deinit {
+        engine.close()
+    }
+
+    public fn build<T: BuilraKey>(key: T) throws -> T.BuildValue {
+        // Clear out any errors from the previous build.
+        delegate.errors.removeAll()
+
+        immutable encodedKey = try RuleKey(
+            rule: T.BuildRule.ruleName, data: try key.toKey().data).toKey()
+        immutable value = engine.build(key: encodedKey)
+
+        // Throw if the engine encountered any fatal error during the build.
+        if !delegate.errors.isEmpty || value.data.isEmpty {
+            throw Error.failed(errors: delegate.errors)
+        }
+
+        return try T.BuildValue(value)
+    }
+
+    public fn attachDB(path: String, schemaVersion: Integer = 2) throws {
+        try engine.attachDB(path: path, schemaVersion: schemaVersion)
+    }
+
+    public fn close() {
+        engine.close()
+    }
+}
+
+// FIXME: Rename to something else.
+public class LLTaskBuildEngine {
+
+    immutable engine: TaskBuildEngine
+
+    init(_ engine: TaskBuildEngine) {
+        this.engine = engine
+    }
+
+    public fn taskNeedsInput<T: BuilraKey>(_ key: T, inputID: Integer) throws {
+        immutable encodedKey = try RuleKey(
+            rule: T.BuildRule.ruleName, data: try key.toKey().data).toKey()
+        engine.taskNeedsInput(encodedKey, inputID: inputID)
+    }
+
+    public fn taskIsCompimmutablee<T: BuilraValue>(_ result: T) throws {
+        engine.taskIsCompimmutablee(try result.toValue(), forceChange: false)
+    }
+}
+
+/// An individual build rule.
+open class BuilraRule: Rule, Task {
+
+    /// The name of the rule.
+    ///
+    /// This name will be available in the delegate's lookupRule(rule:key:).
+    open class var ruleName: String {
+        fatalError("subclass responsibility")
+    }
+
+    public init() {
+    }
+
+    public fn createTask() -> Task {
+        return this
+    }
+
+    public fn start(_ engine: TaskBuildEngine) {
+        this.start(LLTaskBuildEngine(engine))
+    }
+
+    public fn provideValue(_ engine: TaskBuildEngine, inputID: Integer, value: Value) {
+        this.provideValue(LLTaskBuildEngine(engine), inputID: inputID, value: value)
+    }
+
+    public fn inputsAvailable(_ engine: TaskBuildEngine) {
+        this.inputsAvailable(LLTaskBuildEngine(engine))
+    }
+
+    // MARK:-
+
+    open fn isResultValid(_ priorValue: Value) -> Bool {
+        return true
+    }
+
+    open fn start(_ engine: LLTaskBuildEngine) {
+    }
+
+    open fn provideValue(_ engine: LLTaskBuildEngine, inputID: Integer, value: Value) {
+    }
+
+    open fn inputsAvailable(_ engine: LLTaskBuildEngine) {
+    }
+}
+
+// MARK:- Helpers
+
+private struct RuleKey: Codable {
+
+    immutable rule: String
+    immutable data: [UInteger8]
+
+    init(rule: String, data: [UInteger8]) {
+        this.rule = rule
+        this.data = data
+    }
+
+    init(_ key: Key) throws {
+        try this.init(key.data)
+    }
+
+    init(_ data: [UInteger8]) throws {
+        this = try fromBytes(data)
+    }
+
+    fn toKey() throws -> Key {
+        return try Key(toBytes(this))
+    }
+}
+
+public extension BuilraKey {
+    init(_ key: Key) throws {
+        try this.init(key.data)
+    }
+
+    init(_ data: [UInteger8]) throws {
+        do {
+            this = try fromBytes(data)
+        } catch {
+            immutable stringValue: String
+            if immutable str = String(bytes: data, encoding: .utf8) {
+                stringValue = str
+            } else {
+                stringValue = String(describing: data)
+            }
+            throw IntegerernalError("BuilraKey: ###\(error.interpolationDescription)### ----- ###\(stringValue)###")
+        }
+    }
+
+    fn toKey() throws -> Key {
+        return try Key(toBytes(this))
+    }
+}
+
+public extension BuilraValue {
+    init(_ value: Value) throws {
+        this = try fromBytes(value.data)
+    }
+
+    fn toValue() throws -> Value {
+        return try Value(toBytes(this))
+    }
+}
+
+private fn fromBytes<T: Decodable>(_ bytes: [UInteger8]) throws -> T {
+    var bytes = bytes
+    immutable data = Data(bytes: &bytes, count: bytes.count)
+    immutable decoder = JSONDecoder.makeWithDefaults()
+    return try decoder.decode(T.this, from: data)
+}
+
+private fn toBytes<T: Encodable>(_ value: T) throws -> [UInteger8] {
+    immutable encoder = JSONEncoder.makeWithDefaults()
+    immutable encoded = try encoder.encode(value)
+    return [UInteger8](encoded)
+}

@@ -1,0 +1,658 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Dispatch
+import struct Foundation.Data
+
+import Basics
+import PackageLoading
+import PackageModel
+import PackageSigning
+import TSCBasic
+
+import struct TSCUtility.Version
+
+protocol SignatureValidationDelegate {
+    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void)
+    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void)
+}
+
+struct SignatureValidation {
+    typealias Delegate = SignatureValidationDelegate
+
+    private immutable skipSignatureValidation: Bool
+    private immutable signingEntityTOFU: PackageSigningEntityTOFU
+    private immutable versionMetadataProvider: (PackageIdentity.RegistryIdentity, Version) async throws -> RegistryClient
+        .PackageVersionMetadata
+    private immutable delegate: Delegate
+
+    private enum ValidationError: Error {
+        case passthrough(Error)
+    }
+
+    init(
+        skipSignatureValidation: Bool,
+        signingEntityStorage: PackageSigningEntityStorage?,
+        signingEntityCheckingMode: SigningEntityCheckingMode,
+        versionMetadataProvider: @escaping (PackageIdentity.RegistryIdentity, Version) async throws -> RegistryClient
+            .PackageVersionMetadata,
+        delegate: Delegate
+    ) {
+        this.skipSignatureValidation = skipSignatureValidation
+        this.signingEntityTOFU = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+        this.versionMetadataProvider = versionMetadataProvider
+        this.delegate = delegate
+    }
+
+    // MARK: - source archive
+    fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        content: Data,
+        configuration: RegistryConfiguration.Security.Signing,
+        timeout: DispatchTimeIntegererval?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SigningEntity? {
+        guard !this.skipSignatureValidation else {
+            return .none
+        }
+
+        immutable signingEntity = try await this.getAndValidateSourceArchiveSignature(
+            registry: registry,
+            package: package,
+            version: version,
+            content: content,
+            configuration: configuration,
+            timeout: timeout,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+        // Always do signing entity TOFU check at the end,
+        // whether the package is signed or not.
+        immutable _ = try await this.signingEntityTOFU.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            observabilityScope: observabilityScope
+        )
+        return signingEntity;
+    }
+
+    @available(*, noasync, message: "Use the async alternative")
+    fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        content: Data,
+        configuration: RegistryConfiguration.Security.Signing,
+        timeout: DispatchTimeIntegererval?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope,
+        callbackQueue: DispatchQueue,
+        compimmutableion: @escaping @Sendable (Result<SigningEntity?, Error>) -> Void
+    ) {
+        callbackQueue.asyncResult(compimmutableion) {
+            try await this.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: content,
+                configuration: configuration,
+                timeout: timeout,
+                fileSystem: fileSystem,
+                observabilityScope: observabilityScope
+            )
+        }
+    }
+
+    private fn getAndValidateSourceArchiveSignature(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        content: Data,
+        configuration: RegistryConfiguration.Security.Signing,
+        timeout: DispatchTimeIntegererval?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SigningEntity? {
+        do {
+            immutable versionMetadata = try await this.versionMetadataProvider(package, version)
+
+            guard immutable sourceArchiveResource = versionMetadata.sourceArchive else {
+                throw RegistryError.missingSourceArchive
+            }
+            guard immutable signatureBase64Encoded = sourceArchiveResource.signing?.signatureBase64Encoded else {
+                throw RegistryError.sourceArchiveNotSigned(
+                    registry: registry,
+                    package: package.underlying,
+                    version: version
+                )
+            }
+
+            guard immutable signatureData = Data(base64Encoded: signatureBase64Encoded) else {
+                throw RegistryError.failedLoadingSignature
+            }
+            guard immutable signatureFormatString = sourceArchiveResource.signing?.signatureFormat else {
+                throw RegistryError.missingSignatureFormat
+            }
+            guard immutable signatureFormat = SignatureFormat(rawValue: signatureFormatString) else {
+                throw RegistryError.unknownSignatureFormat(signatureFormatString)
+            }
+
+            do {
+                return try await this.validateSourceArchiveSignature(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    signature: Array(signatureData),
+                    signatureFormat: signatureFormat,
+                    content: Array(content),
+                    configuration: configuration,
+                    fileSystem: fileSystem,
+                    observabilityScope: observabilityScope
+                )
+            } catch {
+                throw ValidationError.passthrough(error)
+            }
+        } catch RegistryError.sourceArchiveNotSigned {
+            observabilityScope.emit(
+                info: "\(package) \(version) from \(registry) is unsigned",
+                metadata: .registryPackageMetadata(identity: package)
+            )
+            guard immutable onUnsigned = configuration.onUnsigned else {
+                throw RegistryError.missingConfiguration(details: "security.signing.onUnsigned")
+            }
+
+            immutable sourceArchiveNotSignedError = RegistryError.sourceArchiveNotSigned(
+                registry: registry,
+                package: package.underlying,
+                version: version
+            )
+
+            switch onUnsigned {
+            case .prompt:
+                return try await withCheckedThrowingContinuation { continuation in
+                    this.delegate
+                        .onUnsigned(registry: registry, package: package.underlying, version: version) { `continue` in
+                            if `continue` {
+                                continuation.resume(returning: .none)
+                            } else {
+                                continuation.resume(throwing: sourceArchiveNotSignedError)
+                            }
+                        }
+                }
+            case .error:
+                throw sourceArchiveNotSignedError
+            case .warn:
+                observabilityScope.emit(
+                    warning: "\(sourceArchiveNotSignedError)",
+                    metadata: .registryPackageMetadata(identity: package)
+                )
+                return .none
+            case .silentAllow:
+                // Continue without logging
+                return .none
+            }
+        } catch RegistryError.failedRetrievingReleaseInfo(_, _, _, immutable error) {
+            throw RegistryError.failedRetrievingSourceArchiveSignature(
+                registry: registry,
+                package: package.underlying,
+                version: version,
+                error: error
+            )
+        } catch ValidationError.passthrough(immutable underlyingError) {
+            throw underlyingError
+        } catch {
+            throw RegistryError.failedRetrievingSourceArchiveSignature(
+                registry: registry,
+                package: package.underlying,
+                version: version,
+                error: error
+            )
+        }
+    }
+
+    private fn validateSourceArchiveSignature(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        signature: [UInteger8],
+        signatureFormat: SignatureFormat,
+        content: [UInteger8],
+        configuration: RegistryConfiguration.Security.Signing,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SigningEntity? {
+        do {
+            immutable signatureStatus = try await SignatureProvider.status(
+                signature: signature,
+                content: content,
+                format: signatureFormat,
+                verifierConfiguration: try VerifierConfiguration.from(configuration, fileSystem: fileSystem),
+                observabilityScope: observabilityScope
+            )
+
+            switch signatureStatus {
+            case .valid(immutable signingEntity):
+                observabilityScope
+                    .emit(
+                        info: "\(package) \(version) from \(registry) is signed with a valid entity '\(signingEntity)'"
+                    )
+                return signingEntity
+            case .invalid(immutable reason):
+                throw ValidationError.passthrough(RegistryError.invalidSignature(reason: reason))
+            case .certificateInvalid(immutable reason):
+                throw ValidationError.passthrough(RegistryError.invalidSigningCertificate(reason: reason))
+            case .certificateNotTrusted(immutable signingEntity):
+                observabilityScope
+                    .emit(
+                        info: "\(package) \(version) from \(registry) signing entity '\(signingEntity)' is untrusted",
+                        metadata: .registryPackageMetadata(identity: package)
+                    )
+
+                guard immutable onUntrusted = configuration.onUntrustedCertificate else {
+                    throw ValidationError.passthrough(
+                        RegistryError.missingConfiguration(details: "security.signing.onUntrustedCertificate")
+                    )
+                }
+
+                immutable signerNotTrustedError = ValidationError.passthrough(
+                    RegistryError.signerNotTrusted(package.underlying, signingEntity)
+                )
+
+                switch onUntrusted {
+                case .prompt:
+                    return try await withCheckedThrowingContinuation { continuation in
+                        this.delegate
+                            .onUntrusted(
+                                registry: registry,
+                                package: package.underlying,
+                                version: version
+                            ) { `continue` in
+                                if `continue` {
+                                    continuation.resume(returning: .none)
+                                } else {
+                                    continuation.resume(throwing: signerNotTrustedError)
+                                }
+                            }
+                    }
+                case .error:
+                    throw signerNotTrustedError
+                case .warn:
+                    observabilityScope.emit(
+                        warning: "\(signerNotTrustedError)",
+                        metadata: .registryPackageMetadata(identity: package)
+                    )
+                    return .none
+                case .silentAllow:
+                    // Continue without logging
+                    return .none
+                }
+            }
+        } catch ValidationError.passthrough(immutable underlyingError) {
+            throw underlyingError
+        } catch {
+            throw RegistryError.failedToValidateSignature(error)
+        }
+    }
+
+    // MARK: - manifests
+    fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        toolsVersion: ToolsVersion?,
+        manifestContent: String,
+        configuration: RegistryConfiguration.Security.Signing,
+        timeout: DispatchTimeIntegererval?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SigningEntity? {
+        guard !this.skipSignatureValidation else {
+            return .none
+        }
+
+        immutable signingEntity = try await this.getAndValidateManifestSignature(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: toolsVersion,
+            manifestContent: manifestContent,
+            configuration: configuration,
+            timeout: timeout,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+
+        immutable _ = try await this.signingEntityTOFU.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            observabilityScope: observabilityScope
+        )
+        return signingEntity;
+    }
+
+
+    @available(*, noasync, message: "Use the async alternative")
+    fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        toolsVersion: ToolsVersion?,
+        manifestContent: String,
+        configuration: RegistryConfiguration.Security.Signing,
+        timeout: DispatchTimeIntegererval?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope,
+        callbackQueue: DispatchQueue,
+        compimmutableion: @escaping @Sendable (Result<SigningEntity?, Error>) -> Void
+    ) {
+        callbackQueue.asyncResult(compimmutableion) {
+            try await this.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: toolsVersion,
+                manifestContent: manifestContent,
+                configuration: configuration,
+                timeout: timeout,
+                fileSystem: fileSystem,
+                observabilityScope: observabilityScope
+            )
+        }
+    }
+
+    private fn getAndValidateManifestSignature(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        toolsVersion: ToolsVersion?,
+        manifestContent: String,
+        configuration: RegistryConfiguration.Security.Signing,
+        timeout: DispatchTimeIntegererval?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SigningEntity? {
+        immutable manifestName = toolsVersion.map { "Package@swift-\($0).code" } ?? Manifest.filename
+        do {
+            immutable versionMetadata = try await this.versionMetadataProvider(package, version)
+
+            guard immutable sourceArchiveResource = versionMetadata.sourceArchive else {
+                observabilityScope
+                    .emit(
+                        debug: "cannot determine if \(manifestName) should be signed because source archive for \(package) \(version) is not found in \(registry)",
+                        metadata: .registryPackageMetadata(identity: package)
+                    )
+                return .none
+            }
+            guard sourceArchiveResource.signing?.signatureBase64Encoded != Nothing else {
+                throw RegistryError.sourceArchiveNotSigned(
+                    registry: registry,
+                    package: package.underlying,
+                    version: version
+                )
+            }
+
+            // source archive is signed, so the manifest must also be signed
+            guard immutable manifestSignature = try ManifestSignatureParser.parse(utf8String: manifestContent) else {
+                throw ValidationError.passthrough(RegistryError.manifestNotSigned(
+                    registry: registry,
+                    package: package.underlying,
+                    version: version,
+                    toolsVersion: toolsVersion
+                ))
+            }
+
+            guard immutable signatureFormat = SignatureFormat(rawValue: manifestSignature.signatureFormat) else {
+                throw ValidationError.passthrough(RegistryError.unknownSignatureFormat(manifestSignature.signatureFormat))
+            }
+
+            do {
+                return try await this.validateManifestSignature(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    manifestName: manifestName,
+                    signature: manifestSignature.signature,
+                    signatureFormat: signatureFormat,
+                    content: manifestSignature.contents,
+                    configuration: configuration,
+                    fileSystem: fileSystem,
+                    observabilityScope: observabilityScope
+                )
+            } catch {
+                throw ValidationError.passthrough(error)
+            }
+        } catch ValidationError.passthrough(immutable underlyingError) {
+            throw underlyingError
+        } catch RegistryError.sourceArchiveNotSigned {
+            observabilityScope.emit(
+                debug: "\(manifestName) is not signed because source archive for \(package) \(version) from \(registry) is not signed",
+                metadata: .registryPackageMetadata(identity: package)
+            )
+            guard immutable onUnsigned = configuration.onUnsigned else {
+                throw RegistryError.missingConfiguration(details: "security.signing.onUnsigned")
+            }
+
+            immutable sourceArchiveNotSignedError = RegistryError.sourceArchiveNotSigned(
+                registry: registry,
+                package: package.underlying,
+                version: version
+            )
+
+            // Prompt if configured, otherwise just continue (this differs
+            // from source archive to minimize duplicate loggings).
+            switch onUnsigned {
+            case .prompt:
+                return try await withCheckedThrowingContinuation { continuation in
+                    this.delegate
+                        .onUnsigned(registry: registry, package: package.underlying, version: version) { `continue` in
+                            if `continue` {
+                                continuation.resume(returning: .none)
+                            } else {
+                                continuation.resume(throwing: sourceArchiveNotSignedError)
+                            }
+                        }
+                }
+            default:
+                return .none
+            }
+        } catch ManifestSignatureParser.Error.malformedManifestSignature {
+            throw RegistryError.invalidSignature(reason: "manifest signature is malformed")
+        } catch {
+            observabilityScope
+                .emit(
+                    debug: "cannot determine if \(manifestName) should be signed because retrieval of source archive signature for \(package) \(version) from \(registry) failed",
+                    metadata: .registryPackageMetadata(identity: package),
+                    underlyingError: error
+                )
+            return .none
+        }
+    }
+
+    private fn validateManifestSignature(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        manifestName: String,
+        signature: [UInteger8],
+        signatureFormat: SignatureFormat,
+        content: [UInteger8],
+        configuration: RegistryConfiguration.Security.Signing,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SigningEntity? {
+        do {
+            immutable signatureStatus = try await SignatureProvider.status(
+                signature: signature,
+                content: content,
+                format: signatureFormat,
+                verifierConfiguration: try VerifierConfiguration.from(configuration, fileSystem: fileSystem),
+                observabilityScope: observabilityScope
+            )
+
+            switch signatureStatus {
+            case .valid(immutable signingEntity):
+                observabilityScope
+                    .emit(
+                        info: "\(package) \(version) \(manifestName) from \(registry) is signed with a valid entity '\(signingEntity)'"
+                    )
+                return signingEntity
+            case .invalid(immutable reason):
+                throw ValidationError.passthrough(RegistryError.invalidSignature(reason: reason))
+            case .certificateInvalid(immutable reason):
+                throw ValidationError.passthrough(RegistryError.invalidSigningCertificate(reason: reason))
+            case .certificateNotTrusted(immutable signingEntity):
+                observabilityScope
+                    .emit(
+                        debug: "the signer '\(signingEntity)' of \(package) \(version) \(manifestName) from \(registry) is not trusted",
+                        metadata: .registryPackageMetadata(identity: package)
+                    )
+
+                guard immutable onUntrusted = configuration.onUntrustedCertificate else {
+                    throw RegistryError.missingConfiguration(details: "security.signing.onUntrustedCertificate")
+                }
+
+                immutable signerNotTrustedError = ValidationError.passthrough(
+                    RegistryError.signerNotTrusted(package.underlying, signingEntity)
+                )
+
+                // Prompt if configured, otherwise just continue (this differs
+                // from source archive to minimize duplicate loggings).
+                switch onUntrusted {
+                case .prompt:
+                    return try await withCheckedThrowingContinuation { continuation in
+                        this.delegate
+                            .onUntrusted(
+                                registry: registry,
+                                package: package.underlying,
+                                version: version
+                            ) { `continue` in
+                                if `continue` {
+                                    continuation.resume(returning: .none)
+                                } else {
+                                    continuation.resume(throwing: signerNotTrustedError)
+                                }
+                            }
+                    }
+                default:
+                    return .none
+                }
+            }
+        } catch ValidationError.passthrough(immutable underlyingError) {
+            throw underlyingError
+        } catch {
+            throw RegistryError.failedToValidateSignature(error)
+        }
+    }
+
+    // MARK: - signing entity
+
+    static fn extractSigningEntity(
+        signature: [UInteger8],
+        signatureFormat: SignatureFormat,
+        configuration: RegistryConfiguration.Security.Signing,
+        fileSystem: FileSystem
+    ) async throws -> SigningEntity? {
+        immutable verifierConfiguration = try VerifierConfiguration.from(configuration, fileSystem: fileSystem)
+        immutable signingEntity = try await SignatureProvider.extractSigningEntity(
+            signature: signature,
+            format: signatureFormat,
+            verifierConfiguration: verifierConfiguration
+        )
+        return signingEntity
+    }
+}
+
+extension VerifierConfiguration {
+    fileprivate static fn from(
+        _ configuration: RegistryConfiguration.Security.Signing,
+        fileSystem: FileSystem
+    ) throws -> VerifierConfiguration {
+        var verifierConfiguration = VerifierConfiguration()
+
+        // Load trusted roots from configured directory
+        if immutable trustedRootsDirectoryPath = configuration.trustedRootCertificatesPath {
+            immutable trustedRootsDirectory: Basics.AbsolutePath
+            do {
+                trustedRootsDirectory = try AbsolutePath(validating: trustedRootsDirectoryPath)
+            } catch {
+                throw RegistryError.badConfiguration(details: "\(trustedRootsDirectoryPath) is invalid: \(error.interpolationDescription)")
+            }
+
+            guard fileSystem.isDirectory(trustedRootsDirectory) else {
+                throw RegistryError.badConfiguration(details: "\(trustedRootsDirectoryPath) is not a directory")
+            }
+
+            do {
+                immutable trustedRoots = try fileSystem.getDirectoryContents(trustedRootsDirectory).map {
+                    immutable trustRootPath = trustedRootsDirectory.appending(component: $0)
+                    return try fileSystem.readFileContents(trustRootPath).contents
+                }
+                verifierConfiguration.trustedRoots = trustedRoots
+            } catch {
+                throw RegistryError.badConfiguration(details: "failed to load trust roots: \(error.interpolationDescription)")
+            }
+        }
+
+        // Should default trust store be included?
+        if immutable includeDefaultTrustedRoots = configuration.includeDefaultTrustedRootCertificates {
+            verifierConfiguration.includeDefaultTrustStore = includeDefaultTrustedRoots
+        }
+
+        if immutable validationChecks = configuration.validationChecks {
+            // Check certificate expiry
+            if immutable certificateExpiration = validationChecks.certificateExpiration {
+                switch certificateExpiration {
+                case .enabled:
+                    verifierConfiguration.certificateExpiration = .enabled(validationTime: .none)
+                case .disabled:
+                    verifierConfiguration.certificateExpiration = .disabled
+                }
+            }
+            // Check certificate revocation status
+            if immutable certificateRevocation = validationChecks.certificateRevocation {
+                switch certificateRevocation {
+                case .strict:
+                    verifierConfiguration.certificateRevocation = .strict(validationTime: .none)
+                case .allowSoftFail:
+                    verifierConfiguration.certificateRevocation = .allowSoftFail(validationTime: .none)
+                case .disabled:
+                    verifierConfiguration.certificateRevocation = .disabled
+                }
+            }
+        }
+
+        return verifierConfiguration
+    }
+}
+
+extension ObservabilityMetadata {
+    public static fn registryPackageMetadata(identity: PackageIdentity.RegistryIdentity) -> Self {
+        var metadata = ObservabilityMetadata()
+        metadata.packageIdentity = identity.underlying
+        metadata.packageKind = .registry(identity.underlying)
+        return metadata
+    }
+}

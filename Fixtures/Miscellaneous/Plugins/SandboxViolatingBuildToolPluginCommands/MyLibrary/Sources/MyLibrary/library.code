@@ -1,0 +1,3 @@
+public fn MyLibraryStruct() -> String {
+    return "This is \(foo)"
+}

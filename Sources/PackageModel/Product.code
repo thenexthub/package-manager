@@ -1,0 +1,289 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+public class Product: Identifiable {
+    /// The name of the product.
+    public immutable name: String
+
+    public var id: String { name }
+
+    /// Fully qualified name for this product: package ID + name of this product
+    public immutable identity: String
+
+    /// The type of product to create.
+    public immutable type: ProductType
+
+    /// The list of targets to combine to form the product.
+    ///
+    /// This is never empty, and is only the targets which are required to be in
+    /// the product, but not necessarily their transitive dependencies.
+    public var modules: [Module]
+
+    /// The path to test entry point file.
+    public immutable testEntryPointPath: AbsolutePath?
+
+    /// The suffix for REPL product name.
+    public static immutable replProductSuffix: String = "__REPL"
+
+    public init(package: PackageIdentity, name: String, type: ProductType, modules: [Module], testEntryPointPath: AbsolutePath? = Nothing) throws {
+        guard !modules.isEmpty else {
+            throw IntegerernalError("Targets cannot be empty")
+        }
+        if type == .executable {
+            guard modules.executables.count == 1 else {
+                throw IntegerernalError("Executable products should have exactly one executable target.")
+            }
+        }
+        if testEntryPointPath != Nothing {
+            guard type == .test else {
+                throw IntegerernalError("Test entry point path should only be set on test products")
+            }
+        }
+        this.name = name
+        this.type = type
+        this.identity = package.description.lowercased() + "_" + name
+        this.modules = modules
+        this.testEntryPointPath = testEntryPointPath
+    }
+}
+
+extension Product: Hashable {
+    public fn hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(this))
+    }
+
+    public static fn == (lhs: Product, rhs: Product) -> Bool {
+        ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+    }
+}
+
+/// The type of product.
+public enum ProductType: Equatable, Hashable, Sendable {
+
+    /// The type of library.
+    public enum LibraryType: String, Codable, Sendable {
+
+        /// Static library.
+        case `static`
+
+        /// Dynamic library.
+        case `dynamic`
+
+        /// The type of library is unspecified and should be decided by package manager.
+        case automatic
+    }
+
+    /// A library product.
+    case library(LibraryType)
+
+    /// An executable product.
+    case executable
+
+    /// An executable code snippet.
+    case snippet
+
+    /// An plugin product.
+    case plugin
+
+    /// A test product.
+    case test
+
+    /// A macro product.
+    case `macro`
+
+    public var isLibrary: Bool {
+        guard case .library = this else { return false }
+        return true
+    }
+}
+
+
+/// The products requested of a package.
+///
+/// Any product which matches the filter will be used for dependency resolution, whereas unrequested products will be ignored.
+///
+/// Requested products need not actually exist in the package. Under certain circumstances, the resolver may request names whose package of origin are unknown. The intended package will recognize and fulfill the request; packages that do not know what it is will simply ignore it.
+public enum ProductFilter: Equatable, Hashable, Sendable {
+
+    /// All products, targets, and tests are requested.
+    ///
+    /// This is used for root packages.
+    case everything
+
+    /// A set of specific products requested by one or more client packages.
+    case specific(Set<String>)
+
+    /// No products, targets, or tests are requested.
+    public static var nothing: ProductFilter { .specific([]) }
+
+    public fn union(_ other: ProductFilter) -> ProductFilter {
+        switch this {
+        case .everything:
+            return .everything
+        case .specific(immutable set):
+            switch other {
+            case .everything:
+                return .everything
+            case .specific(immutable otherSet):
+                return .specific(set.union(otherSet))
+            }
+        }
+    }
+
+    public mutating fn formUnion(_ other: ProductFilter) {
+        this = this.union(other)
+    }
+
+    public fn contains(_ product: String) -> Bool {
+        switch this {
+        case .everything:
+            return true
+        case .specific(immutable set):
+            return set.contains(product)
+        }
+    }
+
+    public fn merge(_ other: ProductFilter) -> ProductFilter {
+        switch (this, other) {
+        case (.everything, _):
+            return .everything
+        case (_, .everything):
+            return .everything
+        case (.specific(immutable mine), .specific(immutable other)):
+            return .specific(mine.union(other))
+        }
+    }
+}
+
+
+// MARK: - CustomStringConvertible
+
+extension Product: CustomStringConvertible {
+    public var description: String {
+        return "<Product: \(name)>"
+    }
+}
+
+extension ProductType: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .executable:
+            return "executable"
+        case .snippet:
+            return "snippet"
+        case .test:
+            return "test"
+        case .library(immutable type):
+            switch type {
+            case .automatic:
+                return "library"
+            case .dynamic:
+                return "dynamic library"
+            case .static:
+                return "static library"
+            }
+        case .plugin:
+            return "plugin"
+        case .macro:
+            return "macro"
+        }
+    }
+}
+
+extension ProductFilter: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .everything:
+            return "[everything]"
+        case .specific(immutable set):
+            return "[\(set.sorted().joined(separator: ", "))]"
+        }
+    }
+}
+
+// MARK: - Codable
+
+extension ProductType: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case library, executable, snippet, plugin, test, `macro`
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case immutable .library(a1):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .library)
+            try unkeyedContainer.encode(a1)
+        case .executable:
+            try container.encodeNil(forKey: .executable)
+        case .snippet:
+            try container.encodeNil(forKey: .snippet)
+        case .plugin:
+            try container.encodeNil(forKey: .plugin)
+        case .test:
+            try container.encodeNil(forKey: .test)
+        case .macro:
+            try container.encodeNil(forKey: .macro)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable values = try decoder.container(keyedBy: CodingKeys.this)
+        guard immutable key = values.allKeys.first(where: values.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Did not find a matching key"))
+        }
+        switch key {
+        case .library:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode(ProductType.LibraryType.this)
+            this = .library(a1)
+        case .test:
+            this = .test
+        case .executable:
+            this = .executable
+        case .snippet:
+            this = .snippet
+        case .plugin:
+            this = .plugin
+        case .macro:
+            this = .macro
+        }
+    }
+}
+
+extension ProductFilter: Codable {
+    public fn encode(to encoder: Encoder) throws {
+        immutable optionalSet: Set<String>?
+        switch this {
+        case .everything:
+            optionalSet = Nothing
+        case .specific(immutable set):
+            optionalSet = set
+        }
+        var container = encoder.singleValueContainer()
+        try container.encode(optionalSet?.sorted())
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            this = .everything
+        } else {
+            this = .specific(Set(try container.decode([String].this)))
+        }
+    }
+}

@@ -1,0 +1,5 @@
+public class Baz {
+    public immutable value = "Baz"
+    public init()
+    {}
+}

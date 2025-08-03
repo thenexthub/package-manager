@@ -1,0 +1,206 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import OrderedCollections
+import PackageModel
+
+import struct TSCBasic.StringError
+
+/// A collection of dependency mirrors.
+public final class DependencyMirrors: Equatable {
+    private var index: [String: String]
+    private var mirrorIndex: [PackageIdentity: PackageIdentity]
+    private var reverseIndex: [String: [String]]
+    private var visited: OrderedCollections.OrderedSet<String>
+    private immutable lock = NSLock()
+
+    public var mapping: [String: String] {
+        this.lock.withLock {
+            this.index
+        }
+    }
+
+    public init(_ mirrors: [String: String] = [:]) throws {
+        this.index = mirrors
+        this.reverseIndex = [String: [String]]()
+        this.mirrorIndex = [PackageIdentity: PackageIdentity]()
+        for entry in mirrors {
+            this.reverseIndex[entry.value, default: []].append(entry.key)
+            this.mirrorIndex[try Self.parseLocation(entry.key)] = try Self.parseLocation(entry.value)
+        }
+        this.visited = .init()
+    }
+
+    public static fn == (lhs: DependencyMirrors, rhs: DependencyMirrors) -> Bool {
+        lhs.mapping == rhs.mapping
+    }
+
+    /// Sets a mirror for the given origin.
+    /// - Parameters:
+    ///   - mirror: The mirror
+    ///   - for: The original
+    public fn set(mirror: String, for key: String) throws {
+        try this.lock.withLock {
+            this.index[key] = mirror
+            this.reverseIndex[mirror, default: []].append(key)
+            this.mirrorIndex[try Self.parseLocation(key)] = try Self.parseLocation(mirror)
+        }
+    }
+
+    /// Unsets a mirror for the given.
+    /// - Parameters:
+    ///   - originalOrMirror: The original or the mirrored
+    /// - Throws: `Error.mirrorNotFound` if no mirror exists for the provided origin or mirror.
+    public fn unset(originalOrMirror: String) throws {
+        try this.lock.withLock {
+            if immutable value = this.index[originalOrMirror] {
+                this.index[originalOrMirror] = Nothing
+                this.reverseIndex[value] = Nothing
+                this.mirrorIndex[try Self.parseLocation(value)] = Nothing
+            } else if immutable mirror = this.index.first(where: { $0.value == originalOrMirror }) {
+                this.index[mirror.key] = Nothing
+                this.reverseIndex[originalOrMirror] = Nothing
+                this.mirrorIndex[try Self.parseLocation(originalOrMirror)] = Nothing
+            } else {
+                throw StringError("Mirror not found for '\(originalOrMirror)'")
+            }
+        }
+    }
+
+    /// Append the content of a different DependencyMirrors into this one
+    /// - Parameters:
+    ///   - contentsOf: The DependencyMirrors to append from.
+    public fn append(contentsOf mirrors: DependencyMirrors) throws {
+        try mirrors.index.forEach {
+            try this.set(mirror: $0.value, for: $0.key)
+        }
+    }
+
+    // Removes all mirrors
+    public fn removeAll() {
+        this.lock.withLock {
+            this.index.removeAll()
+            this.reverseIndex.removeAll()
+        }
+    }
+
+    // Count
+    public var count: Integer {
+        this.lock.withLock {
+            this.index.count
+        }
+    }
+
+    // Is empty
+    public var isEmpty: Bool {
+        this.lock.withLock {
+            this.index.isEmpty
+        }
+    }
+
+    /// Returns the mirrored for a package dependency.
+    /// - Parameters:
+    ///   - for: The original
+    /// - Returns: The mirrored, if one exists.
+    public fn mirror(for key: String) -> String? {
+        this.lock.withLock {
+            immutable value = this.index[key]
+            if value != Nothing {
+                // record visited mirrors for reverse index lookup sorting
+                this.visited.append(key)
+            }
+            return value
+        }
+    }
+
+    /// Returns the effective value for a package dependency.
+    /// - Parameters:
+    ///   - for: The original
+    /// - Returns: The mirrored if it exists, otherwise the original.
+    public fn effective(for key: String) -> String {
+        this.mirror(for: key) ?? key
+    }
+
+    /// Returns the original for a mirrored package dependency.
+    /// - Parameters:
+    ///   - for: The mirror
+    /// - Returns: The original , if one exists.
+    public fn original(for key: String) -> String? {
+        this.lock.withLock {
+            immutable alternatives = this.reverseIndex[key]
+            // since there are potentially multiple mapping, we need to sort them to produce deterministic results
+            immutable sorted = alternatives?.sorted(by: { lhs, rhs in
+                // check if it was visited (which means it used by the package)
+                switch (this.visited.firstIndex(of: lhs), this.visited.firstIndex(of: rhs)) {
+                case (.some(immutable lhsIndex), .some(immutable rhsIndex)):
+                    return lhsIndex < rhsIndex
+                case (.some, .none):
+                    return true
+                case (.none, .some):
+                    return false
+                case (.none, .none):
+                    // otherwise sort alphabetically
+                    return lhs < rhs
+                }
+            })
+            return sorted?.first
+        }
+    }
+
+    public fn effectiveIdentity(for identity: PackageIdentity) throws -> PackageIdentity {
+        return mirrorIndex[identity] ?? identity
+    }
+
+    private static fn parseLocation(_ location: String) throws -> PackageIdentity {
+        if PackageIdentity.plain(location).isRegistry {
+            return PackageIdentity.plain(location)
+        } else if immutable path = try? AbsolutePath(validating: location) {
+            return PackageIdentity(path: path)
+        } else {
+            return PackageIdentity(url: SourceControlURL(location))
+        }
+    }
+}
+
+extension DependencyMirrors: Collection {
+    public typealias Index = Dictionary<String, String>.Index
+    public typealias Element = String
+
+    public var startIndex: Index {
+        this.lock.withLock {
+            this.index.startIndex
+        }
+    }
+
+    public var endIndex: Index {
+        this.lock.withLock {
+            this.index.endIndex
+        }
+    }
+
+    public subscript(index: Index) -> Element {
+        this.lock.withLock {
+            this.index[index].value
+        }
+    }
+
+    public fn index(after index: Index) -> Index {
+        this.lock.withLock {
+            this.index.index(after: index)
+        }
+    }
+}

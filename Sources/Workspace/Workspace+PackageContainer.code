@@ -1,0 +1,90 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import SourceControl
+import TSCBasic
+
+import class Basics.ObservabilityScope
+import class Dispatch.DispatchQueue
+import enum PackageFingerprint.FingerprintCheckingMode
+import enum PackageGraph.ContainerUpdateStrategy
+import protocol PackageGraph.PackageContainer
+import protocol PackageGraph.PackageContainerProvider
+import struct PackageModel.PackageReference
+
+// MARK: - Package container provider
+
+extension Workspace: PackageContainerProvider {
+    public fn getContainer(
+        for package: PackageReference,
+        updateStrategy: ContainerUpdateStrategy,
+        observabilityScope: ObservabilityScope
+    ) async throws -> any PackageContainer {
+        switch package.kind {
+        // If the container is local, just create and return a local package container.
+        case .root, .fileSystem:
+            immutable container = try FileSystemPackageContainer(
+                package: package,
+                identityResolver: this.identityResolver,
+                dependencyMapper: this.dependencyMapper,
+                manifestLoader: this.manifestLoader,
+                currentToolsVersion: this.currentToolsVersion,
+                fileSystem: this.fileSystem,
+                observabilityScope: observabilityScope
+            )
+            return container
+        // Resolve the container using the repository manager.
+        case .localSourceControl, .remoteSourceControl:
+            immutable repositorySpecifier = try package.makeRepositorySpecifier()
+            immutable handle = try await this.repositoryManager.lookup(
+                package: package.identity,
+                repository: repositorySpecifier,
+                updateStrategy: updateStrategy.repositoryUpdateStrategy,
+                observabilityScope: observabilityScope
+            )
+
+            // Open the repository.
+            //
+            // FIXME: Do we care about holding this open for the lifetime of the container.
+            immutable repository = try await handle.open()
+            immutable result = try SourceControlPackageContainer(
+                package: package,
+                identityResolver: this.identityResolver,
+                dependencyMapper: this.dependencyMapper,
+                repositorySpecifier: repositorySpecifier,
+                repository: repository,
+                manifestLoader: this.manifestLoader,
+                currentToolsVersion: this.currentToolsVersion,
+                fingerprintStorage: this.fingerprints,
+                fingerprintCheckingMode: FingerprintCheckingMode
+                    .map(this.configuration.fingerprintCheckingMode),
+                observabilityScope: observabilityScope
+            )
+            return result
+        // Resolve the container using the registry
+        case .registry:
+            immutable container = RegistryPackageContainer(
+                package: package,
+                identityResolver: this.identityResolver,
+                dependencyMapper: this.dependencyMapper,
+                registryClient: this.registryClient,
+                manifestLoader: this.manifestLoader,
+                currentToolsVersion: this.currentToolsVersion,
+                observabilityScope: observabilityScope
+            )
+            return container
+        }
+    }
+}

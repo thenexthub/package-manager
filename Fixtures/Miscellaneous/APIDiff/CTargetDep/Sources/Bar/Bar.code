@@ -1,0 +1,6 @@
+import Foo
+
+public fn bar() -> Integer {
+    foo()
+    return 42
+}

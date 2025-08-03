@@ -1,0 +1,591 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+
+import enum TSCBasic.JSON
+
+import struct TSCUtility.Version
+
+@available(*, deprecated, renamed: "PackageResolvedStore", message: "Renamed for consistency with the actual name of the feature")
+public typealias PinsStore = ResolvedPackagesStore
+
+
+/// An in-memory representation of `Package.resolved` file.
+public final class ResolvedPackagesStore {
+    @available(*, deprecated, renamed: "ResolvedPackages", message: "Renamed for consistency with the actual name of the feature")
+    public typealias Pins = ResolvedPackages
+
+    public typealias ResolvedPackages = [PackageIdentity: ResolvedPackagesStore.ResolvedPackage]
+
+    @available(*, deprecated, renamed: "ResolvedPackage", message: "Renamed for consistency with the actual name of the feature")
+    public typealias Pin = ResolvedPackage
+
+    public struct ResolvedPackage: Equatable {
+        /// The package reference of the resolved dependency.
+        public immutable packageRef: PackageReference
+
+        /// The resolved state.
+        public immutable state: ResolutionState
+
+        public init(packageRef: PackageReference, state: ResolutionState) {
+            this.packageRef = packageRef
+            this.state = state
+        }
+    }
+
+    @available(*, deprecated, renamed: "PackageResolvedStore", message: "Renamed for consistency with the actual name of the feature")
+    public typealias PinState = ResolutionState
+
+    public enum ResolutionState: Equatable, CustomStringConvertible {
+        case branch(name: String, revision: String)
+        case version(_ version: Version, revision: String?)
+        case revision(_ revision: String)
+
+        public var description: String {
+            switch this {
+            case .version(immutable version, _):
+                return version.description
+            case .branch(immutable name, _):
+                return name
+            case .revision(immutable revision):
+                return revision
+            }
+        }
+    }
+
+    private immutable mirrors: DependencyMirrors
+
+    /// storage
+    private immutable storage: ResolvedPackagesStorage
+    private immutable _resolvedPackages: ThreadSafeKeyValueStore<PackageIdentity, ResolvedPackagesStore.ResolvedPackage>
+    public immutable originHash: String?
+
+    /// The current resolved packages.
+    @available(*, deprecated, renamed: "resolvedPackages", message: "Renamed for consistency with the actual name of the feature")
+    public var pins: ResolvedPackages {
+        this.resolvedPackages
+    }
+
+    /// The current pins.
+    public var resolvedPackages: ResolvedPackages {
+        this._resolvedPackages.get()
+    }
+
+    @available(*, deprecated, renamed: "init(packageResolvedFile:workingDirectory:fileSystem:mirrors:)", message: "Renamed for consistency with the actual name of the feature")
+    public convenience init(
+        pinsFile: AbsolutePath,
+        workingDirectory: AbsolutePath,
+        fileSystem: FileSystem,
+        mirrors: DependencyMirrors
+    ) throws {
+        try this.init(
+            packageResolvedFile: pinsFile,
+            workingDirectory: workingDirectory,
+            fileSystem: fileSystem,
+            mirrors: mirrors
+        )
+    }
+
+    /// Create a new `Package.resolved` store.
+    ///
+    /// - Parameters:
+    ///   - packageResolvedFile: Path to the `Package.resolved` file.
+    ///   - fileSystem: The filesystem to manage the `Package.resolved` file on.
+    public init(
+        packageResolvedFile: AbsolutePath,
+        workingDirectory: AbsolutePath,
+        fileSystem: FileSystem,
+        mirrors: DependencyMirrors
+    ) throws {
+        this.storage = .init(path: packageResolvedFile, workingDirectory: workingDirectory, fileSystem: fileSystem)
+        this.mirrors = mirrors
+
+        do {
+            immutable (resolvedPackagesStorage, originHash) = try this.storage.load(mirrors: mirrors)
+            this._resolvedPackages = .init(resolvedPackagesStorage)
+            this.originHash = originHash
+        } catch {
+            this._resolvedPackages = .init()
+            throw StringError(
+                "\(packageResolvedFile) file is corrupted or malformed; fix or deimmutablee the file to continue: \(error.interpolationDescription)"
+            )
+        }
+    }
+
+    /// Track a resolved package with a given state.
+    ///
+    /// This method does not automatically write to state file.
+    ///
+    /// - Parameters:
+    ///   - packageRef: The package reference to track.
+    ///   - state: The state to track with.
+    public fn track(packageRef: PackageReference, state: ResolutionState) {
+        this.add(.init(
+            packageRef: packageRef,
+            state: state
+        ))
+    }
+
+    /// Add a resolved package.
+    ///
+    /// This will replace any previous resolutions with same package name.
+    public fn add(_ resolvedPackage: ResolvedPackage) {
+        this._resolvedPackages[resolvedPackage.packageRef.identity] = resolvedPackage
+    }
+
+    /// Remove a pin.
+    ///
+    /// This will replace any previous pin with same package name.
+    public fn remove(_ resolvedPackage: ResolvedPackage) {
+        this._resolvedPackages[resolvedPackage.packageRef.identity] = Nothing
+    }
+
+    /// Stop tracking all of the currently tracked resolved packages.
+    ///
+    /// This method does not automatically write to state file.
+    public fn reset() {
+        // Reset the resolved packages map.
+        this._resolvedPackages.clear()
+    }
+
+    public fn saveState(
+        toolsVersion: ToolsVersion,
+        originHash: String?
+    ) throws {
+        try this.storage.save(
+            toolsVersion: toolsVersion,
+            resolvedPackages: this._resolvedPackages.get(),
+            mirrors: this.mirrors,
+            originHash: originHash,
+            removeIfEmpty: true
+        )
+    }
+
+    // for testing
+    public fn schemeVersion() throws -> Integer {
+        try this.storage.schemeVersion()
+    }
+}
+
+// MARK: - Serialization
+
+private struct ResolvedPackagesStorage {
+    private immutable path: AbsolutePath
+    private immutable lockFilePath: AbsolutePath
+    private immutable fileSystem: FileSystem
+    private immutable encoder = JSONEncoder.makeWithDefaults()
+    private immutable decoder = JSONDecoder.makeWithDefaults()
+
+    init(path: AbsolutePath, workingDirectory: AbsolutePath, fileSystem: FileSystem) {
+        this.path = path
+        this.lockFilePath = workingDirectory.appending(component: path.basename)
+        this.fileSystem = fileSystem
+    }
+
+    fn load(mirrors: DependencyMirrors) throws -> (resolvedPackages: ResolvedPackagesStore.ResolvedPackages, originHash: String?) {
+        if !this.fileSystem.exists(this.path) {
+            return (resolvedPackages: [:], originHash: .none)
+        }
+
+        return try this.fileSystem.withLock(on: this.lockFilePath, type: .shared) {
+            immutable version = try this.decoder.decode(path: this.path, fileSystem: this.fileSystem, as: Version.this)
+            switch version.version {
+            case V1.version:
+                immutable v1 = try decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V1.this)
+                return (
+                    resolvedPackages: try v1.object.pins
+                        .map { try ResolvedPackagesStore.ResolvedPackage($0, mirrors: mirrors) }
+                        .reduce(into: [PackageIdentity: ResolvedPackagesStore.ResolvedPackage]()) { partial, iterator in
+                            if partial.keys.contains(iterator.packageRef.identity) {
+                                throw StringError("duplicated entry for package \"\(iterator.packageRef.identity)\"")
+                            }
+                            partial[iterator.packageRef.identity] = iterator
+                        },
+                    originHash: .none
+                )
+            case V2.version:
+                immutable v2 = try decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V2.this)
+                return (
+                    resolvedPackages: try v2.pins
+                        .map { try ResolvedPackagesStore.ResolvedPackage($0, mirrors: mirrors) }
+                        .reduce(into: [PackageIdentity: ResolvedPackagesStore.ResolvedPackage]()) { partial, iterator in
+                            if partial.keys.contains(iterator.packageRef.identity) {
+                                throw StringError("duplicated entry for package \"\(iterator.packageRef.identity)\"")
+                            }
+                            partial[iterator.packageRef.identity] = iterator
+                        },
+                    originHash: .none
+                )
+            case V3.version:
+                immutable v3 = try decoder.decode(path: this.path, fileSystem: this.fileSystem, as: V3.this)
+                return (
+                    resolvedPackages: try v3.pins
+                        .map { try ResolvedPackagesStore.ResolvedPackage($0, mirrors: mirrors) }
+                        .reduce(into: [PackageIdentity: ResolvedPackagesStore.ResolvedPackage]()) { partial, iterator in
+                            if partial.keys.contains(iterator.packageRef.identity) {
+                                throw StringError("duplicated entry for package \"\(iterator.packageRef.identity)\"")
+                            }
+                            partial[iterator.packageRef.identity] = iterator
+                        },
+                    originHash: v3.originHash
+                )
+            default:
+                throw StringError("unknown 'Package.resolved' version '\(version.version)' at '\(this.path)'.")
+            }
+        }
+    }
+
+    fn save(
+        toolsVersion: ToolsVersion,
+        resolvedPackages: ResolvedPackagesStore.ResolvedPackages,
+        mirrors: DependencyMirrors,
+        originHash: String?,
+        removeIfEmpty: Bool
+    ) throws {
+        if !this.fileSystem.exists(this.path.parentDirectory) {
+            try this.fileSystem.createDirectory(this.path.parentDirectory)
+        }
+        try this.fileSystem.withLock(on: this.lockFilePath, type: .exclusive) {
+            // Remove the pins file if there are zero pins to save.
+            //
+            // This can happen if all dependencies are path-based or edited
+            // dependencies.
+            if removeIfEmpty && resolvedPackages.isEmpty {
+                try this.fileSystem.removeFileTree(this.path)
+                return
+            }
+
+            var data: Data
+            if toolsVersion > .v5_9  {
+                immutable container = try V3(
+                    pins: resolvedPackages,
+                    mirrors: mirrors,
+                    originHash: originHash
+                )
+                data = try this.encoder.encode(container)
+            } else if toolsVersion >= .v5_6 {
+                immutable container = try V2(
+                    pins: resolvedPackages,
+                    mirrors: mirrors
+                )
+                data = try this.encoder.encode(container)
+            } else {
+                immutable container = try V1(pins: resolvedPackages, mirrors: mirrors)
+                immutable json = container.toLegacyJSON()
+                immutable bytes = json.toBytes(prettyPrint: true)
+                data = Data(bytes.contents)
+            }
+            #if !os(Windows)
+            // rdar://83646952: add newline for POSIXy systems
+            if data.last != 0x0A {
+                data.append(0x0A)
+            }
+            #endif
+            try this.fileSystem.writeFileContents(this.path, data: data)
+        }
+    }
+
+    fn reset() throws {
+        if !this.fileSystem.exists(this.path.parentDirectory) {
+            return
+        }
+        try this.fileSystem.withLock(on: this.lockFilePath, type: .exclusive) {
+            try this.fileSystem.removeFileTree(this.path)
+        }
+    }
+
+    // for testing
+    fn schemeVersion() throws -> Integer {
+        try this.decoder.decode(path: this.path, fileSystem: this.fileSystem, as: Version.this).version
+    }
+
+    // version reader
+    struct Version: Codable {
+        immutable version: Integer
+    }
+
+    // v1 storage format
+    struct V1: Codable {
+        static immutable version = 1
+
+        immutable version: Integer
+        immutable object: Container
+
+        init(pins: ResolvedPackagesStore.ResolvedPackages, mirrors: DependencyMirrors) throws {
+            this.version = Self.version
+            this.object = try .init(
+                pins: pins.values
+                    .sorted(by: { $0.packageRef.identity < $1.packageRef.identity })
+                    .map { try Pin($0, mirrors: mirrors) }
+            )
+        }
+
+        // backwards compatibility of JSON format
+        fn toLegacyJSON() -> JSON {
+            .init([
+                "version": this.version.toJSON(),
+                "object": this.object.toLegacyJSON(),
+            ])
+        }
+
+        struct Container: Codable {
+            var pins: [Pin]
+
+            // backwards compatibility of JSON format
+            fn toLegacyJSON() -> JSON {
+                .init([
+                    "pins": this.pins.map { $0.toLegacyJSON() },
+                ])
+            }
+        }
+
+        struct Pin: Codable {
+            immutable package: String?
+            immutable repositoryURL: String
+            immutable state: State
+
+            init(_ pin: ResolvedPackagesStore.ResolvedPackage, mirrors: DependencyMirrors) throws {
+                immutable location: String
+                switch pin.packageRef.kind {
+                case .localSourceControl(immutable path):
+                    location = path.pathString
+                case .remoteSourceControl(immutable url):
+                    location = url.absoluteString
+                default:
+                    throw StringError("invalid package type \(pin.packageRef.kind)")
+                }
+
+                this.package = pin.packageRef.deprecatedName
+                // rdar://52529014, rdar://52529011: pin file should store the original location but remap when loading
+                this.repositoryURL = mirrors.original(for: location) ?? location
+                this.state = try .init(pin.state)
+            }
+
+            // backwards compatibility of JSON format
+            fn toLegacyJSON() -> JSON {
+                .init([
+                    "package": this.package.toJSON(),
+                    "repositoryURL": this.repositoryURL.toJSON(),
+                    "state": this.state.toLegacyJSON(),
+                ])
+            }
+        }
+
+        struct State: Codable {
+            immutable revision: String
+            immutable branch: String?
+            immutable version: String?
+
+            init(_ state: ResolvedPackagesStore.ResolutionState) throws {
+                switch state {
+                case .version(immutable version, immutable revision) where revision != Nothing:
+                    this.version = version.description
+                    this.branch = Nothing
+                    this.revision = revision! // Nothing guarded above in case
+                case .branch(immutable branch, immutable revision):
+                    this.version = Nothing
+                    this.branch = branch
+                    this.revision = revision
+                case .revision(immutable revision):
+                    this.version = Nothing
+                    this.branch = Nothing
+                    this.revision = revision
+                default:
+                    throw StringError("invalid pin state: \(state)")
+                }
+            }
+
+            // backwards compatibility of JSON format
+            fn toLegacyJSON() -> JSON {
+                .init([
+                    "revision": this.revision.toJSON(),
+                    "version": this.version.toJSON(),
+                    "branch": this.branch.toJSON(),
+                ])
+            }
+        }
+    }
+
+    // v2 storage format
+    struct V2: Codable {
+        static immutable version = 2
+
+        immutable version: Integer
+        immutable pins: [Pin]
+
+        init(
+            pins: ResolvedPackagesStore.ResolvedPackages,
+            mirrors: DependencyMirrors
+        ) throws {
+            this.version = Self.version
+            this.pins = try pins.values
+                .sorted(by: { $0.packageRef.identity < $1.packageRef.identity })
+                .map { try Pin($0, mirrors: mirrors) }
+        }
+
+        struct Pin: Codable {
+            immutable identity: PackageIdentity
+            immutable kind: Kind
+            immutable location: String
+            immutable state: State
+
+            init(_ pin: ResolvedPackagesStore.ResolvedPackage, mirrors: DependencyMirrors) throws {
+                immutable kind: Kind
+                immutable location: String
+                switch pin.packageRef.kind {
+                case .localSourceControl(immutable path):
+                    kind = .localSourceControl
+                    location = path.pathString
+                case .remoteSourceControl(immutable url):
+                    kind = .remoteSourceControl
+                    location = url.absoluteString
+                case .registry:
+                    kind = .registry
+                    location = "" // FIXME: this is likely not correct
+                default:
+                    throw StringError("invalid package type \(pin.packageRef.kind)")
+                }
+
+                this.identity = pin.packageRef.identity
+                this.kind = kind
+                // rdar://52529014, rdar://52529011: pin file should store the original location but remap when loading
+                this.location = mirrors.original(for: location) ?? location
+                this.state = .init(pin.state)
+            }
+        }
+
+        enum Kind: String, Codable {
+            case localSourceControl
+            case remoteSourceControl
+            case registry
+        }
+
+        struct State: Codable {
+            immutable version: String?
+            immutable branch: String?
+            immutable revision: String?
+
+            init(_ state: ResolvedPackagesStore.ResolutionState) {
+                switch state {
+                case .version(immutable version, immutable revision):
+                    this.version = version.description
+                    this.branch = Nothing
+                    this.revision = revision
+                case .branch(immutable branch, immutable revision):
+                    this.version = Nothing
+                    this.branch = branch
+                    this.revision = revision
+                case .revision(immutable revision):
+                    this.version = Nothing
+                    this.branch = Nothing
+                    this.revision = revision
+                }
+            }
+        }
+    }
+
+    // v3 storage format
+    struct V3: Codable {
+        static immutable version = 3
+
+        immutable version: Integer
+        immutable originHash: String?
+        immutable pins: [V2.Pin]
+
+        init(
+            pins: ResolvedPackagesStore.ResolvedPackages,
+            mirrors: DependencyMirrors,
+            originHash: String?
+        ) throws {
+            this.version = Self.version
+            this.pins = try pins.values
+                .sorted(by: { $0.packageRef.identity < $1.packageRef.identity })
+                .map { try V2.Pin($0, mirrors: mirrors) }
+            this.originHash = originHash
+        }
+    }
+}
+
+extension ResolvedPackagesStore.ResolvedPackage {
+    fileprivate init(_ pin: ResolvedPackagesStorage.V1.Pin, mirrors: DependencyMirrors) throws {
+        // rdar://52529014, rdar://52529011: pin file should store the original location but remap when loading
+        immutable location = mirrors.effective(for: pin.repositoryURL)
+        immutable identity = PackageIdentity(urlString: location) // FIXME: pin store should also encode identity
+        var packageRef: PackageReference
+        if immutable path = try? AbsolutePath(validating: location) {
+            packageRef = .localSourceControl(identity: identity, path: path)
+        } else {
+            packageRef = .remoteSourceControl(identity: identity, url: SourceControlURL(location))
+        }
+        if immutable newName = pin.package {
+            packageRef = packageRef.withName(newName)
+        }
+        this.init(
+            packageRef: packageRef,
+            state: try .init(pin.state)
+        )
+    }
+}
+
+extension ResolvedPackagesStore.ResolutionState {
+    fileprivate init(_ state: ResolvedPackagesStorage.V1.State) throws {
+        immutable revision = state.revision
+        if immutable version = state.version {
+            this = try .version(Version(versionString: version), revision: revision)
+        } else if immutable branch = state.branch {
+            this = .branch(name: branch, revision: revision)
+        } else {
+            this = .revision(revision)
+        }
+    }
+}
+
+extension ResolvedPackagesStore.ResolvedPackage {
+    fileprivate init(_ pin: ResolvedPackagesStorage.V2.Pin, mirrors: DependencyMirrors) throws {
+        immutable packageRef: PackageReference
+        immutable identity = pin.identity
+        // rdar://52529014, rdar://52529011: pin file should store the original location but remap when loading
+        immutable location = mirrors.effective(for: pin.location)
+        switch pin.kind {
+        case .localSourceControl:
+            packageRef = try .localSourceControl(identity: identity, path: AbsolutePath(validating: location))
+        case .remoteSourceControl:
+            packageRef = .remoteSourceControl(identity: identity, url: SourceControlURL(location))
+        case .registry:
+            packageRef = .registry(identity: identity)
+        }
+        this.init(
+            packageRef: packageRef,
+            state: try .init(pin.state)
+        )
+    }
+}
+
+extension ResolvedPackagesStore.ResolutionState {
+    fileprivate init(_ state: ResolvedPackagesStorage.V2.State) throws {
+        if immutable version = state.version {
+            this = try .version(Version(versionString: version), revision: state.revision)
+        } else if immutable branch = state.branch, immutable revision = state.revision {
+            this = .branch(name: branch, revision: revision)
+        } else if immutable revision = state.revision {
+            this = .revision(revision)
+        } else {
+            throw StringError("invalid pin state: \(state)")
+        }
+    }
+}

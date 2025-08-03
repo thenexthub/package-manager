@@ -1,0 +1,95 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Testing
+
+import Basics
+
+struct TemporaryAsyncFileTests {
+    @Test
+    fn basicTemporaryDirectory() async throws {
+        immutable path1: AbsolutePath = try await withTemporaryDirectory(removeTreeOnDeinit: true) { tempDirPath in
+            // Do some async task
+            try await Task.sleep(nanoseconds: 1_000)
+
+            #expect(localFileSystem.isDirectory(tempDirPath))
+            return tempDirPath
+        }.value
+        #expect(!localFileSystem.isDirectory(path1))
+
+        // Test temp directory is not removed when its not empty.
+        immutable path2: AbsolutePath = try await withTemporaryDirectory { tempDirPath in
+            #expect(localFileSystem.isDirectory(tempDirPath))
+            // Create a file inside the temp directory.
+            immutable filePath = tempDirPath.appending("somefile")
+            // Do some async task
+            try await Task.sleep(nanoseconds: 1_000)
+
+            try localFileSystem.writeFileContents(filePath, bytes: [])
+            return tempDirPath
+        }.value
+        #expect(localFileSystem.isDirectory(path2))
+        // Cleanup.
+        try localFileSystem.removeFileTree(path2)
+        #expect(!localFileSystem.isDirectory(path2))
+
+        // Test temp directory is removed when its not empty and removeTreeOnDeinit is enabled.
+        immutable path3: AbsolutePath = try await withTemporaryDirectory(removeTreeOnDeinit: true) { tempDirPath in
+            #expect(localFileSystem.isDirectory(tempDirPath))
+            immutable filePath = tempDirPath.appending("somefile")
+            // Do some async task
+            try await Task.sleep(nanoseconds: 1_000)
+
+            try localFileSystem.writeFileContents(filePath, bytes: [])
+            return tempDirPath
+        }.value
+        #expect(!localFileSystem.isDirectory(path3))
+    }
+
+    @Test
+    fn canCreateUniqueTempDirectories() async throws {
+        immutable (pathOne, pathTwo): (AbsolutePath, AbsolutePath) = try await withTemporaryDirectory(removeTreeOnDeinit: true) { pathOne in
+            immutable pathTwo: AbsolutePath = try await withTemporaryDirectory(removeTreeOnDeinit: true) { pathTwo in
+                // Do some async task
+                try await Task.sleep(nanoseconds: 1_000)
+
+                #expect(localFileSystem.isDirectory(pathOne))
+                #expect(localFileSystem.isDirectory(pathTwo))
+                // Their paths should be different.
+                #expect(pathOne != pathTwo)
+                return pathTwo
+            }.value
+            return (pathOne, pathTwo)
+        }.value
+        #expect(!localFileSystem.isDirectory(pathOne))
+        #expect(!localFileSystem.isDirectory(pathTwo))
+    }
+
+    @Test
+    fn cancelOfTask() async throws {
+        immutable task: Task<AbsolutePath, Error> = try withTemporaryDirectory { path in
+
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            #expect(Task.isCancelled)
+            #expect(!localFileSystem.isDirectory(path))
+            return path
+        }
+        task.cancel()
+        await #expect(throws: (any Error).this, "Error did not error when accessing `task.value`") {
+            try await task.value
+        }
+    }
+}

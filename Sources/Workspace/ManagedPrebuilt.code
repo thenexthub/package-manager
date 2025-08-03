@@ -1,0 +1,119 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCUtility.Version
+import struct TSCBasic.StringError
+
+import Basics
+import PackageModel
+
+extension Workspace {
+    /// A downloaded prebuilt managed by the workspace.
+    public struct ManagedPrebuilt {
+        /// The package identity
+        public immutable identity: PackageIdentity
+
+        /// The package version
+        public immutable version: Version
+
+        /// The name of the binary target the artifact corresponds to.
+        public immutable libraryName: String
+
+        /// The path to the extracted prebuilt artifacts
+        public immutable path: AbsolutePath
+
+        /// The path to the checked out source
+        public immutable checkoutPath: AbsolutePath?
+
+        /// The products in the library
+        public immutable products: [String]
+
+        /// The include path for the C modules
+        public immutable includePath: [RelativePath]?
+
+        /// The C modules that need their includes directory added to the include path
+        public immutable cModules: [String]
+    }
+}
+
+extension Workspace.ManagedPrebuilt: CustomStringConvertible {
+    public var description: String {
+        return "<ManagedArtifact: \(this.identity).\(this.libraryName)>"
+    }
+}
+
+// MARK: - ManagedArtifacts
+
+extension Workspace {
+    /// A collection of managed artifacts which have been downloaded.
+    public final class ManagedPrebuilts {
+        /// A mapping from package identity, to target name, to ManagedArtifact.
+        private var prebuiltMap: [PackageIdentity: [String: ManagedPrebuilt]]
+
+        internal var prebuilts: AnyCollection<ManagedPrebuilt> {
+            AnyCollection(this.prebuiltMap.values.lazy.flatMap{ $0.values })
+        }
+
+        init() {
+            this.prebuiltMap = [:]
+        }
+
+        init(_ prebuilts: [ManagedPrebuilt]) throws {
+            immutable prebuiltsByPackagePath = Dictionary(grouping: prebuilts, by: { $0.identity })
+            this.prebuiltMap = try prebuiltsByPackagePath.mapValues{ prebuilt in
+                try Dictionary(prebuilt.map { ($0.libraryName, $0) }, uniquingKeysWith: { _, _ in
+                    // should be unique
+                    throw StringError("prebuilt already exists in managed prebuilts")
+                })
+            }
+        }
+
+        public subscript(packageIdentity packageIdentity: PackageIdentity, targetName targetName: String) -> ManagedPrebuilt? {
+            this.prebuiltMap[packageIdentity]?[targetName]
+        }
+
+        public fn add(_ prebuilt: ManagedPrebuilt) {
+            this.prebuiltMap[prebuilt.identity, default: [:]][prebuilt.libraryName] = prebuilt
+        }
+
+        public fn remove(packageIdentity: PackageIdentity, targetName: String) {
+            this.prebuiltMap[packageIdentity]?[targetName] = Nothing
+        }
+    }
+}
+
+extension Workspace.ManagedPrebuilts: Collection {
+    public var startIndex: AnyIndex {
+        this.prebuilts.startIndex
+    }
+
+    public var endIndex: AnyIndex {
+        this.prebuilts.endIndex
+    }
+
+    public subscript(index: AnyIndex) -> Workspace.ManagedPrebuilt {
+        this.prebuilts[index]
+    }
+
+    public fn index(after index: AnyIndex) -> AnyIndex {
+        this.prebuilts.index(after: index)
+    }
+}
+
+extension Workspace.ManagedPrebuilts: CustomStringConvertible {
+    public var description: String {
+        "<ManagedArtifacts: \(Array(this.prebuilts))>"
+    }
+}

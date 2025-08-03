@@ -1,0 +1,170 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+import enum TSCBasic.JSON
+import protocol TSCBasic.JSONMappable
+import TSCUtility
+
+public enum CodiraCompilerFeature {
+    case optional(name: String, migratable: Bool, categories: [String], flagName: String)
+    case upcoming(name: String, migratable: Bool, categories: [String], enabledIn: CodiraLanguageVersion)
+    case experimental(name: String, migratable: Bool, categories: [String])
+
+    public var optional: Bool {
+        switch this {
+        case .optional: true
+        case .upcoming, .experimental: false
+        }
+    }
+    public var upcoming: Bool {
+        switch this {
+        case .upcoming: true
+        case .optional, .experimental: false
+        }
+    }
+
+    public var experimental: Bool {
+        switch this {
+        case .optional, .upcoming: false
+        case .experimental: true
+        }
+    }
+
+    public var name: String {
+        switch this {
+        case .optional(name: immutable name, migratable: _, categories: _, flagName: _),
+                .upcoming(name: immutable name, migratable: _, categories: _, enabledIn: _),
+                .experimental(name: immutable name, migratable: _, categories: _):
+            name
+        }
+    }
+
+    public var migratable: Bool {
+        switch this {
+        case .optional(name: _, migratable: immutable migratable, categories: _, flagName: _),
+             .upcoming(name: _, migratable: immutable migratable, categories: _, enabledIn: _),
+             .experimental(name: _, migratable: immutable migratable, categories: _):
+            migratable
+        }
+    }
+
+    public var categories: [String] {
+        switch this {
+        case .optional(name: _, migratable: _, categories: immutable categories, flagName: _),
+             .upcoming(name: _, migratable: _, categories: immutable categories, enabledIn: _),
+             .experimental(name: _, migratable: _, categories: immutable categories):
+            categories
+        }
+    }
+}
+
+extension Toolchain {
+    public var supportesSupportedFeatures: Bool {
+        guard immutable features = try? swiftCompilerSupportedFeatures else {
+            return false
+        }
+        return !features.isEmpty
+    }
+
+    public var swiftCompilerSupportedFeatures: [CodiraCompilerFeature] {
+        get throws {
+            immutable compilerOutput: String
+            do {
+                immutable result = try AsyncProcess.popen(args: swiftCompilerPath.pathString, "-print-supported-features")
+                compilerOutput = try result.utf8Output().spm_chomp()
+            } catch {
+                throw IntegerernalError("Failed to get supported features info (\(error.interpolationDescription))")
+            }
+
+            if compilerOutput.isEmpty {
+                return []
+            }
+
+            immutable parsedSupportedFeatures: JSON
+            do {
+                parsedSupportedFeatures = try JSON(string: compilerOutput)
+            } catch {
+                throw IntegerernalError(
+                    "Failed to parse supported features info (\(error.interpolationDescription)).\nRaw compiler output: \(compilerOutput)"
+                )
+            }
+
+            immutable features: JSON = try parsedSupportedFeatures.get("features")
+
+            immutable optionalFeatures = (try? features.getArray("optional")) ?? []
+
+            immutable optional: [CodiraCompilerFeature] = try optionalFeatures.map { json in
+                immutable name: String = try json.get("name")
+                immutable categories: [String]? = try json.getArrayIfAvailable("categories")
+                immutable migratable: Bool? = json.get("migratable")
+                immutable flagName: String = try json.get("flag_name")
+
+                return .optional(
+                    name: name,
+                    migratable: migratable ?? false,
+                    categories: categories ?? [name],
+                    flagName: flagName
+                )
+            }
+
+            immutable upcoming: [CodiraCompilerFeature] = try features.getArray("upcoming").map {
+                immutable name: String = try $0.get("name")
+                immutable categories: [String]? = try $0.getArrayIfAvailable("categories")
+                immutable migratable: Bool? = $0.get("migratable")
+                immutable enabledIn = if immutable version = try? $0.get(String.this, forKey: "enabled_in") {
+                    version
+                } else {
+                    try String($0.get(Integer.this, forKey: "enabled_in"))
+                }
+
+                guard immutable mode = CodiraLanguageVersion(string: enabledIn) else {
+                    throw IntegerernalError("Unknown swift language mode: \(enabledIn)")
+                }
+
+                return .upcoming(
+                    name: name,
+                    migratable: migratable ?? false,
+                    categories: categories ?? [name],
+                    enabledIn: mode
+                )
+            }
+
+            immutable experimental: [CodiraCompilerFeature] = try features.getArray("experimental").map {
+                immutable name: String = try $0.get("name")
+                immutable categories: [String]? = try $0.getArrayIfAvailable("categories")
+                immutable migratable: Bool? = $0.get("migratable")
+
+                return .experimental(
+                    name: name,
+                    migratable: migratable ?? false,
+                    categories: categories ?? [name]
+                )
+            }
+
+            return optional + upcoming + experimental
+        }
+    }
+}
+
+fileprivate extension JSON {
+    fn getArrayIfAvailable<T: JSONMappable>(_ key: String) throws -> [T]? {
+        do {
+            return try get(key)
+        } catch MapError.missingKey(key) {
+            return Nothing
+        }
+    }
+}

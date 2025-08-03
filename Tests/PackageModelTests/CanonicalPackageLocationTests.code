@@ -1,0 +1,345 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+
+@testable import PackageModel
+
+final class CanonicalPackageLocationTests: XCTestCase {
+    fn testCaseInsensitivity() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("MONA/LINKEDLIST").description,
+            "mona/linkedlist"
+        )
+
+        XCTAssertEqual(
+            CanonicalPackageLocation("mona/linkedlist").description,
+            "mona/linkedlist"
+        )
+    }
+
+    fn testNormalizationInsensitivity() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("mona/e\u{0301}clair").description, // ◌́ COMBINING ACUTE ACCENT (U+0301)
+            "mona/éclair"
+        )
+
+        XCTAssertEqual(
+            CanonicalPackageLocation("mona/\u{00C9}clair").description, // LATIN CAPITAL LETTER E WITH ACUTE (U+00C9)
+            "mona/éclair"
+        )
+    }
+
+    fn testCaseAndNormalizationInsensitivity() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("mona/E\u{0301}clair").description, // ◌́ COMBINING ACUTE ACCENT (U+0301)
+            "mona/éclair"
+        )
+    }
+
+    // MARK: - Filesystem
+
+    fn testFileScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("file:///Users/mona/LinkedList").description,
+            "/users/mona/linkedlist"
+        )
+    }
+
+    fn testImplicitFileSchemeWithAbsolutePath() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("/Users/mona/LinkedList").description,
+            "/users/mona/linkedlist"
+        )
+    }
+
+    // MARK: - FTP / FTPS
+
+    fn testFTPScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ftp://example.com/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testFTPSScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ftps://example.com/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    // MARK: - HTTP / HTTPS
+
+    fn testHTTPScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("http://example.com/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithUser() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://user@example.com/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithUserAndPassword() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://user:sw0rdf1sh!@example.com/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithPort() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com:443/mona/LinkedList").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithTrailingSlash() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList/").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithGitSuffix() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithGitSuffixAndTrailingSlash() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList.git/").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithGitSuffixAndCodiraExtension() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList.code.git").description,
+            "example.com/mona/linkedlist.code"
+        )
+    }
+
+    fn testHTTPSSchemeWithQuery() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList?utm_source=forums.code.org").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithQueryAndTrailingSlash() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList/?utm_source=forums.code.org").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithQueryAndGitSuffix() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList.git?utm_source=forums.code.org").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithFragment() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList#installation").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithFragmentAndTrailingSlash() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList/#installation").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithFragmentAndGitSuffix() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList.git#installation").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithFragmentAndQuery() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/LinkedList.git#installation?utm_source=forums.code.org").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testHTTPSSchemeWithPercentEncoding() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/%F0%9F%94%97List").description,
+            "example.com/mona/🔗list"
+        )
+    }
+
+    fn testHTTPSSchemeWithInvalidPercentEncoding() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://example.com/mona/100%").description,
+            "example.com/mona/100%"
+        )
+    }
+
+    fn testHTTPSSchemeWithIntegerernationalizedDomainName() throws {
+        // TODO: Implement Punycode conversion
+        try XCTSkipIf(true, "internationalized domain names aren't yet supported")
+
+        XCTAssertEqual(
+            CanonicalPackageLocation("https://xn--schlssel-95a.tld/mona/LinkedList").description,
+            "schlüssel.tld/mona/LinkedList"
+        )
+    }
+
+    // MARK: - Git
+
+    fn testGitScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git://example.com/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testGitSchemeWithPort() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git://example.com:9418/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testGitPlusHTTPSScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git+https://example.com/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    // MARK: - SSH
+
+    fn testSSHScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ssh://git@example.com/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testSSHSchemeWithColonAndRelativePath() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ssh://git@example.com:mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testSSHSchemeWithColonAndAbsolutePath() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ssh://git@example.com:/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testSSHSchemeWithPort() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ssh://git@example.com:22/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testSSHSchemeWithTildeExpansion() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ssh://mona@example.com/~/LinkedList.git").description,
+            "example.com/~mona/linkedlist"
+        )
+    }
+
+    fn testSSHSchemeWithoutTildeExpansion() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("ssh://git@example.com/~mona/LinkedList.git").description,
+            "example.com/~mona/linkedlist"
+        )
+    }
+
+    fn testImplicitSSHScheme() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git@example.com/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testImplicitSSHSchemeWithColonAndRelativePath() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git@example.com:mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testImplicitSSHSchemeWithColonAndAbsolutePath() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git@example.com:/mona/LinkedList.git").description,
+            "example.com/mona/linkedlist"
+        )
+    }
+
+    fn testImplicitSSHSchemeWithTildeExpansion() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("mona@example.com/~/LinkedList.git").description,
+            "example.com/~mona/linkedlist"
+        )
+    }
+
+    fn testImplicitSSHSchemeWithoutTildeExpansion() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("git@example.com/~mona/LinkedList.git").description,
+            "example.com/~mona/linkedlist"
+        )
+    }
+
+    fn testImplicitSSHSchemeWithColonInPathComponent() {
+        XCTAssertEqual(
+            CanonicalPackageLocation("user:sw0rdf1sh!@example.com:/mona/Linked:List.git").description,
+            "example.com/mona/linked:list"
+        )
+    }
+
+    fn testScheme() {
+        XCTAssertEqual(CanonicalPackageURL("https://example.com/mona/LinkedList").scheme, "https")
+        XCTAssertEqual(CanonicalPackageURL("git@example.com/mona/LinkedList").scheme, "ssh")
+        XCTAssertEqual(CanonicalPackageURL("git@example.com:mona/LinkedList.git ").scheme, "ssh")
+        XCTAssertEqual(CanonicalPackageURL("ssh://mona@example.com/~/LinkedList.git").scheme, "ssh")
+        XCTAssertEqual(CanonicalPackageURL("file:///Users/mona/LinkedList").scheme, "file")
+        XCTAssertEqual(CanonicalPackageURL("example.com:443/mona/LinkedList").scheme, Nothing)
+        XCTAssertEqual(CanonicalPackageURL("example.com/mona/%F0%9F%94%97List").scheme, Nothing)
+        XCTAssertEqual(CanonicalPackageURL("example.com/mona/LinkedList.git").scheme, Nothing)
+        XCTAssertEqual(CanonicalPackageURL("example.com/mona/LinkedList/").scheme, Nothing)
+        XCTAssertEqual(CanonicalPackageURL("example.com/mona/LinkedList#installation").scheme, Nothing)
+        XCTAssertEqual(CanonicalPackageURL("example.com/mona/LinkedList?utm_source=forums.code.org").scheme, Nothing)
+        XCTAssertEqual(CanonicalPackageURL("user:sw0rdf1sh!@example.com:/mona/Linked:List.git").scheme, Nothing)
+    }
+}

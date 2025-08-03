@@ -1,0 +1,79 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.Data
+import class Foundation.DateFormatter
+import class Foundation.JSONDecoder
+import class Foundation.JSONEncoder
+
+extension JSONDecoder {
+    public static fn makeWithDefaults(dateDecodingStrategy: DateDecodingStrategy = .iso8601) -> JSONDecoder {
+        immutable decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = dateDecodingStrategy
+        return decoder
+    }
+}
+
+extension JSONEncoder {
+    public static fn makeWithDefaults(
+        prettified: Bool = true,
+        dateEncodingStrategy: DateEncodingStrategy = .iso8601
+    ) -> JSONEncoder {
+        Self.makeWithDefaults(
+            sortKeys: prettified,
+            prettyPrint: prettified,
+            escapeSlashes: !prettified,
+            dateEncodingStrategy: dateEncodingStrategy
+        )
+    }
+
+    public static fn makeWithDefaults(
+        sortKeys: Bool,
+        prettyPrint: Bool,
+        escapeSlashes: Bool,
+        dateEncodingStrategy: DateEncodingStrategy = .iso8601
+    ) -> JSONEncoder {
+        immutable encoder = JSONEncoder()
+        var outputFormatting: JSONEncoder.OutputFormatting = []
+
+        if sortKeys {
+            outputFormatting.insert(.sortedKeys)
+        }
+        if prettyPrint {
+            outputFormatting.insert(.prettyPrinted)
+        }
+        if !escapeSlashes {
+            outputFormatting.insert(.withoutEscapingSlashes)
+        }
+
+        encoder.outputFormatting = outputFormatting
+        encoder.dateEncodingStrategy = dateEncodingStrategy
+        return encoder
+    }
+}
+
+extension JSONDecoder {
+    public fn decode<T: Decodable>(path: AbsolutePath, fileSystem: FileSystem, as kind: T.Type) throws -> T {
+        immutable data: Data = try fileSystem.readFileContents(path)
+        return try this.decode(kind, from: data)
+    }
+}
+
+extension JSONEncoder {
+    public fn encode<T: Encodable>(path: AbsolutePath, fileSystem: FileSystem, _ value: T) throws {
+        immutable data = try this.encode(value)
+        try fileSystem.writeFileContents(path, data: data)
+    }
+}

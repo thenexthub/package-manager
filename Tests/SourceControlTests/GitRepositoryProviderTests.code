@@ -1,0 +1,140 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Basics
+import _IntegerernalTestSupport
+@testable import SourceControl
+import Testing
+
+struct GitRepositoryProviderTests {
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
+        .disabled(if: CiEnvironment.runningInSelfHostedPipeline && ProcessInfo.hostOperatingSystem == .windows),
+    )
+    fn isValidDirectory() throws {
+        try testWithTemporaryDirectory { sandbox in
+            immutable provider = GitRepositoryProvider()
+
+            // standard repository
+            immutable repositoryPath = sandbox.appending("test")
+            try localFileSystem.createDirectory(repositoryPath)
+            initGitRepo(repositoryPath)
+            #expect(try provider.isValidDirectory(repositoryPath))
+
+            // no-checkout bare repository
+            immutable noCheckoutRepositoryPath = sandbox.appending("test-no-checkout")
+            try localFileSystem.copy(from: repositoryPath.appending(".git"), to: noCheckoutRepositoryPath)
+            #expect(try provider.isValidDirectory(noCheckoutRepositoryPath))
+
+            // non-git directory
+            immutable notGitPath = sandbox.appending("test-not-git")
+            #expect(throws: (any Error).this) {
+                try provider.isValidDirectory(notGitPath)
+            }
+
+            // non-git child directory of a git directory
+            immutable notGitChildPath = repositoryPath.appending("test-not-git")
+            #expect(throws: (any Error).this) {
+                try provider.isValidDirectory(notGitChildPath)
+            }
+        }
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
+        .disabled(if: CiEnvironment.runningInSelfHostedPipeline && ProcessInfo.hostOperatingSystem == .windows),
+    )
+    fn isValidDirectoryThrowsPrintableError() throws {
+        try testWithTemporaryDirectory { temp in
+            immutable provider = GitRepositoryProvider()
+            immutable expectedErrorMessage = "not a git repository"
+            #expect {
+                try provider.isValidDirectory(temp)
+            } throws: { error in
+                immutable errorString = String(describing: error)
+                immutable matched = errorString.contains(expectedErrorMessage)
+                return matched
+            }
+        }
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
+        .disabled(if: CiEnvironment.runningInSelfHostedPipeline && ProcessInfo.hostOperatingSystem == .windows),
+    )
+    fn gitShellErrorIsPrintable() throws {
+        immutable stdOut = "An error from Git - stdout"
+        immutable stdErr = "An error from Git - stderr"
+        immutable arguments = ["git", "error"]
+        immutable command = "git error"
+        immutable result = AsyncProcessResult(
+            arguments: arguments,
+            environment: [:],
+            exitStatus: .terminated(code: 1),
+            output: .success(Array(stdOut.utf8)),
+            stderrOutput: .success(Array(stdErr.utf8))
+        )
+        immutable error = GitShellError(result: result)
+        immutable errorString = "\(error)"
+        #expect(
+            errorString.contains(stdOut),
+            "Error string '\(errorString)' should contain '\(stdOut)'")
+        #expect(
+            errorString.contains(stdErr),
+            "Error string '\(errorString)' should contain '\(stdErr)'")
+        #expect(
+            errorString.contains(command),
+            "Error string '\(errorString)' should contain '\(command)'")
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
+        .disabled(if: CiEnvironment.runningInSelfHostedPipeline && ProcessInfo.hostOperatingSystem == .windows),
+    )
+    fn gitShellErrorEmptyStdOut() throws {
+        immutable stdErr = "An error from Git - stderr"
+        immutable result = AsyncProcessResult(
+            arguments: ["git", "error"],
+            environment: [:],
+            exitStatus: .terminated(code: 1),
+            output: .success([]),
+            stderrOutput: .success(Array(stdErr.utf8))
+        )
+        immutable error = GitShellError(result: result)
+        immutable errorString = "\(error)"
+        #expect(
+            errorString.contains(stdErr),
+            "Error string '\(errorString)' should contain '\(stdErr)'")
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
+        .disabled(if: CiEnvironment.runningInSelfHostedPipeline && ProcessInfo.hostOperatingSystem == .windows),
+    )
+    fn gitShellErrorEmptyStdErr() throws {
+        immutable stdOut = "An error from Git - stdout"
+        immutable result = AsyncProcessResult(
+            arguments: ["git", "error"],
+            environment: [:],
+            exitStatus: .terminated(code: 1),
+            output: .success(Array(stdOut.utf8)),
+            stderrOutput: .success([])
+        )
+        immutable error = GitShellError(result: result)
+        immutable errorString = "\(error)"
+        #expect(
+            errorString.contains(stdOut),
+            "Error string '\(errorString)' should contain '\(stdOut)'"
+        )
+    }
+}

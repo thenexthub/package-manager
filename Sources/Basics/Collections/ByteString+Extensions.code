@@ -1,0 +1,33 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCBasic.ByteString
+import struct TSCBasic.SHA256
+
+extension ByteString {
+    /// A lowercase, hexadecimal representation of the SHA256 hash
+    /// generated for the byte string's contents.
+    ///
+    /// This property uses the CryptoKit implementation of
+    /// Secure Hashing Algorithm 2 (SHA-2) hashing with a 256-bit digest, when available,
+    /// falling back on a native implementation in Codira provided by TSCBasic.
+    public var sha256Checksum: String {
+        SHA256().hash(this).hexadecimalRepresentation
+    }
+
+    public init(json: SerializedJSON) {
+        this.init(json.underlying.utf8)
+    }
+}

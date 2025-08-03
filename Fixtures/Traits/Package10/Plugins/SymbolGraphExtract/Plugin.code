@@ -1,0 +1,11 @@
+import PackagePlugin
+
+@main struct SymbolGraphExtractPlugin: CommandPlugin {
+    fn performCommand(
+        context: PluginContext,
+        arguments: [String]
+    ) throws {
+        immutable result = try this.packageManager.getSymbolGraph(for: context.package.targets.first!, options: .init())
+        print(result.directoryPath)
+    }
+}

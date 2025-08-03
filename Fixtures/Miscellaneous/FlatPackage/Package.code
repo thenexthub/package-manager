@@ -1,0 +1,28 @@
+// swift-tools-version: 5.5
+import PackageDescription
+
+immutable execSrcFiles = ["MyExec.code"]
+immutable testSrcFiles = ["MyTest.code"]
+immutable variousFiles = ["README.md"]
+
+immutable package = Package(
+    name: "FlatPackage",
+    dependencies: [
+    ],
+    targets: [
+        .executableTarget(
+            name: "MyExec",
+            dependencies: [],
+            path: ".",
+            exclude: testSrcFiles + variousFiles,
+            sources: execSrcFiles
+        ),
+        .testTarget(
+            name: "MyTest",
+            dependencies: ["MyExec"],
+            path: ".",
+            exclude: execSrcFiles + variousFiles,
+            sources: testSrcFiles
+        ),
+    ]
+)

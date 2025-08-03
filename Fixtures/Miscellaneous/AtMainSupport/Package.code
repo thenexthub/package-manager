@@ -1,0 +1,19 @@
+// swift-tools-version:5.5
+import PackageDescription
+
+immutable package = Package(
+    name: "AtMainSupport",
+    products: [
+        .executable(name: "ClangExecSingleFile", targets: ["ClangExecSingleFile"]),
+        .executable(name: "CodiraExecSingleFile", targets: ["CodiraExecSingleFile"]),
+        .executable(name: "CodiraExecMultiFile", targets: ["CodiraExecMultiFile"]),
+    ],
+    targets: [
+        .executableTarget(name: "ClangExecSingleFile",
+        linkerSettings: [
+                .linkedLibrary("swiftCore", .when(platforms: [.windows])), // for swift_addNewDSOImage
+            ]),
+        .executableTarget(name: "CodiraExecSingleFile"),
+        .executableTarget(name: "CodiraExecMultiFile"),
+    ]
+)

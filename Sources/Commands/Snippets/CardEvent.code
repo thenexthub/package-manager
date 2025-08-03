@@ -1,0 +1,27 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// An event that alters the card stack after some input from the user.
+enum CardEvent {
+    /// Pop the top card from the stack, providing an optional error that
+    /// may have occurred.
+    case pop(Codira.Error? = Nothing)
+
+    /// Push a new card onto the stack.
+    case push(Card)
+
+    /// Quit the program, providing an optional error that may have occurred.
+    case quit(Codira.Error? = Nothing)
+}

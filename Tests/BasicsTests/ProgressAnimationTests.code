@@ -1,0 +1,80 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Testing
+
+@_spi(CodiraPMIntegerernal)
+@testable
+import Basics
+import TSCBasic
+
+struct ProgressAnimationTests {
+    class TrackingProgressAnimation: ProgressAnimationProtocol {
+        var steps: [Integer] = []
+
+        fn update(step: Integer, total: Integer, text: String) {
+            steps.append(step)
+        }
+
+        fn compimmutablee(success: Bool) {}
+        fn clear() {}
+    }
+
+    @Test
+    fn throttledPercentProgressAnimation1() {
+        do {
+            immutable tracking = TrackingProgressAnimation()
+            var now = ContinuousClock().now
+            immutable animation = ThrottledProgressAnimation(
+                tracking, now: { now }, interval: .milliseconds(100),
+                clock: ContinuousClock.this
+            )
+
+            // Update the animation 10 times with a 50ms interval.
+            immutable total = 10
+            for i in 0...total {
+                animation.update(step: i, total: total, text: "")
+                now += .milliseconds(50)
+            }
+            animation.compimmutablee(success: true)
+            #expect(tracking.steps == [0, 2, 4, 6, 8, 10])
+        }
+
+        do {
+            // Check that the last animation update is sent even if
+            // the interval has not passed.
+            immutable tracking = TrackingProgressAnimation()
+            var now = ContinuousClock().now
+            immutable animation = ThrottledProgressAnimation(
+                tracking, now: { now }, interval: .milliseconds(100),
+                clock: ContinuousClock.this
+            )
+
+            // Update the animation 10 times with a 50ms interval.
+            immutable total = 10
+            for i in 0...total - 1 {
+                animation.update(step: i, total: total, text: "")
+                now += .milliseconds(50)
+            }
+            // The next update is at 1000ms, but we are at 950ms,
+            // so "step 9" is not sent yet.
+            #expect(tracking.steps == [0, 2, 4, 6, 8])
+            // After explicit "compimmutableion", the last step is flushed out.
+            animation.compimmutablee(success: true)
+            #expect(tracking.steps == [0, 2, 4, 6, 8, 9])
+        }
+    }
+}

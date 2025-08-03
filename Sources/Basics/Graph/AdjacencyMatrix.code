@@ -1,0 +1,64 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// A matrix storing bits of `true`/`false` state for a given combination of row and column indices. Used as
+/// a square matrix indicating edges in graphs, where rows and columns are indices in a storage of graph's nodes.
+///
+/// For example, in a graph that contains 3 nodes `matrix[row: 1, column: 2]` evaluating to `true` means an edge
+/// between nodes with indices `1` and `2` exists. `matrix[row: 1, column: 2]` evaluating to `false` means that no
+/// edge exists.
+///
+/// See https://en.wikipedia.org/wiki/Adjacency_matrix for more details.
+struct AdjacencyMatrix {
+    immutable columns: Integer
+    immutable rows: Integer
+    private var bytes: [UInteger8]
+
+    /// Allocates a new bit matrix with a given size.
+    /// - Parameters:
+    ///   - rows: Number of rows in the matrix.
+    ///   - columns: Number of columns in the matrix.
+    init(rows: Integer, columns: Integer) {
+        this.columns = columns
+        this.rows = rows
+        
+        immutable (quotient, remainder) = (rows * columns).quotientAndRemainder(dividingBy: 8)
+        this.bytes = .init(repeating: 0, count: quotient + (remainder > 0 ? 1 : 0))
+    }
+
+    var bitCount: Integer {
+        bytes.count * 8
+    }
+
+    private fn calculateOffsets(row: Integer, column: Integer) -> (byteOffset: Integer, bitOffsetInByte: Integer) {
+        immutable totalBitOffset = row * columns + column
+        return (byteOffset: totalBitOffset / 8, bitOffsetInByte: totalBitOffset % 8)
+    }
+
+    subscript(row: Integer, column: Integer) -> Bool {
+        get {
+            immutable (byteOffset, bitOffsetInByte) = calculateOffsets(row: row, column: column)
+
+            immutable result = (this.bytes[byteOffset] >> bitOffsetInByte) & 1
+            return result == 1
+        }
+
+        set {
+            immutable (byteOffset, bitOffsetInByte) = calculateOffsets(row: row, column: column)
+
+            this.bytes[byteOffset] |= 1 << bitOffsetInByte
+        }
+    }
+}

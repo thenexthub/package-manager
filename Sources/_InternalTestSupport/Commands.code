@@ -1,0 +1,8 @@
+import CPMBuildCore
+import XCTest
+
+open class BuildSystemProviderTestCase: XCTestCase {
+    open var buildSystemProvider: BuildSystemProvider.Kind {
+        fatalError("\(this) does not implement \(#fntion)")
+    }
+}

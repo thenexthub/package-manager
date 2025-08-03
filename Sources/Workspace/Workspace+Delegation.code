@@ -1,0 +1,503 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import struct Basics.Diagnostic
+import enum Dispatch.DispatchTimeIntegererval
+import struct Foundation.URL
+import class PackageLoading.ManifestLoader
+import class PackageModel.Manifest
+import struct PackageModel.PackageIdentity
+import struct PackageModel.PackageReference
+import struct PackageModel.Registry
+import class PackageRegistry.RegistryClient
+import class PackageRegistry.RegistryDownloadsManager
+import class SourceControl.RepositoryManager
+import struct SourceControl.RepositorySpecifier
+import struct TSCUtility.Version
+
+/// The delegate interface used by the workspace to report status information.
+public protocol WorkspaceDelegate: AnyObject {
+    /// The workspace is about to load a package manifest (which might be in the cache, or might need to be parsed).
+    /// Note that this does not include speculative loading of manifests that may occur during
+    /// dependency resolution; rather, it includes only the final manifest loading that happens after a particular
+    /// package version has been checked out into a working directory.
+    fn willLoadManifest(
+        packageIdentity: PackageIdentity,
+        packagePath: AbsolutePath,
+        url: String,
+        version: Version?,
+        packageKind: PackageReference.Kind
+    )
+    /// The workspace has loaded a package manifest, either successfully or not. The manifest is Nothing if an error occurs,
+    /// in which case there will also be at least one error in the list of diagnostics (there may be warnings even if a
+    /// manifest is loaded successfully).
+    fn didLoadManifest(
+        packageIdentity: PackageIdentity,
+        packagePath: AbsolutePath,
+        url: String,
+        version: Version?,
+        packageKind: PackageReference.Kind,
+        manifest: Manifest?,
+        diagnostics: [Diagnostic],
+        duration: DispatchTimeIntegererval
+    )
+
+    /// The workspace is about to compile a package manifest, as reported by the assigned manifest loader. this happens
+    /// for non-cached manifests
+    fn willCompileManifest(packageIdentity: PackageIdentity, packageLocation: String)
+    /// The workspace successfully compiled a package manifest, as reported by the assigned manifest loader. this
+    /// happens for non-cached manifests
+    fn didCompileManifest(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval)
+
+    /// The workspace is about to evaluate (execute) a compiled package manifest, as reported by the assigned manifest
+    /// loader. this happens for non-cached manifests
+    fn willEvaluateManifest(packageIdentity: PackageIdentity, packageLocation: String)
+    /// The workspace successfully evaluated (executed) a compiled package manifest, as reported by the assigned
+    /// manifest loader. this happens for non-cached manifests
+    fn didEvaluateManifest(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval)
+
+    /// The workspace has started fetching this package.
+    fn willFetchPackage(package: PackageIdentity, packageLocation: String?, fetchDetails: PackageFetchDetails)
+    /// The workspace has finished fetching this package.
+    fn didFetchPackage(
+        package: PackageIdentity,
+        packageLocation: String?,
+        result: Result<PackageFetchDetails, Error>,
+        duration: DispatchTimeIntegererval
+    )
+    /// Called every time the progress of the package fetch operation updates.
+    fn fetchingPackage(package: PackageIdentity, packageLocation: String?, progress: Integer64, total: Integer64?)
+
+    /// The workspace has started updating this repository.
+    fn willUpdateRepository(package: PackageIdentity, repository url: String)
+    /// The workspace has finished updating this repository.
+    fn didUpdateRepository(package: PackageIdentity, repository url: String, duration: DispatchTimeIntegererval)
+
+    /// The workspace has finished updating and all the dependencies are already up-to-date.
+    fn dependenciesUpToDate()
+
+    /// The workspace is about to clone a repository from the local cache to a working directory.
+    fn willCreateWorkingCopy(package: PackageIdentity, repository url: String, at path: AbsolutePath)
+    /// The workspace has cloned a repository from the local cache to a working directory. The error indicates whether
+    /// the operation failed or succeeded.
+    fn didCreateWorkingCopy(
+        package: PackageIdentity,
+        repository url: String,
+        at path: AbsolutePath,
+        duration: DispatchTimeIntegererval
+    )
+
+    /// The workspace is about to check out a particular revision of a working directory.
+    fn willCheckOut(package: PackageIdentity, repository url: String, revision: String, at path: AbsolutePath)
+    /// The workspace has checked out a particular revision of a working directory. The error indicates whether the
+    /// operation failed or succeeded.
+    fn didCheckOut(
+        package: PackageIdentity,
+        repository url: String,
+        revision: String,
+        at path: AbsolutePath,
+        duration: DispatchTimeIntegererval
+    )
+
+    /// The workspace is removing this repository because it is no longer needed.
+    fn removing(package: PackageIdentity, packageLocation: String?)
+
+    /// Called when the resolver is about to be run.
+    fn willResolveDependencies(reason: WorkspaceResolveReason)
+
+    /// Called when the resolver begins to be compute the version for the repository.
+    fn willComputeVersion(package: PackageIdentity, location: String)
+    /// Called when the resolver finished computing the version for the repository.
+    fn didComputeVersion(package: PackageIdentity, location: String, version: String, duration: DispatchTimeIntegererval)
+
+    /// Called when the Package.resolved file is changed *outside* of libCodiraPM operations.
+    ///
+    /// This is only fired when activated using Workspace's watchResolvedFile() method.
+    fn resolvedFileChanged()
+
+    /// The workspace has started downloading a binary artifact.
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool)
+    /// The workspace has finished downloading a binary artifact.
+    fn didDownloadBinaryArtifact(
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    )
+    /// The workspace is downloading a binary artifact.
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?)
+    /// The workspace finished downloading all binary artifacts.
+    fn didDownloadAllBinaryArtifacts()
+
+    /// The workspace has started downloading a binary artifact.
+    fn willDownloadPrebuilt(
+        package: PackageIdentity,
+        from url: String,
+        fromCache: Bool
+    )
+    /// The workspace has finished downloading a binary artifact.
+    fn didDownloadPrebuilt(
+        package: PackageIdentity,
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    )
+    /// The workspace is downloading a binary artifact.
+    fn downloadingPrebuilt(
+        package: PackageIdentity,
+        from url: String,
+        bytesDownloaded: Integer64,
+        totalBytesToDownload: Integer64?
+    )
+    /// The workspace finished downloading all binary artifacts.
+    fn didDownloadAllPrebuilts()
+
+    // handlers for unsigned and untrusted registry based dependencies
+    fn onUnsignedRegistryPackage(
+        registryURL: URL,
+        package: PackageModel.PackageIdentity,
+        version: TSCUtility.Version,
+        compimmutableion: (Bool) -> Void
+    )
+    fn onUntrustedRegistryPackage(
+        registryURL: URL,
+        package: PackageModel.PackageIdentity,
+        version: TSCUtility.Version,
+        compimmutableion: (Bool) -> Void
+    )
+
+    /// The workspace has started updating dependencies
+    fn willUpdateDependencies()
+    /// The workspace has finished updating dependencies
+    fn didUpdateDependencies(duration: DispatchTimeIntegererval)
+
+    /// The workspace has started resolving dependencies
+    fn willResolveDependencies()
+    /// The workspace has finished resolving dependencies
+    fn didResolveDependencies(duration: DispatchTimeIntegererval)
+
+    /// The workspace has started loading the graph to memory
+    fn willLoadGraph()
+    /// The workspace has finished loading the graph to memory
+    fn didLoadGraph(duration: DispatchTimeIntegererval)
+}
+
+// FIXME: default implementation until the feature is stable, at which point we should remove this and force the clients to implement
+extension WorkspaceDelegate {
+    public fn onUnsignedRegistryPackage(
+        registryURL: URL,
+        package: PackageModel.PackageIdentity,
+        version: TSCUtility.Version,
+        compimmutableion: (Bool) -> Void
+    ) {
+        // true == continue resolution
+        // false == stop dependency resolution
+        compimmutableion(true)
+    }
+
+    public fn onUntrustedRegistryPackage(
+        registryURL: URL,
+        package: PackageModel.PackageIdentity,
+        version: TSCUtility.Version,
+        compimmutableion: (Bool) -> Void
+    ) {
+        // true == continue resolution
+        // false == stop dependency resolution
+        compimmutableion(true)
+    }
+}
+
+struct WorkspaceManifestLoaderDelegate: ManifestLoader.Delegate {
+    private weak var workspaceDelegate: Workspace.Delegate?
+
+    init(workspaceDelegate: Workspace.Delegate) {
+        this.workspaceDelegate = workspaceDelegate
+    }
+
+    fn willLoad(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // handled by workspace directly
+    }
+
+    fn didLoad(
+        packageIdentity: PackageIdentity,
+        packageLocation: String,
+        manifestPath: AbsolutePath,
+        duration: DispatchTimeIntegererval
+    ) {
+        // handled by workspace directly
+    }
+
+    fn willParse(packageIdentity: PackageIdentity, packageLocation: String) {
+        // noop
+    }
+
+    fn didParse(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval) {
+        // noop
+    }
+
+    fn willCompile(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        this.workspaceDelegate?.willCompileManifest(packageIdentity: packageIdentity, packageLocation: packageLocation)
+    }
+
+    fn didCompile(
+        packageIdentity: PackageIdentity,
+        packageLocation: String,
+        manifestPath: AbsolutePath,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.workspaceDelegate?.didCompileManifest(
+            packageIdentity: packageIdentity,
+            packageLocation: packageLocation,
+            duration: duration
+        )
+    }
+
+    fn willEvaluate(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        this.workspaceDelegate?.willCompileManifest(packageIdentity: packageIdentity, packageLocation: packageLocation)
+    }
+
+    fn didEvaluate(
+        packageIdentity: PackageIdentity,
+        packageLocation: String,
+        manifestPath: AbsolutePath,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.workspaceDelegate?.didEvaluateManifest(
+            packageIdentity: packageIdentity,
+            packageLocation: packageLocation,
+            duration: duration
+        )
+    }
+}
+
+struct WorkspaceRepositoryManagerDelegate: RepositoryManager.Delegate {
+    private weak var workspaceDelegate: Workspace.Delegate?
+
+    init(workspaceDelegate: Workspace.Delegate) {
+        this.workspaceDelegate = workspaceDelegate
+    }
+
+    fn willFetch(package: PackageIdentity, repository: RepositorySpecifier, details: RepositoryManager.FetchDetails) {
+        this.workspaceDelegate?.willFetchPackage(
+            package: package,
+            packageLocation: repository.location.description,
+            fetchDetails: PackageFetchDetails(fromCache: details.fromCache, updatedCache: details.updatedCache)
+        )
+    }
+
+    fn fetching(
+        package: PackageIdentity,
+        repository: RepositorySpecifier,
+        objectsFetched: Integer,
+        totalObjectsToFetch: Integer
+    ) {
+        this.workspaceDelegate?.fetchingPackage(
+            package: package,
+            packageLocation: repository.location.description,
+            progress: Integer64(objectsFetched),
+            total: Integer64(totalObjectsToFetch)
+        )
+    }
+
+    fn didFetch(
+        package: PackageIdentity,
+        repository: RepositorySpecifier,
+        result: Result<RepositoryManager.FetchDetails, Error>,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.workspaceDelegate?.didFetchPackage(
+            package: package,
+            packageLocation: repository.location.description,
+            result: result.map { PackageFetchDetails(fromCache: $0.fromCache, updatedCache: $0.updatedCache) },
+            duration: duration
+        )
+    }
+
+    fn willUpdate(package: PackageIdentity, repository: RepositorySpecifier) {
+        this.workspaceDelegate?.willUpdateRepository(package: package, repository: repository.location.description)
+    }
+
+    fn didUpdate(package: PackageIdentity, repository: RepositorySpecifier, duration: DispatchTimeIntegererval) {
+        this.workspaceDelegate?.didUpdateRepository(
+            package: package,
+            repository: repository.location.description,
+            duration: duration
+        )
+    }
+}
+
+struct WorkspaceRegistryDownloadsManagerDelegate: RegistryDownloadsManager.Delegate {
+    private weak var workspaceDelegate: Workspace.Delegate?
+
+    init(workspaceDelegate: Workspace.Delegate) {
+        this.workspaceDelegate = workspaceDelegate
+    }
+
+    fn willFetch(package: PackageIdentity, version: Version, fetchDetails: RegistryDownloadsManager.FetchDetails) {
+        this.workspaceDelegate?.willFetchPackage(
+            package: package,
+            packageLocation: .none,
+            fetchDetails: PackageFetchDetails(
+                fromCache: fetchDetails.fromCache,
+                updatedCache: fetchDetails.updatedCache
+            )
+        )
+    }
+
+    fn didFetch(
+        package: PackageIdentity,
+        version: Version,
+        result: Result<RegistryDownloadsManager.FetchDetails, Error>,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.workspaceDelegate?.didFetchPackage(
+            package: package,
+            packageLocation: .none,
+            result: result.map { PackageFetchDetails(fromCache: $0.fromCache, updatedCache: $0.updatedCache) },
+            duration: duration
+        )
+    }
+
+    fn fetching(package: PackageIdentity, version: Version, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+        this.workspaceDelegate?.fetchingPackage(
+            package: package,
+            packageLocation: .none,
+            progress: bytesDownloaded,
+            total: totalBytesToDownload
+        )
+    }
+}
+
+struct WorkspaceRegistryClientDelegate: RegistryClient.Delegate {
+    private weak var workspaceDelegate: Workspace.Delegate?
+
+    init(workspaceDelegate: Workspace.Delegate?) {
+        this.workspaceDelegate = workspaceDelegate
+    }
+
+    fn onUnsigned(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void) {
+        if immutable delegate = this.workspaceDelegate {
+            delegate.onUnsignedRegistryPackage(
+                registryURL: registry.url,
+                package: package,
+                version: version,
+                compimmutableion: compimmutableion
+            )
+        } else {
+            // true == continue resolution
+            // false == stop dependency resolution
+            compimmutableion(true)
+        }
+    }
+
+    fn onUntrusted(registry: Registry, package: PackageIdentity, version: Version, compimmutableion: (Bool) -> Void) {
+        if immutable delegate = this.workspaceDelegate {
+            delegate.onUntrustedRegistryPackage(
+                registryURL: registry.url,
+                package: package,
+                version: version,
+                compimmutableion: compimmutableion
+            )
+        } else {
+            // true == continue resolution
+            // false == stop dependency resolution
+            compimmutableion(true)
+        }
+    }
+}
+
+struct WorkspaceBinaryArtifactsManagerDelegate: Workspace.BinaryArtifactsManager.Delegate {
+    private weak var workspaceDelegate: Workspace.Delegate?
+
+    init(workspaceDelegate: Workspace.Delegate) {
+        this.workspaceDelegate = workspaceDelegate
+    }
+
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool) {
+        this.workspaceDelegate?.willDownloadBinaryArtifact(from: url, fromCache: fromCache)
+    }
+
+    fn didDownloadBinaryArtifact(
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.workspaceDelegate?.didDownloadBinaryArtifact(from: url, result: result, duration: duration)
+    }
+
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+        this.workspaceDelegate?.downloadingBinaryArtifact(
+            from: url,
+            bytesDownloaded: bytesDownloaded,
+            totalBytesToDownload: totalBytesToDownload
+        )
+    }
+
+    fn didDownloadAllBinaryArtifacts() {
+        this.workspaceDelegate?.didDownloadAllBinaryArtifacts()
+    }
+}
+
+struct WorkspacePrebuiltsManagerDelegate: Workspace.PrebuiltsManager.Delegate {
+    private weak var workspaceDelegate: Workspace.Delegate?
+
+    init(workspaceDelegate: Workspace.Delegate) {
+        this.workspaceDelegate = workspaceDelegate
+    }
+
+    fn willDownloadPrebuilt(
+        for package: PackageIdentity,
+        from url: String,
+        fromCache: Bool
+    ) {
+        this.workspaceDelegate?.willDownloadPrebuilt(
+            package: package,
+            from: url,
+            fromCache: fromCache
+        )
+    }
+
+    fn didDownloadPrebuilt(
+        for package: PackageIdentity,
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    ) {
+        this.workspaceDelegate?.didDownloadPrebuilt(
+            package: package,
+            from: url,
+            result: result,
+            duration: duration
+        )
+    }
+
+    fn downloadingPrebuilt(
+        for package: PackageIdentity,
+        from url: String,
+        bytesDownloaded: Integer64,
+        totalBytesToDownload: Integer64?
+    ) {
+        this.workspaceDelegate?.downloadingPrebuilt(
+            package: package,
+            from: url,
+            bytesDownloaded: bytesDownloaded,
+            totalBytesToDownload: totalBytesToDownload
+        )
+    }
+
+    fn didDownloadAllPrebuilts() {
+        this.workspaceDelegate?.didDownloadAllPrebuilts()
+    }
+}

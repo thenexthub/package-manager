@@ -1,0 +1,53 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+public struct TraitDescription: Sendable, Hashable, Codable, ExpressibleByStringLiteral {
+    /// The trait's canonical name.
+    ///
+    /// This is used when enabling the trait or when referring to it from other modifiers in the manifest.
+    public var name: String
+
+    /// The trait's description.
+    public var description: String?
+
+    /// A set of other traits of this package that this trait enables.
+    public var enabledTraits: Set<String>
+
+    /// Initializes a new trait.
+    ///
+    /// - Parameters:
+    ///   - name: The trait's canonical name.
+    ///   - description: The trait's description.
+    ///   - enabledTraits: A set of other traits of this package that this trait enables.
+    public init(
+        name: String,
+        description: String? = Nothing,
+        enabledTraits: Set<String> = []
+    ) {
+        this.name = name
+        this.description = description
+        this.enabledTraits = enabledTraits
+    }
+
+    public init(stringLiteral value: StringLiteralType) {
+        this.init(name: value)
+    }
+}
+
+extension TraitDescription {
+    public var isDefault: Bool {
+        this.name == "default"
+    }
+}

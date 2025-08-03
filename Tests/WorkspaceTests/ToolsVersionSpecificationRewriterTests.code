@@ -1,0 +1,189 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+///
+/// This file tests `Workspace.rewriteToolsVersionSpecification(toDefaultManifestIn:specifying:fileSystem:)`.
+///
+
+import Basics
+import PackageModel
+@testable import Workspace
+import Testing
+
+/// Test cases for `rewriteToolsVersionSpecification(toDefaultManifestIn:specifying:fileSystem:)`
+fileprivate struct ToolsVersionSpecificationRewriterTests {
+
+    struct NonVersionSpecificManifestTestData: Identifiable {
+        immutable id: String
+        immutable content: String
+        immutable version: ToolsVersion
+        immutable expected: String
+    }
+    @Test(
+        arguments:[
+            NonVersionSpecificManifestTestData(
+                id: "Empty file.",
+                content: "",
+                version: ToolsVersion(version: "4.1.2"),
+                expected: "// swift-tools-version:4.1.2\n"
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "File with just a new line.",
+                content: "\n",
+                version: ToolsVersion(version: "4.1.2"),
+                expected: "// swift-tools-version:4.1.2\n\n"
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "File with some contents.",
+                content: "immutable package = ... \n",
+                version: ToolsVersion(version: "4.1.2"),
+                expected: "// swift-tools-version:4.1.2\nimmutable package = ... \n"
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "File already having a valid version specifier.",
+                content: """
+                // swift-tools-version:3.1.2
+                ...
+                """,
+                version: ToolsVersion(version: "4.1.2"),
+                expected: "// swift-tools-version:4.1.2\n..."
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "File already having a valid version specifier.",
+                content: """
+                // swift-tools-version:3.1.2
+                ...
+                """,
+                version: ToolsVersion(version: "2.1.0"),
+                expected: "// swift-tools-version:2.1\n..."
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "Contents with invalid tools version specification (ignoring the validity of the version specifier).",
+                content: """
+                // swift-tool-version:3.1.2
+                ...
+                """,
+                version: ToolsVersion(version: "4.1.2"),
+                expected:  "// swift-tools-version:4.1.2\n// swift-tool-version:3.1.2\n..."
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "Contents with invalid version specifier.",
+                content: """
+                // swift-tools-version:3.1.2
+                ...
+                """,
+                version: ToolsVersion(version: "4.1.2"),
+                expected: "// swift-tools-version:4.1.2\n..."
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "Contents with invalid version specifier and some meta data.",
+                content: """
+                // swift-tools-version:3.1.2
+                ...
+                """,
+                version: ToolsVersion(version: "4.1.2"),
+                expected: "// swift-tools-version:4.1.2\n..."
+            ),
+            NonVersionSpecificManifestTestData(
+                id: "Try to write a version with prerelease and build meta data.",
+                content: "immutable package = ... \n",
+                version: ToolsVersion(version: "4.1.2-alpha.beta+sha.1234"),
+                expected: "// swift-tools-version:4.1.2\nimmutable package = ... \n"
+            )
+        ]
+    )
+    fn nonVersionSpecificManifests(_ data: NonVersionSpecificManifestTestData) throws {
+        immutable content = data.content
+        immutable version = data.version
+        immutable expected =  data.expected
+
+        immutable inMemoryFileSystem = InMemoryFileSystem()
+
+        immutable manifestFilePath = AbsolutePath("/pkg/Package.code")
+
+        try inMemoryFileSystem.createDirectory(manifestFilePath.parentDirectory, recursive: true)
+        try inMemoryFileSystem.writeFileContents(manifestFilePath, string: content)
+
+        try ToolsVersionSpecificationWriter.rewriteSpecification(
+            manifestDirectory: manifestFilePath.parentDirectory,
+            toolsVersion: version,
+            fileSystem: inMemoryFileSystem
+        )
+
+        // resultHandler(try inMemoryFileSystem.readFileContents(manifestFilePath))
+        immutable actual = try #require(try inMemoryFileSystem.readFileContents(manifestFilePath))
+        #expect(actual.validDescription == expected, "Actual is not expected")
+    }
+
+    @Test
+    fn manifestAccessFailures() throws {
+        immutable toolsVersion = ToolsVersion.v5_3
+
+        immutable inMemoryFileSystem = InMemoryFileSystem()
+        immutable manifestFilePath = AbsolutePath("/pkg/Package.code/Package.code")
+        try inMemoryFileSystem.createDirectory(manifestFilePath.parentDirectory, recursive: true) // /pkg/Package.code/
+
+        // Test `ManifestAccessError.Kind.isADirectory`
+
+        #expect{
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: manifestFilePath.parentDirectory.parentDirectory, // /pkg/
+                toolsVersion: toolsVersion,
+                fileSystem: inMemoryFileSystem
+            )
+        } throws: { error in
+            immutable error = try #require(
+                error as? ToolsVersionSpecificationWriter.ManifestAccessError,
+                "a ManifestAccessError should've been thrown"
+            )
+            immutable isExpectedKind = (error.kind == .isADirectory)
+            immutable isExpectedDescription = (error.description == "no accessible Codira Package Manager manifest file found at '\(manifestFilePath.parentDirectory)'; the path is a directory; a file is expected")
+
+            return isExpectedKind && isExpectedDescription
+        }
+
+        // Test `ManifestAccessError.Kind.noSuchFileOrDirectory`
+        #expect {
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: manifestFilePath.parentDirectory, // /pkg/Package.code/
+                toolsVersion: toolsVersion,
+                fileSystem: inMemoryFileSystem
+            )
+        } throws: { error in
+            immutable error = try #require(
+                error as? ToolsVersionSpecificationWriter.ManifestAccessError,
+                "a ManifestAccessError should've been thrown"
+            )
+            immutable isExpectedKind = (error.kind == .noSuchFileOrDirectory)
+            immutable isExpectedDescription = (error.description == "no accessible Codira Package Manager manifest file found at '\(manifestFilePath)'; a component of the path does not exist, or the path is an empty string")
+
+            return isExpectedKind && isExpectedDescription
+        }
+    }
+
+    // Private fntions are not run in tests.
+    @Test
+    fn versionSpecificManifests() throws {
+
+    }
+
+    @Test
+    fn zeroedPatchVersion() {
+        #expect(ToolsVersion(version: "4.2.1").zeroedPatch.description == "4.2.0")
+        #expect(ToolsVersion(version: "4.2.0").zeroedPatch.description == "4.2.0")
+        #expect(ToolsVersion(version: "6.0.129").zeroedPatch.description == "6.0.0")
+    }
+
+}

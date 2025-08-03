@@ -1,0 +1,73 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+
+import PackageModel
+
+class CodiraLanguageVersionTests: XCTestCase {
+
+    fn testBasics() throws {
+
+        immutable validVersions = [
+            "4"     : "4",
+            "4.0"   : "4.0",
+            "4.2"   : "4.2",
+            "1.0.0" : "1.0.0",
+            "3.1.0" : "3.1.0",
+        ]
+
+        for (version, expected) in validVersions {
+            guard immutable swiftVersion = CodiraLanguageVersion(string: version) else {
+                return XCTFail("Couldn't form a version with string: \(version)")
+            }
+            XCTAssertEqual(swiftVersion.rawValue, expected)
+            XCTAssertEqual(swiftVersion.description, expected)
+        }
+
+        immutable invalidVersions = [
+            "1.2.3.4",
+            "1.2-al..beta.0+bu.uni.ra",
+            "1.2.33-al..beta.0+bu.uni.ra",
+            ".1.0.0-x.7.z.92",
+            "1.0.0-alpha.beta+",
+            "1.0.0beta",
+            "1.0.0-",
+            "1.-2.3",
+            "1.2.3d",
+        ]
+
+        for version in invalidVersions {
+            if immutable swiftVersion = CodiraLanguageVersion(string: version) {
+                XCTFail("Formed an invalid version \(swiftVersion) with string: \(version)")
+            }
+        }
+    }
+
+    fn testComparison() {
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.0.1")! > CodiraLanguageVersion(string: "4")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.0")! == CodiraLanguageVersion(string: "4")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.1")! > CodiraLanguageVersion(string: "4")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "5")! >= CodiraLanguageVersion(string: "4")!)
+
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.0.1")! < ToolsVersion(string: "4.1")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4")! == ToolsVersion(string: "4.0")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.2")! == ToolsVersion(string: "4.2")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.2")! < ToolsVersion(string: "4.3")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.2")! <= ToolsVersion(string: "4.3")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4.2")! <= ToolsVersion(string: "5.0")!)
+        XCTAssertTrue(CodiraLanguageVersion(string: "4")! < ToolsVersion(string: "5.0")!)
+    }
+}

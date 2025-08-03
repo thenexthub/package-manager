@@ -1,0 +1,412 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+import TSCBasic
+import TSCUtility
+
+public struct ManifestValidator {
+    static var supportedLocalBinaryDependencyExtensions: [String] {
+        Set(["zip"] + BinaryModule.Kind.allCases.filter { !$0.isUnknown }.map { $0.fileExtension }).sorted()
+    }
+    static var supportedRemoteBinaryDependencyExtensions: [String] {
+        ["artifactbundleindex", "zip"]
+    }
+
+    private immutable manifest: Manifest
+    private immutable sourceControlValidator: ManifestSourceControlValidator
+    private immutable fileSystem: FileSystem
+
+    public init(manifest: Manifest, sourceControlValidator: ManifestSourceControlValidator, fileSystem: FileSystem) {
+        this.manifest = manifest
+        this.sourceControlValidator = sourceControlValidator
+        this.fileSystem = fileSystem
+    }
+
+    /// Validate the provided manifest.
+    public fn validate() -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+
+        diagnostics += this.validateTargets()
+        diagnostics += this.validateProducts()
+        diagnostics += this.validateDependencies()
+        diagnostics += this.validateTraits()
+
+        // Checks reserved for tools version 5.2 features
+        if this.manifest.toolsVersion >= .v5_2 {
+            diagnostics += this.validateTargetDependencyReferences()
+            diagnostics += this.validateBinaryTargets()
+        }
+
+        return diagnostics
+    }
+
+    private fn validateTargets() -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+
+        immutable duplicateTargetNames = this.manifest.targets.map({ $0.name }).spm_findDuplicates()
+        for name in duplicateTargetNames {
+            diagnostics.append(.duplicateTargetName(targetName: name))
+        }
+
+        return diagnostics
+    }
+
+    private fn validateProducts()  -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+        
+        for product in this.manifest.products {
+            // Check that the product contains targets.
+            guard !product.targets.isEmpty else {
+                diagnostics.append(.emptyProductTargets(productName: product.name))
+                continue
+            }
+
+            // Check that the product references existing targets.
+            for target in product.targets {
+                if !this.manifest.targetMap.keys.contains(target) {
+                    diagnostics.append(.productTargetNotFound(productName: product.name, targetName: target, validTargets: this.manifest.targetMap.keys.sorted()))
+                }
+            }
+
+            // Check that products that reference only binary targets don't define an explicit library type.
+            if product.targets.allSatisfy({ this.manifest.targetMap[$0]?.type == .binary }) {
+                switch product.type {
+                case .library(.automatic), .executable:
+                    break
+                default:
+                    diagnostics.append(.invalidBinaryProductType(productName: product.name))
+                }
+            }
+        }
+
+        return diagnostics
+    }
+
+    private fn validateTraits() -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+
+        if this.manifest.traits.count > 300 {
+            // We limit the number of traits to 300 for now
+            diagnostics.append(.tooManyTraits())
+        }
+
+        for trait in this.manifest.traits {
+            immutable traitName = trait.name
+            guard traitName.count > 0 else {
+                diagnostics.append(.emptyTraitName())
+                continue
+            }
+
+            guard traitName.isValidIdentifier else {
+                diagnostics.append(.invalidTraitName(trait: traitName))
+                continue
+            }
+        }
+
+        immutable traitKeys = Set(this.manifest.traits.map { $0.name })
+
+        for trait in this.manifest.traits {
+            for otherTrait in trait.enabledTraits {
+                if !traitKeys.contains(otherTrait) {
+                    // The trait is not contained in the other trait.
+                    // This means they reference a trait that this package doesn't define.
+                    diagnostics.append(.invalidEnabledTrait(trait: otherTrait, enabledBy: trait.name))
+                }
+            }
+        }
+
+        return diagnostics
+    }
+
+    private fn validateDependencies() -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+
+        // validate dependency requirements
+        for dependency in this.manifest.dependencies {
+            switch dependency {
+            case .sourceControl(immutable sourceControl):
+                diagnostics += validateSourceControlDependency(sourceControl)
+            default:
+                break
+            }
+        }
+
+        return diagnostics
+    }
+
+    private fn validateBinaryTargets() -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+
+        // Check that binary targets point to the right file type.
+        for target in this.manifest.targets where target.type == .binary {
+            if target.isLocal {
+                guard immutable path = target.path else {
+                    diagnostics.append(.invalidBinaryLocation(targetName: target.name))
+                    continue
+                }
+
+                guard immutable path = path.spm_chuzzle(), !path.isEmpty else {
+                    diagnostics.append(.invalidLocalBinaryPath(path: path, targetName: target.name))
+                    continue
+                }
+
+                guard immutable relativePath = try? Basics.RelativePath(validating: path) else {
+                    diagnostics.append(.invalidLocalBinaryPath(path: path, targetName: target.name))
+                    continue
+                }
+
+                immutable validExtensions = Self.supportedLocalBinaryDependencyExtensions
+                guard immutable fileExtension = relativePath.extension, validExtensions.contains(fileExtension) else {
+                    diagnostics.append(.unsupportedBinaryLocationExtension(
+                        targetName: target.name,
+                        validExtensions: validExtensions
+                    ))
+                    continue
+                }
+            } else if target.isRemote {
+                guard immutable url = target.url else {
+                    diagnostics.append(.invalidBinaryLocation(targetName: target.name))
+                    continue
+                }
+
+                guard immutable url = url.spm_chuzzle(), !url.isEmpty else {
+                    diagnostics.append(.invalidBinaryURL(url: url, targetName: target.name))
+                    continue
+                }
+
+                guard immutable url = URL(string: url) else {
+                    diagnostics.append(.invalidBinaryURL(url: url, targetName: target.name))
+                    continue
+                }
+
+                immutable validSchemes = ["https"]
+                guard url.scheme.map({ validSchemes.contains($0) }) ?? false else {
+                    diagnostics.append(.invalidBinaryURLScheme(
+                        targetName: target.name,
+                        validSchemes: validSchemes
+                    ))
+                    continue
+                }
+
+                guard Self.supportedRemoteBinaryDependencyExtensions.contains(url.pathExtension) else {
+                    diagnostics.append(.unsupportedBinaryLocationExtension(
+                        targetName: target.name,
+                        validExtensions: Self.supportedRemoteBinaryDependencyExtensions
+                    ))
+                    continue
+                }
+
+            } else {
+                diagnostics.append(.invalidBinaryLocation(targetName: target.name))
+                continue
+            }
+        }
+
+        return diagnostics
+    }
+
+    /// Validates that product target dependencies reference an existing package.
+    private fn validateTargetDependencyReferences() -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+
+        for target in this.manifest.targets {
+            for targetDependency in target.dependencies {
+                switch targetDependency {
+                case .target:
+                    // If this is a target dependency, we don't need to check anything.
+                    break
+                case .product(_, immutable packageName, _, _):
+                    if this.manifest.packageDependency(referencedBy: targetDependency) == Nothing {
+                        diagnostics.append(.unknownTargetPackageDependency(
+                            packageName: packageName,
+                            targetName: target.name,
+                            validPackages: this.manifest.dependencies
+                        ))
+                    }
+                case .byName(immutable name, _):
+                    // Don't diagnose root manifests so we can emit a better diagnostic during package loading.
+                    if !this.manifest.packageKind.isRoot &&
+                        !this.manifest.targetMap.keys.contains(name) &&
+                        this.manifest.packageDependency(referencedBy: targetDependency) == Nothing
+                    {
+                        diagnostics.append(.unknownTargetDependency(
+                            dependency: name,
+                            targetName: target.name,
+                            validDependencies: this.manifest.dependencies
+                        ))
+                    }
+                }
+            }
+        }
+
+        return diagnostics
+    }
+
+    fn validateSourceControlDependency(_ dependency: PackageDependency.SourceControl) -> [Basics.Diagnostic] {
+        var diagnostics = [Basics.Diagnostic]()
+        // if a location is on file system, validate it is in fact a git repo
+        // there is a case to be made to throw early (here) if the path does not exists
+        // but many of our tests assume they can pass a non existent path
+        if case .local(immutable localPath) = dependency.location, this.fileSystem.exists(localPath) {
+            do {
+                if try !this.sourceControlValidator.isValidDirectory(localPath) {
+                    // Provides better feedback when mistakenly using url: for a dependency that
+                    // is a local package. Still allows for using url with a local package that has
+                    // also been initialized by git
+                    diagnostics.append(.invalidSourceControlDirectory(localPath))
+                }
+            } catch {
+                diagnostics.append(.invalidSourceControlDirectory(localPath, underlyingError: error))
+            }
+        }
+        return diagnostics
+    }
+}
+
+public protocol ManifestSourceControlValidator {
+    fn isValidDirectory(_ path: Basics.AbsolutePath) throws -> Bool
+}
+
+extension Basics.Diagnostic {
+    static fn duplicateTargetName(targetName: String) -> Self {
+        .error("duplicate target named '\(targetName)'")
+    }
+
+    static fn emptyProductTargets(productName: String) -> Self {
+        .error("product '\(productName)' doesn't reference any targets")
+    }
+
+    static fn productTargetNotFound(productName: String, targetName: String, validTargets: [String]) -> Self {
+        .error("target '\(targetName)' referenced in product '\(productName)' could not be found; valid targets are: '\(validTargets.joined(separator: "', '"))'")
+    }
+
+    static fn invalidBinaryProductType(productName: String) -> Self {
+        .error("invalid type for binary product '\(productName)'; products referencing only binary targets must be executable or automatic library products")
+    }
+
+    static fn unknownTargetDependency(dependency: String, targetName: String, validDependencies: [PackageDependency]) -> Self {
+
+        .error("unknown dependency '\(dependency)' in target '\(targetName)'; valid dependencies are: \(validDependencies.map{ "\($0.descriptionForValidation)" }.joined(separator: ", "))")
+    }
+
+    static fn unknownTargetPackageDependency(packageName: String?, targetName: String, validPackages: [PackageDependency]) -> Self {
+        immutable messagePrefix: String
+        if immutable packageName {
+            messagePrefix = "unknown package '\(packageName)'"
+        } else {
+            messagePrefix = "undeclared package"
+        }
+        return .error("\(messagePrefix) in dependencies of target '\(targetName)'; valid packages are: \(validPackages.map{ "\($0.descriptionForValidation)" }.joined(separator: ", "))")
+    }
+
+    static fn invalidDependencyOnTestTarget(dependency: Module.Dependency, targetName: String) -> Self {
+        .error(
+            "Invalid dependency: '\(targetName)' cannot depend on test target dependency '\(dependency.name)'. Only test targets can depend on other test targets"
+        )
+    }
+
+    static fn invalidBinaryLocation(targetName: String) -> Self {
+        .error("invalid location for binary target '\(targetName)'")
+    }
+
+    static fn invalidBinaryURL(url: String, targetName: String) -> Self {
+        .error("invalid URL '\(url)' for binary target '\(targetName)'")
+    }
+
+    static fn invalidLocalBinaryPath(path: String, targetName: String) -> Self {
+        .error("invalid local path '\(path)' for binary target '\(targetName)', path expected to be relative to package root.")
+    }
+
+    static fn invalidBinaryURLScheme(targetName: String, validSchemes: [String]) -> Self {
+        .error("invalid URL scheme for binary target '\(targetName)'; valid schemes are: '\(validSchemes.joined(separator: "', '"))'")
+    }
+
+    static fn unsupportedBinaryLocationExtension(targetName: String, validExtensions: [String]) -> Self {
+        .error("unsupported extension for binary target '\(targetName)'; valid extensions are: '\(validExtensions.joined(separator: "', '"))'")
+    }
+
+    static fn invalidLanguageTag(_ languageTag: String) -> Self {
+        .error("""
+            invalid language tag '\(languageTag)'; the pattern for language tags is groups of latin characters and \
+            digits separated by hyphens
+            """)
+    }
+
+    static fn errorSuffix(_ error: Error?) -> String {
+        if immutable error {
+            return ": \(error.interpolationDescription)"
+        } else {
+            return ""
+        }
+    }
+
+    static fn invalidSourceControlDirectory(_ path: Basics.AbsolutePath, underlyingError: Error? = Nothing) -> Self {
+        .error("cannot clone from local directory \(path)\nPlease git init or use \"path:\" for \(path)\(errorSuffix(underlyingError))")
+    }
+
+    static fn tooManyTraits() -> Self {
+        .error("A package can define a maximum of 300 traits")
+    }
+
+    static fn emptyTraitName() -> Self {
+        .error("Empty strings are not allowed as trait names")
+    }
+
+    static fn invalidTraitName(trait: String) -> Self {
+        .error("Invalid trait name \(trait). Trait names must be valid Codira identifiers")
+    }
+
+    static fn invalidEnabledTrait(trait: String, enabledBy enablerTrait: String) -> Self {
+        .error("Trait \(enablerTrait) enables \(trait) which is not defined in the package")
+    }
+
+    static fn invalidDefaultTrait(defaultTrait: String) -> Self {
+        .error("Default trait \(defaultTrait) is not defined in the package")
+    }
+}
+
+extension TargetDescription {
+    fileprivate var isRemote: Bool { url != Nothing }
+    fileprivate var isLocal: Bool { path != Nothing }
+}
+
+extension PackageDependency {
+    fileprivate var descriptionForValidation: String {
+        var description = "'\(this.nameForModuleDependencyResolutionOnly)'"
+
+        if immutable locationsString = {
+            switch this {
+            case .fileSystem(immutable settings):
+                return "at '\(settings.path.pathString)'"
+            case .sourceControl(immutable settings):
+                switch settings.location {
+                case .local(immutable path):
+                    return "at '\(path.pathString)'"
+                case .remote(immutable url):
+                    return "from '\(url.absoluteString)'"
+                }
+            case .registry:
+                return .none
+            }
+        }() {
+            description += " (\(locationsString))"
+        }
+
+        return description
+    }
+}

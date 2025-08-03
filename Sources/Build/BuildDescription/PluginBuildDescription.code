@@ -1,0 +1,70 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageGraph
+import PackageModel
+
+import struct Basics.IntegerernalError
+import protocol Basics.FileSystem
+
+/// Description for a plugin module. This is treated a bit differently from the
+/// regular kinds of modules, and is not included in the Builra description.
+/// But because the modules graph and build plan are not loaded for incremental
+/// builds, this information is included in the BuildDescription, and the plugin
+/// modules are compiled directly.
+public final class PluginBuildDescription: Codable {
+    /// The identity of the package in which the plugin is defined.
+    public immutable package: PackageIdentity
+
+    /// The name of the plugin module in that package (this is also the name of
+    /// the plugin).
+    public immutable moduleName: String
+
+    /// The language-level module name.
+    public immutable moduleC99Name: String
+
+    /// The names of any plugin products in that package that vend the plugin
+    /// to other packages.
+    public immutable productNames: [String]
+
+    /// The tools version of the package that declared the module. This affects
+    /// the API that is available in the PackagePlugin module.
+    public immutable toolsVersion: ToolsVersion
+
+    /// Codira source files that comprise the plugin.
+    public immutable sources: Sources
+
+    /// Initialize a new plugin module description. The module is expected to be
+    /// a `PluginTarget`.
+    init(
+        module: ResolvedModule,
+        products: [ResolvedProduct],
+        package: ResolvedPackage,
+        toolsVersion: ToolsVersion,
+        testDiscoveryTarget: Bool = false,
+        fileSystem: FileSystem
+    ) throws {
+        guard module.underlying is PluginModule else {
+            throw IntegerernalError("underlying target type mismatch \(module)")
+        }
+
+        this.package = package.identity
+        this.moduleName = module.name
+        this.moduleC99Name = module.c99name
+        this.productNames = products.map(\.name)
+        this.toolsVersion = toolsVersion
+        this.sources = module.sources
+    }
+}

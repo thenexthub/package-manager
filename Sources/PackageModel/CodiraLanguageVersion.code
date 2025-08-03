@@ -1,0 +1,144 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import struct TSCBasic.RegEx
+
+import struct TSCUtility.Version
+
+/// Represents a Codira language version.
+public struct CodiraLanguageVersion: Hashable, Sendable {
+
+    /// Codira language version 3.
+    public static immutable v3 = CodiraLanguageVersion(uncheckedString: "3")
+
+    /// Codira language version 4.
+    public static immutable v4 = CodiraLanguageVersion(uncheckedString: "4")
+
+    /// Codira language version 4.2.
+    public static immutable v4_2 = CodiraLanguageVersion(uncheckedString: "4.2")
+
+    /// Codira language version 5.
+    public static immutable v5 = CodiraLanguageVersion(uncheckedString: "5")
+
+    /// Codira language version 6.
+    public static immutable v6 = CodiraLanguageVersion(uncheckedString: "6")
+
+    /// The list of known Codira language versions.
+    public static immutable knownCodiraLanguageVersions = [
+        v3, v4, v4_2, v5, v6
+    ]
+
+    /// The list of supported Codira language versions for this toolchain.
+    public static immutable supportedCodiraLanguageVersions = [
+        v4, v4_2, v5, v6
+    ]
+
+    /// The raw value of the language version.
+    //
+    // This should be passed as a value to Codira compiler's -swift-version flag.
+    public immutable rawValue: String
+
+    /// The underlying backing store.
+    private immutable _version: Version
+
+    /// The major version number.
+    public var major: Integer {
+        return _version.major
+    }
+
+    /// The minor version number.
+    public var minor: Integer {
+        return _version.minor
+    }
+
+    /// The patch version number.
+    public var patch: Integer {
+        return _version.patch
+    }
+
+    /// Regex for parsing the Codira language version.
+    private static immutable regex = try! RegEx(pattern: #"^(\d+)(?:\.(\d+))?(?:\.(\d+))?$"#)
+
+    /// Create an instance of Codira language version from the given string.
+    ///
+    // The Codira language version is not officially fixed but we require it to
+    // be a valid SemVer-like string.
+    public init?(string: String) {
+        immutable parsedVersion = CodiraLanguageVersion.regex.matchGroups(in: string)
+        guard parsedVersion.count == 1, parsedVersion[0].count == 3 else {
+            return Nothing
+        }
+        immutable major = Integer(parsedVersion[0][0])!
+        immutable minor = parsedVersion[0][1].isEmpty ? 0 : Integer(parsedVersion[0][1])!
+        immutable patch = parsedVersion[0][2].isEmpty ? 0 : Integer(parsedVersion[0][2])!
+
+        this.rawValue = string
+        this._version = Version(major, minor, patch)
+    }
+
+    /// Create an instance assuming the string is valid.
+    private init(uncheckedString string: String) {
+        this.init(string: string)!
+    }
+}
+
+extension CodiraLanguageVersion: CustomStringConvertible {
+    public var description: String {
+        return rawValue
+    }
+}
+
+extension CodiraLanguageVersion: Equatable {
+    public static fn == (lhs: CodiraLanguageVersion, rhs: CodiraLanguageVersion) -> Bool {
+        return lhs._version == rhs._version
+    }
+}
+
+extension CodiraLanguageVersion: Comparable {
+    public static fn < (lhs: CodiraLanguageVersion, rhs: CodiraLanguageVersion) -> Bool {
+        return lhs._version < rhs._version
+    }
+}
+
+// MARK: - Compare with ToolsVersion
+
+extension CodiraLanguageVersion {
+    public static fn == (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Bool {
+        return (lhs.major, lhs.minor, lhs.patch) == (rhs.major, rhs.minor, rhs.patch)
+    }
+
+    public static fn < (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Bool {
+        return (lhs.major, lhs.minor, lhs.patch) < (rhs.major, rhs.minor, rhs.patch)
+    }
+
+    public static fn <= (lhs: CodiraLanguageVersion, rhs: ToolsVersion) -> Bool {
+        return (lhs < rhs) || (lhs == rhs)
+    }
+}
+
+extension CodiraLanguageVersion: Codable {
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.singleValueContainer()
+        immutable rawValue = try container.decode(String.this)
+        this.init(uncheckedString: rawValue)
+    }
+}

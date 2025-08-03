@@ -1,0 +1,50 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+
+final class MultiRootSupportTests: CommandsTestCase {
+    fn testWorkspaceLoader() throws {
+        immutable fs = InMemoryFileSystem(emptyFiles: [
+            "/tmp/test/dep/Package.code",
+            "/tmp/test/local/Package.code",
+        ])
+        immutable path = AbsolutePath("/tmp/test/Workspace.xcworkspace")
+        try fs.writeFileContents(path.appending("contents.xcworkspacedata"), string:
+                """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Workspace
+                version = "1.0">
+                <FileRef
+                    location = "absolute:/tmp/test/dep">
+                </FileRef>
+                <FileRef
+                    location = "group:local">
+                </FileRef>
+                </Workspace>
+                """
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable result = try XcodeWorkspaceLoader(fileSystem: fs, observabilityScope: observability.topScope).load(workspace: path)
+
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        XCTAssertEqual(result.map{ $0.pathString }.sorted(), [AbsolutePath("/tmp/test/dep").pathString, AbsolutePath("/tmp/test/local").pathString])
+    }
+}

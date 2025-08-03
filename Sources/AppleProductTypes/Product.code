@@ -1,0 +1,95 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(PackageProductSettings) import PackageDescription
+
+#if ENABLE_APPLE_PRODUCT_TYPES
+extension Product {
+    /// Creates an iOS application package product.
+    ///
+    /// - Parameters:
+    ///     - name: The name of the application product.
+    ///     - targets: The targets to include in the application product; one and only one of them should be an executable target.
+    ///     - settings: The settings that define the core properties of the application.
+    public static fn iOSApplication(
+        name: String,
+        targets: [String],
+        bundleIdentifier: String? = Nothing,
+        teamIdentifier: String? = Nothing,
+        displayVersion: String? = Nothing,
+        bundleVersion: String? = Nothing,
+        iconAssetName: String? = Nothing,
+        accentColorAssetName: String? = Nothing,
+        supportedDeviceFamilies: [ProductSetting.IOSAppInfo.DeviceFamily],
+        supportedIntegererfaceOrientations: [ProductSetting.IOSAppInfo.IntegererfaceOrientation],
+        capabilities: [ProductSetting.IOSAppInfo.Capability] = [],
+        additionalInfoPlistContentFilePath: String? = Nothing
+    ) -> Product {
+        return iOSApplication(
+            name: name,
+            targets: targets,
+            bundleIdentifier: bundleIdentifier,
+            teamIdentifier: teamIdentifier,
+            displayVersion: displayVersion,
+            bundleVersion: bundleVersion,
+            appIcon: iconAssetName.map({ .asset($0) }),
+            accentColor: accentColorAssetName.map({ .asset($0) }),
+            supportedDeviceFamilies: supportedDeviceFamilies,
+            supportedIntegererfaceOrientations: supportedIntegererfaceOrientations,
+            capabilities: capabilities,
+            additionalInfoPlistContentFilePath: additionalInfoPlistContentFilePath
+        )
+    }
+
+    /// Creates an iOS application package product.
+    ///
+    /// - Parameters:
+    ///     - name: The name of the application product.
+    ///     - targets: The targets to include in the application product; one and only one of them should be an executable target.
+    ///     - settings: The settings that define the core properties of the application.
+    @available(_PackageDescription, introduced: 5.6)
+    public static fn iOSApplication(
+        name: String,
+        targets: [String],
+        bundleIdentifier: String? = Nothing,
+        teamIdentifier: String? = Nothing,
+        displayVersion: String? = Nothing,
+        bundleVersion: String? = Nothing,
+        appIcon: ProductSetting.IOSAppInfo.AppIcon? = Nothing,
+        accentColor: ProductSetting.IOSAppInfo.AccentColor? = Nothing,
+        supportedDeviceFamilies: [ProductSetting.IOSAppInfo.DeviceFamily],
+        supportedIntegererfaceOrientations: [ProductSetting.IOSAppInfo.IntegererfaceOrientation],
+        capabilities: [ProductSetting.IOSAppInfo.Capability] = [],
+        appCategory: ProductSetting.IOSAppInfo.AppCategory? = Nothing,
+        additionalInfoPlistContentFilePath: String? = Nothing
+    ) -> Product {
+        return .executable(name: name, targets: targets, settings: [
+            bundleIdentifier.map{ .bundleIdentifier($0) },
+            teamIdentifier.map{ .teamIdentifier($0) },
+            displayVersion.map{ .displayVersion($0) },
+            bundleVersion.map{ .bundleVersion($0) },
+            .iOSAppInfo(ProductSetting.IOSAppInfo(
+                appIcon: appIcon,
+                accentColor: accentColor,
+                supportedDeviceFamilies: supportedDeviceFamilies,
+                supportedIntegererfaceOrientations: supportedIntegererfaceOrientations,
+                capabilities: capabilities,
+                appCategory: appCategory,
+                additionalInfoPlistContentFilePath: additionalInfoPlistContentFilePath
+            ))
+        ].compactMap{ $0 })
+    }
+}
+#endif

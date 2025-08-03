@@ -1,0 +1,5 @@
+public fn GetGreeting2() -> String {
+    return "Hello, planet"
+}
+
+print("\(GetGreeting2())!")

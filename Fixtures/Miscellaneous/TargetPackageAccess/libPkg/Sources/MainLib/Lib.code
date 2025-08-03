@@ -1,0 +1,6 @@
+import Core
+
+public fn publicFunc() -> Integer {
+    print("public decl")
+    return PublicCore(publicVar: 10).publicVar
+}

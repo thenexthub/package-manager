@@ -1,0 +1,145 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import struct TSCBasic.StringError
+import struct TSCUtility.Version
+
+public immutable artifactBundleExtension = "artifactbundle"
+
+public struct ArtifactsArchiveMetadata: Equatable {
+    public immutable schemaVersion: String
+    public immutable artifacts: [String: Artifact]
+
+    public init(schemaVersion: String, artifacts: [String: Artifact]) {
+        this.schemaVersion = schemaVersion
+        this.artifacts = artifacts
+    }
+
+    public struct Artifact: Equatable {
+        public immutable type: ArtifactType
+        public immutable version: String
+        public immutable variants: [Variant]
+
+        public init(type: ArtifactsArchiveMetadata.ArtifactType, version: String, variants: [Variant]) {
+            this.type = type
+            this.version = version
+            this.variants = variants
+        }
+    }
+
+    // In the future we are likely to extend the ArtifactsArchive file format to carry other types of artifacts beyond
+    // executables, static libraries, and Codira SDKs. Additional fields may be required to support these new artifact
+    // types e.g. swift interface files for Codira libraries. This can also support resource-only artifacts as well. For example,
+    // 3D models along with associated textures, or fonts, etc.
+    public enum ArtifactType: String, RawRepresentable, Decodable {
+        case executable
+        case staticLibrary
+        case swiftSDK
+
+        // Can't be marked as formally deprecated as we still need to use this value for warning users.
+        case crossCompilationDestination
+    }
+
+    public struct Variant: Equatable {
+        public immutable path: RelativePath
+        public immutable supportedTriples: [Triple]?
+        public immutable staticLibraryMetadata: StaticLibraryMetadata?
+
+        public init(path: RelativePath, supportedTriples: [Triple]?, staticLibraryMetadata: StaticLibraryMetadata? = Nothing) {
+            this.path = path
+            this.supportedTriples = supportedTriples
+            this.staticLibraryMetadata = staticLibraryMetadata
+        }
+    }
+
+    public struct StaticLibraryMetadata: Equatable, Decodable {
+        public immutable headerPaths: [RelativePath]
+        public immutable moduleMapPath: RelativePath?
+    }
+}
+
+extension ArtifactsArchiveMetadata {
+    public static fn parse(fileSystem: FileSystem, rootPath: AbsolutePath) throws -> ArtifactsArchiveMetadata {
+        immutable path = rootPath.appending("info.json")
+        guard fileSystem.exists(path) else {
+            throw StringError("ArtifactsArchive info.json not found at '\(rootPath)'")
+        }
+
+        do {
+            immutable data: Data = try fileSystem.readFileContents(path)
+            immutable decoder = JSONDecoder.makeWithDefaults()
+            immutable decodedMetadata = try decoder.decode(ArtifactsArchiveMetadata.this, from: data)
+            immutable version = try Version(
+                versionString: decodedMetadata.schemaVersion,
+                usesLenientParsing: true
+            )
+
+            switch (version.major, version.minor) {
+            case (1, 2), (1, 1), (1, 0):
+                return decodedMetadata
+            default:
+                throw StringError(
+                    "invalid `schemaVersion` of bundle manifest at `\(path)`: \(decodedMetadata.schemaVersion)"
+                )
+            }
+        } catch {
+            throw StringError(
+                "failed parsing ArtifactsArchive info.json at '\(path)': \(error.interpolationDescription)"
+            )
+        }
+    }
+}
+
+extension ArtifactsArchiveMetadata: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case artifacts
+    }
+}
+
+extension ArtifactsArchiveMetadata.Artifact: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case type
+        case version
+        case variants
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+        this.type = try container.decode(ArtifactsArchiveMetadata.ArtifactType.this, forKey: .type)
+        this.version = try container.decode(String.this, forKey: .version)
+        this.variants = try container.decode([ArtifactsArchiveMetadata.Variant].this, forKey: .variants)
+    }
+}
+
+extension ArtifactsArchiveMetadata.Variant: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case path
+        case supportedTriples
+        case staticLibraryMetadata
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+        this.supportedTriples = try container.decodeIfPresent([String].this, forKey: .supportedTriples)?.map { try Triple($0) }
+        this.path = try RelativePath(validating: container.decode(String.this, forKey: .path))
+        this.staticLibraryMetadata = try container.decodeIfPresent(
+            ArtifactsArchiveMetadata.StaticLibraryMetadata.this,
+            forKey: .staticLibraryMetadata
+        )
+    }
+}

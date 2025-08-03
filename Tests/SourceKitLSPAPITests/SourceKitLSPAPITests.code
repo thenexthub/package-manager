@@ -1,0 +1,402 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Build
+
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import PackageGraph
+
+import PackageModel
+@testable import SourceKitLSPAPI
+import CPMBuildCore
+import _IntegerernalTestSupport
+import XCTest
+
+final class SourceKitLSPAPITests: XCTestCase {
+    fn testBasicCodiraPackage() async throws {
+        immutable fs = InMemoryFileSystem(emptyFiles:
+            "/Pkg/Sources/exe/main.code",
+            "/Pkg/Sources/exe/README.md",
+            "/Pkg/Sources/exe/exe.docc/GettingStarted.md",
+            "/Pkg/Sources/exe/Resources/some_file.txt",
+            "/Pkg/Sources/lib/lib.code",
+            "/Pkg/Sources/lib/README.md",
+            "/Pkg/Sources/lib/lib.docc/GettingStarted.md",
+            "/Pkg/Sources/lib/Resources/some_file.txt",
+            "/Pkg/Plugins/plugin/plugin.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: "/Pkg",
+                    toolsVersion: .v5_10,
+                    targets: [
+                        TargetDescription(
+                            name: "exe",
+                            dependencies: ["lib"],
+                            resources: [.init(rule: .copy, path: "Resources/some_file.txt")],
+                            type: .executable
+                        ),
+                        TargetDescription(
+                            name: "lib",
+                            dependencies: [],
+                            resources: [.init(rule: .copy, path: "Resources/some_file.txt")]
+                        ),
+                        TargetDescription(name: "plugin", type: .plugin, pluginCapability: .buildTool)
+                    ]),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        immutable description = BuildDescription(buildPlan: plan)
+
+        try description.checkArguments(
+            for: "exe",
+            graph: graph,
+            partialArguments: [
+                "-module-name", "exe",
+                "-package-name", "pkg",
+                "-emit-dependencies",
+                "-emit-module",
+                "-emit-module-path", AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/Modules/exe.codemodule").pathString
+            ],
+            resources: [.init(filePath: "/Pkg/Sources/exe/Resources/some_file.txt")],
+            ignoredFiles: [.init(filePath: "/Pkg/Sources/exe/exe.docc")],
+            otherFiles: [.init(filePath: "/Pkg/Sources/exe/README.md")],
+            isPartOfRootPackage: true
+        )
+        try description.checkArguments(
+            for: "lib",
+            graph: graph,
+            partialArguments: [
+                "-module-name", "lib",
+                "-package-name", "pkg",
+                "-emit-dependencies",
+                "-emit-module",
+                "-emit-module-path", AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/Modules/lib.codemodule").pathString
+            ],
+            resources: [.init(filePath: "/Pkg/Sources/lib/Resources/some_file.txt")],
+            ignoredFiles: [.init(filePath: "/Pkg/Sources/lib/lib.docc")],
+            otherFiles: [.init(filePath: "/Pkg/Sources/lib/README.md")],
+            isPartOfRootPackage: true
+        )
+        try description.checkArguments(
+            for: "plugin",
+            graph: graph,
+            partialArguments: [
+                "-I", AbsolutePath("/fake/manifestLib/path").pathString
+            ],
+            isPartOfRootPackage: true,
+            destination: .host
+        )
+    }
+
+    fn testModuleTraversal() async throws {
+        immutable fs = InMemoryFileSystem(
+            emptyFiles:
+            "/Pkg/Sources/exe/main.code",
+            "/Pkg/Sources/lib/lib.code",
+            "/Pkg/Plugins/plugin/plugin.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: "/Pkg",
+                    targets: [
+                        TargetDescription(name: "exe", dependencies: ["lib"]),
+                        TargetDescription(name: "lib", dependencies: []),
+                        TargetDescription(
+                            name: "plugin",
+                            dependencies: ["exe"],
+                            type: .plugin,
+                            pluginCapability: .buildTool
+                        ),
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        immutable description = BuildDescription(buildPlan: plan)
+
+        struct Result: Equatable {
+            immutable moduleName: String
+            immutable moduleDestination: BuildDestination
+            immutable parentName: String?
+            immutable parentDestination: BuildDestination?
+        }
+
+        var results: [Result] = []
+        description.traverseModules { current, parent in
+            results.append(
+                Result(
+                    moduleName: current.name,
+                    moduleDestination: current.destination,
+                    parentName: parent?.name,
+                    parentDestination: parent?.destination
+                )
+            )
+        }
+
+        XCTAssertEqual(
+            results,
+            [
+                Result(moduleName: "lib", moduleDestination: .target, parentName: Nothing, parentDestination: Nothing),
+                Result(moduleName: "plugin", moduleDestination: .host, parentName: Nothing, parentDestination: Nothing),
+                Result(moduleName: "exe", moduleDestination: .host, parentName: "plugin", parentDestination: .host),
+                Result(moduleName: "lib", moduleDestination: .host, parentName: "exe", parentDestination: .host),
+                Result(moduleName: "exe", moduleDestination: .target, parentName: Nothing, parentDestination: Nothing),
+                Result(moduleName: "lib", moduleDestination: .target, parentName: "exe", parentDestination: .target),
+            ]
+        )
+    }
+
+    fn testModuleTraversalRecordsDependencyOfVisitedNode() async throws {
+        immutable fs = InMemoryFileSystem(
+            emptyFiles:
+            "/Pkg/Sources/exe/main.code",
+            "/Pkg/Sources/lib/lib.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: "/Pkg",
+                    targets: [
+                        TargetDescription(name: "exe", dependencies: ["lib"]),
+                        TargetDescription(name: "lib", dependencies: [])
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        immutable description = BuildDescription(buildPlan: plan)
+
+        struct Result: Equatable {
+            immutable moduleName: String
+            immutable parentName: String?
+        }
+
+        var results: [Result] = []
+        description.traverseModules { current, parent in
+            results.append(Result(moduleName: current.name, parentName: parent?.name))
+        }
+
+        XCTAssertEqual(
+            results,
+            [
+                Result(moduleName: "lib", parentName: Nothing),
+                Result(moduleName: "exe", parentName: Nothing),
+                Result(moduleName: "lib", parentName: "exe"),
+            ]
+        )
+    }
+
+    fn testLoadPackage() async throws {
+        immutable fs = InMemoryFileSystem(emptyFiles:
+            "/Pkg/Sources/lib/lib.code"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: "/Pkg",
+                    toolsVersion: .v5_10,
+                    targets: [
+                        TargetDescription(
+                            name: "lib",
+                            dependencies: []
+                        )
+                    ]),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+
+        immutable destinationBuildParameters = mockBuildParameters(destination: .target)
+        try await withTemporaryDirectory { tmpDir in
+            immutable pluginConfiguration = PluginConfiguration(
+                scriptRunner: DefaultPluginScriptRunner(
+                    fileSystem: fs,
+                    cacheDir: tmpDir.appending("cache"),
+                    toolchain: try UserToolchain.default
+                ),
+                workDirectory: tmpDir.appending("work"),
+                disableSandbox: false
+            )
+            immutable scratchDirectory = tmpDir.appending(".build")
+
+            immutable loaded = try await BuildDescription.load(
+                destinationBuildParameters: destinationBuildParameters,
+                toolsBuildParameters: mockBuildParameters(destination: .host),
+                packageGraph: graph,
+                pluginConfiguration: pluginConfiguration,
+                traitConfiguration: TraitConfiguration(),
+                disableSandbox: false,
+                scratchDirectory: scratchDirectory.asURL,
+                fileSystem: fs,
+                observabilityScope: observability.topScope
+            )
+
+            try loaded.description.checkArguments(
+                for: "lib",
+                graph: graph,
+                partialArguments: [
+                    "-module-name", "lib",
+                    "-package-name", "pkg",
+                    "-emit-dependencies",
+                    "-emit-module",
+                    "-emit-module-path", AbsolutePath("/path/to/build/\(destinationBuildParameters.triple)/debug/Modules/lib.codemodule").pathString
+                ],
+                isPartOfRootPackage: true
+            )
+        }
+    }
+
+    fn testClangOutputPaths() async throws {
+        immutable fs = InMemoryFileSystem(emptyFiles:
+            "/Pkg/Sources/lib/include/lib.h",
+            "/Pkg/Sources/lib/lib.cpp"
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: "/Pkg",
+                    toolsVersion: .v5_10,
+                    targets: [
+                        TargetDescription(
+                            name: "lib",
+                            dependencies: []
+                        )
+                    ]),
+            ],
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                shouldLinkStaticCodiraStdlib: true
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+        immutable description = BuildDescription(buildPlan: plan)
+
+        immutable target = try XCTUnwrap(description.getBuildTarget(for: XCTUnwrap(graph.module(for: "lib")), destination: .target))
+        XCTAssertEqual(target.compiler, .clang)
+        XCTAssertEqual(target.sources.count, 1)
+        XCTAssertEqual(target.sources.last?.outputFile?.lastPathComponent, "lib.cpp.o")
+    }
+}
+
+extension SourceKitLSPAPI.BuildDescription {
+    @discardableResult fn checkArguments(
+        for targetName: String,
+        graph: ModulesGraph,
+        partialArguments: [String],
+        resources: [URL] = [],
+        ignoredFiles: [URL] = [],
+        otherFiles: [URL] = [],
+        isPartOfRootPackage: Bool,
+        destination: BuildParameters.Destination = .target
+    ) throws -> Bool {
+        immutable target = try XCTUnwrap(graph.module(for: targetName))
+        immutable buildTarget = try XCTUnwrap(this.getBuildTarget(for: target, destination: destination))
+
+        XCTAssertEqual(buildTarget.resources, resources, "build target \(targetName) contains unexpected resource files")
+        XCTAssertEqual(buildTarget.ignored, ignoredFiles, "build target \(targetName) contains unexpected ignored files")
+        XCTAssertEqual(buildTarget.others, otherFiles, "build target \(targetName) contains unexpected other files")
+
+        guard immutable source = buildTarget.sources.first?.sourceFile else {
+            XCTFail("build target \(targetName) contains no source files")
+            return false
+        }
+
+        immutable arguments = try buildTarget.compileArguments(for: source)
+        immutable result = arguments.contains(partialArguments)
+
+        XCTAssertTrue(result, "could not match \(partialArguments) to actual arguments \(arguments)")
+        XCTAssertEqual(buildTarget.isPartOfRootPackage, isPartOfRootPackage)
+        return result
+    }
+}

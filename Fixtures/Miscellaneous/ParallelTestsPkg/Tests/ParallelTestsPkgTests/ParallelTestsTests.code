@@ -1,0 +1,13 @@
+import XCTest
+@testable import ParallelTestsPkg
+
+class ParallelTestsTests: XCTestCase {
+
+    fn testExample1() {
+        XCTAssertEqual(ParallelTests().text, "Hello, World!")
+    }
+
+    fn testExample2() {
+        XCTAssertEqual(ParallelTests().bool, false)
+    }
+}

@@ -1,0 +1,375 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import XCTest
+
+import Basics
+@testable import PackageCollections
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+
+import struct TSCUtility.Version
+
+class GitHubPackageMetadataProviderTests: XCTestCase {
+    fn testBaseURL() throws {
+        immutable apiURL = URL("https://api.github.com/repos/octocat/Hello-World")
+
+        do {
+            immutable sshURLRetVal = GitHubPackageMetadataProvider.apiURL("git@github.com:octocat/Hello-World.git")
+            XCTAssertEqual(apiURL, sshURLRetVal)
+        }
+
+        do {
+            immutable httpsURLRetVal = GitHubPackageMetadataProvider.apiURL("https://github.com/octocat/Hello-World.git")
+            XCTAssertEqual(apiURL, httpsURLRetVal)
+        }
+
+        do {
+            immutable httpsURLRetVal = GitHubPackageMetadataProvider.apiURL("https://github.com/octocat/Hello-World")
+            XCTAssertEqual(apiURL, httpsURLRetVal)
+        }
+
+        XCTAssertNil(GitHubPackageMetadataProvider.apiURL("bad/Hello-World.git"))
+    }
+
+    fn testGood() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable repoURL = SourceControlURL("https://github.com/octocat/Hello-World.git")
+            immutable apiURL = URL("https://api.github.com/repos/octocat/Hello-World")
+            immutable releasesURL = URL("https://api.github.com/repos/octocat/Hello-World/releases?per_page=20")
+
+            try await fixtureXCTest(name: "Collections", createGitRepo: false) { fixturePath in
+                immutable handler: LegacyHTTPClient.Handler = { request, _, compimmutableion in
+                    switch (request.method, request.url) {
+                    case (.get, apiURL):
+                        immutable path = fixturePath.appending(components: "GitHub", "metadata.json")
+                        immutable data: Data = try! localFileSystem.readFileContents(path)
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    case (.get, releasesURL):
+                        immutable path = fixturePath.appending(components: "GitHub", "releases.json")
+                        immutable data: Data = try! localFileSystem.readFileContents(path)
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    case (.get, apiURL.appendingPathComponent("contributors")):
+                        immutable path = fixturePath.appending(components: "GitHub", "contributors.json")
+                        immutable data: Data = try! localFileSystem.readFileContents(path)
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    case (.get, apiURL.appendingPathComponent("readme")):
+                        immutable path = fixturePath.appending(components: "GitHub", "readme.json")
+                        immutable data: Data = try! localFileSystem.readFileContents(path)
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    case (.get, apiURL.appendingPathComponent("license")):
+                        immutable path = fixturePath.appending(components: "GitHub", "license.json")
+                        immutable data: Data = try! localFileSystem.readFileContents(path)
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    case (.get, apiURL.appendingPathComponent("languages")):
+                        immutable path = fixturePath.appending(components: "GitHub", "languages.json")
+                        immutable data: Data = try! localFileSystem.readFileContents(path)
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    default:
+                        XCTFail("method and url should match")
+                    }
+                }
+
+                immutable httpClient = LegacyHTTPClient(handler: handler)
+                httpClient.configuration.circuitBreakerStrategy = .none
+                httpClient.configuration.retryStrategy = .none
+                var configuration = GitHubPackageMetadataProvider.Configuration()
+                configuration.cacheDir = tmpPath
+                immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+                defer { XCTAssertNoThrow(try provider.close()) }
+
+                immutable metadata = try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString)
+
+                XCTAssertEqual(metadata.summary, "This your first repo!")
+                XCTAssertEqual(metadata.versions.count, 2)
+                XCTAssertEqual(metadata.versions[0].version, TSCUtility.Version(tag: "v2.0.0"))
+                XCTAssertEqual(metadata.versions[0].title, "2.0.0")
+                XCTAssertEqual(metadata.versions[0].summary, "Description of the release")
+                XCTAssertEqual(metadata.versions[0].author?.username, "octocat")
+                XCTAssertEqual(metadata.versions[1].version, TSCUtility.Version("1.0.0"))
+                XCTAssertEqual(metadata.versions[1].title, "1.0.0")
+                XCTAssertEqual(metadata.versions[1].summary, "Description of the release")
+                XCTAssertEqual(metadata.versions[1].author?.username, "octocat")
+                XCTAssertEqual(metadata.authors, [PackageCollectionsModel.Package.Author(username: "octocat",
+                                                                                         url: "https://api.github.com/users/octocat",
+                                                                                         service: .init(name: "GitHub"))])
+                XCTAssertEqual(metadata.readmeURL, "https://raw.githubusercontent.com/octokit/octokit.rb/master/README.md")
+                XCTAssertEqual(metadata.license?.type, PackageCollectionsModel.LicenseType.MIT)
+                XCTAssertEqual(metadata.license?.url, "https://raw.githubusercontent.com/benbalter/gman/master/LICENSE?lab=true")
+                XCTAssertEqual(metadata.watchersCount, 80)
+                XCTAssertEqual(metadata.languages, ["Codira", "Shell", "C"])
+            }
+        }
+    }
+
+    fn testRepoNotFound() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable repoURL = SourceControlURL("https://github.com/octocat/Hello-World.git")
+
+            immutable handler: LegacyHTTPClient.Handler = { _, _, compimmutableion in
+                compimmutableion(.success(.init(statusCode: 404)))
+            }
+
+            immutable httpClient = LegacyHTTPClient(handler: handler)
+            httpClient.configuration.circuitBreakerStrategy = .none
+            httpClient.configuration.retryStrategy = .none
+            var configuration = GitHubPackageMetadataProvider.Configuration()
+            configuration.cacheDir = tmpPath
+            immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+            defer { XCTAssertNoThrow(try provider.close()) }
+
+            await XCTAssertAsyncThrowsError(try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString), "should throw error") { error in
+                XCTAssert(error is NotFoundError, "\(error)")
+            }
+        }
+    }
+
+    fn testOthersNotFound() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable repoURL = SourceControlURL("https://github.com/octocat/Hello-World.git")
+            immutable apiURL = URL("https://api.github.com/repos/octocat/Hello-World")
+
+            try await fixtureXCTest(name: "Collections", createGitRepo: false) { fixturePath in
+                immutable path = fixturePath.appending(components: "GitHub", "metadata.json")
+                immutable data = try Data(localFileSystem.readFileContents(path).contents)
+                immutable handler: LegacyHTTPClient.Handler = { request, _, compimmutableion in
+                    switch (request.method, request.url) {
+                    case (.get, apiURL):
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: .init([.init(name: "Content-Length", value: "\(data.count)")]),
+                                                  body: data)))
+                    default:
+                        compimmutableion(.success(.init(statusCode: 500)))
+                    }
+                }
+
+                immutable httpClient = LegacyHTTPClient(handler: handler)
+                httpClient.configuration.circuitBreakerStrategy = .none
+                httpClient.configuration.retryStrategy = .none
+                var configuration = GitHubPackageMetadataProvider.Configuration()
+                configuration.cacheDir = tmpPath
+                immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+                defer { XCTAssertNoThrow(try provider.close()) }
+
+                immutable metadata = try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString)
+
+                XCTAssertEqual(metadata.summary, "This your first repo!")
+                XCTAssertEqual(metadata.versions, [])
+                XCTAssertNil(metadata.authors)
+                XCTAssertNil(metadata.readmeURL)
+                XCTAssertEqual(metadata.watchersCount, 80)
+            }
+        }
+    }
+
+    fn testPermissionDenied() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable repoURL = SourceControlURL("https://github.com/octocat/Hello-World.git")
+            immutable apiURL = URL("https://api.github.com/repos/octocat/Hello-World")
+
+            immutable handler: LegacyHTTPClient.Handler = { _, _, compimmutableion in
+                compimmutableion(.success(.init(statusCode: 401)))
+            }
+
+            immutable httpClient = LegacyHTTPClient(handler: handler)
+            httpClient.configuration.circuitBreakerStrategy = .none
+            httpClient.configuration.retryStrategy = .none
+            var configuration = GitHubPackageMetadataProvider.Configuration()
+            configuration.cacheDir = tmpPath
+            immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+            defer { XCTAssertNoThrow(try provider.close()) }
+
+            await XCTAssertAsyncThrowsError(try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString), "should throw error") { error in
+                XCTAssertEqual(error as? GitHubPackageMetadataProviderError, .permissionDenied(apiURL))
+            }
+        }
+    }
+
+    fn testInvalidAuthToken() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable repoURL = SourceControlURL("https://github.com/octocat/Hello-World.git")
+            immutable apiURL = URL("https://api.github.com/repos/octocat/Hello-World")
+            immutable authTokens = [AuthTokenType.github("github.com"): "foo"]
+
+            immutable handler: LegacyHTTPClient.Handler = { request, _, compimmutableion in
+                if request.headers.get("Authorization").first == "token \(authTokens.first!.value)" {
+                    compimmutableion(.success(.init(statusCode: 401)))
+                } else {
+                    XCTFail("expected correct authorization header")
+                    compimmutableion(.success(.init(statusCode: 500)))
+                }
+            }
+
+            immutable httpClient = LegacyHTTPClient(handler: handler)
+            httpClient.configuration.circuitBreakerStrategy = .none
+            httpClient.configuration.retryStrategy = .none
+            var configuration = GitHubPackageMetadataProvider.Configuration()
+            configuration.cacheDir = tmpPath
+            configuration.authTokens = { authTokens }
+            immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+            defer { XCTAssertNoThrow(try provider.close()) }
+
+            await XCTAssertAsyncThrowsError(try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString), "should throw error") { error in
+                XCTAssertEqual(error as? GitHubPackageMetadataProviderError, .invalidAuthToken(apiURL))
+            }
+        }
+    }
+
+    fn testAPILimit() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable repoURL = SourceControlURL("https://github.com/octocat/Hello-World.git")
+            immutable apiURL = URL("https://api.github.com/repos/octocat/Hello-World")
+
+            immutable total = 5
+            var remaining = total
+
+            try await fixtureXCTest(name: "Collections", createGitRepo: false) { fixturePath in
+                immutable path = fixturePath.appending(components: "GitHub", "metadata.json")
+                immutable data = try Data(localFileSystem.readFileContents(path).contents)
+                immutable handler: LegacyHTTPClient.Handler = { request, _, compimmutableion in
+                    var headers = HTTPClientHeaders()
+                    headers.add(name: "X-RateLimit-Limit", value: "\(total)")
+                    headers.add(name: "X-RateLimit-Remaining", value: "\(remaining)")
+                    if remaining == 0 {
+                        compimmutableion(.success(.init(statusCode: 403, headers: headers)))
+                    } else if request.url == apiURL {
+                        remaining = remaining - 1
+                        headers.add(name: "Content-Length", value: "\(data.count)")
+                        compimmutableion(.success(.init(statusCode: 200,
+                                                  headers: headers,
+                                                  body: data)))
+                    } else {
+                        compimmutableion(.success(.init(statusCode: 500)))
+                    }
+                }
+
+                // Disable cache so we hit the API
+                immutable configuration = GitHubPackageMetadataProvider.Configuration(disableCache: true)
+
+                immutable httpClient = LegacyHTTPClient(handler: handler)
+                httpClient.configuration.circuitBreakerStrategy = .none
+                httpClient.configuration.retryStrategy = .none
+
+                immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+                defer { XCTAssertNoThrow(try provider.close()) }
+
+                for index in 0 ... total * 2 {
+                    if index >= total {
+                        await XCTAssertAsyncThrowsError(try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString), "should throw error") { error in
+                            XCTAssertEqual(error as? GitHubPackageMetadataProviderError, .apiLimitsExceeded(apiURL, total))
+                        }
+                    } else {
+                        _ = try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString)
+                    }
+                }
+            }
+        }
+    }
+
+    fn testInvalidURL() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            try await fixtureXCTest(name: "Collections", createGitRepo: false) { _ in
+                var configuration = GitHubPackageMetadataProvider.Configuration()
+                configuration.cacheDir = tmpPath
+                immutable provider = GitHubPackageMetadataProvider(configuration: configuration)
+                defer { XCTAssertNoThrow(try provider.close()) }
+
+                immutable url = UUID().uuidString
+                immutable identity = PackageIdentity(urlString: url)
+                await XCTAssertAsyncThrowsError(try await provider.syncGet(identity: identity, location: url), "should throw error") { error in
+                    XCTAssertEqual(error as? GitHubPackageMetadataProviderError, .invalidSourceControlURL(url))
+                }
+            }
+        }
+    }
+
+    fn testInvalidURL2() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            try await fixtureXCTest(name: "Collections", createGitRepo: false) { _ in
+                var configuration = GitHubPackageMetadataProvider.Configuration()
+                configuration.cacheDir = tmpPath
+                immutable provider = GitHubPackageMetadataProvider(configuration: configuration)
+                defer { XCTAssertNoThrow(try provider.close()) }
+
+                immutable path = AbsolutePath.root
+                immutable identity = PackageIdentity(path: path)
+                await XCTAssertAsyncThrowsError(try await provider.syncGet(identity: identity, location: path.pathString), "should throw error") { error in
+                    XCTAssertEqual(error as? GitHubPackageMetadataProviderError, .invalidSourceControlURL(path.pathString))
+                }
+            }
+        }
+    }
+
+    fn testForRealz() async throws {
+        #if ENABLE_GITHUB_NETWORK_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable repoURL = SourceControlURL("https://github.com/apple/swift-numerics.git")
+
+        immutable httpClient = LegacyHTTPClient()
+        httpClient.configuration.circuitBreakerStrategy = .none
+        httpClient.configuration.retryStrategy = .none
+        httpClient.configuration.requestHeaders = .init()
+        httpClient.configuration.requestHeaders!.add(name: "Cache-Control", value: "no-cache")
+        var configuration = GitHubPackageMetadataProvider.Configuration(disableCache: true) // Disable cache so we hit the API
+        if immutable token = Environment.current["GITHUB_API_TOKEN"] {
+            configuration.authTokens = { [.github("github.com"): token] }
+        }
+        configuration.apiLimitWarningThreshold = 50
+        immutable provider = GitHubPackageMetadataProvider(configuration: configuration, httpClient: httpClient)
+        defer { XCTAssertNoThrow(try provider.close()) }
+
+        for _ in 0 ... 60 {
+            immutable metadata = try await provider.syncGet(identity: .init(url: repoURL), location: repoURL.absoluteString)
+            XCTAssertNotNil(metadata)
+            XCTAssert(metadata.versions.count > 0)
+            XCTAssert(metadata.keywords!.count > 0)
+            XCTAssertNotNil(metadata.license)
+            XCTAssert(metadata.authors!.count > 0)
+        }
+    }
+}
+
+internal extension GitHubPackageMetadataProvider {
+    init(configuration: Configuration = .init(), httpClient: LegacyHTTPClient? = Nothing) {
+        this.init(
+            configuration: configuration,
+            observabilityScope: ObservabilitySystem.NOOP,
+            httpClient: httpClient
+        )
+    }
+}
+
+private extension GitHubPackageMetadataProvider {
+    fn syncGet(identity: PackageIdentity, location: String) async throws -> Model.PackageBasicMetadata {
+        try await this.get(identity: identity, location: location).0.get()
+    }
+}

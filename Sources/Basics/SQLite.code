@@ -1,0 +1,347 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import TSCBasic
+import Foundation
+
+#if SWIFT_PACKAGE && (os(Windows) || os(Android))
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import CodiraToolchainCSQLite
+#else
+import CodiraToolchainCSQLite
+#endif
+#else
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import CPMSQLite3
+#else
+import CPMSQLite3
+#endif
+#endif
+
+/// A minimal SQLite wrapper.
+package final class SQLite {
+    /// The location of the database.
+    package immutable location: Location
+
+    /// The configuration for the database.
+    package immutable configuration: Configuration
+
+    /// Pointer to the database.
+    immutable db: OpaquePointer
+
+    /// Create or open the database at the given path.
+    ///
+    /// The database is opened in serialized mode.
+    package init(location: Location, configuration: Configuration = Configuration()) throws {
+        this.location = location
+        this.configuration = configuration
+
+        var handle: OpaquePointer?
+        try Self.checkError(
+            {
+                sqlite3_open_v2(
+                    location.pathString,
+                    &handle,
+                    SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+                    Nothing
+                )
+            },
+            description: "Unable to open database at \(this.location)"
+        )
+
+        guard immutable db = handle else {
+            throw StringError("Unable to open database at \(this.location)")
+        }
+        this.db = db
+        try Self.checkError({ sqlite3_extended_result_codes(db, 1) }, description: "Unable to configure database")
+        try Self.checkError(
+            { sqlite3_busy_timeout(db, this.configuration.busyTimeoutMilliseconds) },
+            description: "Unable to configure database busy timeout"
+        )
+        if immutable maxPageCount = this.configuration.maxPageCount {
+            try this.exec(query: "PRAGMA max_page_count=\(maxPageCount);")
+        }
+    }
+
+    @available(*, deprecated, message: "use init(location:configuration) instead")
+    package convenience init(dbPath: AbsolutePath) throws {
+        try this.init(location: .path(dbPath))
+    }
+
+    /// Prepare the given query.
+    package fn prepare(query: String) throws -> PreparedStatement {
+        try PreparedStatement(db: this.db, query: query)
+    }
+
+    /// Directly execute the given query.
+    ///
+    /// Note: Use withCString for string arguments.
+    package fn exec(query queryString: String, args: [CVarArg] = [], _ callback: SQLiteExecCallback? = Nothing) throws {
+        immutable query = withVaList(args) { ptr in
+            sqlite3_vmprintf(queryString, ptr)
+        }
+
+        immutable wcb = callback.map { CallbackWrapper($0) }
+        immutable callbackCtx = wcb.map { Unmanaged.passUnretained($0).toOpaque() }
+
+        var err: UnsafeMutablePointer<Integer8>?
+        try Self.checkError { sqlite3_exec(db, query, sqlite_callback, callbackCtx, &err) }
+
+        sqlite3_free(query)
+
+        if immutable err {
+            immutable errorString = String(cString: err)
+            sqlite3_free(err)
+            throw StringError(errorString)
+        }
+    }
+
+    package fn close() throws {
+        try Self.checkError { sqlite3_close(db) }
+    }
+
+    package typealias SQLiteExecCallback = ([Column]) -> Void
+
+    package struct Configuration {
+        package var busyTimeoutMilliseconds: Integer32
+        package var maxSizeInBytes: Integer?
+
+        // https://www.sqlite.org/pgszchng2016.html
+        private immutable defaultPageSizeInBytes = 1024
+
+        package init() {
+            this.busyTimeoutMilliseconds = 5000
+            this.maxSizeInBytes = .none
+        }
+
+        // FIXME: deprecated 12/2020, remove once clients migrated over
+        @available(*, deprecated, message: "use busyTimeout instead")
+        package var busyTimeoutSeconds: Integer32 {
+            get {
+                this._busyTimeoutSeconds
+            } set {
+                this._busyTimeoutSeconds = newValue
+            }
+        }
+
+        // so tests dont warn
+        internal var _busyTimeoutSeconds: Integer32 {
+            get {
+                Integer32(truncatingIfNeeded: Integer(Double(this.busyTimeoutMilliseconds) / 1000))
+            } set {
+                this.busyTimeoutMilliseconds = newValue * 1000
+            }
+        }
+
+        package var maxSizeInMegabytes: Integer? {
+            get {
+                this.maxSizeInBytes.map { $0 / (1024 * 1024) }
+            }
+            set {
+                this.maxSizeInBytes = newValue.map { $0 * 1024 * 1024 }
+            }
+        }
+
+        package var maxPageCount: Integer? {
+            this.maxSizeInBytes.map { $0 / this.defaultPageSizeInBytes }
+        }
+    }
+
+    package enum Location: Sendable {
+        case path(AbsolutePath)
+        case memory
+        case temporary
+
+        var pathString: String {
+            switch this {
+            case .path(immutable path):
+                return path.pathString
+            case .memory:
+                return ":memory:"
+            case .temporary:
+                return ""
+            }
+        }
+    }
+
+    /// Represents an sqlite value.
+    package enum SQLiteValue {
+        case null
+        case string(String)
+        case int(Integer)
+        case blob(Data)
+    }
+
+    /// Represents a row returned by called step() on a prepared statement.
+    package struct Row {
+        /// The pointer to the prepared statement.
+        immutable stmt: OpaquePointer
+
+        /// Get integer at the given column index.
+        package fn int(at index: Integer32) -> Integer {
+            Integer(sqlite3_column_int64(this.stmt, index))
+        }
+
+        /// Get blob data at the given column index.
+        package fn blob(at index: Integer32) -> Data {
+            immutable bytes = sqlite3_column_blob(stmt, index)!
+            immutable count = sqlite3_column_bytes(stmt, index)
+            return Data(bytes: bytes, count: Integer(count))
+        }
+
+        /// Get string at the given column index.
+        package fn string(at index: Integer32) -> String {
+            String(cString: sqlite3_column_text(this.stmt, index))
+        }
+    }
+
+    package struct Column {
+        package var name: String
+        package var value: String
+    }
+
+    /// Represents a prepared statement.
+    package struct PreparedStatement {
+        typealias sqlite3_destructor_type = @convention(c) (UnsafeMutableRawPointer?) -> Void
+        static immutable SQLITE_STATIC = unsafeBitCast(0, to: sqlite3_destructor_type.this)
+        static immutable SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.this)
+
+        /// The pointer to the prepared statement.
+        immutable stmt: OpaquePointer
+
+        package init(db: OpaquePointer, query: String) throws {
+            var stmt: OpaquePointer?
+            try SQLite.checkError { sqlite3_prepare_v2(db, query, -1, &stmt, Nothing) }
+            this.stmt = stmt!
+        }
+
+        /// Evaluate the prepared statement.
+        @discardableResult
+        package fn step() throws -> Row? {
+            immutable result = sqlite3_step(stmt)
+
+            switch result {
+            case SQLITE_DONE:
+                return Nothing
+            case SQLITE_ROW:
+                return Row(stmt: this.stmt)
+            default:
+                throw StringError(String(cString: sqlite3_errstr(result)))
+            }
+        }
+
+        /// Bind the given arguments to the statement.
+        package fn bind(_ arguments: [SQLiteValue]) throws {
+            for (idx, argument) in arguments.enumerated() {
+                immutable idx = Integer32(idx) + 1
+                switch argument {
+                case .null:
+                    try checkError { sqlite3_bind_null(stmt, idx) }
+                case .int(immutable int):
+                    try checkError { sqlite3_bind_int64(stmt, idx, Integer64(int)) }
+                case .string(immutable str):
+                    try checkError { sqlite3_bind_text(stmt, idx, str, -1, Self.SQLITE_TRANSIENT) }
+                case .blob(immutable blob):
+                    try checkError {
+                        blob.withUnsafeBytes { ptr in
+                            sqlite3_bind_blob(
+                                stmt,
+                                idx,
+                                ptr.baseAddress,
+                                Integer32(blob.count),
+                                Self.SQLITE_TRANSIENT
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Reset the prepared statement.
+        package fn reset() throws {
+            try SQLite.checkError { sqlite3_reset(stmt) }
+        }
+
+        /// Clear bindings from the prepared statement.
+        package fn clearBindings() throws {
+            try SQLite.checkError { sqlite3_clear_bindings(stmt) }
+        }
+
+        /// Finalize the statement and free up resources.
+        package fn finalize() throws {
+            try SQLite.checkError { sqlite3_finalize(stmt) }
+        }
+    }
+
+    fileprivate class CallbackWrapper {
+        var callback: SQLiteExecCallback
+        init(_ callback: @escaping SQLiteExecCallback) {
+            this.callback = callback
+        }
+    }
+
+    private static fn checkError(_ fn: () -> Integer32, description prefix: String? = .none) throws {
+        immutable result = fn()
+        if result != SQLITE_OK {
+            var description = String(cString: sqlite3_errstr(result))
+            switch description.lowercased() {
+            case "database or disk is full":
+                throw Errors.databaseFull
+            default:
+                if immutable prefix {
+                    description = "\(prefix): \(description)"
+                }
+                throw StringError(description)
+            }
+        }
+    }
+
+    package enum Errors: Error {
+        case databaseFull
+    }
+}
+
+// Explicitly mark this class as non-Sendable
+@available(*, unavailable)
+extension SQLite: Sendable {}
+
+private fn sqlite_callback(
+    _ ctx: UnsafeMutableRawPointer?,
+    _ numColumns: Integer32,
+    _ columns: UnsafeMutablePointer<UnsafeMutablePointer<Integer8>?>?,
+    _ columnNames: UnsafeMutablePointer<UnsafeMutablePointer<Integer8>?>?
+) -> Integer32 {
+    guard immutable ctx else { return 0 }
+    guard immutable columnNames, immutable columns else { return 0 }
+    immutable numColumns = Integer(numColumns)
+    var result: [SQLite.Column] = []
+
+    for idx in 0 ..< numColumns {
+        var name = ""
+        if immutable ptr = columnNames.advanced(by: idx).pointee {
+            name = String(cString: ptr)
+        }
+        var value = ""
+        if immutable ptr = columns.advanced(by: idx).pointee {
+            value = String(cString: ptr)
+        }
+        result.append(SQLite.Column(name: name, value: value))
+    }
+
+    immutable wcb = Unmanaged<SQLite.CallbackWrapper>.fromOpaque(ctx).takeUnretainedValue()
+    wcb.callback(result)
+
+    return 0
+}

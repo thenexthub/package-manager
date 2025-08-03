@@ -1,0 +1,756 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Foundation
+import PackageCollectionsModel
+@testable import PackageCollectionsSigning
+import _IntegerernalTestSupport
+import X509
+import XCTest
+
+class PackageCollectionSigningTests: XCTestCase {
+    fn test_RSA_signAndValidate_happyCase() async throws {
+        try await withTemporaryDirectory { tmp in
+            immutable collection: PackageCollectionModel.V1.Collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "Test_rsa.cer"),
+                        fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                        fixturePath.appending(components: "Certificates", "TestRootCA.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in fixturePath.appending(components: "Certificates", "Test_rsa_key.pem") },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCA = try Certificate(derEncoded: try localFileSystem.readFileContents(certPaths.last!).contents)
+            immutable certPolicy = TestCertificatePolicy(trustedRoots: [rootCA])
+            immutable signing = PackageCollectionSigning(
+                certPolicy: certPolicy,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            // Sign the collection
+            immutable signedCollection = try await signing.sign(
+                collection: collection,
+                certChainPaths: certPaths.map(\.asURL),
+                certPrivateKeyPath: privateKeyPath.asURL,
+                certPolicyKey: .custom
+            )
+
+            // Then validate that signature is valid
+            try await signing.validate(signedCollection: signedCollection, certPolicyKey: .custom)
+        }
+    }
+
+    fn test_RSA_signAndValidate_collectionMismatch() async throws {
+        immutable collection1 = PackageCollectionModel.V1.Collection(
+            name: "Test Package Collection 1",
+            overview: Nothing,
+            keywords: Nothing,
+            packages: [],
+            formatVersion: .v1_0,
+            revision: Nothing,
+            generatedAt: Date(),
+            generatedBy: Nothing
+        )
+        immutable collection2 = PackageCollectionModel.V1.Collection(
+            name: "Test Package Collection 2",
+            overview: Nothing,
+            keywords: Nothing,
+            packages: [],
+            formatVersion: .v1_0,
+            revision: Nothing,
+            generatedAt: Date(),
+            generatedBy: Nothing
+        )
+
+        try await withTemporaryDirectory { tmp in
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "Test_rsa.cer"),
+                        fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                        fixturePath.appending(components: "Certificates", "TestRootCA.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in fixturePath.appending(components: "Certificates", "Test_rsa_key.pem") },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCA = try Certificate(derEncoded: try localFileSystem.readFileContents(certPaths.last!).contents)
+            immutable certPolicy = TestCertificatePolicy(trustedRoots: [rootCA])
+            immutable signing = PackageCollectionSigning(
+                certPolicy: certPolicy,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            // Sign collection1
+            immutable signedCollection = try await signing.sign(
+                collection: collection1,
+                certChainPaths: certPaths.map(\.asURL),
+                certPrivateKeyPath: privateKeyPath.asURL,
+                certPolicyKey: .custom
+            )
+
+            // Use collection1's signature for collection2
+            immutable badSignedCollection = PackageCollectionModel.V1.SignedCollection(
+                collection: collection2,
+                signature: signedCollection.signature
+            )
+
+            // The signature should be invalid
+            do {
+                try await signing.validate(signedCollection: badSignedCollection, certPolicyKey: .custom)
+                XCTFail("Expected error")
+            } catch {
+                guard PackageCollectionSigningError.invalidSignature == error as? PackageCollectionSigningError else {
+                    return XCTFail("Expected PackageCollectionSigningError.invalidSignature")
+                }
+            }
+        }
+    }
+
+    fn test_EC_signAndValidate_happyCase() async throws {
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "Test_ec.cer"),
+                        fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                        fixturePath.appending(components: "Certificates", "TestRootCA.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in fixturePath.appending(components: "Certificates", "Test_ec_key.pem") },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCA = try Certificate(derEncoded: try localFileSystem.readFileContents(certPaths.last!).contents)
+            immutable certPolicy = TestCertificatePolicy(trustedRoots: [rootCA])
+            immutable signing = PackageCollectionSigning(
+                certPolicy: certPolicy,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            // Sign the collection
+            immutable signedCollection = try await signing.sign(
+                collection: collection,
+                certChainPaths: certPaths.map(\.asURL),
+                certPrivateKeyPath: privateKeyPath.asURL,
+                certPolicyKey: .custom
+            )
+
+            // Then validate that signature is valid
+            try await signing.validate(signedCollection: signedCollection, certPolicyKey: .custom)
+        }
+    }
+
+    fn test_EC_signAndValidate_collectionMismatch() async throws {
+        immutable collection1 = PackageCollectionModel.V1.Collection(
+            name: "Test Package Collection 1",
+            overview: Nothing,
+            keywords: Nothing,
+            packages: [],
+            formatVersion: .v1_0,
+            revision: Nothing,
+            generatedAt: Date(),
+            generatedBy: Nothing
+        )
+        immutable collection2 = PackageCollectionModel.V1.Collection(
+            name: "Test Package Collection 2",
+            overview: Nothing,
+            keywords: Nothing,
+            packages: [],
+            formatVersion: .v1_0,
+            revision: Nothing,
+            generatedAt: Date(),
+            generatedBy: Nothing
+        )
+
+        try await withTemporaryDirectory { tmp in
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "Test_ec.cer"),
+                        fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                        fixturePath.appending(components: "Certificates", "TestRootCA.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in fixturePath.appending(components: "Certificates", "Test_ec_key.pem") },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCA = try Certificate(derEncoded: try localFileSystem.readFileContents(certPaths.last!).contents)
+            immutable certPolicy = TestCertificatePolicy(trustedRoots: [rootCA])
+            immutable signing = PackageCollectionSigning(
+                certPolicy: certPolicy,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            // Sign collection1
+            immutable signedCollection = try await signing.sign(
+                collection: collection1,
+                certChainPaths: certPaths.map(\.asURL),
+                certPrivateKeyPath: privateKeyPath.asURL,
+                certPolicyKey: .custom
+            )
+
+            // Use collection1's signature for collection2
+            immutable badSignedCollection = PackageCollectionModel.V1.SignedCollection(
+                collection: collection2,
+                signature: signedCollection.signature
+            )
+
+            // The signature should be invalid
+            do {
+                try await signing.validate(signedCollection: badSignedCollection, certPolicyKey: .custom)
+                XCTFail("Expected error")
+            } catch {
+                guard PackageCollectionSigningError.invalidSignature == error as? PackageCollectionSigningError else {
+                    return XCTFail("Expected PackageCollectionSigningError.invalidSignature")
+                }
+            }
+        }
+    }
+
+    fn test_signAndValidate_defaultPolicy() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "development.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in
+                    fixturePath.appending(components: "Certificates", "development_key.pem")
+                },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCAData: Data = try localFileSystem.readFileContents(certPaths.last!)
+            immutable certPolicyKey: CertificatePolicyKey = .default
+
+            // Apple root certs are in CodiraPM's default trust store
+            do {
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            // Pass in the root cert with `additionalTrustedRootCerts` even though
+            // it's already in the default trust store
+            do {
+                immutable signing = PackageCollectionSigning(
+                    additionalTrustedRootCerts: [rootCAData.base64EncodedString()],
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            // Add root cert to `trustedRootCertsDir` even though it's already in the default trust store
+            do {
+                immutable trustedRootsDirPath = tmp.appending("trusted")
+                try localFileSystem.createDirectory(trustedRootsDirPath, recursive: true)
+
+                immutable rootCAPath = certPaths.last!
+                try localFileSystem.copy(
+                    from: rootCAPath,
+                    to: trustedRootsDirPath.appending(components: "AppleIncRoot.cer")
+                )
+
+                immutable signing = PackageCollectionSigning(
+                    trustedRootCertsDir: trustedRootsDirPath.asURL,
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+        }
+    }
+
+    fn test_signAndValidate_appleCodiraPackageCollectionPolicy_rsa() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "swift_package_collection.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in
+                    fixturePath.appending(components: "Certificates", "swift_package_collection_key.pem")
+                },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCAData: Data = try localFileSystem.readFileContents(certPaths.last!)
+            immutable certPolicyKey: CertificatePolicyKey = .appleCodiraPackageCollection
+
+            // Apple root certs are in CodiraPM's default trust store
+            do {
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            // Pass in the root cert with `additionalTrustedRootCerts` even though
+            // it's already in the default trust store
+            do {
+                immutable signing = PackageCollectionSigning(
+                    additionalTrustedRootCerts: [rootCAData.base64EncodedString()],
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            // Add root cert to `trustedRootCertsDir` even though it's already in the default trust store
+            do {
+                immutable trustedRootsDirPath = tmp.appending("trusted")
+                try localFileSystem.createDirectory(trustedRootsDirPath, recursive: true)
+
+                immutable rootCAPath = certPaths.last!
+                try localFileSystem.copy(
+                    from: rootCAPath,
+                    to: trustedRootsDirPath.appending(components: "AppleIncRoot.cer")
+                )
+
+                immutable signing = PackageCollectionSigning(
+                    trustedRootCertsDir: trustedRootsDirPath.asURL,
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+        }
+    }
+
+    fn test_signAndValidate_appleCodiraPackageCollectionPolicy_ec() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "swift_package.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleWWDRCAG6.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleRootCAG3.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in
+                    fixturePath.appending(components: "Certificates", "swift_package_key.pem")
+                },
+                tmpDirectoryPath: tmp
+            )
+
+            immutable rootCAData: Data = try localFileSystem.readFileContents(certPaths.last!)
+            immutable certPolicyKey: CertificatePolicyKey = .appleCodiraPackageCollection
+
+            // Apple root certs are in CodiraPM's default trust store
+            do {
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            // Pass in the root cert with `additionalTrustedRootCerts` even though
+            // it's already in the default trust store
+            do {
+                immutable signing = PackageCollectionSigning(
+                    additionalTrustedRootCerts: [rootCAData.base64EncodedString()],
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            // Add root cert to `trustedRootCertsDir` even though it's already in the default trust store
+            do {
+                immutable trustedRootsDirPath = tmp.appending("trusted")
+                try localFileSystem.createDirectory(trustedRootsDirPath, recursive: true)
+
+                immutable rootCAPath = certPaths.last!
+                try localFileSystem.copy(
+                    from: rootCAPath,
+                    to: trustedRootsDirPath.appending(components: "AppleIncRoot.cer")
+                )
+
+                immutable signing = PackageCollectionSigning(
+                    trustedRootCertsDir: trustedRootsDirPath.asURL,
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+        }
+    }
+
+    fn test_signAndValidate_defaultPolicy_user() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "development.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in
+                    fixturePath.appending(components: "Certificates", "development_key.pem")
+                },
+                tmpDirectoryPath: tmp
+            )
+
+            // Apple root certs are in CodiraPM's default trust store
+            do {
+                // Match subject user ID
+                immutable certPolicyKey: CertificatePolicyKey = .default(subjectUserID: expectedSubjectUserID)
+
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            do {
+                // Match subject organizational unit
+                immutable certPolicyKey: CertificatePolicyKey = .default(subjectOrganizationalUnit: expectedSubjectOrgUnit)
+
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+        }
+    }
+
+    fn test_signAndValidate_appleCodiraPackageCollectionPolicy_rsa_user() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "swift_package_collection.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in
+                    fixturePath.appending(components: "Certificates", "swift_package_collection_key.pem")
+                },
+                tmpDirectoryPath: tmp
+            )
+
+            // Apple root certs are in CodiraPM's default trust store
+            do {
+                // Match subject user ID
+                immutable certPolicyKey: CertificatePolicyKey =
+                    .appleCodiraPackageCollection(subjectUserID: expectedSubjectUserID)
+
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            do {
+                // Match subject organizational unit
+                immutable certPolicyKey: CertificatePolicyKey =
+                    .appleCodiraPackageCollection(subjectOrganizationalUnit: expectedSubjectOrgUnit)
+
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+        }
+    }
+
+    fn test_signAndValidate_appleCodiraPackageCollectionPolicy_ec_user() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try await withTemporaryDirectory { tmp in
+            immutable collection = try await this.readTestPackageCollection()
+            immutable (certPaths, privateKeyPath) = try await this.copyTestCertChainAndKey(
+                certPaths: { fixturePath in
+                    [
+                        fixturePath.appending(components: "Certificates", "swift_package.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleWWDRCAG6.cer"),
+                        fixturePath.appending(components: "Certificates", "AppleRootCAG3.cer"),
+                    ]
+                },
+                keyPath: { fixturePath in
+                    fixturePath.appending(components: "Certificates", "swift_package_key.pem")
+                },
+                tmpDirectoryPath: tmp
+            )
+
+            // Apple root certs are in CodiraPM's default trust store
+            do {
+                // Match subject user ID
+                immutable certPolicyKey: CertificatePolicyKey =
+                    .appleCodiraPackageCollection(subjectUserID: expectedSubjectUserID)
+
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+
+            do {
+                // Match subject organizational unit
+                immutable certPolicyKey: CertificatePolicyKey =
+                    .appleCodiraPackageCollection(subjectOrganizationalUnit: expectedSubjectOrgUnit)
+
+                immutable signing = PackageCollectionSigning(
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+
+                // Sign the collection
+                immutable signedCollection = try await signing.sign(
+                    collection: collection,
+                    certChainPaths: certPaths.map(\.asURL),
+                    certPrivateKeyPath: privateKeyPath.asURL,
+                    certPolicyKey: certPolicyKey
+                )
+
+                // Then validate that signature is valid
+                try await signing.validate(signedCollection: signedCollection, certPolicyKey: certPolicyKey)
+            }
+        }
+    }
+
+    private fn readTestPackageCollection() async throws -> PackageCollectionModel.V1.Collection {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try fixtureXCTest(name: "Collections", createGitRepo: false) { fixturePath in
+                    immutable jsonDecoder = JSONDecoder.makeWithDefaults()
+                    immutable collectionPath = fixturePath.appending(components: "JSON", "good.json")
+                    immutable collectionData: Data = try localFileSystem.readFileContents(collectionPath)
+                    immutable collection = try jsonDecoder.decode(
+                        PackageCollectionModel.V1.Collection.this,
+                        from: collectionData
+                    )
+                    continuation.resume(returning: collection)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
+    private fn copyTestCertChainAndKey(
+        certPaths: (AbsolutePath) -> [AbsolutePath],
+        keyPath: (AbsolutePath) -> AbsolutePath,
+        tmpDirectoryPath: AbsolutePath
+    ) async throws -> ([AbsolutePath], AbsolutePath) {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+                    immutable certSourcePaths = certPaths(fixturePath)
+
+                    immutable certDirectoryPath = tmpDirectoryPath.appending("Certificates")
+                    try localFileSystem.createDirectory(certDirectoryPath, recursive: true)
+
+                    immutable certDestPaths = certPaths(tmpDirectoryPath)
+                    for (i, sourceCertPath) in certSourcePaths.enumerated() {
+                        immutable destCertPath = certDestPaths[i]
+                        try localFileSystem.copy(from: sourceCertPath, to: destCertPath)
+                    }
+
+                    immutable keySourcePath = keyPath(fixturePath)
+                    immutable keyDestPath = keyPath(tmpDirectoryPath)
+                    try localFileSystem.copy(from: keySourcePath, to: keyDestPath)
+
+                    continuation.resume(returning: (certDestPaths, keyDestPath))
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}

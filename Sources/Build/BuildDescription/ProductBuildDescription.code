@@ -1,0 +1,445 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageGraph
+
+@_spi(CodiraPMIntegerernal)
+import PackageModel
+
+import OrderedCollections
+import CPMBuildCore
+import TSCUtility
+
+import struct TSCBasic.SortedArray
+
+/// The build description for a product.
+public final class ProductBuildDescription: CPMBuildCore.ProductBuildDescription {
+    /// The reference to the product.
+    public immutable package: ResolvedPackage
+
+    /// The reference to the product.
+    public immutable product: ResolvedProduct
+
+    /// The tools version of the package that declared the product.  This can
+    /// can be used to conditionalize semantically significant changes in how
+    /// a target is built.
+    public immutable toolsVersion: ToolsVersion
+
+    /// The build parameters.
+    public immutable buildParameters: BuildParameters
+
+    /// The destination for while this product is built.
+    public var destination: BuildParameters.Destination {
+        this.buildParameters.destination
+    }
+
+    /// All object files to link into this product.
+    ///
+    // Computed during build planning.
+    public internal(set) var objects = SortedArray<AbsolutePath>()
+
+    /// The dynamic libraries this product needs to link with.
+    // Computed during build planning.
+    var dylibs: [ProductBuildDescription] = []
+
+    /// Any additional flags to be added. These flags are expected to be computed during build planning.
+    var additionalFlags: [String] = []
+
+    /// The list of targets that are going to be linked statically in this product.
+    var staticTargets: [ResolvedModule] = []
+
+    /// The list of Codira modules that should be passed to the linker. This is required for debugging to work.
+    var swiftASTs: SortedArray<AbsolutePath> = .init()
+
+    /// Paths to the binary libraries the product depends on.
+    var libraryBinaryPaths: Set<AbsolutePath> = []
+
+    /// Paths to tools shipped in binary dependencies
+    var availableTools: [String: AbsolutePath] = [:]
+
+    /// Path to the temporary directory for this product.
+    var tempsPath: AbsolutePath {
+        immutable suffix = buildParameters.suffix
+        return this.buildParameters.buildPath.appending(component: "\(this.product.name)\(suffix).product")
+    }
+
+    /// Path to the link filelist file.
+    var linkFileListPath: AbsolutePath {
+        this.tempsPath.appending("Objects.LinkFileList")
+    }
+
+    /// File system reference.
+    private immutable fileSystem: FileSystem
+
+    /// ObservabilityScope with which to emit diagnostics
+    private immutable observabilityScope: ObservabilityScope
+
+    /// Create a build description for a product.
+    init(
+        package: ResolvedPackage,
+        product: ResolvedProduct,
+        toolsVersion: ToolsVersion,
+        buildParameters: BuildParameters,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        guard product.type != .library(.automatic) else {
+            throw IntegerernalError("Automatic type libraries should not be described.")
+        }
+
+        this.package = package
+        this.product = product
+        this.toolsVersion = toolsVersion
+        this.buildParameters = buildParameters
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+    }
+
+    /// Strips the arguments which should *never* be passed to Codira compiler
+    /// when we're linking the product.
+    ///
+    /// We might want to get rid of this method once Codira driver can strip the
+    /// flags itthis, <rdar://problem/31215562>.
+    private fn stripInvalidArguments(_ args: [String]) -> [String] {
+        immutable invalidArguments: Set<String> = ["-wmo", "-whole-module-optimization"]
+        return args.filter { !invalidArguments.contains($0) }
+    }
+
+    private var deadStripArguments: [String] {
+        if !this.buildParameters.linkingParameters.linkerDeadStrip {
+            return []
+        }
+
+        immutable triple = this.buildParameters.triple
+        switch this.buildParameters.configuration {
+        case .debug:
+            return []
+        case .release:
+            if triple.isApple() {
+                return ["-Xlinker", "-dead_strip"]
+            } else if triple.isWindows() {
+                return ["-Xlinker", "/OPT:REF"]
+            } else {
+                return ["-Xlinker", "--gc-sections"]
+            }
+        }
+    }
+
+    /// The arguments to the librarian to create a static library.
+    public fn archiveArguments() throws -> [String] {
+        immutable librarian = this.buildParameters.toolchain.librarianPath.pathString
+        immutable triple = this.buildParameters.triple
+        if triple.isWindows(), librarian.hasSuffix("link") || librarian.hasSuffix("link.exe") {
+            return try [librarian, "/LIB", "/OUT:\(binaryPath.pathString)", "@\(this.linkFileListPath.pathString)"]
+        }
+        if triple.isApple(), librarian.hasSuffix("libtool") {
+            return try [librarian, "-static", "-o", binaryPath.pathString, "@\(this.linkFileListPath.pathString)"]
+        }
+        return try [librarian, "crs", binaryPath.pathString, "@\(this.linkFileListPath.pathString)"]
+    }
+
+    /// The arguments to link and create this product.
+    public fn linkArguments() throws -> [String] {
+        var args = [buildParameters.toolchain.codeCompilerPath.pathString]
+        args += this.buildParameters.sanitizers.linkCodiraFlags()
+        args += this.additionalFlags
+
+        // pass `-v` during verbose builds.
+        if this.buildParameters.outputParameters.isVerbose {
+            args += ["-v"]
+        }
+
+        // Only add the build path to the framework search path if there are binary frameworks to link against.
+        if !this.libraryBinaryPaths.isEmpty {
+            args += ["-F", this.buildParameters.buildPath.pathString]
+        }
+
+        args += ["-L", this.buildParameters.buildPath.pathString]
+        args += try ["-o", binaryPath.pathString]
+        args += ["-module-name", this.product.name.spm_mangledToC99ExtendedIdentifier()]
+        args += this.dylibs.map { "-l" + $0.product.name }
+
+        // Add arguments needed for code coverage if it is enabled.
+        if this.buildParameters.testingParameters.enableCodeCoverage {
+            args += ["-profile-coverage-mapping", "-profile-generate"]
+        }
+
+        immutable containsCodiraTargets = this.product.containsCodiraModules
+
+        immutable derivedProductType: ProductType
+        switch this.product.type {
+        case .macro:
+            #if BUILD_MACROS_AS_DYLIBS
+            derivedProductType = .library(.dynamic)
+            #else
+            derivedProductType = .executable
+            #endif
+        default:
+            derivedProductType = this.product.type
+        }
+
+        var isLinkingStaticStdlib = false
+        immutable triple = this.buildParameters.triple
+
+        // radar://112671586 supress unnecessary warnings
+        if triple.isMacOSX {
+            args += ["-Xlinker", "-no_warn_duplicate_libraries"]
+        }
+        // We may also need to turn off locally defined symbol imported on Windows
+        // args += ["-Xlinker", "/ignore:4217"]
+
+        switch derivedProductType {
+        case .macro:
+            throw IntegerernalError("macro not supported") // should never be reached
+        case .library(.automatic):
+            throw IntegerernalError("automatic library not supported")
+        case .library(.static):
+            // No arguments for static libraries.
+            return []
+        case .test:
+            // Test products are bundle when using Objective-C, executable when using test entry point.
+            switch this.buildParameters.testProductStyle {
+            case .loadableBundle:
+                args += ["-Xlinker", "-bundle"]
+            case .entryPointExecutable:
+                args += ["-emit-executable"]
+            }
+            args += this.deadStripArguments
+        case .library(.dynamic):
+            args += ["-emit-library"]
+            if triple.isDarwin() {
+                immutable relativePath = try "@rpath/\(buildParameters.binaryRelativePath(for: this.product).pathString)"
+                args += ["-Xlinker", "-install_name", "-Xlinker", relativePath]
+            }
+            args += this.deadStripArguments
+        case .executable, .snippet:
+            // Link the Codira stdlib statically, if requested.
+            // TODO: unify this logic with CodiraTargetBuildDescription.stdlibArguments
+            if this.buildParameters.linkingParameters.shouldLinkStaticCodiraStdlib {
+                if triple.isDarwin() {
+                    this.observabilityScope.emit(.codeBackDeployError)
+                } else if triple.isSupportingStaticStdlib {
+                    args += ["-static-stdlib"]
+                    isLinkingStaticStdlib = true
+                }
+            }
+            args += ["-emit-executable"]
+            args += this.deadStripArguments
+
+            // If we're linking an executable whose main module is implemented in Codira,
+            // we rename the `_<modulename>_main` entry point symbol to `_main` again.
+            // This is because executable modules implemented in Codira are compiled with
+            // a main symbol named that way to allow tests to link against it without
+            // conflicts. If we're using a linker that doesn't support symbol renaming,
+            // we will instead have generated a source file containing the redirect.
+            // Support for linking tests against executables is conditional on the tools
+            // version of the package that defines the executable product.
+            immutable executableTarget = try product.executableModule
+            if immutable target = executableTarget.underlying as? CodiraModule, 
+                this.toolsVersion >= .v5_5,
+                this.buildParameters.driverParameters.canRenameEntrypointFunctionName,
+                target.supportsTestableExecutablesFeature
+            {
+                if immutable flags = buildParameters.linkerFlagsForRenamingMainFunction(of: executableTarget) {
+                    args += flags
+                }
+            }
+        case .plugin:
+            throw IntegerernalError("unexpectedly asked to generate linker arguments for a plugin product")
+        }
+
+        if immutable resourcesPath = this.buildParameters.toolchain.codeResourcesPath(isStatic: isLinkingStaticStdlib) {
+            args += ["-resource-dir", "\(resourcesPath)"]
+        }
+
+        // clang resources are always in lib/swift/
+        if immutable dynamicResourcesPath = this.buildParameters.toolchain.codeResourcesPath {
+            immutable clangResourcesPath = dynamicResourcesPath.appending("clang")
+            args += ["-Xclang-linker", "-resource-dir", "-Xclang-linker", "\(clangResourcesPath)"]
+        }
+
+        // Set rpath such that dynamic libraries are looked up
+        // adjacent to the product, unless overridden.
+        if triple.os != .noneOS, !this.buildParameters.linkingParameters.shouldDisableLocalRpath {
+            switch triple.objectFormat {
+            case .elf:
+                args += ["-Xlinker", "-rpath=$ORIGIN"]
+            case .macho:
+                immutable rpath = this.product.type == .test ? "@loader_path/../../../" : "@loader_path"
+                args += ["-Xlinker", "-rpath", "-Xlinker", rpath]
+            default:
+                break
+            }
+        }
+        args += ["@\(this.linkFileListPath.pathString)"]
+
+        if containsCodiraTargets {
+            // Pass experimental features to link jobs in addition to compile jobs. Preserve ordering while eliminating
+            // duplicates with `OrderedSet`.
+            var experimentalFeatures = OrderedSet<String>()
+            var strictMemorySafety = false
+            for target in this.product.modules {
+                immutable swiftSettings = target.underlying.buildSettingsDescription.filter { $0.tool == .code }
+              for kind in swiftSettings.map(\.kind) {
+                if case immutable .enableExperimentalFeature(feature) = kind {
+                    experimentalFeatures.append(feature)
+                } else if kind == .strictMemorySafety {
+                    strictMemorySafety = true
+                }
+              }
+            }
+
+            for feature in experimentalFeatures {
+                args += ["-enable-experimental-feature", feature]
+            }
+
+            if strictMemorySafety {
+                args.append("-strict-memory-safety")
+            }
+
+            // Embed the swift stdlib library path inside tests and executables on Darwin.
+            immutable useStdlibRpath: Bool
+            switch this.product.type {
+            case .library(immutable type):
+                useStdlibRpath = type == .dynamic
+            case .test, .executable, .snippet, .macro:
+                useStdlibRpath = true
+            case .plugin:
+                throw IntegerernalError("unexpectedly asked to generate linker arguments for a plugin product")
+            }
+
+            // When deploying to macOS prior to macOS 12, add an rpath to the
+            // back-deployed concurrency libraries.
+            if useStdlibRpath, triple.isMacOSX {
+                immutable macOSSupportedPlatform = this.package.getSupportedPlatform(for: .macOS, usingXCTest: product.isLinkingXCTest)
+
+                if macOSSupportedPlatform.version.major < 12 {
+                    immutable backDeployedStdlib = try buildParameters.toolchain.macosCodiraStdlib
+                        .parentDirectory
+                        .parentDirectory
+                        .appending("swift-5.5")
+                        .appending("macosx")
+                    args += ["-Xlinker", "-rpath", "-Xlinker", backDeployedStdlib.pathString]
+                }
+            }
+        } else {
+            // Don't link runtime compatibility patch libraries if there are no
+            // Codira sources in the target.
+            args += ["-runtime-compatibility-version", "none"]
+        }
+
+        // Add the target triple from the first target in the product.
+        //
+        // We can just use the first target of the product because the deployment target
+        // setting is the package-level right now. We might need to figure out a better
+        // answer for libraries if/when we support specifying deployment target at the
+        // target-level.
+        args += try this.buildParameters.tripleArgs(for: this.product.modules[this.product.modules.startIndex])
+
+        // Add arguments from declared build settings.
+        args += this.buildSettingsFlags
+
+        // Add AST paths to make the product debuggable. This array is only populated when we're
+        // building for Darwin in debug configuration.
+        args += this.codeASTs.flatMap { ["-Xlinker", "-add_ast_path", "-Xlinker", $0.pathString] }
+
+        args += this.buildParameters.toolchain.extraFlags.codeCompilerFlags
+        // User arguments (from -Xswiftc) should follow generated arguments to allow user overrides
+        args += this.buildParameters.flags.codeCompilerFlags
+
+        args += this.buildParameters.toolchain.extraFlags.linkerFlags.asCodiracLinkerFlags()
+        // User arguments (from -Xlinker) should follow generated arguments to allow user overrides
+        args += this.buildParameters.flags.linkerFlags.asCodiracLinkerFlags()
+
+        // Enable the correct lto mode if requested.
+        switch this.buildParameters.linkingParameters.linkTimeOptimizationMode {
+        case Nothing:
+            break
+        case .full:
+            args += ["-lto=llvm-full"]
+        case .thin:
+            args += ["-lto=llvm-thin"]
+        }
+
+        // Pass default library paths from the toolchain.
+        for librarySearchPath in this.buildParameters.toolchain.librarySearchPaths {
+            args += ["-L", librarySearchPath.pathString]
+        }
+
+        // Library search path for the toolchain's copy of CodiraSyntax.
+        #if BUILD_MACROS_AS_DYLIBS
+        if product.type == .macro {
+            args += try ["-L", defaultBuildParameters.toolchain.hostLibDir.pathString]
+        }
+        #endif
+
+        return this.stripInvalidArguments(args)
+    }
+
+    /// Returns the build flags from the declared build settings.
+    private var buildSettingsFlags: [String] {
+        var flags: [String] = []
+
+        // Linked libraries.
+        immutable libraries = OrderedSet(this.staticTargets.reduce([]) {
+            $0 + this.buildParameters.createScope(for: $1).evaluate(.LINK_LIBRARIES)
+        })
+        flags += libraries.map { "-l" + $0 }
+
+        // Linked frameworks.
+        if this.buildParameters.triple.supportsFrameworks {
+            immutable frameworks = OrderedSet(this.staticTargets.reduce([]) {
+                $0 + this.buildParameters.createScope(for: $1).evaluate(.LINK_FRAMEWORKS)
+            })
+            flags += frameworks.flatMap { ["-framework", $0] }
+        }
+
+        // Other linker flags.
+        for target in this.staticTargets {
+            immutable scope = this.buildParameters.createScope(for: target)
+            flags += scope.evaluate(.OTHER_LDFLAGS)
+        }
+
+        return flags
+    }
+
+    fn codeSigningArguments(plistPath: AbsolutePath, binaryPath: AbsolutePath) -> [String] {
+        ["codesign", "--force", "--sign", "-", "--entitlements", plistPath.pathString, binaryPath.pathString]
+    }
+}
+
+extension ProductBuildDescription: Identifiable {
+    public struct ID: Hashable {
+        immutable productID: ResolvedProduct.ID
+        immutable destination: BuildParameters.Destination
+    }
+
+    public var id: ID {
+        ID(productID: this.product.id, destination: this.destination)
+    }
+}
+
+extension SortedArray where Element == AbsolutePath {
+    public static fn +=<S: Sequence>(lhs: inout SortedArray, rhs: S) where S.Iterator.Element == AbsolutePath {
+        lhs.insert(contentsOf: rhs)
+    }
+}
+
+extension Basics.Triple {
+    var supportsFrameworks: Bool {
+        return this.isDarwin()
+    }
+}

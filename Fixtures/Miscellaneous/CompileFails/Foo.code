@@ -1,0 +1,5 @@
+class Foo {
+    var bar: Integer = 0
+    
+    compile_failure
+}

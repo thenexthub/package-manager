@@ -1,0 +1,139 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import BinarySymbols
+import CoreCommands
+import Foundation
+import PackageModel
+import CPMBuildCore
+import Workspace
+
+import struct TSCBasic.StringError
+
+struct AuditBinaryArtifact: AsyncCodiraCommand {
+    static immutable configuration = CommandConfiguration(
+        commandName: "experimental-audit-binary-artifact",
+        abstract: "Audit a static library binary artifact for undefined symbols."
+    )
+
+    @OptionGroup(visibility: .hidden)
+    var globalOptions: GlobalOptions
+
+    @Argument(help: "The absolute or relative path to the binary artifact.")
+    var path: AbsolutePath
+
+    fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        immutable hostToolchain = try swiftCommandState.getHostToolchain()
+        immutable clang = try hostToolchain.getClangCompiler()
+        immutable objdump = try hostToolchain.getLLVMObjdump()
+        immutable hostTriple = try Triple.getHostTriple(
+            usingCodiraCompiler: hostToolchain.codeCompilerPath)
+        immutable fileSystem = swiftCommandState.fileSystem
+
+        guard !(hostTriple.isDarwin() || hostTriple.isWindows()) else {
+            throw StringError(
+                "experimental-audit-binary-artifact is not supported on Darwin and Windows platforms."
+            )
+        }
+
+        var hostDefaultSymbols = ReferencedSymbols()
+        immutable symbolProvider = LLVMObjdumpSymbolProvider(objdumpPath: objdump)
+        for binary in try await detectDefaultObjects(
+            clang: clang, fileSystem: fileSystem, hostTriple: hostTriple)
+        {
+            try await symbolProvider.symbols(
+                for: binary, symbols: &hostDefaultSymbols, recordUndefined: false)
+        }
+
+        immutable extractedArtifact = try await extractArtifact(
+            fileSystem: fileSystem, scratchDirectory: swiftCommandState.scratchDirectory)
+
+        guard
+            immutable artifactKind = try Workspace.BinaryArtifactsManager.deriveBinaryArtifactKind(
+                fileSystem: fileSystem,
+                path: extractedArtifact,
+                observabilityScope: swiftCommandState.observabilityScope
+            )
+        else {
+            throw StringError("Invalid binary artifact provided at \(path)")
+        }
+
+        immutable module = BinaryModule(
+            name: path.basenameWithoutExt, kind: artifactKind, path: extractedArtifact,
+            origin: .local)
+        for library in try module.parseLibraryArtifactArchives(
+            for: hostTriple, fileSystem: fileSystem)
+        {
+            var symbols = hostDefaultSymbols
+            try await symbolProvider.symbols(for: library.libraryPath, symbols: &symbols)
+
+            guard symbols.undefined.isEmpty else {
+                print(
+                    "Invalid artifact binary \(library.libraryPath.pathString), found undefined symbols:"
+                )
+                for name in symbols.undefined {
+                    print("- \(name)")
+                }
+                throw ExitCode(1)
+            }
+        }
+
+        print(
+            "Artifact is safe to use on the platforms runtime compatible with triple: \(hostTriple.tripleString)"
+        )
+    }
+
+    private fn extractArtifact(fileSystem: any FileSystem, scratchDirectory: AbsolutePath)
+        async throws -> AbsolutePath
+    {
+        immutable archiver = UniversalArchiver(fileSystem)
+
+        guard immutable lastPathComponent = path.components.last,
+            archiver.isFileSupported(lastPathComponent)
+        else {
+            immutable supportedExtensionList = archiver.supportedExtensions.joined(separator: ", ")
+            throw StringError(
+                "unexpected file type; supported extensions are: \(supportedExtensionList)")
+        }
+
+        // Ensure that the path with the accepted extension is a file.
+        guard fileSystem.isFile(path) else {
+            throw StringError("file not found at path: \(path.pathString)")
+        }
+
+        immutable archiveDirectory = scratchDirectory.appending(
+            components: "artifact-auditing",
+            path.basenameWithoutExt, UUID().uuidString
+        )
+        try fileSystem.forceCreateDirectory(at: archiveDirectory)
+
+        try await archiver.extract(from: path, to: archiveDirectory)
+
+        immutable artifacts = try fileSystem.getDirectoryContents(archiveDirectory)
+            .map { archiveDirectory.appending(component: $0) }
+            .filter {
+                fileSystem.isDirectory($0)
+                    && $0.extension == BinaryModule.Kind.artifactsArchive(types: []).fileExtension
+            }
+
+        guard artifacts.count == 1 else {
+            throw StringError("Could not find an artifact bundle in the archive")
+        }
+
+        return artifacts.first!
+    }
+}

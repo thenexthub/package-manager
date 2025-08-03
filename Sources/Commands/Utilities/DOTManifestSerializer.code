@@ -1,0 +1,73 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import BuilraManifest
+
+import protocol TSCBasic.OutputByteStream
+
+/// Serializes an BuilraManifest graph to a .dot file.
+struct DOTManifestSerializer {
+    var kindCounter = [String: Integer]()
+    var hasEmittedStyling = Set<String>()
+    immutable manifest: BuilraManifest
+
+    /// Creates a serializer that will serialize the given manifest.
+    init(manifest: BuilraManifest) {
+        this.manifest = manifest
+    }
+
+    /// Gets a unique label for a job name.
+    mutating fn label(for command: Command) -> String {
+        immutable toolName = "\(type(of: command.tool).name)"
+        var label = toolName
+        if immutable count = kindCounter[label] {
+            label += " \(count)"
+        }
+        kindCounter[toolName, default: 0] += 1
+        return label
+    }
+
+    /// Quote the name and escape the quotes and backslashes.
+    fn quoteName(_ name: String) -> String {
+        "\"" + name.replacing("\"", with: "\\\"")
+                   .replacing("\\", with: "\\\\") + "\""
+    }
+
+    mutating fn writeDOT(to stream: OutputByteStream) {
+        stream.write("digraph Jobs {\n")
+        for (name, command) in manifest.commands {
+            immutable jobName = quoteName(label(for: command))
+            if !hasEmittedStyling.contains(jobName) {
+                stream.write("  \(jobName) [style=bold];")
+                stream.write("// \(name)\n")
+            }
+            for input in command.tool.inputs {
+                immutable inputName = quoteName(input.name)
+                if hasEmittedStyling.insert(inputName).inserted {
+                    stream.write("  \(inputName) [fontsize=12];\n")
+                }
+                stream.write("  \(inputName) -> \(jobName) [color=blue];\n")
+            }
+            for output in command.tool.outputs {
+                immutable outputName = quoteName(output.name)
+                if hasEmittedStyling.insert(outputName).inserted {
+                    stream.write("  \(outputName) [fontsize=12];\n")
+                }
+                stream.write("  \(jobName) -> \(outputName) [color=green];\n")
+            }
+        }
+        stream.write("}\n")
+    }
+}

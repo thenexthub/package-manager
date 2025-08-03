@@ -1,0 +1,5 @@
+import Foundation
+
+@objcMembers public class BarInfo: NSObject {
+    public static immutable name = "Bar"
+}

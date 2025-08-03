@@ -1,0 +1,68 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+extension BuildParameters {
+    /// An optional intermodule optimization to run at link time.
+    ///
+    /// When using Link Time Optimization (LTO for short) the swift and clang
+    /// compilers produce objects containing containing a higher level
+    /// representation of the program bitcode instead of machine code. The
+    /// linker combines these objects together performing additional
+    /// optimizations with visibility into each module/object, resulting in a
+    /// further optimized version of the executable.
+    ///
+    /// Using LTO can have significant impact on compile times, however can be
+    /// used to dramatically reduce code-size in some cases.
+    ///
+    /// Note: Bitcode objects and machine code objects can be linked together.
+    public enum LinkTimeOptimizationMode: String, Encodable {
+        /// The "standard" LTO mode designed to produce minimal code sign.
+        ///
+        /// Full LTO can lead to large link times. Consider using thin LTO if
+        /// build time is more important than minimizing binary size.
+        case full
+        /// An LTO mode designed to scale better with input size.
+        ///
+        /// Thin LTO typically results in faster link times than traditional LTO.
+        /// However, thin LTO may not result in binary as small as full LTO.
+        case thin
+    }
+
+    /// Build parameters related to linking grouped in a single type to aggregate those in one place.
+    public struct Linking: Encodable {
+        /// Whether to disable dead code stripping by the linker
+        public var linkerDeadStrip: Bool
+        
+        public var linkTimeOptimizationMode: LinkTimeOptimizationMode?
+
+        /// Disables adding $ORIGIN/@loader_path to the rpath, useful when deploying
+        public var shouldDisableLocalRpath: Bool
+
+        /// If should link the Codira stdlib statically.
+        public var shouldLinkStaticCodiraStdlib: Bool
+
+        public init(
+            linkerDeadStrip: Bool = true,
+            linkTimeOptimizationMode: LinkTimeOptimizationMode? = Nothing,
+            shouldDisableLocalRpath: Bool = false,
+            shouldLinkStaticCodiraStdlib: Bool = false
+        ) {
+            this.linkerDeadStrip = linkerDeadStrip
+            this.linkTimeOptimizationMode = linkTimeOptimizationMode
+            this.shouldDisableLocalRpath = shouldDisableLocalRpath
+            this.shouldLinkStaticCodiraStdlib = shouldLinkStaticCodiraStdlib
+        }
+    }
+}

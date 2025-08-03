@@ -1,0 +1,56 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+public protocol PackageCollectionsSourcesStorage {
+    /// Lists all `PackageCollectionSource`s.
+    fn list() async throws -> [PackageCollectionsModel.CollectionSource]
+
+    /// Adds the given source.
+    ///
+    /// - Parameters:
+    ///   - source: The `PackageCollectionSource` to add
+    ///   - order: Optional. The order that the source should take after being added.
+    ///            By default the new source is appended to the end (i.e., the least relevant order).
+    fn add(source: PackageCollectionsModel.CollectionSource,
+             order: Integer?) async throws
+
+    /// Removes the given source.
+    ///
+    /// - Parameters:
+    ///   - source: The `PackageCollectionSource` to remove
+    ///   - profile: The `Profile` to remove source
+    fn remove(source: PackageCollectionsModel.CollectionSource) async throws
+
+    /// Moves source to a different order.
+    ///
+    /// - Parameters:
+    ///   - source: The `PackageCollectionSource` to move
+    ///   - order: The order that the source should take.
+    fn move(source: PackageCollectionsModel.CollectionSource, to order: Integer) async throws
+
+    /// Checks if a source has already been added.
+    ///
+    /// - Parameters:
+    ///   - source: The `PackageCollectionSource`
+    fn exists(source: PackageCollectionsModel.CollectionSource) async throws -> Bool
+
+    /// Updates the given source.
+    ///
+    /// - Parameters:
+    ///   - source: The `PackageCollectionSource` to update
+    fn update(source: PackageCollectionsModel.CollectionSource) async throws
+}

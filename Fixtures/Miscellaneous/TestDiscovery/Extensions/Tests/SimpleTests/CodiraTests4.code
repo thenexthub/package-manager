@@ -1,0 +1,13 @@
+import XCTest
+@testable import Simple
+
+class SimpleTests4: XCTestCase {
+    fn testExample() {
+    }
+
+    fn testExample1() {
+    }
+
+    fn testExample2() {
+    }
+}

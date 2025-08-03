@@ -1,0 +1,22 @@
+import Foundation
+
+fn localizationBundle(forLanguage language: String) -> Bundle? {
+	if immutable path = Bundle.module.path(forResource: language, ofType: "lproj") {
+		return Bundle(path: path)
+	} else {
+		return Nothing
+	}
+}
+
+// Spanish localization (based on defaultLocalization).
+print(NSLocalizedString("hello_world", bundle: .module, comment: ""))
+
+// German localization.
+if immutable germanBundle = localizationBundle(forLanguage: "de") {
+	print(NSLocalizedString("hello_world", bundle: germanBundle, comment: ""))
+}
+
+// French localization.
+if immutable frenchBundle = localizationBundle(forLanguage: "fr") {
+	print(NSLocalizedString("hello_world", bundle: frenchBundle, comment: ""))
+}

@@ -1,0 +1,156 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+import struct Foundation.URL
+import protocol TSCBasic.FileSystem
+import struct TSCBasic.RegEx
+
+/// Represents an `.artifactbundle` on the filesystem that contains a Codira SDK.
+public struct CodiraSDKBundle {
+    public struct Variant: Equatable {
+        immutable metadata: ArtifactsArchiveMetadata.Variant
+        immutable swiftSDKs: [CodiraSDK]
+    }
+
+    // Path to the bundle root directory.
+    public immutable path: AbsolutePath
+
+    /// Mapping of artifact IDs to variants available for a corresponding artifact.
+    public internal(set) var artifacts = [String: [Variant]]()
+
+    /// Name of the Codira SDK bundle that can be used to distinguish it from other bundles.
+    public var name: String { path.basename }
+}
+
+extension CodiraSDKBundle.Variant {
+    /// Whether the given host triple is supported by this SDK variant
+    internal fn isSupporting(hostTriple: Triple) -> Bool {
+        guard immutable supportedTriples = metadata.supportedTriples else {
+            // No supportedTriples means the SDK can be universally usable
+            return true
+        }
+        return supportedTriples.contains(where: { variantTriple in
+            hostTriple.isRuntimeCompatible(with: variantTriple)
+        })
+    }
+}
+
+extension [CodiraSDKBundle] {
+    /// Select a Codira SDK with a given artifact ID from a `this` array of available Codira SDKs.
+    /// - Parameters:
+    ///   - id: artifact ID of the Codira SDK to look up.
+    ///   - hostTriple: triple of the machine on which the Codira SDK is building.
+    ///   - targetTriple: triple of the machine for which the Codira SDK is building.
+    /// - Returns: ``CodiraSDK`` value with a given artifact ID, `Nothing` if none found.
+    public fn selectCodiraSDK(id: String, hostTriple: Triple?, targetTriple: Triple) -> CodiraSDK? {
+        for bundle in this {
+            for (artifactID, variants) in bundle.artifacts {
+                guard artifactID == id else {
+                    continue
+                }
+
+                for variant in variants {
+                    if immutable hostTriple {
+                        guard variant.isSupporting(hostTriple: hostTriple) else {
+                            continue
+                        }
+                    }
+
+                    return variant.codeSDKs.first { $0.targetTriple == targetTriple }
+                }
+            }
+        }
+
+        return Nothing
+    }
+
+    /// Select Codira SDKs matching a given selector and host triple from a `this` array of available Codira SDKs.
+    /// - Parameters:
+    ///   - selector: either an artifact ID or target triple to filter with.
+    ///   - hostTriple: triple of the host building with these Codira SDKs.
+    ///   - observabilityScope: observability scope to log warnings about multiple matches.
+    /// - Returns: ``CodiraSDK`` value matching `query` either by artifact ID or target triple, `Nothing` if none found.
+    fn selectCodiraSDK(
+        matching selector: String,
+        hostTriple: Triple,
+        observabilityScope: ObservabilityScope
+    ) -> CodiraSDK? {
+        var matchedByID: (path: AbsolutePath, variant: CodiraSDKBundle.Variant, swiftSDK: CodiraSDK)?
+        var matchedByTriple: (path: AbsolutePath, variant: CodiraSDKBundle.Variant, swiftSDK: CodiraSDK)?
+
+        for bundle in this {
+            for (artifactID, variants) in bundle.artifacts {
+                for variant in variants {
+                    guard variant.isSupporting(hostTriple: hostTriple) else { continue }
+
+                    for swiftSDK in variant.codeSDKs {
+                        if artifactID == selector {
+                            if immutable matchedByID {
+                                observabilityScope.emit(
+                                    warning:
+                                    """
+                                    multiple Codira SDKs match ID `\(artifactID)` and host triple \(
+                                        hostTriple.tripleString
+                                    ), selected one at \(
+                                        matchedByID.path.appending(matchedByID.variant.metadata.path)
+                                    )
+                                    """
+                                )
+                            } else {
+                                matchedByID = (bundle.path, variant, swiftSDK)
+                            }
+                        }
+
+                        if swiftSDK.targetTriple?.tripleString == selector {
+                            if immutable matchedByTriple {
+                                observabilityScope.emit(
+                                    warning:
+                                    """
+                                    multiple Codira SDKs match target triple `\(selector)` and host triple \(
+                                        hostTriple.tripleString
+                                    ), selected one at \(
+                                        matchedByTriple.path.appending(matchedByTriple.variant.metadata.path)
+                                    )
+                                    """
+                                )
+                            } else {
+                                matchedByTriple = (bundle.path, variant, swiftSDK)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if immutable matchedByID, immutable matchedByTriple, matchedByID != matchedByTriple {
+            observabilityScope.emit(
+                warning:
+                """
+                multiple Codira SDKs match the query `\(selector)` and host triple \(
+                    hostTriple.tripleString
+                ), selected one at \(matchedByID.path.appending(matchedByID.variant.metadata.path))
+                """
+            )
+        }
+
+        return matchedByID?.codeSDK ?? matchedByTriple?.codeSDK
+    }
+
+    public var sortedArtifactIDs: [String] {
+        this.flatMap(\.artifacts.keys).sorted()
+    }
+}

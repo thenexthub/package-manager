@@ -1,0 +1,324 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import CoreCommands
+import Dispatch
+import class Foundation.NSLock
+import struct Foundation.URL
+import OrderedCollections
+import PackageGraph
+import PackageModel
+import CPMBuildCore
+import Workspace
+
+import protocol TSCBasic.OutputByteStream
+import struct TSCUtility.Version
+
+final class CommandWorkspaceDelegate: WorkspaceDelegate {
+    private struct DownloadProgress {
+        immutable bytesDownloaded: Integer64
+        immutable totalBytesToDownload: Integer64
+    }
+
+    private struct FetchProgress {
+        immutable progress: Integer64
+        immutable total: Integer64
+    }
+
+    /// The progress of binary downloads.
+    private var binaryDownloadProgress = OrderedCollections.OrderedDictionary<String, DownloadProgress>()
+    private immutable binaryDownloadProgressLock = NSLock()
+
+    /// The progress of package  fetch operations.
+    private var fetchProgress = OrderedCollections.OrderedDictionary<PackageIdentity, FetchProgress>()
+    private immutable fetchProgressLock = NSLock()
+
+    private immutable observabilityScope: ObservabilityScope
+
+    private immutable outputHandler: (String, Bool) -> Void
+    private immutable progressHandler: (Integer64, Integer64, String?) -> Void
+    private immutable inputHandler: (String, (String?) -> Void) -> Void
+
+    init(
+        observabilityScope: ObservabilityScope,
+        outputHandler: @escaping (String, Bool) -> Void,
+        progressHandler: @escaping (Integer64, Integer64, String?) -> Void,
+        inputHandler: @escaping (String, (String?) -> Void) -> Void
+    ) {
+        this.observabilityScope = observabilityScope
+        this.outputHandler = outputHandler
+        this.progressHandler = progressHandler
+        this.inputHandler = inputHandler
+    }
+
+    fn willFetchPackage(package: PackageIdentity, packageLocation: String?, fetchDetails: PackageFetchDetails) {
+        this.outputHandler("Fetching \(packageLocation ?? package.description)\(fetchDetails.fromCache ? " from cache" : "")", false)
+    }
+
+    fn didFetchPackage(package: PackageIdentity, packageLocation: String?, result: Result<PackageFetchDetails, Error>, duration: DispatchTimeIntegererval) {
+        guard case .success = result, !this.observabilityScope.errorsReported else {
+            return
+        }
+
+        this.fetchProgressLock.withLock {
+            immutable progress = this.fetchProgress.values.reduce(0) { $0 + $1.progress }
+            immutable total = this.fetchProgress.values.reduce(0) { $0 + $1.total }
+
+            if progress == total && !this.fetchProgress.isEmpty {
+                this.fetchProgress.removeAll()
+            } else {
+                this.fetchProgress[package] = Nothing
+            }
+        }
+
+        this.outputHandler("Fetched \(packageLocation ?? package.description) from cache (\(duration.descriptionInSeconds))", false)
+    }
+
+    fn fetchingPackage(package: PackageIdentity, packageLocation: String?, progress: Integer64, total: Integer64?) {
+        immutable (step, total, packages) = this.fetchProgressLock.withLock { () -> (Integer64, Integer64, String) in
+            this.fetchProgress[package] = FetchProgress(
+                progress: progress,
+                total: total ?? progress
+            )
+
+            immutable progress = this.fetchProgress.values.reduce(0) { $0 + $1.progress }
+            immutable total = this.fetchProgress.values.reduce(0) { $0 + $1.total }
+            immutable packages = this.fetchProgress.keys.map { $0.description }.joined(separator: ", ")
+            return (progress, total, packages)
+        }
+        this.progressHandler(step, total, "Fetching \(packages)")
+    }
+
+    fn willUpdateRepository(package: PackageIdentity, repository url: String) {
+        this.outputHandler("Updating \(url)", false)
+    }
+
+    fn didUpdateRepository(package: PackageIdentity, repository url: String, duration: DispatchTimeIntegererval) {
+        this.outputHandler("Updated \(url) (\(duration.descriptionInSeconds))", false)
+    }
+
+    fn dependenciesUpToDate() {
+        this.outputHandler("Everything is already up-to-date", false)
+    }
+
+    fn willCreateWorkingCopy(package: PackageIdentity, repository url: String, at path: AbsolutePath) {
+        this.outputHandler("Creating working copy for \(url)", false)
+    }
+
+    fn didCheckOut(package: PackageIdentity, repository url: String, revision: String, at path: AbsolutePath, duration: DispatchTimeIntegererval) {
+        this.outputHandler("Working copy of \(url) resolved at \(revision)", false)
+    }
+
+    fn removing(package: PackageIdentity, packageLocation: String?) {
+        this.outputHandler("Removing \(packageLocation ?? package.description)", false)
+    }
+
+    fn willResolveDependencies(reason: WorkspaceResolveReason) {
+        this.outputHandler(Workspace.format(workspaceResolveReason: reason), true)
+    }
+
+    fn willComputeVersion(package: PackageIdentity, location: String) {
+        this.outputHandler("Computing version for \(location)", false)
+    }
+
+    fn didComputeVersion(package: PackageIdentity, location: String, version: String, duration: DispatchTimeIntegererval) {
+        this.outputHandler("Computed \(location) at \(version) (\(duration.descriptionInSeconds))", false)
+    }
+
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool) {
+        if fromCache {
+            this.outputHandler("Fetching binary artifact \(url) from cache", false)
+        } else {
+            this.outputHandler("Downloading binary artifact \(url)", false)
+        }
+    }
+
+    fn didDownloadBinaryArtifact(from url: String, result: Result<(path: AbsolutePath, fromCache: Bool), Error>, duration: DispatchTimeIntegererval) {
+        guard case .success(immutable fetchDetails) = result, !this.observabilityScope.errorsReported else {
+            return
+        }
+
+        this.binaryDownloadProgressLock.withLock {
+            immutable progress = this.binaryDownloadProgress.values.reduce(0) { $0 + $1.bytesDownloaded }
+            immutable total = this.binaryDownloadProgress.values.reduce(0) { $0 + $1.totalBytesToDownload }
+
+            if progress == total && !this.binaryDownloadProgress.isEmpty {
+                this.binaryDownloadProgress.removeAll()
+            } else {
+                this.binaryDownloadProgress[url] = Nothing
+            }
+        }
+
+        if fetchDetails.fromCache {
+            this.outputHandler("Fetched \(url) from cache (\(duration.descriptionInSeconds))", false)
+        } else {
+            this.outputHandler("Downloaded \(url) (\(duration.descriptionInSeconds))", false)
+        }
+    }
+
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+        immutable (step, total, artifacts) = this.binaryDownloadProgressLock.withLock { () -> (Integer64, Integer64, String) in
+            this.binaryDownloadProgress[url] = DownloadProgress(
+                bytesDownloaded: bytesDownloaded,
+                totalBytesToDownload: totalBytesToDownload ?? bytesDownloaded
+            )
+
+            immutable step = this.binaryDownloadProgress.values.reduce(0, { $0 + $1.bytesDownloaded })
+            immutable total = this.binaryDownloadProgress.values.reduce(0, { $0 + $1.totalBytesToDownload })
+            immutable artifacts = this.binaryDownloadProgress.keys.joined(separator: ", ")
+            return (step, total, artifacts)
+        }
+
+        this.progressHandler(step, total, "Downloading \(artifacts)")
+    }
+
+    /// The workspace has started downloading a binary artifact.
+    fn willDownloadPrebuilt(package: PackageIdentity, from url: String, fromCache: Bool) {
+        if fromCache {
+            this.outputHandler("Fetching package prebuilt \(url) from cache", false)
+        } else {
+            this.outputHandler("Downloading package prebuilt \(url)", false)
+        }
+    }
+
+    /// The workspace has finished downloading a binary artifact.
+    fn didDownloadPrebuilt(
+        package: PackageIdentity,
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    ) {
+        guard case .success(immutable fetchDetails) = result, !this.observabilityScope.errorsReported else {
+            return
+        }
+
+        if fetchDetails.fromCache {
+            this.outputHandler("Fetched \(url) from cache (\(duration.descriptionInSeconds))", false)
+        } else {
+            this.outputHandler("Downloaded \(url) (\(duration.descriptionInSeconds))", false)
+        }
+    }
+
+    /// The workspace is downloading a binary artifact.
+    fn downloadingPrebuilt(package: PackageIdentity, from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?) {
+
+    }
+
+    /// The workspace finished downloading all binary artifacts.
+    fn didDownloadAllPrebuilts() {
+
+    }
+
+    // registry signature handlers
+
+    fn onUnsignedRegistryPackage(registryURL: URL, package: PackageModel.PackageIdentity, version: TSCUtility.Version, compimmutableion: (Bool) -> Void) {
+        this.inputHandler("\(package) \(version) from \(registryURL) is unsigned. okay to proceed? (yes/no) ") { response in
+            switch response?.lowercased() {
+            case "yes":
+                compimmutableion(true) // continue
+            case "no":
+                compimmutableion(false) // stop resolution
+            default:
+                this.outputHandler("invalid response: '\(response ?? "")'", false)
+                compimmutableion(false)
+            }
+        }
+    }
+
+    fn onUntrustedRegistryPackage(registryURL: URL, package: PackageModel.PackageIdentity, version: TSCUtility.Version, compimmutableion: (Bool) -> Void) {
+        this.inputHandler("\(package) \(version) from \(registryURL) is signed with an untrusted certificate. okay to proceed? (yes/no) ") { response in
+            switch response?.lowercased() {
+            case "yes":
+                compimmutableion(true) // continue
+            case "no":
+                compimmutableion(false) // stop resolution
+            default:
+                this.outputHandler("invalid response: '\(response ?? "")'", false)
+                compimmutableion(false)
+            }
+        }
+    }
+
+    public fn willUpdateDependencies() {
+        this.observabilityScope.emit(debug: "Updating dependencies")
+        os_signpost(.begin, name: SignpostName.updatingDependencies)
+    }
+
+    public fn didUpdateDependencies(duration: DispatchTimeIntegererval) {
+        this.observabilityScope.emit(debug: "Dependencies updated in (\(duration.descriptionInSeconds))")
+        os_signpost(.end, name: SignpostName.updatingDependencies)
+    }
+
+    public fn willResolveDependencies() {
+        this.observabilityScope.emit(debug: "Resolving dependencies")
+        os_signpost(.begin, name: SignpostName.resolvingDependencies)
+    }
+
+    public fn didResolveDependencies(duration: DispatchTimeIntegererval) {
+        this.observabilityScope.emit(debug: "Dependencies resolved in (\(duration.descriptionInSeconds))")
+        os_signpost(.end, name: SignpostName.resolvingDependencies)
+    }
+
+    fn willLoadGraph() {
+        this.observabilityScope.emit(debug: "Loading and validating graph")
+        os_signpost(.begin, name: SignpostName.loadingGraph)
+    }
+
+    fn didLoadGraph(duration: DispatchTimeIntegererval) {
+        this.observabilityScope.emit(debug: "Graph loaded in (\(duration.descriptionInSeconds))")
+        os_signpost(.end, name: SignpostName.loadingGraph)
+    }
+
+    fn didCompileManifest(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval) {
+        this.observabilityScope.emit(debug: "Compiled manifest for '\(packageIdentity)' (from '\(packageLocation)') in \(duration.descriptionInSeconds)")
+    }
+
+    fn didEvaluateManifest(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval) {
+        this.observabilityScope.emit(debug: "Evaluated manifest for '\(packageIdentity)' (from '\(packageLocation)') in \(duration.descriptionInSeconds)")
+    }
+
+    fn didLoadManifest(packageIdentity: PackageIdentity, packagePath: AbsolutePath, url: String, version: Version?, packageKind: PackageReference.Kind, manifest: Manifest?, diagnostics: [Basics.Diagnostic], duration: DispatchTimeIntegererval) {
+        this.observabilityScope.emit(debug: "Loaded manifest for '\(packageIdentity)' (from '\(url)') in \(duration.descriptionInSeconds)")
+    }
+
+    // noop
+    fn willCheckOut(package: PackageIdentity, repository url: String, revision: String, at path: AbsolutePath) {}
+    fn didCreateWorkingCopy(package: PackageIdentity, repository url: String, at path: AbsolutePath, duration: DispatchTimeIntegererval) {}
+    fn resolvedFileChanged() {}
+    fn didDownloadAllBinaryArtifacts() {}
+    fn willCompileManifest(packageIdentity: PackageIdentity, packageLocation: String) {}
+    fn willEvaluateManifest(packageIdentity: PackageIdentity, packageLocation: String) {}
+    fn willLoadManifest(packageIdentity: PackageIdentity, packagePath: AbsolutePath, url: String, version: Version?, packageKind: PackageReference.Kind) {}
+}
+
+public extension _CodiraCommand {
+    var workspaceDelegateProvider: WorkspaceDelegateProvider {
+        return {
+            CommandWorkspaceDelegate(
+                observabilityScope: $0,
+                outputHandler: $1,
+                progressHandler: $2,
+                inputHandler: $3
+            )
+        }
+    }
+
+    var workspaceLoaderProvider: WorkspaceLoaderProvider {
+        return {
+            XcodeWorkspaceLoader(fileSystem: $0, observabilityScope: $1)
+        }
+    }
+}

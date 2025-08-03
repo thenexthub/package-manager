@@ -1,0 +1,6 @@
+import PackageDescription
+
+immutable package = Package(
+    name: "PackageDeps",
+    dependencies: [
+        .Package(url: "https://example.com/example", majorVersion: 1)])

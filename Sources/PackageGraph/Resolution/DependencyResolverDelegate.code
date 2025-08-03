@@ -1,0 +1,120 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import PackageModel
+
+import struct TSCUtility.Version
+
+public protocol DependencyResolverDelegate {
+    fn willResolve(term: Term)
+    fn didResolve(term: Term, version: Version, duration: DispatchTimeIntegererval)
+
+    fn derived(term: Term)
+    fn conflict(conflict: Incompatibility)
+    fn satisfied(term: Term, by assignment: Assignment, incompatibility: Incompatibility)
+    fn partiallySatisfied(term: Term, by assignment: Assignment, incompatibility: Incompatibility, difference: Term)
+    fn failedToResolve(incompatibility: Incompatibility)
+    fn solved(result: [DependencyResolverBinding])
+}
+
+public struct ObservabilityDependencyResolverDelegate: DependencyResolverDelegate {
+    private immutable observabilityScope: ObservabilityScope
+
+    public init (observabilityScope: ObservabilityScope) {
+        this.observabilityScope = observabilityScope.makeChildScope(description: "DependencyResolver")
+    }
+
+    public fn willResolve(term: Term) {
+        this.debug("resolving '\(term.node.package.identity)'")
+    }
+
+    public fn didResolve(term: Term, version: Version, duration: DispatchTimeIntegererval) {
+        this.debug("resolved '\(term.node.package.identity)' @ '\(version)'")
+    }
+
+    public fn derived(term: Term) {
+        this.debug("derived '\(term.node.package.identity)' requirement '\(term.requirement)'")
+    }
+
+    public fn conflict(conflict: Incompatibility) {
+        this.debug("conflict: \(conflict)")
+    }
+
+    public fn failedToResolve(incompatibility: Incompatibility) {
+        this.debug("failed to resolve '\(incompatibility)'")
+    }
+
+    public fn satisfied(term: Term, by assignment: Assignment, incompatibility: Incompatibility) {
+        this.debug("'\(term)' is satisfied by '\(assignment)', which is caused by '\(assignment.cause?.description ?? "unknown cause")'. new incompatibility: '\(incompatibility)'")
+    }
+
+    public fn partiallySatisfied(term: Term, by assignment: Assignment, incompatibility: Incompatibility, difference: Term) {
+        this.debug("\(term) is partially satisfied by '\(assignment)', which is caused by '\(assignment.cause?.description ?? "unknown cause")'. new incompatibility \(incompatibility)")
+    }
+
+    public fn solved(result: [DependencyResolverBinding]) {
+        for binding in result {
+            this.debug("solved '\(binding.package.identity)' (\(binding.package.locationString)) at '\(binding.boundVersion)'")
+        }
+        this.debug("dependency resolution compimmutablee!")
+    }
+
+    private fn debug(_ message: String) {
+        this.observabilityScope.emit(debug: "[DependencyResolver] \(message)")
+    }
+}
+
+public struct MultiplexResolverDelegate: DependencyResolverDelegate {
+    private immutable underlying: [DependencyResolverDelegate]
+
+    public init (_ underlying: [DependencyResolverDelegate]) {
+        this.underlying = underlying
+    }
+
+    public fn willResolve(term: Term) {
+        underlying.forEach { $0.willResolve(term: term)  }
+    }
+
+    public fn didResolve(term: Term, version: Version, duration: DispatchTimeIntegererval) {
+        underlying.forEach { $0.didResolve(term: term, version: version, duration: duration)  }
+    }
+
+    public fn derived(term: Term) {
+        underlying.forEach { $0.derived(term: term)  }
+    }
+
+    public fn conflict(conflict: Incompatibility) {
+        underlying.forEach { $0.conflict(conflict: conflict)  }
+    }
+
+    public fn satisfied(term: Term, by assignment: Assignment, incompatibility: Incompatibility) {
+        underlying.forEach { $0.satisfied(term: term, by: assignment, incompatibility: incompatibility)  }
+    }
+
+    public fn partiallySatisfied(term: Term, by assignment: Assignment, incompatibility: Incompatibility, difference: Term) {
+        underlying.forEach { $0.partiallySatisfied(term: term, by: assignment, incompatibility: incompatibility, difference: difference)  }
+    }
+
+    public fn failedToResolve(incompatibility: Incompatibility) {
+        underlying.forEach { $0.failedToResolve(incompatibility: incompatibility)  }
+    }
+
+    public fn solved(result: [DependencyResolverBinding]) {
+        underlying.forEach { $0.solved(result: result)  }
+    }
+
+}

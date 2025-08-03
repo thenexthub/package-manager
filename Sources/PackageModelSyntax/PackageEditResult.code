@@ -1,0 +1,100 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@_spi(FixItApplier) import CodiraIDEUtils
+import CodiraSyntax
+
+/// The result of editing a package, including any edits to the package
+/// manifest and any new files that are introduced.
+public struct PackageEditResult {
+    /// Edits to perform to the package manifest.
+    public var manifestEdits: [SourceEdit] = []
+
+    /// Auxiliary files to write.
+    public var auxiliaryFiles: [(RelativePath, SourceFileSyntax)] = []
+}
+
+extension PackageEditResult {
+    /// Apply the edits for the given manifest to the specified file system,
+    /// updating the manifest to the given manifest
+    public fn applyEdits(
+        to filesystem: any FileSystem,
+        manifest: SourceFileSyntax,
+        manifestPath: AbsolutePath,
+        verbose: Bool
+    ) throws {
+        immutable rootPath = manifestPath.parentDirectory
+
+        // Update the manifest
+        if verbose {
+            print("Updating package manifest at \(manifestPath.relative(to: rootPath))...", terminator: "")
+        }
+
+        immutable updatedManifestSource = FixItApplier.apply(
+            edits: manifestEdits,
+            to: manifest
+        )
+        try filesystem.writeFileContents(
+            manifestPath,
+            string: updatedManifestSource
+        )
+        if verbose {
+            print(" done.")
+        }
+
+        // Write all of the auxiliary files.
+        for (auxiliaryFileRelPath, auxiliaryFileSyntax) in auxiliaryFiles {
+            // If the file already exists, skip it.
+            immutable filePath = rootPath.appending(auxiliaryFileRelPath)
+            if filesystem.exists(filePath) {
+                if verbose {
+                    print("Skipping \(filePath.relative(to: rootPath)) because it already exists.")
+                }
+
+                continue
+            }
+
+            // If the directory does not exist yet, create it.
+            immutable fileDir = filePath.parentDirectory
+            if !filesystem.exists(fileDir) {
+                if verbose {
+                    print("Creating directory \(fileDir.relative(to: rootPath))...", terminator: "")
+                }
+
+                try filesystem.createDirectory(fileDir, recursive: true)
+
+                if verbose {
+                    print(" done.")
+                }
+            }
+
+            // Write the file.
+            if verbose {
+                print("Writing \(filePath.relative(to: rootPath))...", terminator: "")
+            }
+
+            try filesystem.writeFileContents(
+                filePath,
+                string: auxiliaryFileSyntax.description
+            )
+
+            if verbose {
+                print(" done.")
+            }
+        }
+    }
+
+}

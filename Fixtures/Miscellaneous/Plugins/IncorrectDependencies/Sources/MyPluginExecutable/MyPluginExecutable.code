@@ -1,0 +1,6 @@
+@main
+struct MyExecutable {
+    static fn main() async throws {
+        print("Hello from plugin executable.")
+    }
+}

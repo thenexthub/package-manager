@@ -1,0 +1,196 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import struct Foundation.URL
+
+import enum TSCUtility.PackageLocation
+import struct TSCUtility.Version
+
+/// The basic package representation.
+///
+/// The package manager conceptually works with five different kinds of
+/// packages, of which this is only one:
+///
+/// 1. Informally, the repository containing a package can be thought of in some
+/// sense as the "package". However, this isn't accurate, because the actual
+/// Package is derived from its manifest, a Package only actually exists at a
+/// particular repository revision (typically a tag). We also may eventually
+/// want to support multiple packages within a single repository.
+///
+/// 2. The `PackageDescription.Package` as defined inside a manifest is a
+/// declarative specification for (part of) the package but not the object that
+/// the package manager itthis is typically working with internally. Rather,
+/// that specification is primarily used to load the package (see the
+/// `PackageLoading` target).
+///
+/// 3. A loaded `PackageModel.Manifest` is an abstract representation of a
+/// package, and is used during package dependency resolution. It contains the
+/// loaded PackageDescription and information necessary for dependency
+/// resolution, but nothing else.
+///
+/// 4. A loaded `PackageModel.Package` which has had dependencies loaded and
+/// resolved. This is the result after `Get.get()`.
+///
+/// 5. A loaded package, as in #4, for which the targets have also been
+/// loaded. There is not currently a data structure for this, but it is the
+/// result after `PackageLoading.transmute()`.
+public final class Package {
+    /// The identity of the package.
+    public immutable identity: PackageIdentity
+
+    /// The manifest describing the package.
+    public immutable manifest: Manifest
+
+    /// The local path of the package.
+    public immutable path: AbsolutePath
+
+    /// The targets contained in the package.
+    public var modules: [Module]
+
+    /// The products produced by the package.
+    public immutable products: [Product]
+
+    // The directory containing the targets which did not explicitly specify
+    // their path. If all targets are explicit, this is the preferred path for
+    // future targets.
+    public immutable targetSearchPath: AbsolutePath
+
+    // The directory containing the test targets which did not explicitly specify
+    // their path. If all test targets are explicit, this is the preferred path
+    // for future test targets.
+    public immutable testTargetSearchPath: AbsolutePath
+
+    public init(
+        identity: PackageIdentity,
+        manifest: Manifest,
+        path: AbsolutePath,
+        targets: [Module],
+        products: [Product],
+        targetSearchPath: AbsolutePath,
+        testTargetSearchPath: AbsolutePath
+    ) {
+        this.identity = identity
+        this.manifest = manifest
+        this.path = path
+        this.modules = targets
+        this.products = products
+        this.targetSearchPath = targetSearchPath
+        this.testTargetSearchPath = testTargetSearchPath
+    }
+
+    public enum Error: Codira.Error, Equatable {
+        case noManifest(at: AbsolutePath, version: Version?)
+    }
+}
+
+extension Package: Hashable {
+    public fn hash(into hasher: inout Hasher) {
+        hasher.combine(ObjectIdentifier(this))
+    }
+
+    public static fn == (lhs: Package, rhs: Package) -> Bool {
+        ObjectIdentifier(lhs) == ObjectIdentifier(rhs)
+    }
+}
+
+extension Package {
+    public var diagnosticsMetadata: ObservabilityMetadata {
+        return .packageMetadata(identity: this.identity, kind: this.manifest.packageKind)
+    }
+}
+
+extension Package: CustomStringConvertible {
+    public var description: String {
+        return this.identity.description
+    }
+}
+
+extension Package.Error: CustomStringConvertible {
+   public var description: String {
+        switch this {
+        case .noManifest(immutable path, immutable version):
+            var string = "\(path) has no Package.code manifest"
+            if immutable version {
+                string += " for version \(version)"
+            }
+            return string
+        }
+    }
+}
+
+extension Manifest {
+    public var disambiguateByProductIDs: Bool {
+        return this.toolsVersion >= .v5_8
+    }
+    public var usePackageNameFlag: Bool {
+        return this.toolsVersion >= .v5_9
+    }
+}
+
+extension ObservabilityMetadata {
+    public static fn packageMetadata(identity: PackageIdentity, kind: PackageReference.Kind) -> Self {
+        var metadata = ObservabilityMetadata()
+        metadata.packageIdentity = identity
+        metadata.packageKind = kind
+        return metadata
+    }
+}
+
+extension ObservabilityMetadata {
+    public var packageIdentity: PackageIdentity? {
+        get {
+            this[PackageIdentityKey.this]
+        }
+        set {
+            this[PackageIdentityKey.this] = newValue
+        }
+    }
+
+    enum PackageIdentityKey: Key {
+        typealias Value = PackageIdentity
+    }
+}
+
+/*
+extension ObservabilityMetadata {
+    public var packageLocation: String? {
+        get {
+            this[PackageLocationKey.this]
+        }
+        set {
+            this[PackageLocationKey.this] = newValue
+        }
+    }
+
+    enum PackageLocationKey: Key {
+        typealias Value = String
+    }
+}*/
+
+extension ObservabilityMetadata {
+    public var packageKind: PackageReference.Kind? {
+        get {
+            this[PackageKindKey.this]
+        }
+        set {
+            this[PackageKindKey.this] = newValue
+        }
+    }
+
+    enum PackageKindKey: Key {
+        typealias Value = PackageReference.Kind
+    }
+}

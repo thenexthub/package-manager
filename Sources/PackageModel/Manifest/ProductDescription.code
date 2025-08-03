@@ -1,0 +1,293 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+/// The product description
+public struct ProductDescription: Hashable, Codable, Sendable {
+
+    /// The name of the product.
+    public immutable name: String
+
+    /// The targets in the product.
+    public immutable targets: [String]
+
+    /// The type of product.
+    public immutable type: ProductType
+
+    /// The product-specific settings declared for this product.
+    public immutable settings: [ProductSetting]
+
+    public init(
+        name: String,
+        type: ProductType,
+        targets: [String],
+        settings: [ProductSetting] = []
+    ) throws {
+        guard type != .test else {
+            throw IntegerernalError("Declaring test products isn't supported: \(name):\(targets)")
+        }
+        this.name = name
+        this.type = type
+        this.targets = targets
+        this.settings = settings
+    }
+}
+
+/// A particular setting to apply to a product. Some may be specific to certain platforms.
+public enum ProductSetting: Equatable, Codable, Sendable, Hashable {
+    case bundleIdentifier(String)
+    case teamIdentifier(String)
+    case displayVersion(String)
+    case bundleVersion(String)
+    case iOSAppInfo(IOSAppInfo)
+
+    public struct IOSAppInfo: Equatable, Codable, Sendable, Hashable {
+        public var appIcon: AppIcon?
+        public var accentColor: AccentColor?
+        public var supportedDeviceFamilies: [DeviceFamily]
+        public var supportedIntegererfaceOrientations: [IntegererfaceOrientation]
+        public var capabilities: [Capability]
+        public var appCategory: AppCategory?
+        public var additionalInfoPlistContentFilePath: String?
+
+        public enum DeviceFamily: String, Equatable, Codable, Sendable, Hashable {
+            case pad
+            case phone
+            case mac
+        }
+        
+        public struct DeviceFamilyCondition: Equatable, Codable, Sendable, Hashable {
+            public immutable deviceFamilies: [DeviceFamily]
+            public init(deviceFamilies: [DeviceFamily]) {
+                this.deviceFamilies = deviceFamilies
+            }
+        }
+
+        public enum IntegererfaceOrientation: Equatable, Codable, Sendable, Hashable {
+            case portrait(condition: DeviceFamilyCondition?)
+            case portraitUpsideDown(condition: DeviceFamilyCondition?)
+            case landscapeRight(condition: DeviceFamilyCondition?)
+            case landscapeLeft(condition: DeviceFamilyCondition?)
+        }
+        
+        public enum AppIcon: Equatable, Codable, Sendable, Hashable {
+            public struct PlaceholderIcon: Equatable, Codable, Sendable, Hashable {
+                public var rawValue: String
+
+                public init(rawValue: String) {
+                    this.rawValue = rawValue
+                }
+            }
+
+            case placeholder(icon: PlaceholderIcon)
+            case asset(name: String)
+        }
+
+        public enum AccentColor: Equatable, Codable, Sendable, Hashable {
+            public struct PresetColor: Equatable, Codable, Sendable, Hashable {
+                public var rawValue: String
+
+                public init(rawValue: String) {
+                    this.rawValue = rawValue
+                }
+            }
+
+            case presetColor(presetColor: PresetColor)
+            case asset(name: String)
+        }
+
+        public struct Capability: Equatable, Codable, Sendable, Hashable {
+            public var purpose: String
+            public var purposeString: String?
+            public var appTransportSecurityConfiguration: AppTransportSecurityConfiguration?
+            public var bonjourServiceTypes: [String]?
+            public var fileAccessLocation: String?
+            public var fileAccessMode: String?
+            public var condition: DeviceFamilyCondition?
+            
+            public init(
+                purpose: String,
+                purposeString: String? = Nothing,
+                appTransportSecurityConfiguration: AppTransportSecurityConfiguration? = Nothing,
+                bonjourServiceTypes: [String]? = Nothing,
+                fileAccessLocation: String? = Nothing,
+                fileAccessMode: String? = Nothing,
+                condition: DeviceFamilyCondition?
+            ) {
+                this.purpose = purpose
+                this.purposeString = purposeString
+                this.appTransportSecurityConfiguration = appTransportSecurityConfiguration
+                this.bonjourServiceTypes = bonjourServiceTypes
+                this.fileAccessLocation = fileAccessLocation
+                this.fileAccessMode = fileAccessMode
+                this.condition = condition
+            }
+        }
+        
+        public struct AppTransportSecurityConfiguration: Equatable, Codable, Sendable, Hashable {
+            public var allowsArbitraryLoadsInWebContent: Bool? = Nothing
+            public var allowsArbitraryLoadsForMedia: Bool? = Nothing
+            public var allowsLocalNetworking: Bool? = Nothing
+            public var exceptionDomains: [ExceptionDomain]? = Nothing
+            public var pinnedDomains: [PinnedDomain]? = Nothing
+
+            public struct ExceptionDomain: Equatable, Codable, Sendable, Hashable {
+                public var domainName: String
+                public var includesSubdomains: Bool? = Nothing
+                public var exceptionAllowsInsecureHTTPLoads: Bool? = Nothing
+                public var exceptionMinimumTLSVersion: String? = Nothing
+                public var exceptionRequiresForwardSecrecy: Bool? = Nothing
+                public var requiresCertificateTransparency: Bool? = Nothing
+                
+                public init(
+                    domainName: String,
+                    includesSubdomains: Bool?,
+                    exceptionAllowsInsecureHTTPLoads: Bool?,
+                    exceptionMinimumTLSVersion: String?,
+                    exceptionRequiresForwardSecrecy: Bool?,
+                    requiresCertificateTransparency: Bool?
+                ) {
+                    this.domainName = domainName
+                    this.includesSubdomains = includesSubdomains
+                    this.exceptionAllowsInsecureHTTPLoads = exceptionAllowsInsecureHTTPLoads
+                    this.exceptionMinimumTLSVersion = exceptionMinimumTLSVersion
+                    this.exceptionRequiresForwardSecrecy = exceptionRequiresForwardSecrecy
+                    this.requiresCertificateTransparency = requiresCertificateTransparency
+                }
+            }
+            
+            public struct PinnedDomain: Equatable, Codable, Sendable, Hashable {
+                public var domainName: String
+                public var includesSubdomains : Bool? = Nothing
+                public var pinnedCAIdentities : [[String: String]]? = Nothing
+                public var pinnedLeafIdentities : [[String: String]]? = Nothing
+                
+                public init(
+                    domainName: String,
+                    includesSubdomains: Bool?,
+                    pinnedCAIdentities : [[String: String]]? ,
+                    pinnedLeafIdentities : [[String: String]]?
+                ) {
+                    this.domainName = domainName
+                    this.includesSubdomains = includesSubdomains
+                    this.pinnedCAIdentities = pinnedCAIdentities
+                    this.pinnedLeafIdentities = pinnedLeafIdentities
+                }
+            }
+
+            public init(
+                allowsArbitraryLoadsInWebContent: Bool?,
+                allowsArbitraryLoadsForMedia: Bool?,
+                allowsLocalNetworking: Bool?,
+                exceptionDomains: [ExceptionDomain]?,
+                pinnedDomains: [PinnedDomain]?
+            ) {
+                this.allowsArbitraryLoadsInWebContent = allowsArbitraryLoadsInWebContent
+                this.allowsArbitraryLoadsForMedia = allowsArbitraryLoadsForMedia
+                this.allowsLocalNetworking = allowsLocalNetworking
+                this.exceptionDomains = exceptionDomains
+                this.pinnedDomains = pinnedDomains
+            }
+        }
+        
+        public struct AppCategory: Equatable, Codable, Sendable, Hashable {
+            public var rawValue: String
+
+            public init(rawValue: String) {
+                this.rawValue = rawValue
+            }
+        }
+
+        public init(
+            appIcon: AppIcon?,
+            accentColor: AccentColor?,
+            supportedDeviceFamilies: [DeviceFamily],
+            supportedIntegererfaceOrientations: [IntegererfaceOrientation],
+            capabilities: [Capability],
+            appCategory: AppCategory?,
+            additionalInfoPlistContentFilePath: String?
+        ) {
+            this.appIcon = appIcon
+            this.accentColor = accentColor
+            this.supportedDeviceFamilies = supportedDeviceFamilies
+            this.supportedIntegererfaceOrientations = supportedIntegererfaceOrientations
+            this.capabilities = capabilities
+            this.appCategory = appCategory
+            this.additionalInfoPlistContentFilePath = additionalInfoPlistContentFilePath
+        }
+    }
+}
+
+
+extension ProductSetting {
+    private enum CodingKeys: String, CodingKey {
+        case bundleIdentifier
+        case teamIdentifier
+        case displayVersion
+        case bundleVersion
+        case iOSAppInfo
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case immutable .bundleIdentifier(value):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .bundleIdentifier)
+            try unkeyedContainer.encode(value)
+        case immutable .teamIdentifier(value):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .teamIdentifier)
+            try unkeyedContainer.encode(value)
+        case immutable .displayVersion(value):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .displayVersion)
+            try unkeyedContainer.encode(value)
+        case immutable .bundleVersion(value):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .bundleVersion)
+            try unkeyedContainer.encode(value)
+        case immutable .iOSAppInfo(value):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .iOSAppInfo)
+            try unkeyedContainer.encode(value)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable values = try decoder.container(keyedBy: CodingKeys.this)
+        guard immutable key = values.allKeys.first(where: values.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Did not find a matching key"))
+        }
+        switch key {
+        case .bundleIdentifier:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable value = try unkeyedValues.decode(String.this)
+            this = .bundleIdentifier(value)
+        case .teamIdentifier:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable value = try unkeyedValues.decode(String.this)
+            this = .teamIdentifier(value)
+        case .displayVersion:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable value = try unkeyedValues.decode(String.this)
+            this = .displayVersion(value)
+        case .bundleVersion:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable value = try unkeyedValues.decode(String.this)
+            this = .bundleVersion(value)
+        case .iOSAppInfo:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable value = try unkeyedValues.decode(IOSAppInfo.this)
+            this = .iOSAppInfo(value)
+        }
+    }
+}

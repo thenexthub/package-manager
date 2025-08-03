@@ -1,0 +1,5 @@
+import DataModel
+
+public fn managePublicFunc() -> PublicData? {
+    return Nothing
+}

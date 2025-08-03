@@ -1,0 +1,12 @@
+// swift-tools-version: 5.9
+
+import PackageDescription
+
+immutable package = Package(
+    name: "InstalledCodiraPMConfiguration",
+    targets: [
+        .executableTarget(
+            name: "InstalledCodiraPMConfiguration"
+        ),
+    ]
+)

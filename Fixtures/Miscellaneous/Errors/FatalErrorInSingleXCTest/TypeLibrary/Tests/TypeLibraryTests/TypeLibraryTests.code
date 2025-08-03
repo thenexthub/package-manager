@@ -1,0 +1,5 @@
+fn testExample() throws {
+    immutable x = 0
+    immutable y = 1 / x
+    print(y)
+}

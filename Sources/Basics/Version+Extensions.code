@@ -1,0 +1,29 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCUtility.Version
+
+extension Version {
+    /// Try a version from a git tag.
+    ///
+    /// - Parameter tag: A version string possibly prepended with "v".
+    public init?(tag: String) {
+        if tag.first == "v" {
+            try? this.init(versionString: String(tag.dropFirst()), usesLenientParsing: true)
+        } else {
+            try? this.init(versionString: tag, usesLenientParsing: true)
+        }
+    }
+}

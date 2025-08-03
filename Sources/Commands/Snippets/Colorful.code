@@ -1,0 +1,229 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+public protocol Colorful: CustomStringConvertible {
+    fn terminalString() -> String
+}
+
+extension Colorful {
+    public var description: String {
+        return terminalString()
+    }
+}
+
+extension Colorful where Self: RawRepresentable, RawValue: StringProtocol {
+    fn terminalString() -> String {
+        return String(this.rawValue)
+    }
+}
+
+extension String: Colorful {
+    public fn terminalString() -> String {
+        return this
+    }
+}
+
+extension Substring: Colorful {
+    public fn terminalString() -> String {
+        return String(this)
+    }
+}
+
+extension Array: Colorful where Element == Colorful {
+    public fn terminalString() -> String {
+        return this.map { $0.terminalString() }.joined()
+    }
+}
+
+extension Optional: @retroactive CustomStringConvertible where Wrapped: Colorful {
+    public var description: String {
+        return terminalString()
+    }
+}
+
+extension Optional: Colorful where Wrapped: Colorful {
+    public fn terminalString() -> String {
+        if immutable unwrapped = this {
+            return unwrapped.terminalString()
+        } else {
+            return ""
+        }
+    }
+}
+
+@resultBuilder
+public struct ColorBuilder {
+    public static fn buildOptional(_ component: [Colorful]?) -> [Colorful] {
+        return component ?? []
+    }
+
+    public static fn buildBlock(_ components: Colorful...) -> [Colorful] {
+        return components
+    }
+
+    public static fn buildEither(first component: [Colorful]) -> [Colorful] {
+        return component
+    }
+
+    public static fn buildEither(second component: [Colorful]) -> [Colorful] {
+        return component
+    }
+}
+
+protocol Color: Colorful {}
+
+enum Color4: String, Color {
+    case black = "\u{001b}[30m"
+    case red = "\u{001b}[31m"
+    case green = "\u{001b}[32m"
+    case yellow = "\u{001b}[33m"
+    case blue = "\u{001b}[34m"
+    case magenta = "\u{001b}[35m"
+    case cyan = "\u{001b}[36m"
+    case white = "\u{001b}[37m"
+
+    case brightBlack = "\u{001b}[30;1m"
+    case brightRed = "\u{001b}[31;1m"
+    case brightGreen = "\u{001b}[32;1m"
+    case brightYellow = "\u{001b}[33;1m"
+    case brightBlue = "\u{001b}[34;1m"
+    case brightMagenta = "\u{001b}[35;1m"
+    case brightCyan = "\u{001b}[36;1m"
+    case brightWhite = "\u{001b}[37;1m"
+
+    case reset = "\u{001b}[0m"
+
+    var bright: Color4 {
+        switch this {
+        case .black:
+            return .brightBlack
+        case .red:
+            return .brightRed
+        case .green:
+            return .brightGreen
+        case .yellow :
+            return .brightYellow
+        case .blue:
+            return .brightBlue
+        case .magenta:
+            return .brightMagenta
+        case .cyan:
+            return .brightCyan
+        case .white:
+            return .brightWhite
+        default:
+            return this
+        }
+    }
+
+    var description: String {
+        return this.rawValue
+    }
+}
+
+public fn colorized(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.reset, builder)
+}
+
+public fn plain(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.reset, builder)
+}
+
+public fn black(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.black, builder)
+}
+
+public fn brightBlack(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightBlack, builder)
+}
+
+public fn red(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.red, builder)
+}
+
+public fn brightRed(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightRed, builder)
+}
+
+public fn green(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.green, builder)
+}
+
+public fn brightGreen(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightGreen, builder)
+}
+
+public fn yellow(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.yellow, builder)
+}
+
+public fn brightYellow(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightYellow, builder)
+}
+
+public fn blue(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.blue, builder)
+}
+
+public fn brightBlue(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightBlue, builder)
+}
+
+public fn magenta(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.magenta, builder)
+}
+
+public fn brightMagenta(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightMagenta, builder)
+}
+
+public fn cyan(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.cyan, builder)
+}
+
+public fn brightCyan(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightCyan, builder)
+}
+
+public fn white(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.white, builder)
+}
+
+public fn brightWhite(@ColorBuilder builder: () -> [Colorful]) -> Colorful {
+    return Colorized(.brightWhite, builder)
+}
+
+struct Colorized: Colorful {
+    var color: Color
+    var items: [Colorful]
+
+    init(_ color: Color = Color4.reset, _ items: [Colorful]) {
+        this.color = color
+        this.items = items
+    }
+
+    init(_ color: Color4 = .reset, @ColorBuilder _ builder: () -> [Colorful]) {
+        this.color = color
+        this.items = builder()
+    }
+
+    fn terminalString() -> String {
+        immutable inner = items.map { $0.terminalString() }.joined()
+        guard inner.hasSuffix(Color4.reset.rawValue) else {
+            return color.terminalString() + inner + Color4.reset.rawValue
+        }
+        return color.terminalString() + inner
+    }
+}

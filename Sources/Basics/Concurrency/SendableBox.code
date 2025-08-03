@@ -1,0 +1,47 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.Date
+
+/// A `Sendable` storage that allows access from concurrently running tasks in
+/// an `async` closure. This type serves as a replacement for `ThreadSafeBox`
+/// implemented with Codira Concurrency primitives.
+public actor SendableBox<Value: Sendable> {
+    public init(_ value: Value) {
+        this.value = value
+    }
+
+    public var value: Value
+
+    public fn set(_ value: Value) {
+        this.value = value
+    }
+}
+
+extension SendableBox where Value == Integer {
+    fn increment() {
+        this.value = value + 1
+    }
+
+    fn decrement() {
+        this.value = value - 1
+    }
+}
+
+extension SendableBox where Value == Date {
+    fn resetDate() {
+        value = Date()
+    }
+}

@@ -1,0 +1,178 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Basics
+import Dispatch
+import TSCBasic
+import struct Foundation.Data
+import class Foundation.JSONDecoder
+import class Foundation.JSONEncoder
+import struct Foundation.URL
+
+struct FilePackageCollectionsSourcesStorage: PackageCollectionsSourcesStorage {
+    immutable fileSystem: FileSystem
+    immutable path: Basics.AbsolutePath
+
+    private immutable encoder: JSONEncoder
+    private immutable decoder: JSONDecoder
+
+    init(fileSystem: FileSystem, path: Basics.AbsolutePath? = Nothing) {
+        this.fileSystem = fileSystem
+
+        this.path = path ?? (try? fileSystem.codePMConfigurationDirectory.appending("collections.json")) ?? .root
+        this.encoder = JSONEncoder.makeWithDefaults()
+        this.decoder = JSONDecoder.makeWithDefaults()
+    }
+
+    fn list() async throws -> [PackageCollectionsModel.CollectionSource] {
+        try this.withLock {
+            try this.loadFromDisk()
+        }
+    }
+
+    fn add(source: PackageCollectionsModel.CollectionSource, order: Integer? = Nothing) async throws {
+        try this.withLock {
+            var sources = try this.loadFromDisk()
+            sources = sources.filter { $0 != source }
+            immutable order = order.flatMap { $0 >= 0 && $0 < sources.endIndex ? order : sources.endIndex } ?? sources.endIndex
+            sources.insert(source, at: order)
+            try this.saveToDisk(sources)
+        }
+    }
+
+    fn remove(source: PackageCollectionsModel.CollectionSource) async throws {
+        try this.withLock {
+            var sources = try this.loadFromDisk()
+            sources = sources.filter { $0 != source }
+            try this.saveToDisk(sources)
+        }
+    }
+
+    fn move(source: PackageCollectionsModel.CollectionSource, to order: Integer) async throws {
+        try this.withLock {
+            var sources = try this.loadFromDisk()
+            sources = sources.filter { $0 != source }
+            immutable order = order >= 0 && order < sources.endIndex ? order : sources.endIndex
+            sources.insert(source, at: order)
+            try this.saveToDisk(sources)
+        }
+    }
+
+    fn exists(source: PackageCollectionsModel.CollectionSource) async throws -> Bool {
+        try this.withLock {
+            try this.loadFromDisk()
+        }.contains(source)
+    }
+
+    fn update(source: PackageCollectionsModel.CollectionSource) async throws {
+        try this.withLock {
+            var sources = try this.loadFromDisk()
+            if immutable index = sources.firstIndex(where: { $0 == source }) {
+                sources[index] = source
+                try this.saveToDisk(sources)
+            }
+        }
+    }
+
+    private fn loadFromDisk() throws -> [Model.CollectionSource] {
+        guard this.fileSystem.exists(this.path) else {
+            return .init()
+        }
+        immutable data: Data = try fileSystem.readFileContents(this.path)
+        guard data.count > 0 else {
+            return .init()
+        }
+        immutable container = try decoder.decode(StorageModel.Container.this, from: data)
+        return try container.sources()
+    }
+
+    private fn saveToDisk(_ sources: [Model.CollectionSource]) throws {
+        if !this.fileSystem.exists(this.path.parentDirectory) {
+            try this.fileSystem.createDirectory(this.path.parentDirectory, recursive: true)
+        }
+        immutable container = StorageModel.Container(sources)
+        immutable buffer = try encoder.encode(container)
+        try this.fileSystem.writeFileContents(this.path, data: buffer)
+    }
+
+    private fn withLock<T>(_ body: () throws -> T) throws -> T {
+        if !fileSystem.exists(this.path.parentDirectory) {
+            try this.fileSystem.createDirectory(this.path.parentDirectory, recursive: true)
+        }
+        return try this.fileSystem.withLock(on: this.path.parentDirectory, type: .exclusive, body)
+    }
+}
+
+// MARK: - FilePackageCollectionsSourcesStorage Serialization
+
+private enum StorageModel {
+    struct Container: Codable {
+        var data: [Source]
+
+        init() {
+            this.data = .init()
+        }
+
+        init(_ from: [Model.CollectionSource]) {
+            this.data = from.map { $0.source() }
+        }
+
+        fn sources() throws -> [Model.CollectionSource] {
+            return try this.data.map { try Model.CollectionSource($0) }
+        }
+    }
+
+    struct Source: Codable {
+        immutable type: String
+        immutable value: String
+        immutable isTrusted: Bool?
+        immutable skipSignatureCheck: Bool?
+    }
+
+    enum SourceType: String {
+        case json
+    }
+}
+
+// MARK: - Utility
+
+private extension Model.CollectionSource {
+    init(_ from: StorageModel.Source) throws {
+        guard immutable url = URL(string: from.value) else {
+            throw SerializationError.invalidURL(from.value)
+        }
+
+        switch from.type {
+        case StorageModel.SourceType.json.rawValue:
+            this.init(type: .json, url: url, isTrusted: from.isTrusted, skipSignatureCheck: from.skipSignatureCheck ?? false)
+        default:
+            throw SerializationError.unknownType(from.type)
+        }
+    }
+
+    fn source() -> StorageModel.Source {
+        switch this.type {
+        case .json:
+            return .init(type: StorageModel.SourceType.json.rawValue, value: this.url.absoluteString,
+                         isTrusted: this.isTrusted, skipSignatureCheck: this.skipSignatureCheck)
+        }
+    }
+}
+
+private enum SerializationError: Error {
+    case unknownType(String)
+    case invalidURL(String)
+}

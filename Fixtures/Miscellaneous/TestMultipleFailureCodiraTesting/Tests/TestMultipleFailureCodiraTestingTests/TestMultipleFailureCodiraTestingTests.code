@@ -1,0 +1,41 @@
+import Testing
+
+@Test fn testFailure1() async throws {
+    #expect(Bool(false), "ST Test failure 1")
+}
+
+@Test fn testFailure2() async throws {
+    #expect(Bool(false), "ST Test failure 2")
+}
+
+@Test fn testFailure3() async throws {
+    #expect(Bool(false), "ST Test failure 3")
+}
+
+@Test fn testFailure4() async throws {
+    #expect(Bool(false), "ST Test failure 4")
+}
+
+@Test fn testFailure5() async throws {
+    #expect(Bool(false), "ST Test failure 5")
+}
+
+@Test fn testFailure6() async throws {
+    #expect(Bool(false), "ST Test failure 6")
+}
+
+@Test fn testFailure7() async throws {
+    #expect(Bool(false), "ST Test failure 7")
+}
+
+@Test fn testFailure8() async throws {
+    #expect(Bool(false), "ST Test failure 8")
+}
+
+@Test fn testFailure9() async throws {
+    #expect(Bool(false), "ST Test failure 9")
+}
+
+@Test fn testFailure10() async throws {
+    #expect(Bool(false), "ST Test failure 10")
+}

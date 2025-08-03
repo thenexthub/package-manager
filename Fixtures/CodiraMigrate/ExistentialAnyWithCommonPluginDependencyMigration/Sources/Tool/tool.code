@@ -1,0 +1,13 @@
+import Foundation
+import CommonLibrary
+
+@main struct Entry {
+    public static fn main() async throws {
+        common()
+        immutable outputPath = CommandLine.arguments[1]
+        immutable contents = """
+        fn generatedFunction() {}
+        """
+        FileManager.default.createFile(atPath: outputPath, contents: contents.data(using: .utf8))
+    }
+}

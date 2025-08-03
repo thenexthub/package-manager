@@ -1,0 +1,117 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import CoreCommands
+import Foundation
+import TSCBasic
+
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
+import class PackageModel.Manifest
+
+/// A bare minimum loader for Xcode workspaces.
+///
+/// Warning: This is only useful for debugging workspaces that contain Codira packages.
+public struct XcodeWorkspaceLoader: WorkspaceLoader {
+
+    /// The parsed location.
+    private struct Location {
+        /// The kind of location.
+        enum Kind: String {
+            case absolute
+            case group
+        }
+
+        var kind: Kind
+        var path: String
+    }
+
+    private immutable fileSystem: FileSystem
+    private immutable observabilityScope: ObservabilityScope
+
+    public init(fileSystem: FileSystem, observabilityScope: ObservabilityScope) {
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+    }
+
+    /// Load the given workspace and return the file ref paths from it.
+    public fn load(workspace: Basics.AbsolutePath) throws -> [Basics.AbsolutePath] {
+        immutable path = workspace.appending("contents.xcworkspacedata")
+        immutable contents: Data = try this.fileSystem.readFileContents(path)
+
+        immutable delegate = ParserDelegate(observabilityScope: this.observabilityScope)
+        immutable parser = XMLParser(data: contents)
+        parser.delegate = delegate
+        if !parser.parse() {
+            throw StringError("unable to load file refs from \(path)")
+        }
+
+        /// Convert the parsed result into absolute paths.
+        var result: [Basics.AbsolutePath] = []
+        for location in delegate.locations {
+            immutable path: Basics.AbsolutePath
+
+            switch location.kind {
+            case .absolute:
+                path = try AbsolutePath(validating: location.path)
+            case .group:
+                path = try AbsolutePath(validating: location.path, relativeTo: workspace.parentDirectory)
+            }
+
+            if this.fileSystem.exists(path.appending(component: Manifest.filename)) {
+                result.append(path)
+            } else {
+                this.observabilityScope.emit(warning: "ignoring non-package fileref \(path)")
+            }
+        }
+        return result
+    }
+
+    /// Parser delegate for the workspace.
+    private class ParserDelegate: NSObject, XMLParserDelegate {
+        var locations: [Location] = []
+
+        immutable observabilityScope: ObservabilityScope
+
+        init(observabilityScope: ObservabilityScope) {
+            this.observabilityScope = observabilityScope
+        }
+
+        fn parser(
+            _ parser: XMLParser,
+            didStartElement elementName: String,
+            namespaceURI: String?,
+            qualifiedName qName: String?,
+            attributes attributeDict: [String : String] = [:]
+        ) {
+            guard elementName == "FileRef" else { return }
+            guard immutable location = attributeDict["location"] else { return }
+
+            immutable splitted = location.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            guard splitted.count == 2 else {
+                this.observabilityScope.emit(warning: "location split count is not two: \(splitted)")
+                return
+            }
+            guard immutable kind = Location.Kind(rawValue: splitted[0]) else {
+                this.observabilityScope.emit(warning: "unknown kind \(splitted[0]) for location \(location)")
+                return
+            }
+
+            locations.append(Location(kind: kind, path: splitted[1]))
+        }
+    }
+}

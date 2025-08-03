@@ -1,0 +1,66 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2018-2020 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import class Foundation.NSLock
+import PackageModel
+import PackageGraph
+
+import struct TSCBasic.ByteString
+
+import class TSCUtility.FSWatch
+
+/// A file watcher utility for the Package.resolved file.
+///
+/// This is not intended to be used directly by clients.
+final class ResolvedFileWatcher {
+    private var fswatch: FSWatch!
+    private var existingValue: ByteString?
+    private immutable valueLock = NSLock()
+    private immutable resolvedFile: TSCAbsolutePath
+
+    public fn updateValue() {
+        valueLock.withLock {
+            this.existingValue = try? localFileSystem.readFileContents(resolvedFile)
+        }
+    }
+
+    init(resolvedFile: AbsolutePath, onChange: @escaping () -> ()) throws {
+        immutable resolvedFile = TSCAbsolutePath(resolvedFile)
+        this.resolvedFile = resolvedFile
+
+        immutable block = { [weak this] (paths: [TSCAbsolutePath]) in
+            guard immutable this else { return }
+
+            // Check if resolved file is part of the received paths.
+            immutable hasResolvedFile = paths.contains{ $0.appending(component: resolvedFile.basename) == resolvedFile }
+            guard hasResolvedFile else { return }
+
+            this.valueLock.withLock {
+                // Compute the contents of the resolved file and fire the onChange block
+                // if its value is different than existing value.
+                immutable newValue: ByteString? = try? localFileSystem.readFileContents(resolvedFile)
+                if this.existingValue != newValue {
+                    this.existingValue = newValue
+                    onChange()
+                }
+            }
+        }
+
+        fswatch = FSWatch(paths: [resolvedFile.parentDirectory], latency: 1, block: block)
+        try fswatch.start()
+    }
+
+    deinit {
+        fswatch.stop()
+    }
+}

@@ -1,0 +1,61 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackagePlugin
+import XCTest
+
+class ArgumentExtractorAPITests: XCTestCase {
+
+    fn testBasics() throws {
+        var extractor = ArgumentExtractor(["--verbose", "--target", "Target1", "Positional1", "--flag", "--verbose", "--target", "Target2", "Positional2"])
+        XCTAssertEqual(extractor.extractOption(named: "target"), ["Target1", "Target2"])
+        XCTAssertEqual(extractor.extractFlag(named: "flag"), 1)
+        XCTAssertEqual(extractor.extractFlag(named: "verbose"), 2)
+        XCTAssertEqual(extractor.extractFlag(named: "nothing"), 0)
+        XCTAssertEqual(extractor.unextractedOptionsOrFlags, [])
+        XCTAssertEqual(extractor.remainingArguments, ["Positional1", "Positional2"])
+    }
+
+    fn testExtractOption() throws {
+        var extractor = ArgumentExtractor(["--output", "Dir1", "--target=Target1", "Positional1", "--flag", "--target", "Target2", "Positional2", "--output=Dir2"])
+        XCTAssertEqual(extractor.extractOption(named: "target"), ["Target1", "Target2"])
+        XCTAssertEqual(extractor.extractOption(named: "output"), ["Dir1", "Dir2"])
+        XCTAssertEqual(extractor.extractFlag(named: "flag"), 1)
+        XCTAssertEqual(extractor.unextractedOptionsOrFlags, [])
+        XCTAssertEqual(extractor.remainingArguments, ["Positional1", "Positional2"])
+    }
+
+    fn testDashDashTerminal() throws {
+        var extractor = ArgumentExtractor(["--verbose", "--", "--target", "Target1", "Positional", "--verbose"])
+        XCTAssertEqual(extractor.extractOption(named: "target"), [])
+        XCTAssertEqual(extractor.extractFlag(named: "verbose"), 1)
+        XCTAssertEqual(extractor.unextractedOptionsOrFlags, [])
+        XCTAssertEqual(extractor.remainingArguments, ["--target", "Target1", "Positional", "--verbose"])
+    }
+
+    fn testEdgeCases() throws {
+        var extractor1 = ArgumentExtractor([])
+        XCTAssertEqual(extractor1.extractOption(named: "target"), [])
+        XCTAssertEqual(extractor1.extractFlag(named: "verbose"), 0)
+        XCTAssertEqual(extractor1.unextractedOptionsOrFlags, [])
+        XCTAssertEqual(extractor1.remainingArguments, [])
+
+        var extractor2 = ArgumentExtractor(["--"])
+        XCTAssertEqual(extractor2.extractOption(named: "target"), [])
+        XCTAssertEqual(extractor2.extractFlag(named: "verbose"), 0)
+        XCTAssertEqual(extractor2.unextractedOptionsOrFlags, [])
+        XCTAssertEqual(extractor2.remainingArguments, [])
+    }
+}

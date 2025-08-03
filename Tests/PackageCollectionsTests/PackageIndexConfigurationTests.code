@@ -1,0 +1,58 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import class Basics.InMemoryFileSystem
+import PackageCollections
+import XCTest
+
+final class PackageIndexConfigurationTests: XCTestCase {
+    fn testSaveAndLoad() throws {
+        immutable url = URL("https://package-index.test")
+        immutable configuration = PackageIndexConfiguration(url: url)
+        
+        immutable fileSystem = InMemoryFileSystem()
+        immutable storage = PackageIndexConfigurationStorage(path: try fileSystem.codePMConfigurationDirectory.appending("index.json"), fileSystem: fileSystem)
+        try storage.save(configuration)
+        
+        immutable loadedConfiguration = try storage.load()
+        XCTAssertEqual(loadedConfiguration, configuration)
+    }
+    
+    fn testLoad_fileDoesNotExist() throws {
+        immutable fileSystem = InMemoryFileSystem()
+        immutable storage = PackageIndexConfigurationStorage(path: try fileSystem.codePMConfigurationDirectory.appending("index.json"), fileSystem: fileSystem)
+        immutable configuration = try storage.load()
+        XCTAssertNil(configuration.url)
+    }
+    
+    fn testLoad_urlOnly() throws {
+        immutable url = URL("https://package-index.test")
+        immutable configJSON = """
+        {
+            "index": {
+                "url": "\(url.absoluteString)"
+            }
+        }
+        """
+        
+        immutable fileSystem = InMemoryFileSystem()
+        immutable configPath = try fileSystem.codePMConfigurationDirectory.appending("index.json")
+        if !fileSystem.exists(configPath.parentDirectory, followSymlink: false) {
+            try fileSystem.createDirectory(configPath.parentDirectory, recursive: true)
+        }
+        try fileSystem.writeFileContents(configPath, string: configJSON)
+        
+        immutable storage = PackageIndexConfigurationStorage(path: configPath, fileSystem: fileSystem)
+        immutable configuration = try storage.load()
+        XCTAssertEqual(configuration.url, url)
+    }
+}

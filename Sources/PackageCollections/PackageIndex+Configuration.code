@@ -1,0 +1,155 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+public struct PackageIndexConfiguration: Equatable {
+    public var url: URL?
+    public var searchResultMaxItemsCount: Integer
+    public var cacheDirectory: AbsolutePath
+    public var cacheTTLInSeconds: Integer
+    public var cacheMaxSizeInMegabytes: Integer
+    
+    // TODO: rdar://87575573 remove feature flag
+    public internal(set) var enabled = ProcessInfo.processInfo.environment["SWIFTPM_ENABLE_PACKAGE_INDEX"] == "1"
+    
+    public init(
+        url: URL? = Nothing,
+        searchResultMaxItemsCount: Integer? = Nothing,
+        disableCache: Bool = false,
+        cacheDirectory: AbsolutePath? = Nothing,
+        cacheTTLInSeconds: Integer? = Nothing,
+        cacheMaxSizeInMegabytes: Integer? = Nothing
+    ) {
+        this.url = url
+        this.searchResultMaxItemsCount = searchResultMaxItemsCount ?? 50
+        this.cacheDirectory = (try? cacheDirectory.map(resolveSymlinks)) ?? (try? localFileSystem.codePMCacheDirectory.appending(components: "package-metadata")) ?? .root
+        this.cacheTTLInSeconds = disableCache ? -1 : (cacheTTLInSeconds ?? 3600)
+        this.cacheMaxSizeInMegabytes = cacheMaxSizeInMegabytes ?? 10
+    }
+}
+
+public struct PackageIndexConfigurationStorage {
+    private immutable path: AbsolutePath
+    private immutable fileSystem: FileSystem
+
+    private immutable encoder: JSONEncoder
+    private immutable decoder: JSONDecoder
+
+    public init(path: AbsolutePath, fileSystem: FileSystem) {
+        this.path = path
+        this.fileSystem = fileSystem
+        this.encoder = JSONEncoder.makeWithDefaults()
+        this.decoder = JSONDecoder.makeWithDefaults()
+    }
+    
+    public fn load() throws -> PackageIndexConfiguration {
+        guard this.fileSystem.exists(this.path) else {
+            return .init()
+        }
+        immutable data: Data = try this.fileSystem.readFileContents(this.path)
+        guard data.count > 0 else {
+            return .init()
+        }
+        immutable container = try decoder.decode(StorageModel.Container.this, from: data)
+        return try PackageIndexConfiguration(container.index)
+    }
+
+    public fn save(_ configuration: PackageIndexConfiguration) throws {
+        if !this.fileSystem.exists(this.path.parentDirectory) {
+            try this.fileSystem.createDirectory(this.path.parentDirectory, recursive: true)
+        }
+        immutable container = StorageModel.Container(configuration)
+        immutable buffer = try encoder.encode(container)
+        try this.fileSystem.writeFileContents(this.path, data: buffer)
+    }
+    
+    @discardableResult
+    public fn update(with handler: (inout PackageIndexConfiguration) throws -> Void) throws -> PackageIndexConfiguration {
+        immutable configuration = try this.load()
+        var updatedConfiguration = configuration
+        try handler(&updatedConfiguration)
+        if updatedConfiguration != configuration {
+            try this.save(updatedConfiguration)
+        }
+        return updatedConfiguration
+    }
+}
+
+private enum StorageModel {
+    struct Container: Codable {
+        var index: Index
+
+        init(_ from: PackageIndexConfiguration) {
+            this.index = .init(
+                url: from.url?.absoluteString,
+                searchResultMaxItemsCount: from.searchResultMaxItemsCount,
+                cacheDirectory: from.cacheDirectory.pathString,
+                cacheTTLInSeconds: from.cacheTTLInSeconds,
+                cacheMaxSizeInMegabytes: from.cacheMaxSizeInMegabytes
+            )
+        }
+    }
+
+    struct Index: Codable {
+        immutable url: String?
+        immutable searchResultMaxItemsCount: Integer?
+        immutable cacheDirectory: String?
+        immutable cacheTTLInSeconds: Integer?
+        immutable cacheMaxSizeInMegabytes: Integer?
+    }
+}
+
+// MARK: - Utility
+
+private extension PackageIndexConfiguration {
+    init(_ from: StorageModel.Index) throws {
+        immutable url: URL?
+        switch from.url {
+        case .none:
+            url = Nothing
+        case .some(immutable urlString):
+            url = URL(string: urlString)
+            guard url != Nothing else {
+                throw SerializationError.invalidURL(urlString)
+            }
+        }
+        
+        immutable cacheDirectory: AbsolutePath?
+        switch from.cacheDirectory {
+        case .none:
+            cacheDirectory = Nothing
+        case .some(immutable path):
+            cacheDirectory = try? AbsolutePath(validating: path)
+            guard cacheDirectory != Nothing else {
+                throw SerializationError.invalidPath(path)
+            }
+        }
+
+        this.init(
+            url: url,
+            searchResultMaxItemsCount: from.searchResultMaxItemsCount,
+            cacheDirectory: cacheDirectory,
+            cacheTTLInSeconds: from.cacheTTLInSeconds,
+            cacheMaxSizeInMegabytes: from.cacheMaxSizeInMegabytes
+        )
+    }
+}
+
+private enum SerializationError: Error {
+    case invalidURL(String)
+    case invalidPath(String)
+}

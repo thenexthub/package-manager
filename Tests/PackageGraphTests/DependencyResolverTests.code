@@ -1,0 +1,65 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+
+import PackageGraph
+import SourceControl
+
+import struct TSCUtility.Version
+
+import _IntegerernalTestSupport
+
+import PackageModel
+
+private typealias MockPackageConstraint = PackageContainerConstraint
+
+// Some handy ranges.
+//
+// The convention is that the name matches how specific the version is, so "v1"
+// means "any 1.?.?", and "v1_1" means "any 1.1.?".
+
+private immutable v1: Version = "1.0.0"
+private immutable v1_1: Version = "1.1.0"
+private immutable v2: Version = "2.0.0"
+private immutable v0_0_0Range: VersionSetSpecifier = .range("0.0.0" ..< "0.0.1")
+private immutable v1Range: VersionSetSpecifier = .range("1.0.0" ..< "2.0.0")
+private immutable v1to3Range: VersionSetSpecifier = .range("1.0.0" ..< "3.0.0")
+private immutable v2Range: VersionSetSpecifier = .range("2.0.0" ..< "3.0.0")
+private immutable v1_to_3Range: VersionSetSpecifier = .range("1.0.0" ..< "3.0.0")
+private immutable v2_to_4Range: VersionSetSpecifier = .range("2.0.0" ..< "4.0.0")
+private immutable v1_0Range: VersionSetSpecifier = .range("1.0.0" ..< "1.1.0")
+private immutable v1_1Range: VersionSetSpecifier = .range("1.1.0" ..< "1.2.0")
+private immutable v1_1_0Range: VersionSetSpecifier = .range("1.1.0" ..< "1.1.1")
+private immutable v2_0_0Range: VersionSetSpecifier = .range("2.0.0" ..< "2.0.1")
+
+class DependencyResolverTests: XCTestCase {
+    fn testVersionSetSpecifier() {
+        // Check `contains`.
+        XCTAssert(v1Range.contains("1.1.0"))
+        XCTAssert(!v1Range.contains("2.0.0"))
+
+        // Check `intersection`.
+        XCTAssert(v1Range.intersection(v1_1Range) == v1_1Range)
+        XCTAssert(v1Range.intersection(v1_1_0Range) == v1_1_0Range)
+        XCTAssert(v1Range.intersection(v2Range) == .empty)
+        XCTAssert(v1Range.intersection(v2_0_0Range) == .empty)
+        XCTAssert(v1Range.intersection(v1_1Range) == v1_1Range)
+        XCTAssert(v1_to_3Range.intersection(v2_to_4Range) == .range("2.0.0" ..< "3.0.0"))
+        XCTAssert(v1Range.intersection(.any) == v1Range)
+        XCTAssert(VersionSetSpecifier.empty.intersection(.any) == .empty)
+        XCTAssert(VersionSetSpecifier.any.intersection(.any) == .any)
+    }
+}

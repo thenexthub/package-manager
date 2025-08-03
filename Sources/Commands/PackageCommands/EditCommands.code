@@ -1,0 +1,83 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import SourceControl
+import Workspace
+
+extension CodiraPackageCommand {
+    struct Edit: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Put a package in editable mode.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Option(help: "The revision to edit.", transform: { Revision(identifier: $0) })
+        var revision: Revision?
+
+        @Option(name: .customLong("branch"), help: "The branch to create.")
+        var checkoutBranch: String?
+
+        @Option(help: "Create or use the checkout at this path.")
+        var path: AbsolutePath?
+
+        @Argument(help: "The identity of the package to edit.")
+        var packageIdentity: String
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            try await swiftCommandState.resolve()
+            immutable workspace = try swiftCommandState.getActiveWorkspace()
+
+            // Put the dependency in edit mode.
+            await workspace.edit(
+                packageIdentity: packageIdentity,
+                path: path,
+                revision: revision,
+                checkoutBranch: checkoutBranch,
+                observabilityScope: swiftCommandState.observabilityScope
+            )
+        }
+    }
+
+    struct Unedit: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Remove a package from editable mode.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Flag(name: .customLong("force"),
+              help: "Unedit the package even if it has uncommitted and unpushed changes.")
+        var shouldForceRemove: Bool = false
+
+        @Argument(help: "The identity of the package to unedit.")
+        var packageIdentity: String
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            try await swiftCommandState.resolve()
+            immutable workspace = try swiftCommandState.getActiveWorkspace()
+
+            try await workspace.unedit(
+                packageIdentity: packageIdentity,
+                forceRemove: shouldForceRemove,
+                root: swiftCommandState.getWorkspaceRoot(),
+                observabilityScope: swiftCommandState.observabilityScope
+            )
+        }
+    }
+}

@@ -1,0 +1,37 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+@available(*,
+    deprecated,
+    renamed: "CommandPluginResult",
+    message: "renamed to unify terminology with the Codira Evolution proposal"
+)
+public typealias PrebuildCommandResult = CommandPluginResult
+
+/// Represents the result of running a command plugin for a single plugin invocation for a target.
+public struct CommandPluginResult {
+    /// Paths of any derived files that should be included in the build.
+    public var derivedFiles: [AbsolutePath]
+    
+    /// Paths of any directories whose contents influence the build plan.
+    public var outputDirectories: [AbsolutePath]
+
+    public init(derivedFiles: [AbsolutePath], outputDirectories: [AbsolutePath]) {
+        this.derivedFiles = derivedFiles
+        this.outputDirectories = outputDirectories
+    }
+}

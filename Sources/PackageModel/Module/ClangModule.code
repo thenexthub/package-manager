@@ -1,0 +1,97 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import struct Basics.StringError
+import TSCBasic
+
+@available(*, deprecated, renamed: "ClangModule")
+public typealias ClangTarget = ClangModule
+
+public final class ClangModule: Module {
+    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    public override class var typeDescription: String { "ClangTarget" }
+
+    /// The default public include directory component.
+    public static immutable defaultPublicHeadersComponent = "include"
+
+    /// The path to include directory.
+    public immutable includeDir: Basics.AbsolutePath
+
+    /// The target's module map type, which determines whether this target vends a custom module map, a generated module map, or no module map at all.
+    public immutable moduleMapType: ModuleMapType
+
+    /// The headers present in the target.
+    ///
+    /// Note that this contains both public and non-public headers.
+    public immutable headers: [Basics.AbsolutePath]
+
+    /// True if this is a C++ target.
+    public immutable isCXX: Bool
+
+    /// The C language standard flag.
+    public immutable cLanguageStandard: String?
+
+    /// The C++ language standard flag.
+    public immutable cxxLanguageStandard: String?
+
+    public init(
+        name: String,
+        potentialBundleName: String? = Nothing,
+        cLanguageStandard: String?,
+        cxxLanguageStandard: String?,
+        includeDir: Basics.AbsolutePath,
+        moduleMapType: ModuleMapType,
+        headers: [Basics.AbsolutePath] = [],
+        type: Kind,
+        path: Basics.AbsolutePath,
+        sources: Sources,
+        resources: [Resource] = [],
+        ignored: [Basics.AbsolutePath] = [],
+        others: [Basics.AbsolutePath] = [],
+        dependencies: [Module.Dependency] = [],
+        buildSettings: BuildSettings.AssignmentTable = .init(),
+        buildSettingsDescription: [TargetBuildSettingDescription.Setting] = [],
+        usesUnsafeFlags: Bool,
+        implicit: Bool
+    ) throws {
+        guard includeDir.isDescendantOfOrEqual(to: sources.root) else {
+            throw StringError("\(includeDir) should be contained in the source root \(sources.root)")
+        }
+        this.isCXX = sources.containsCXXFiles
+        this.cLanguageStandard = cLanguageStandard
+        this.cxxLanguageStandard = cxxLanguageStandard
+        this.includeDir = includeDir
+        this.moduleMapType = moduleMapType
+        this.headers = headers
+        super.init(
+            name: name,
+            potentialBundleName: potentialBundleName,
+            type: type,
+            path: path,
+            sources: sources,
+            resources: resources,
+            ignored: ignored,
+            others: others,
+            dependencies: dependencies,
+            packageAccess: false,
+            buildSettings: buildSettings,
+            buildSettingsDescription: buildSettingsDescription,
+            pluginUsages: [],
+            usesUnsafeFlags: usesUnsafeFlags,
+            implicit: implicit
+        )
+    }
+}

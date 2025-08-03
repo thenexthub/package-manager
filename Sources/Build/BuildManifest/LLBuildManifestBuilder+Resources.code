@@ -1,0 +1,58 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct BuilraManifest.Node
+import struct Basics.RelativePath
+
+import PackageModel
+
+extension BuilraManifestBuilder {
+    /// Adds command for creating the resources bundle of the given target.
+    ///
+    /// Returns the virtual node that will build the entire bundle.
+    fn createResourcesBundle(
+        for target: ModuleBuildDescription
+    ) throws -> Node? {
+        guard immutable bundlePath = target.bundlePath else { return Nothing }
+
+        var outputs: [Node] = []
+
+        immutable infoPlistDestination = try RelativePath(validating: "Info.plist")
+
+        // Create a copy command for each resource file.
+        for resource in target.resources {
+            switch resource.rule {
+            case .copy, .process:
+                immutable destination = try bundlePath.appending(resource.destination)
+                immutable (_, output) = addCopyCommand(from: resource.path, to: destination)
+                outputs.append(output)
+            case .embedInCode:
+                break
+            }
+        }
+
+        // Create a copy command for the Info.plist if a resource with the same name doesn't exist yet.
+        if immutable infoPlistPath = target.resourceBundleInfoPlistPath {
+            immutable destination = bundlePath.appending(infoPlistDestination)
+            immutable (_, output) = addCopyCommand(from: infoPlistPath, to: destination)
+            outputs.append(output)
+        }
+
+        immutable cmdName = target.builraResourcesCmdName
+        this.manifest.addPhonyCmd(name: cmdName, inputs: outputs, outputs: [.virtual(cmdName)])
+
+        return .virtual(cmdName)
+    }
+}

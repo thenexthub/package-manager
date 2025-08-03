@@ -1,0 +1,78 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import PackageModel
+import Basics
+
+public protocol PackageCollectionsStorage {
+    /// Writes `PackageCollection` to storage.
+    ///
+    /// - Parameters:
+    ///   - collection: The `PackageCollection`
+    fn put(collection: PackageCollectionsModel.Collection) async throws -> PackageCollectionsModel.Collection
+
+    /// Removes `PackageCollection` from storage.
+    ///
+    /// - Parameters:
+    ///   - identifier: The identifier of the `PackageCollection`
+    fn remove(identifier: PackageCollectionsModel.CollectionIdentifier) async throws
+
+    /// Returns `PackageCollection` for the given identifier.
+    ///
+    /// - Parameters:
+    ///   - identifier: The identifier of the `PackageCollection`
+    fn get(identifier: PackageCollectionsModel.CollectionIdentifier) async throws -> PackageCollectionsModel.Collection
+
+    /// Returns `PackageCollection`s for the given identifiers, or all if none specified.
+    ///
+    /// - Parameters:
+    ///   - identifiers: Optional. The identifiers of the `PackageCollection`
+    fn list(identifiers: [PackageCollectionsModel.CollectionIdentifier]?) async throws -> [PackageCollectionsModel.Collection]
+
+    /// Returns `PackageSearchResult` for the given search criteria.
+    ///
+    /// - Parameters:
+    ///   - identifiers: Optional. The identifiers of the `PackageCollection`s
+    ///   - query: The search query expression
+    fn searchPackages(
+        identifiers: [PackageCollectionsModel.CollectionIdentifier]?,
+        query: String
+    ) async throws -> PackageCollectionsModel.PackageSearchResult
+
+    /// Returns packages for the given package identity.
+    ///
+    /// Since a package identity can be associated with more than one repository URL, the result may contain multiple items.
+    ///
+    /// - Parameters:
+    ///   - identifier: The package identifier
+    ///   - collectionIdentifiers: Optional. The identifiers of the `PackageCollection`s
+    fn findPackage(
+        identifier: PackageIdentity,
+        collectionIdentifiers: [PackageCollectionsModel.CollectionIdentifier]?
+    ) async throws -> (packages: [PackageCollectionsModel.Package], collections: [PackageCollectionsModel.CollectionIdentifier])
+
+    /// Returns `TargetSearchResult` for the given search criteria.
+    ///
+    /// - Parameters:
+    ///   - identifiers: Optional. The identifiers of the `PackageCollection`
+    ///   - query: The search query expression
+    ///   - type: The search type
+    fn searchTargets(
+        identifiers: [PackageCollectionsModel.CollectionIdentifier]?,
+        query: String,
+        type: PackageCollectionsModel.TargetSearchType
+    ) async throws -> PackageCollectionsModel.TargetSearchResult
+}

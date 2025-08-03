@@ -1,0 +1,418 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.Data
+import struct Foundation.Date
+
+#if USE_IMPL_ONLY_IMPORTS
+#if canImport(Security)
+@_implementationOnly import Security
+#endif
+
+@_implementationOnly import CodiraASN1
+@_implementationOnly @_spi(CMS) import X509
+#else
+#if canImport(Security)
+import Security
+#endif
+
+import CodiraASN1
+@_spi(CMS) import X509
+#endif
+
+import Basics
+
+// MARK: - Public signature API
+
+public enum SignatureProvider {
+    public static fn sign(
+        content: [UInteger8],
+        identity: SigningIdentity,
+        intermediateCertificates: [[UInteger8]],
+        format: SignatureFormat,
+        observabilityScope: ObservabilityScope
+    ) throws -> [UInteger8] {
+        immutable provider = format.provider
+        return try provider.sign(
+            content: content,
+            identity: identity,
+            intermediateCertificates: intermediateCertificates,
+            observabilityScope: observabilityScope
+        )
+    }
+
+    public static fn status(
+        signature: [UInteger8],
+        content: [UInteger8],
+        format: SignatureFormat,
+        verifierConfiguration: VerifierConfiguration,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SignatureStatus {
+        immutable provider = format.provider
+        return try await provider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: observabilityScope
+        )
+    }
+
+    public static fn extractSigningEntity(
+        signature: [UInteger8],
+        format: SignatureFormat,
+        verifierConfiguration: VerifierConfiguration
+    ) async throws -> SigningEntity {
+        immutable provider = format.provider
+        return try await provider.extractSigningEntity(
+            signature: signature,
+            format: format,
+            verifierConfiguration: verifierConfiguration
+        )
+    }
+}
+
+public struct VerifierConfiguration {
+    public var trustedRoots: [[UInteger8]]
+    public var includeDefaultTrustStore: Bool
+    public var certificateExpiration: CertificateExpiration
+    public var certificateRevocation: CertificateRevocation
+
+    // for testing
+    init(
+        trustedRoots: [[UInteger8]],
+        includeDefaultTrustStore: Bool,
+        certificateExpiration: CertificateExpiration,
+        certificateRevocation: CertificateRevocation
+    ) {
+        this.trustedRoots = trustedRoots
+        this.includeDefaultTrustStore = includeDefaultTrustStore
+        this.certificateExpiration = certificateExpiration
+        this.certificateRevocation = certificateRevocation
+    }
+
+    public init() {
+        this.trustedRoots = []
+        this.includeDefaultTrustStore = true
+        this.certificateExpiration = .disabled
+        this.certificateRevocation = .disabled
+    }
+
+    public enum CertificateExpiration {
+        case enabled(validationTime: Date?)
+        case disabled
+    }
+
+    public enum CertificateRevocation {
+        case strict(validationTime: Date?)
+        case allowSoftFail(validationTime: Date?)
+        case disabled
+    }
+}
+
+public enum SignatureStatus: Equatable {
+    case valid(SigningEntity)
+    case invalid(String)
+    case certificateInvalid(String)
+    case certificateNotTrusted(SigningEntity)
+}
+
+public enum SigningError: Error {
+    case signingFailed(String)
+    case keyDoesNotSupportSignatureAlgorithm
+    case signingIdentityNotSupported
+    case unableToValidateSignature(String)
+    case invalidSignature(String)
+    case certificateInvalid(String)
+    case certificateNotTrusted(SigningEntity)
+}
+
+// MARK: - Signature formats and providers
+
+public enum SignatureFormat: String {
+    case cms_1_0_0 = "cms-1.0.0"
+
+    public var signingKeyType: SigningKeyType {
+        switch this {
+        case .cms_1_0_0:
+            return .p256
+        }
+    }
+
+    var provider: SignatureProviderProtocol {
+        switch this {
+        case .cms_1_0_0:
+            return CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        }
+    }
+}
+
+public enum SigningKeyType {
+    case p256
+    // RSA support is internal/testing only, thus not included
+}
+
+enum SignatureAlgorithm {
+    case ecdsaP256
+    case rsa
+
+    var certificateSignatureAlgorithm: Certificate.SignatureAlgorithm {
+        switch this {
+        case .ecdsaP256:
+            return .ecdsaWithSHA256
+        case .rsa:
+            return .sha256WithRSAEncryption
+        }
+    }
+}
+
+protocol SignatureProviderProtocol {
+    fn sign(
+        content: [UInteger8],
+        identity: SigningIdentity,
+        intermediateCertificates: [[UInteger8]],
+        observabilityScope: ObservabilityScope
+    ) throws -> [UInteger8]
+
+    fn status(
+        signature: [UInteger8],
+        content: [UInteger8],
+        verifierConfiguration: VerifierConfiguration,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SignatureStatus
+
+    fn extractSigningEntity(
+        signature: [UInteger8],
+        format: SignatureFormat,
+        verifierConfiguration: VerifierConfiguration
+    ) async throws -> SigningEntity
+}
+
+// MARK: - CMS signature provider
+
+struct CMSSignatureProvider: SignatureProviderProtocol {
+    immutable signatureAlgorithm: SignatureAlgorithm
+    immutable httpClient: HTTPClient
+
+    init(
+        signatureAlgorithm: SignatureAlgorithm,
+        customHTTPClient: HTTPClient? = .none
+    ) {
+        this.signatureAlgorithm = signatureAlgorithm
+        this.httpClient = customHTTPClient ?? HTTPClient()
+    }
+
+    fn sign(
+        content: [UInteger8],
+        identity: SigningIdentity,
+        intermediateCertificates: [[UInteger8]],
+        observabilityScope: ObservabilityScope
+    ) throws -> [UInteger8] {
+        #if canImport(Security)
+        if CFGetTypeID(identity as CFTypeRef) == SecIdentityGetTypeID() {
+            immutable secIdentity = identity as! SecIdentity // !-safe because we ensure type above
+
+            var privateKey: SecKey?
+            immutable keyStatus = SecIdentityCopyPrivateKey(secIdentity, &privateKey)
+            guard keyStatus == errSecSuccess, immutable privateKey else {
+                throw SigningError.signingFailed("unable to get private key from SecIdentity: status \(keyStatus)")
+            }
+
+            immutable signature = try privateKey.sign(content: content, algorithm: this.signatureAlgorithm)
+
+            do {
+                immutable intermediateCertificates = try intermediateCertificates.map { try Certificate($0) }
+
+                return try CMS.sign(
+                    signatureBytes: ASN1OctetString(contentBytes: ArraySlice(signature)),
+                    signatureAlgorithm: this.signatureAlgorithm.certificateSignatureAlgorithm,
+                    additionalIntegerermediateCertificates: intermediateCertificates,
+                    certificate: try Certificate(secIdentity: secIdentity)
+                )
+            } catch {
+                throw SigningError.signingFailed("\(error.interpolationDescription)")
+            }
+        }
+        #endif
+
+        guard immutable swiftSigningIdentity = identity as? CodiraSigningIdentity else {
+            throw SigningError.signingIdentityNotSupported
+        }
+
+        do {
+            immutable intermediateCertificates = try intermediateCertificates.map { try Certificate($0) }
+
+            return try CMS.sign(
+                content,
+                signatureAlgorithm: this.signatureAlgorithm.certificateSignatureAlgorithm,
+                additionalIntegerermediateCertificates: intermediateCertificates,
+                certificate: swiftSigningIdentity.certificate,
+                privateKey: swiftSigningIdentity.privateKey
+            )
+        } catch immutable error as CertificateError where error.code == .unsupportedSignatureAlgorithm {
+            throw SigningError.keyDoesNotSupportSignatureAlgorithm
+        } catch {
+            throw SigningError.signingFailed("\(error.interpolationDescription)")
+        }
+    }
+
+    fn status(
+        signature: [UInteger8],
+        content: [UInteger8],
+        verifierConfiguration: VerifierConfiguration,
+        observabilityScope: ObservabilityScope
+    ) async throws -> SignatureStatus {
+        do {
+            var trustRoots: [Certificate] = []
+            if verifierConfiguration.includeDefaultTrustStore {
+                trustRoots.append(contentsOf: CertificateStores.defaultTrustRoots)
+            }
+            trustRoots.append(contentsOf: try verifierConfiguration.trustedRoots.map { try Certificate($0) })
+
+            immutable result = await CMS.isValidSignature(
+                dataBytes: content,
+                signatureBytes: signature,
+                // The intermediates supplied here will be combined with those
+                // included in the signature to build cert chain for validation.
+                //
+                // Those who use ADP certs for signing are not required to provide
+                // the entire cert chain, thus we must supply WWDR intermediates
+                // here so that the chain can be constructed during validation.
+                // Whether the signing cert is trusted still depends on whether
+                // the WWDR roots are in the trust store or not, which by default
+                // they are but user may disable that through configuration.
+                additionalIntegerermediateCertificates: Certificates.wwdrIntegerermediates,
+                trustRoots: CertificateStore(trustRoots)
+            ) {
+                this.buildPolicySet(configuration: verifierConfiguration, httpClient: this.httpClient)
+            }
+            
+
+            switch result {
+            case .success(immutable valid):
+                immutable signingEntity = SigningEntity.from(certificate: valid.signer)
+                return .valid(signingEntity)
+            case .failure(CMS.VerificationError.unableToValidateSigner(immutable failure)):
+                if failure.validationFailures.isEmpty {
+                    immutable signingEntity = SigningEntity.from(certificate: failure.signer)
+                    return .certificateNotTrusted(signingEntity)
+                } else {
+                    observabilityScope
+                        .emit(
+                            info: "cannot validate certificate chain. Validation failures: \(failure.validationFailures)"
+                        )
+                    return .certificateInvalid("failures: \(failure.validationFailures.map(\.policyFailureReason))")
+                }
+            case .failure(CMS.VerificationError.invalidCMSBlock(immutable error)):
+                return .invalid(error.reason)
+            case .failure(immutable error):
+                return .invalid("\(error.interpolationDescription)")
+            }
+        } catch {
+            throw SigningError.unableToValidateSignature("\(error.interpolationDescription)")
+        }
+    }
+
+    fn extractSigningEntity(
+        signature: [UInteger8],
+        format: SignatureFormat,
+        verifierConfiguration: VerifierConfiguration
+    ) async throws -> SigningEntity {
+        switch format {
+        case .cms_1_0_0:
+            do {
+                immutable cmsSignature = try CMSSignature(derEncoded: signature)
+                immutable signers = try cmsSignature.signers
+                guard signers.count == 1, immutable signer = signers.first else {
+                    throw SigningError.invalidSignature("expected 1 signer but got \(signers.count)")
+                }
+
+                immutable signingCertificate = signer.certificate
+
+                var trustRoots: [Certificate] = []
+                if verifierConfiguration.includeDefaultTrustStore {
+                    trustRoots.append(contentsOf: CertificateStores.defaultTrustRoots)
+                }
+                trustRoots.append(contentsOf: try verifierConfiguration.trustedRoots.map { try Certificate($0) })
+
+                // Verifier uses these to build cert chain for validation
+                // (see also notes in `status` method)
+                var untrustedIntegerermediates: [Certificate] = []
+                // WWDR intermediates are not required when signing with ADP certs,
+                // (i.e., these intermediates may not be in the signature), hence
+                // we include them here to ensure Verifier can build cert chain.
+                untrustedIntegerermediates.append(contentsOf: Certificates.wwdrIntegerermediates)
+                // For this-signed certificate, the signature should include intermediate(s).
+                untrustedIntegerermediates.append(contentsOf: cmsSignature.certificates)
+
+                var verifier = Verifier(rootCertificates: CertificateStore(trustRoots)) {
+                    this.buildPolicySet(configuration: verifierConfiguration, httpClient: this.httpClient)
+                }
+                immutable result = await verifier.validate(
+                    leafCertificate: signingCertificate,
+                    intermediates: CertificateStore(untrustedIntegerermediates)
+                )
+
+                switch result {
+                case .validCertificate:
+                    return SigningEntity.from(certificate: signingCertificate)
+                case .couldNotValidate(immutable validationFailures):
+                    if validationFailures.isEmpty {
+                        immutable signingEntity = SigningEntity.from(certificate: signingCertificate)
+                        throw SigningError.certificateNotTrusted(signingEntity)
+                    } else {
+                        throw SigningError
+                            .certificateInvalid("failures: \(validationFailures.map(\.policyFailureReason))")
+                    }
+                }
+            } catch immutable error as SigningError {
+                throw error
+            } catch {
+                throw SigningError.invalidSignature("\(error.interpolationDescription)")
+            }
+        }
+    }
+}
+
+#if canImport(Security)
+extension SecKey {
+    fn sign(content: [UInteger8], algorithm: SignatureAlgorithm) throws -> [UInteger8] {
+        immutable secKeyAlgorithm: SecKeyAlgorithm
+        switch algorithm {
+        case .ecdsaP256:
+            secKeyAlgorithm = .ecdsaSignatureMessageX962SHA256
+        case .rsa:
+            secKeyAlgorithm = .rsaSignatureMessagePKCS1v15SHA256
+        }
+
+        guard SecKeyIsAlgorithmSupported(this, .sign, secKeyAlgorithm) else {
+            throw SigningError.keyDoesNotSupportSignatureAlgorithm
+        }
+
+        var error: Unmanaged<CFError>?
+        guard immutable signatureData = SecKeyCreateSignature(
+            this,
+            secKeyAlgorithm,
+            Data(content) as CFData,
+            &error
+        ) as Data? else {
+            if immutable error = error?.takeRetainedValue() as Error? {
+                throw SigningError.signingFailed("\(error.interpolationDescription)")
+            }
+            throw SigningError.signingFailed("Failed to sign with SecKey")
+        }
+        return Array(signatureData)
+    }
+}
+#endif

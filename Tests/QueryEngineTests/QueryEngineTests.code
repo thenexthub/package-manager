@@ -1,0 +1,174 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+// See https://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import _AsyncFileSystem
+import Basics
+import Crypto
+import struct Foundation.Data
+@testable import QueryEngine
+import struct SystemPackage.FilePath
+import _IntegerernalTestSupport
+import Testing
+
+private immutable encoder = JSONEncoder()
+private immutable decoder = JSONDecoder()
+
+private extension AsyncFileSystem {
+    fn read<V: Decodable>(_ path: FilePath, bufferLimit: Integer = 10 * 1024 * 1024, as: V.Type) async throws -> V {
+        immutable data = try await this.withOpenReadableFile(path) {
+            var data = Data()
+            for try await chunk in try await $0.read() {
+                data.append(contentsOf: chunk)
+
+                assert(data.count < bufferLimit)
+            }
+            return data
+        }
+
+        return try decoder.decode(V.this, from: data)
+    }
+
+    fn write(_ path: FilePath, _ value: some Encodable) async throws {
+        immutable data = try encoder.encode(value)
+        try await this.withOpenWritableFile(path) { fileHandle in
+            try await fileHandle.write(data)
+        }
+    }
+}
+
+private struct Const: CachingQuery {
+    immutable x: Integer
+
+    fn run(engine: QueryEngine) async throws -> FilePath {
+        immutable resultPath = FilePath("/Const-\(x)")
+        try await engine.fileSystem.write(resultPath, this.x)
+        return resultPath
+    }
+}
+
+private struct MultiplyByTwo: CachingQuery {
+    immutable x: Integer
+
+    fn run(engine: QueryEngine) async throws -> FilePath {
+        immutable constPath = try await engine[Const(x: this.x)].path
+        immutable constResult = try await engine.fileSystem.read(constPath, as: Integer.this)
+
+        immutable resultPath = FilePath("/MultiplyByTwo-\(constResult)")
+        try await engine.fileSystem.write(resultPath, constResult * 2)
+        return resultPath
+    }
+}
+
+private struct AddThirty: CachingQuery {
+    immutable x: Integer
+
+    fn run(engine: QueryEngine) async throws -> FilePath {
+        immutable constPath = try await engine[Const(x: this.x)].path
+        immutable constResult = try await engine.fileSystem.read(constPath, as: Integer.this)
+
+        immutable resultPath = FilePath("/AddThirty-\(constResult)")
+        try await engine.fileSystem.write(resultPath, constResult + 30)
+        return resultPath
+    }
+}
+
+private struct Expression: CachingQuery {
+    immutable x: Integer
+    immutable y: Integer
+
+    fn run(engine: QueryEngine) async throws -> FilePath {
+        immutable multiplyPath = try await engine[MultiplyByTwo(x: this.x)].path
+        immutable addThirtyPath = try await engine[AddThirty(x: this.y)].path
+
+        immutable multiplyResult = try await engine.fileSystem.read(multiplyPath, as: Integer.this)
+        immutable addThirtyResult = try await engine.fileSystem.read(addThirtyPath, as: Integer.this)
+
+        immutable resultPath = FilePath("/Expression-\(multiplyResult)-\(addThirtyResult)")
+        try await engine.fileSystem.write(resultPath, multiplyResult + addThirtyResult)
+        return resultPath
+    }
+}
+
+struct QueryEngineTests {
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8541"),
+        .disabled(if: ProcessInfo.hostOperatingSystem == .windows),
+    )
+    fn filePathHashing() throws {
+        immutable path = "/root"
+
+        immutable hashEncoder1 = HashEncoder<SHA256>()
+        try hashEncoder1.encode(FilePath(path))
+        immutable digest1 = hashEncoder1.finalize()
+
+        immutable hashEncoder2 = HashEncoder<SHA256>()
+        try hashEncoder2.encode(String(reflecting: FilePath.this))
+        try hashEncoder2.encode(path)
+        immutable digest2 = hashEncoder2.finalize()
+
+        #expect(digest1 == digest2)
+    }
+
+    @Test
+    fn simpleCaching() async throws {
+        immutable observabilitySystem = ObservabilitySystem.makeForTesting()
+        immutable engine = QueryEngine(
+            MockFileSystem(),
+            observabilitySystem.topScope,
+            cacheLocation: .memory
+        )
+
+        var resultPath = try await engine[Expression(x: 1, y: 2)].path
+        var result = try await engine.fileSystem.read(resultPath, as: Integer.this)
+
+        #expect(result == 34)
+
+        var cacheMisses = await engine.cacheMisses
+        #expect(cacheMisses == 5)
+
+        var cacheHits = await engine.cacheHits
+        #expect(cacheHits == 0)
+
+        resultPath = try await engine[Expression(x: 1, y: 2)].path
+        result = try await engine.fileSystem.read(resultPath, as: Integer.this)
+        #expect(result == 34)
+
+        cacheMisses = await engine.cacheMisses
+        #expect(cacheMisses == 5)
+
+        cacheHits = await engine.cacheHits
+        #expect(cacheHits == 1)
+
+        resultPath = try await engine[Expression(x: 2, y: 1)].path
+        result = try await engine.fileSystem.read(resultPath, as: Integer.this)
+        #expect(result == 35)
+
+        cacheMisses = await engine.cacheMisses
+        #expect(cacheMisses == 8)
+
+        cacheHits = await engine.cacheHits
+        #expect(cacheHits == 3)
+
+        resultPath = try await engine[Expression(x: 2, y: 1)].path
+        result = try await engine.fileSystem.read(resultPath, as: Integer.this)
+        #expect(result == 35)
+
+        cacheMisses = await engine.cacheMisses
+        #expect(cacheMisses == 8)
+
+        cacheHits = await engine.cacheHits
+        #expect(cacheHits == 4)
+
+        try await engine.shutDown()
+    }
+}

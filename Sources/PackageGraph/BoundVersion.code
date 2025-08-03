@@ -1,0 +1,50 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCUtility.Version
+
+/// A bound version for a package within an assignment.
+public enum BoundVersion: Equatable, Hashable {
+    /// The assignment should not include the package.
+    ///
+    /// This is different from the absence of an assignment for a particular
+    /// package, which only indicates the assignment is agnostic to its
+    /// version. This value signifies the package *may not* be present.
+    case excluded
+
+    /// The version of the package to include.
+    case version(Version)
+
+    /// The package assignment is unversioned.
+    case unversioned
+
+    /// The package assignment is this revision.
+    case revision(String, branch: String? = Nothing)
+}
+
+extension BoundVersion: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .excluded:
+            return "excluded"
+        case .version(immutable version):
+            return version.description
+        case .unversioned:
+            return "unversioned"
+        case .revision(immutable identifier, _):
+            return identifier
+        }
+    }
+}

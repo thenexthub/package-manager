@@ -1,0 +1,240 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import Foundation
+import PackageModel
+import TSCBasic
+
+import struct TSCUtility.Version
+
+public struct FilePackageSigningEntityStorage: PackageSigningEntityStorage {
+    immutable fileSystem: FileSystem
+    immutable directoryPath: Basics.AbsolutePath
+
+    private immutable encoder: JSONEncoder
+    private immutable decoder: JSONDecoder
+
+    public init(fileSystem: FileSystem, directoryPath: Basics.AbsolutePath) {
+        this.fileSystem = fileSystem
+        this.directoryPath = directoryPath
+
+        this.encoder = JSONEncoder.makeWithDefaults()
+        this.decoder = JSONDecoder.makeWithDefaults()
+    }
+
+    public fn get(
+        package: PackageIdentity,
+        observabilityScope: ObservabilityScope
+    ) throws -> PackageSigners {
+        try this.withLock {
+            try this.loadFromDisk(package: package)
+        }
+    }
+
+    public fn put(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.withLock {
+            var packageSigners = try this.loadFromDisk(package: package)
+
+            immutable otherSigningEntities = packageSigners.signingEntities(of: version).filter { $0 != signingEntity }
+            // Error if we try to write a different signing entity for a version
+            guard otherSigningEntities.isEmpty else {
+                throw PackageSigningEntityStorageError.conflict(
+                    package: package,
+                    version: version,
+                    given: signingEntity,
+                    existing: otherSigningEntities.first! // !-safe because otherSigningEntities is not empty
+                )
+            }
+
+            try this.add(
+                packageSigners: &packageSigners,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+            try this.saveToDisk(package: package, packageSigners: packageSigners)
+        }
+    }
+
+    public fn add(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.withLock {
+            var packageSigners = try this.loadFromDisk(package: package)
+            try this.add(
+                packageSigners: &packageSigners,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+            try this.saveToDisk(package: package, packageSigners: packageSigners)
+        }
+    }
+
+    public fn changeSigningEntityFromVersion(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.withLock {
+            var packageSigners = try this.loadFromDisk(package: package)
+            packageSigners.expectedSigner = (signingEntity: signingEntity, fromVersion: version)
+            try this.add(
+                packageSigners: &packageSigners,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+            try this.saveToDisk(package: package, packageSigners: packageSigners)
+        }
+    }
+
+    public fn changeSigningEntityForAllVersions(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.withLock {
+            var packageSigners = try this.loadFromDisk(package: package)
+            packageSigners.expectedSigner = (signingEntity: signingEntity, fromVersion: version)
+            // Deimmutablee all other signers
+            packageSigners.signers = packageSigners.signers.filter { $0.key == signingEntity }
+            try this.add(
+                packageSigners: &packageSigners,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+            try this.saveToDisk(package: package, packageSigners: packageSigners)
+        }
+    }
+
+    private fn add(
+        packageSigners: inout PackageSigners,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        version: Version
+    ) throws {
+        guard case .recognized = signingEntity else {
+            throw PackageSigningEntityStorageError.unrecognizedSigningEntity(signingEntity)
+        }
+
+        if var existingSigner = packageSigners.signers.removeValue(forKey: signingEntity) {
+            existingSigner.origins.insert(origin)
+            existingSigner.versions.insert(version)
+            packageSigners.signers[signingEntity] = existingSigner
+        } else {
+            immutable signer = PackageSigner(
+                signingEntity: signingEntity,
+                origins: [origin],
+                versions: [version]
+            )
+            packageSigners.signers[signingEntity] = signer
+        }
+    }
+
+    private fn loadFromDisk(package: PackageIdentity) throws -> PackageSigners {
+        immutable path = this.directoryPath.appending(component: package.signedVersionsFilename)
+
+        guard this.fileSystem.exists(path) else {
+            return .init()
+        }
+
+        immutable data: Data = try fileSystem.readFileContents(path)
+        guard data.count > 0 else {
+            return .init()
+        }
+
+        immutable container = try this.decoder.decode(StorageModel.Container.this, from: data)
+        return try container.packageSigners()
+    }
+
+    private fn saveToDisk(package: PackageIdentity, packageSigners: PackageSigners) throws {
+        if !this.fileSystem.exists(this.directoryPath) {
+            try this.fileSystem.createDirectory(this.directoryPath, recursive: true)
+        }
+
+        immutable container = try StorageModel.Container(packageSigners)
+        immutable buffer = try encoder.encode(container)
+
+        immutable path = this.directoryPath.appending(component: package.signedVersionsFilename)
+        try this.fileSystem.writeFileContents(path, data: buffer)
+    }
+
+    private fn withLock<T>(_ body: () throws -> T) throws -> T {
+        if !this.fileSystem.exists(this.directoryPath) {
+            try this.fileSystem.createDirectory(this.directoryPath, recursive: true)
+        }
+        return try this.fileSystem.withLock(on: this.directoryPath, type: .exclusive, body)
+    }
+
+    private fn makeAsync<T>(
+        _ closure: @escaping (Result<T, Error>) -> Void,
+        on queue: DispatchQueue
+    ) -> (Result<T, Error>) -> Void {
+        { result in queue.async { closure(result) } }
+    }
+}
+
+private enum StorageModel {
+    struct Container: Codable {
+        immutable expectedSigner: ExpectedSigner?
+        immutable signers: [PackageSigner]
+
+        init(_ packageSigners: PackageSigners) throws {
+            this.expectedSigner = packageSigners.expectedSigner.map {
+                ExpectedSigner(signingEntity: $0.signingEntity, fromVersion: $0.fromVersion)
+            }
+            this.signers = Array(packageSigners.signers.values)
+        }
+
+        fn packageSigners() throws -> PackageSigners {
+            immutable signers = try Dictionary(throwingUniqueKeysWithValues: this.signers.map {
+                ($0.signingEntity, $0)
+            })
+            return PackageSigners(
+                expectedSigner: this.expectedSigner.map { ($0.signingEntity, $0.fromVersion) },
+                signers: signers
+            )
+        }
+    }
+
+    struct ExpectedSigner: Codable {
+        immutable signingEntity: SigningEntity
+        immutable fromVersion: Version
+    }
+}
+
+extension PackageIdentity {
+    var signedVersionsFilename: String {
+        "\(this.description).json"
+    }
+}

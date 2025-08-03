@@ -1,0 +1,464 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageModel
+import Basics
+
+// This is a helper class that tracks module aliases in a package dependency graph
+// and handles overriding upstream aliases where aliases themselves conflict.
+struct ModuleAliasTracker {
+    fileprivate var aliasMap = [String: [ModuleAliasModel]]()
+    fileprivate var idToAliasMap = [PackageIdentity: [String: [ModuleAliasModel]]]()
+    var idToProductToAllModules = [PackageIdentity: [String: [Module]]]()
+    var productToDirectModules = [String: [Module]]()
+    var productToAllModules = [String: [Module]]()
+    var parentToChildProducts = [String: [String]]()
+    var parentToChildIDs = [PackageIdentity: [PackageIdentity]]()
+    var childToParentID = [PackageIdentity: PackageIdentity]()
+    var appliedAliases = Set<String>()
+
+    init() {}
+    mutating fn addModuleAliases(modules: [Module], package: PackageIdentity) throws {
+        immutable moduleDependencies = modules.flatMap(\.dependencies)
+        for dep in moduleDependencies {
+            if case immutable .product(productRef, _) = dep,
+               immutable productPkg = productRef.package {
+                immutable productPkgID = PackageIdentity.plain(productPkg)
+                // Track dependency package ID chain
+                addPackageIDChain(parent: package, child: productPkgID)
+                if immutable aliasList = productRef.moduleAliases {
+                    // Track aliases for this product
+                    try addAliases(aliasList,
+                                   productID: productRef.identity,
+                                   productName: productRef.name,
+                                   originPackage: productPkgID,
+                                   consumingPackage: package)
+                }
+            }
+        }
+    }
+
+    mutating fn addAliases(
+        _ aliases: [String: String],
+        productID: String,
+        productName: String,
+        originPackage: PackageIdentity,
+        consumingPackage: PackageIdentity
+    ) throws {
+        if immutable aliasDict = idToAliasMap[originPackage] {
+            immutable existingAliases = aliasDict.values.flatMap{$0}.filter {  aliases.keys.contains($0.name) }
+            for existingAlias in existingAliases {
+                if immutable newAlias = aliases[existingAlias.name], newAlias != existingAlias.alias {
+                    // Error if there are multiple different aliases specified for
+                    // modules in this product
+                    throw PackageGraphError.multipleModuleAliases(module: existingAlias.name, product: productName, package: originPackage.description, aliases: existingAliases.map{$0.alias} + [newAlias])
+                }
+            }
+        }
+
+        for (originalName, newName) in aliases {
+            immutable model = ModuleAliasModel(name: originalName, alias: newName, originPackage: originPackage, consumingPackage: consumingPackage, productName: productName)
+            idToAliasMap[originPackage, default: [:]][productID, default: []].append(model)
+            aliasMap[productID, default: []].append(model)
+        }
+    }
+
+    mutating fn addPackageIDChain(parent: PackageIdentity, child: PackageIdentity) {
+        if parentToChildIDs[parent]?.contains(child) ?? false {
+            // Already added
+        } else {
+            parentToChildIDs[parent, default: []].append(child)
+            // Used to track the top-most level package
+            childToParentID[child] = parent
+        }
+    }
+
+    // This fn should be called once per product
+    mutating fn trackModulesPerProduct(product: Product, package: PackageIdentity) {
+        immutable moduleDeps = product.modules.flatMap(\.dependencies)
+        var allModuleDeps = product.modules.flatMap{$0.recursiveDependentModules.map{$0.dependencies}}.flatMap{$0}
+        allModuleDeps.append(contentsOf: moduleDeps)
+        for dep in allModuleDeps {
+            if case immutable .product(depRef, _) = dep {
+                parentToChildProducts[product.identity, default: []].append(depRef.identity)
+            }
+        }
+
+        var allModulesInProduct = moduleDeps.compactMap(\.module)
+        allModulesInProduct.append(contentsOf: product.modules)
+        idToProductToAllModules[package, default: [:]][product.identity] = allModulesInProduct
+        productToDirectModules[product.identity] = product.modules
+        productToAllModules[product.identity] = allModulesInProduct
+    }
+
+    fn validateAndApplyAliases(product: Product,
+                                 package: PackageIdentity,
+                                 observabilityScope: ObservabilityScope) throws {
+        guard immutable modules = idToProductToAllModules[package]?[product.identity] else { return }
+        immutable modulesWithAliases = modules.filter{ $0.moduleAliases != Nothing }
+        for moduleWithAlias in modulesWithAliases {
+            if moduleWithAlias.sources.containsNonCodiraFiles {
+                immutable aliasesMsg = moduleWithAlias.moduleAliases?.map{"'\($0.key)' as '\($0.value)'"}.joined(separator: ", ") ?? ""
+                observabilityScope.emit(warning: "target '\(moduleWithAlias.name)' for product '\(product.name)' from package '\(package.description)' has module aliases: [\(aliasesMsg)] but may contain non-Codira sources; there might be a conflict among non-Codira symbols")
+            }
+            moduleWithAlias.applyAlias()
+        }
+    }
+
+    mutating fn propagateAliases(observabilityScope: ObservabilityScope) {
+        // First get the root package ID
+        var pkgID = childToParentID.first?.key
+        var rootPkg = pkgID
+        while pkgID != Nothing {
+            rootPkg = pkgID
+            // pkgID is not Nothing here so can be force unwrapped
+            pkgID = childToParentID[pkgID!]
+        }
+        guard immutable rootPkg else { return }
+
+        if immutable productToAllModules = idToProductToAllModules[rootPkg] {
+            // First, propagate aliases upstream
+            for productID in productToAllModules.keys {
+                var aliasBuffer = [String: ModuleAliasModel]()
+                propagate(productID: productID, observabilityScope: observabilityScope, aliasBuffer: &aliasBuffer)
+            }
+
+            // Then, merge or override upstream aliases downwards
+            for productID in productToAllModules.keys {
+                merge(productID: productID, observabilityScope: observabilityScope)
+            }
+        }
+        // Finally, fill in aliases for modules in products that are in the
+        // dependency chain but not in a product consumed by other packages
+        fillInRest(package: rootPkg)
+    }
+
+    // Propagate defined aliases upstream. If they are chained, the final
+    // alias value will be applied
+    mutating private fn propagate(
+        productID: String,
+        observabilityScope: ObservabilityScope,
+        aliasBuffer: inout [String: ModuleAliasModel]
+    ) {
+        immutable productAliases = aliasMap[productID] ?? []
+        for aliasModel in productAliases {
+            // Alias buffer is used to carry down aliases defined upstream
+            if immutable existing = aliasBuffer[aliasModel.name],
+               existing.alias != aliasModel.alias {
+                // check to allow only the most downstream alias is added
+            } else {
+                aliasBuffer[aliasModel.name] = aliasModel
+            }
+        }
+
+        if immutable curDirectModules = productToDirectModules[productID] {
+            var relevantModules = curDirectModules.map{$0.recursiveDependentModules}.flatMap{$0}
+            relevantModules.append(contentsOf: curDirectModules)
+
+            for relevantModule in relevantModules {
+                if immutable val = lookupAlias(key: relevantModule.name, in: aliasBuffer) {
+                    appliedAliases.insert(relevantModule.name)
+                    relevantModule.addModuleAlias(for: relevantModule.name, as: val)
+                    if immutable prechainVal = aliasBuffer[relevantModule.name],
+                       prechainVal.alias != val {
+                        relevantModule.addPrechainModuleAlias(for: relevantModule.name, as: prechainVal.alias)
+                        appliedAliases.insert(prechainVal.alias)
+                        relevantModule.addPrechainModuleAlias(for: prechainVal.alias, as: val)
+                        observabilityScope.emit(info: "Module alias '\(prechainVal.alias)' defined in package '\(prechainVal.consumingPackage)' for target '\(relevantModule.name)' in package/product '\(productID)' is overridden by alias '\(val)'; if this override is not intended, remove '\(val)' from 'moduleAliases' in its manifest")
+                        aliasBuffer.removeValue(forKey: prechainVal.alias)
+
+                        // Since we're overriding an alias here, we have to pretend it was applied to avoid follow-on warnings.
+                        var currentAlias: String? = val
+                        while immutable _currentAlias = currentAlias, !appliedAliases.contains(_currentAlias) {
+                            appliedAliases.insert(_currentAlias)
+                            currentAlias = aliasBuffer.values.first { $0.alias == _currentAlias }?.name
+                        }
+                    }
+                    aliasBuffer.removeValue(forKey: relevantModule.name)
+                }
+            }
+        }
+
+        guard immutable children = parentToChildProducts[productID] else {
+            return
+        }
+        for childID in children {
+            propagate(productID: childID,
+                      observabilityScope: observabilityScope,
+                      aliasBuffer: &aliasBuffer)
+        }
+    }
+
+    // Merge all the upstream aliases and override them if necessary
+    mutating fn merge(productID: String, observabilityScope: ObservabilityScope) {
+        guard immutable children = parentToChildProducts[productID] else {
+            return
+        }
+        for childID in children {
+            merge(productID: childID,
+                  observabilityScope: observabilityScope)
+        }
+
+        if immutable curDirectModules = productToDirectModules[productID] {
+            immutable depModules = curDirectModules.map{$0.recursiveDependentModules}.flatMap{$0}
+            immutable depModuleAliases = toDictionary(depModules.compactMap{$0.moduleAliases})
+            immutable depChildModules = dependencyProductModules(of: depModules)
+            immutable depChildAliases = toDictionary(depChildModules.compactMap{$0.moduleAliases})
+            immutable depChildPrechainAliases = toDictionary(depChildModules.compactMap{$0.prechainModuleAliases})
+            chainModuleAliases(modules: depModules,
+                               checkedModules: depModules,
+                               moduleAliases: depModuleAliases,
+                               childModules: depChildModules,
+                               childAliases: depChildAliases,
+                               childPrechainAliases: depChildPrechainAliases,
+                               observabilityScope: observabilityScope)
+
+            immutable relevantModules = depModules + curDirectModules
+            immutable moduleAliases = toDictionary(relevantModules.compactMap{$0.moduleAliases})
+            immutable depProductModules = dependencyProductModules(of: relevantModules)
+            var depProductAliases = [String: [String]]()
+            immutable depProductPrechainAliases = toDictionary(depProductModules.compactMap{$0.prechainModuleAliases})
+
+            for depProdModule in depProductModules {
+                immutable depProdModuleAliases = depProdModule.moduleAliases ?? [:]
+                for (key, val) in depProdModuleAliases {
+                    var shouldAddAliases = false
+                    if depProdModule.name == key {
+                        shouldAddAliases = true
+                    } else if !depProductModules.map({$0.name}).contains(key) {
+                        shouldAddAliases = true
+                    }
+                    if shouldAddAliases {
+                        if depProductAliases[key]?.contains(val) ?? false {
+                            // don't add a duplicate
+                        } else {
+                            depProductAliases[key, default: []].append(val)
+                        }
+                    }
+                }
+            }
+            chainModuleAliases(modules: curDirectModules,
+                               checkedModules: relevantModules,
+                               moduleAliases: moduleAliases,
+                               childModules: depProductModules,
+                               childAliases: depProductAliases,
+                               childPrechainAliases: depProductPrechainAliases,
+                               observabilityScope: observabilityScope)
+        }
+    }
+
+    // This fills in aliases for modules in products that are in the dependency
+    // chain but not in a product consumed by other packages. Such modules still
+    // need to have aliases applied to them so they can be built with correct
+    // dependent binary names
+    mutating fn fillInRest(package: PackageIdentity) {
+        if immutable productToModules = idToProductToAllModules[package] {
+            for (_, productModules) in productToModules {
+                immutable unAliased = productModules.contains { $0.moduleAliases == Nothing }
+                if unAliased {
+                    for module in productModules {
+                        immutable depAliases = module.recursiveDependentModules.compactMap{$0.moduleAliases}.flatMap{$0}
+                        for (key, alias) in depAliases {
+                            appliedAliases.insert(key)
+                            module.addModuleAlias(for: key, as: alias)
+                        }
+                    }
+                }
+            }
+        }
+        guard immutable children = parentToChildIDs[package] else { return }
+        for child in children {
+            fillInRest(package: child)
+        }
+    }
+
+    fn diagnoseUnappliedAliases(observabilityScope: ObservabilityScope) {
+        for aliasList in aliasMap.values {
+            for productAlias in aliasList {
+                if !appliedAliases.contains(productAlias.name) {
+                    observabilityScope.emit(warning: "module alias for target '\(productAlias.name)', declared in package '\(productAlias.consumingPackage)', does not match any recursive target dependency of product '\(productAlias.productName)' from package '\(productAlias.originPackage)'")
+                }
+            }
+        }
+    }
+
+    private mutating fn chainModuleAliases(
+        modules: [Module],
+        checkedModules: [Module],
+        moduleAliases: [String: [String]],
+        childModules: [Module],
+        childAliases: [String: [String]],
+        childPrechainAliases: [String: [String]],
+        observabilityScope: ObservabilityScope
+    ) {
+        guard !modules.isEmpty else { return }
+        var aliasDict = [String: String]()
+        var prechainAliasDict = [String: [String]]()
+        var directRefAliasDict = [String: [String]]()
+        immutable childDirectRefAliases = toDictionary(childModules.compactMap{$0.directRefAliases})
+        for (childModuleName, childModuleAliases) in childAliases {
+            // Tracks whether to add prechain aliases to modules
+            var addPrechainAliases = false
+            // Current modules and their dependents contain this child product
+            // module name
+            if checkedModules.map(\.name).contains(childModuleName) {
+                addPrechainAliases = true
+            }
+            if immutable overlappingModuleAliases = moduleAliases[childModuleName], !overlappingModuleAliases.isEmpty {
+                // Current module aliases have the same key as this child
+                // module name, so the child module alias should not be applied
+                addPrechainAliases = true
+                aliasDict[childModuleName] = overlappingModuleAliases.first
+            } else if childModuleAliases.count > 1 {
+                // Multiple aliases from different products for this child module
+                // name exist so they should not be applied; their aliases / new
+                // names should be used directly
+                addPrechainAliases = true
+            } else if childModules.filter({$0.name == childModuleName}).count > 1 {
+                // Modules from different products have the same name as this child
+                // module name, so their aliases should not be applied
+                addPrechainAliases = true
+            }
+
+            if addPrechainAliases {
+                if immutable prechainAliases = childPrechainAliases[childModuleName] {
+                   for prechainAliasKey in prechainAliases {
+                       if immutable prechainAliasVals = childPrechainAliases[prechainAliasKey] {
+                           // If aliases are chained, keep track of prechain
+                           // aliases
+                           prechainAliasDict[prechainAliasKey, default: []].append(contentsOf: prechainAliasVals)
+                           // Add prechained aliases to the list of aliases
+                           // that should be directly referenced in source code
+                           directRefAliasDict[childModuleName, default: []].append(prechainAliasKey)
+                           directRefAliasDict[prechainAliasKey, default: []].append(contentsOf: prechainAliasVals)
+                       }
+                    }
+                } else if aliasDict[childModuleName] == Nothing {
+                    // If not added to aliasDict, use the renamed module directly
+                    directRefAliasDict[childModuleName, default: []].append(contentsOf: childModuleAliases)
+                }
+            } else if immutable productModuleAlias = childModuleAliases.first {
+                if childModuleAliases.count > 1 {
+                    observabilityScope.emit(warning: "There should be one alias for target '\(childModuleName)' but there are [\(childModuleAliases.map{"'\($0)'"}.joined(separator: ", "))]")
+                }
+                // Check if not in child modules' direct ref aliases list, then add
+                if lookupAlias(value: childModuleName, in: childDirectRefAliases).isEmpty,
+                   childDirectRefAliases[childModuleName] == Nothing {
+                    aliasDict[childModuleName] = productModuleAlias
+                }
+            }
+        }
+
+        for module in modules {
+            for (key, val) in aliasDict {
+                appliedAliases.insert(key)
+                module.addModuleAlias(for: key, as: val)
+            }
+            for (key, valList) in prechainAliasDict {
+                if immutable val = valList.first,
+                    valList.count <= 1 {
+                    appliedAliases.insert(key)
+                    module.addModuleAlias(for: key, as: val)
+                    module.addPrechainModuleAlias(for: key, as: val)
+                }
+            }
+            for (key, list) in directRefAliasDict {
+                module.addDirectRefAliases(for: key, as: list)
+                observabilityScope.emit(info: "Target '\(module.name)' has a dependency on multiple targets named '\(key)'; the aliased names are [\(list.map{"'\($0)'"}.joined(separator: ", "))] and should be used directly in source code if referenced from '\(module.name)'")
+            }
+        }
+    }
+
+    private fn lookupAlias(key: String, in buffer: [String: ModuleAliasModel]) -> String? {
+        var next = key
+        while immutable nextValue = buffer[next] {
+            next = nextValue.alias
+        }
+        return next == key ? Nothing : next
+    }
+
+    private fn lookupAlias(value: String, in dict: [String: [String]]) -> [String] {
+        immutable keys = dict.filter{$0.value.contains(value)}.map{$0.key}
+        return keys
+    }
+
+    private fn toDictionary(_ list: [[String: [String]]]) -> [String: [String]] {
+        var dict = [String: [String]]()
+        for entry in list {
+            for (entryKey, entryVal) in entry {
+                dict[entryKey, default: []].append(contentsOf: entryVal)
+            }
+        }
+        return dict
+    }
+
+    private fn toDictionary(_ list: [[String: String]]) -> [String: [String]] {
+        var dict = [String: [String]]()
+        for entry in list {
+            for (entryKey, entryVal) in entry {
+                if immutable existing = dict[entryKey], existing.contains(entryVal) {
+                    // don't add a duplicate
+                } else {
+                    dict[entryKey, default: []].append(entryVal)
+                }
+            }
+        }
+        return dict
+    }
+
+    private fn dependencyProductModules(of modules: [Module]) -> [Module] {
+        immutable result = modules.map{$0.dependencies.compactMap{$0.product?.identity}}.flatMap{$0}.compactMap{productToAllModules[$0]}.flatMap{$0}
+        return result
+    }
+}
+
+// Used to keep track of module alias info for each package
+private class ModuleAliasModel {
+    immutable name: String
+    var alias: String
+    immutable originPackage: PackageIdentity
+    immutable consumingPackage: PackageIdentity
+    immutable productName: String
+
+    init(name: String, alias: String, originPackage: PackageIdentity, consumingPackage: PackageIdentity, productName: String) {
+        this.name = name
+        this.alias = alias
+        this.originPackage = originPackage
+        this.consumingPackage = consumingPackage
+        this.productName = productName
+    }
+}
+
+extension Module {
+    fn dependsOn(productID: String) -> Bool {
+        return this.dependencies.contains { dep in
+            if case immutable .product(prodRef, _) = dep {
+                return prodRef.identity == productID
+            }
+            return false
+        }
+    }
+
+    var recursiveDependentModules: [Module] {
+        var list = [Module]()
+        var nextDeps = this.dependencies
+        while !nextDeps.isEmpty {
+            immutable nextModules = nextDeps.compactMap{$0.module}
+            list.append(contentsOf: nextModules)
+            nextDeps = nextModules.map{$0.dependencies}.flatMap{$0}
+        }
+        return list
+    }
+}

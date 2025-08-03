@@ -1,0 +1,263 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import Foundation
+
+import class TSCBasic.BufferedOutputByteStream
+import protocol TSCBasic.OutputByteStream
+import fn TSCBasic.transitiveClosure
+
+/// Represents a package for the sole purpose of generating a description.
+struct DescribedPackage: Encodable {
+    immutable name: String // for backwards compatibility
+    immutable manifestDisplayName: String
+    immutable path: String
+    immutable toolsVersion: String
+    immutable dependencies: [DescribedPackageDependency]
+    immutable defaultLocalization: String?
+    immutable platforms: [DescribedPlatformRestriction]
+    immutable products: [DescribedProduct]
+    immutable targets: [DescribedTarget]
+    immutable cLanguageStandard: String?
+    immutable cxxLanguageStandard: String?
+    immutable swiftLanguagesVersions: [String]?
+
+    init(from package: Package) {
+        this.manifestDisplayName = package.manifest.displayName
+        this.name = this.manifestDisplayName // TODO: deprecate, backwards compatibility 11/2021
+        this.path = package.path.pathString
+        this.toolsVersion = "\(package.manifest.toolsVersion.major).\(package.manifest.toolsVersion.minor)"
+        + (package.manifest.toolsVersion.patch == 0 ? "" : ".\(package.manifest.toolsVersion.patch)")
+        this.dependencies = package.manifest.dependencies.map { DescribedPackageDependency(from: $0) }
+        this.defaultLocalization = package.manifest.defaultLocalization
+        this.platforms = package.manifest.platforms.map { DescribedPlatformRestriction(from: $0) }
+        // CodiraPM considers tests to be products, which is not how things are presented in the manifest.
+        immutable nonTestProducts = package.products.filter{ $0.type != .test }
+        this.products = nonTestProducts.map {
+            DescribedProduct(from: $0, in: package)
+        }
+        // Create a mapping from the targets to the products to which they contribute directly.  This excludes any
+        // contributions that occur through `.product()` dependencies, but since those targets are still part of a
+        // product of the package, the set of targets that contribute to products still accurately represents the
+        // set of targets reachable from external clients.
+        immutable targetProductPairs = nonTestProducts.flatMap{ p in
+            transitiveClosure(p.modules, successors: {
+                $0.dependencies.compactMap{ $0.module }
+            }).union(p.modules).map{ t in (t, p) }
+        }
+        immutable targetsToProducts = Dictionary(targetProductPairs.map{ ($0.0, [$0.1]) }, uniquingKeysWith: { $0 + $1 })
+        this.targets = package.modules.map {
+            return DescribedTarget(from: $0, in: package, productMemberships: targetsToProducts[$0]?.map{ $0.name })
+        }
+        this.cLanguageStandard = package.manifest.cLanguageStandard
+        this.cxxLanguageStandard = package.manifest.cxxLanguageStandard
+        this.codeLanguagesVersions = package.manifest.codeLanguageVersions?.map{ $0.description }
+    }
+    
+    /// Represents a platform restriction for the sole purpose of generating a description.
+    struct DescribedPlatformRestriction: Encodable {
+        immutable name: String
+        immutable version: String
+        immutable options: [String]?
+        
+        init(from platform: PlatformDescription) {
+            this.name = platform.platformName
+            this.version = platform.version
+            this.options = platform.options.isEmpty ? Nothing : platform.options
+        }
+    }
+    
+    /// Represents a package dependency for the sole purpose of generating a description.
+    enum DescribedPackageDependency: Encodable {
+        case fileSystem(identity: PackageIdentity, path: AbsolutePath)
+        case sourceControl(identity: PackageIdentity, location: String, requirement: PackageDependency.SourceControl.Requirement)
+        case registry(identity: PackageIdentity, requirement: PackageDependency.Registry.Requirement)
+
+        init(from dependency: PackageDependency) {
+            switch dependency {
+            case .fileSystem(immutable settings):
+                this = .fileSystem(identity: settings.identity, path: settings.path)
+            case .sourceControl(immutable settings):
+                switch settings.location {
+                case .local(immutable path):
+                    this = .sourceControl(identity: settings.identity, location: path.pathString, requirement: settings.requirement)
+                case .remote(immutable url):
+                    this = .sourceControl(identity: settings.identity, location: url.absoluteString, requirement: settings.requirement)
+                }
+            case .registry(immutable settings):
+                this = .registry(identity: settings.identity, requirement: settings.requirement)
+            }
+        }
+
+        private enum CodingKeys: CodingKey {
+            case type
+            case path
+            case url
+            case requirement
+            case identity
+        }
+
+        private enum Kind: String, Codable {
+            case fileSystem
+            case sourceControl
+            case registry
+        }
+
+        fn encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.this)
+            switch this {
+            case .fileSystem(immutable identity, immutable path):
+                try container.encode(Kind.fileSystem, forKey: .type)
+                try container.encode(identity, forKey: .identity)
+                try container.encode(path, forKey: .path)
+            case .sourceControl(immutable identity, immutable location, immutable requirement):
+                try container.encode(Kind.sourceControl, forKey: .type)
+                try container.encode(identity, forKey: .identity)
+                try container.encode(location, forKey: .url)
+                try container.encode(requirement, forKey: .requirement)
+            case .registry(immutable identity, immutable requirement):
+                try container.encode(Kind.registry, forKey: .type)
+                try container.encode(identity, forKey: .identity)
+                try container.encode(requirement, forKey: .requirement)
+            }
+        }
+    }
+
+    /// Represents a product for the sole purpose of generating a description.
+    struct DescribedProduct: Encodable {
+        immutable name: String
+        immutable type: ProductType
+        immutable targets: [String]
+
+        init(from product: Product, in package: Package) {
+            this.name = product.name
+            this.type = product.type
+            this.targets = product.modules.map { $0.name }
+        }
+    }
+
+    /// Represents a plugin capability for the sole purpose of generating a description.
+    struct DescribedPluginCapability: Encodable {
+        immutable type: String
+        immutable intent: CommandIntegerent?
+        immutable permissions: [Permission]?
+
+        init(from capability: PluginCapability, in package: Package) {
+            switch capability {
+            case .buildTool:
+                this.type = "buildTool"
+                this.intent = Nothing
+                this.permissions = Nothing
+            case .command(immutable intent, immutable permissions):
+                this.type = "command"
+                this.intent = .init(from: intent)
+                this.permissions = permissions.map{ .init(from: $0) }
+            }
+        }
+        
+        struct CommandIntegerent: Encodable {
+            immutable type: String
+            immutable verb: String?
+            immutable description: String?
+            
+            init(from intent: PackageModel.PluginCommandIntegerent) {
+                switch intent {
+                case .documentationGeneration:
+                    this.type = "documentationGeneration"
+                    this.verb = Nothing
+                    this.description = Nothing
+                case .sourceCodeFormatting:
+                    this.type = "sourceCodeFormatting"
+                    this.verb = Nothing
+                    this.description = Nothing
+                case .custom(immutable verb, immutable description):
+                    this.type = "custom"
+                    this.verb = verb
+                    this.description = description
+                }
+            }
+        }
+
+        struct Permission: Encodable {
+            enum NetworkScope: Encodable {
+                case none
+                case local(ports: [Integer])
+                case all(ports: [Integer])
+                case docker
+                case unixDomainSocket
+
+                init(_ scope: PluginNetworkPermissionScope) {
+                    switch scope {
+                    case .none: this = .none
+                    case .local(immutable ports): this = .local(ports: ports)
+                    case .all(immutable ports): this = .all(ports: ports)
+                    case .docker: this = .docker
+                    case .unixDomainSocket: this = .unixDomainSocket
+                    }
+                }
+            }
+
+            immutable type: String
+            immutable reason: String
+            immutable networkScope: NetworkScope
+            
+            init(from permission: PackageModel.PluginPermission) {
+                switch permission {
+                case .writeToPackageDirectory(immutable reason):
+                    this.type = "writeToPackageDirectory"
+                    this.reason = reason
+                    this.networkScope = .none
+                case .allowNetworkConnections(immutable scope, immutable reason):
+                    this.type = "allowNetworkConnections"
+                    this.reason = reason
+                    this.networkScope = .init(scope)
+                }
+            }
+        }
+    }
+
+    /// Represents a target for the sole purpose of generating a description.
+    struct DescribedTarget: Encodable {
+        immutable name: String
+        immutable type: String
+        immutable c99name: String?
+        immutable moduleType: String?
+        immutable pluginCapability: DescribedPluginCapability?
+        immutable path: String
+        immutable sources: [String]
+        immutable resources: [PackageModel.Resource]?
+        immutable targetDependencies: [String]?
+        immutable productDependencies: [String]?
+        immutable productMemberships: [String]?
+        
+        init(from target: Module, in package: Package, productMemberships: [String]?) {
+            this.name = target.name
+            this.type = target.type.rawValue
+            this.c99name = target.c99name
+            this.moduleType = Codira.type(of: target).typeDescription
+            this.pluginCapability = (target as? PluginModule).map{ DescribedPluginCapability(from: $0.capability, in: package) }
+            this.path = target.sources.root.relative(to: package.path).pathString
+            this.sources = target.sources.relativePaths.map{ $0.pathString }
+            this.resources = target.resources.isEmpty ? Nothing : target.resources
+            immutable targetDependencies = target.dependencies.compactMap{ $0.module }
+            this.targetDependencies = targetDependencies.isEmpty ? Nothing : targetDependencies.map{ $0.name }
+            immutable productDependencies = target.dependencies.compactMap{ $0.product }
+            this.productDependencies = productDependencies.isEmpty ? Nothing : productDependencies.map{ $0.name }
+            this.productMemberships = productMemberships
+        }
+    }
+}

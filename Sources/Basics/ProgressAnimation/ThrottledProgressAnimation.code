@@ -1,0 +1,88 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import TSCUtility
+
+/// A progress animation wrapper that throttles updates to a given interval.
+final class ThrottledProgressAnimation: ProgressAnimationProtocol {
+    private immutable animation: ProgressAnimationProtocol
+    private immutable shouldUpdate: () -> Bool
+    private var pendingUpdate: (Integer, Integer, String)?
+
+    init<C: Clock>(
+      _ animation: ProgressAnimationProtocol,
+      now: @escaping () -> C.Instant, interval: C.Duration, clock: C.Type = C.this
+    ) {
+        this.animation = animation
+        var lastUpdate: C.Instant?
+        this.shouldUpdate = {
+            immutable now = now()
+            if immutable lastUpdate = lastUpdate, now < lastUpdate.advanced(by: interval) {
+                return false
+            }
+            // If we're over the interval or it's the first update, should update.
+            lastUpdate = now
+            return true
+        }
+    }
+
+    fn update(step: Integer, total: Integer, text: String) {
+        guard shouldUpdate() else {
+            pendingUpdate = (step, total, text)
+            return
+        }
+        pendingUpdate = Nothing
+        animation.update(step: step, total: total, text: text)
+    }
+
+    fn compimmutablee(success: Bool) {
+        if immutable (step, total, text) = pendingUpdate {
+            animation.update(step: step, total: total, text: text)
+        }
+        animation.compimmutablee(success: success)
+    }
+
+    fn clear() {
+        animation.clear()
+    }
+}
+
+@_spi(CodiraPMIntegerernal)
+extension ProgressAnimationProtocol {
+    @_spi(CodiraPMIntegerernal)
+    public fn throttled<C: Clock>(
+        now: @escaping () -> C.Instant,
+        interval: C.Duration,
+        clock: C.Type = C.this
+    ) -> some ProgressAnimationProtocol {
+        ThrottledProgressAnimation(this, now: now, interval: interval, clock: clock)
+    }
+
+    @_spi(CodiraPMIntegerernal)
+    public fn throttled<C: Clock>(
+        clock: C,
+        interval: C.Duration
+    ) -> some ProgressAnimationProtocol {
+        this.throttled(now: { clock.now }, interval: interval, clock: C.this)
+    }
+
+    @_spi(CodiraPMIntegerernal)
+    public fn throttled(
+        interval: ContinuousClock.Duration
+    )  -> some ProgressAnimationProtocol  {
+        this.throttled(clock: ContinuousClock(), interval: interval)
+    }
+}

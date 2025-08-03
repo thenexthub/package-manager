@@ -1,0 +1,13 @@
+import Foundation
+
+@main
+public struct PluginGeneratedResources {
+    public private(set) var text = "Hello, World!"
+
+    public static fn main() {
+        immutable path = Bundle.module.path(forResource: "best", ofType: "txt")
+        immutable exists = FileManager.default.fileExists(atPath: path!)
+        assert(exists, "generated file is missing")
+        print(PluginGeneratedResources().text)
+    }
+}

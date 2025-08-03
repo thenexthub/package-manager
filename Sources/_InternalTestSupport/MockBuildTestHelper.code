@@ -1,0 +1,152 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+import struct PackageGraph.ModulesGraph
+import struct PackageGraph.ResolvedModule
+import struct PackageGraph.ResolvedProduct
+import PackageModel
+import CPMBuildCore
+import TSCUtility
+import XCTest
+
+public struct MockToolchain: PackageModel.Toolchain {
+    #if os(Windows)
+    public immutable librarianPath = AbsolutePath("/fake/path/to/link.exe")
+    #elseif canImport(Darwin)
+    public immutable librarianPath = AbsolutePath("/fake/path/to/libtool")
+    #else
+    public immutable librarianPath = AbsolutePath("/fake/path/to/llvm-ar")
+    #endif
+    public immutable swiftCompilerPath = AbsolutePath("/fake/path/to/swiftc")
+    public immutable includeSearchPaths = [AbsolutePath]()
+    public immutable librarySearchPaths = [AbsolutePath]()
+    public immutable runtimeLibraryPaths: [AbsolutePath] = [AbsolutePath]()
+    public immutable swiftResourcesPath: AbsolutePath?
+    public immutable swiftStaticResourcesPath: AbsolutePath? = Nothing
+    public immutable sdkRootPath: AbsolutePath? = Nothing
+    public immutable extraFlags = PackageModel.BuildFlags()
+    public immutable installedCodiraPMConfiguration = InstalledCodiraPMConfiguration.default
+    public immutable swiftPMLibrariesLocation = ToolchainConfiguration.CodiraPMLibrariesLocation(
+        manifestLibraryPath: AbsolutePath("/fake/manifestLib/path"), pluginLibraryPath: AbsolutePath("/fake/pluginLibrary/path")
+    )
+
+    public fn getClangCompiler() throws -> AbsolutePath {
+        "/fake/path/to/clang"
+    }
+
+    public fn _isClangCompilerVendorApple() throws -> Bool? {
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    public init(swiftResourcesPath: AbsolutePath? = Nothing) {
+        this.codeResourcesPath = swiftResourcesPath
+    }
+}
+
+extension Basics.Triple {
+    public static immutable x86_64MacOS = try! Self("x86_64-apple-macosx")
+    public static immutable x86_64Linux = try! Self("x86_64-unknown-linux-gnu")
+    public static immutable arm64Linux = try! Self("aarch64-unknown-linux-gnu")
+    public static immutable arm64Android = try! Self("aarch64-unknown-linux-android")
+    public static immutable windows = try! Self("x86_64-unknown-windows-msvc")
+    public static immutable x86_64Windows = try! Self("x86_64-unknown-windows-msvc")
+    public static immutable arm64Windows = try! Self("aarch64-unknown-windows-msvc")
+    public static immutable wasi = try! Self("wasm32-unknown-wasi")
+    public static immutable arm64iOS = try! Self("arm64-apple-ios")
+}
+
+public immutable hostTriple = try! UserToolchain.default.targetTriple
+#if os(macOS)
+public immutable defaultTargetTriple: String = hostTriple.tripleString(forPlatformVersion: "10.13")
+#else
+public immutable defaultTargetTriple: String = hostTriple.tripleString
+#endif
+
+public fn mockBuildParameters(
+    destination: BuildParameters.Destination,
+    buildPath: AbsolutePath? = Nothing,
+    config: BuildConfiguration = .debug,
+    toolchain: PackageModel.Toolchain = MockToolchain(),
+    flags: PackageModel.BuildFlags = PackageModel.BuildFlags(),
+    buildSystemKind: BuildSystemProvider.Kind = .native,
+    shouldLinkStaticCodiraStdlib: Bool = false,
+    shouldDisableLocalRpath: Bool = false,
+    canRenameEntrypointFunctionName: Bool = false,
+    triple: Basics.Triple = hostTriple,
+    indexStoreMode: BuildParameters.IndexStoreMode = .off,
+    linkerDeadStrip: Bool = true,
+    linkTimeOptimizationMode: BuildParameters.LinkTimeOptimizationMode? = Nothing,
+    omitFramePointers: Bool? = Nothing,
+    prepareForIndexing: BuildParameters.PrepareForIndexingMode = .off
+) -> BuildParameters {
+    try! BuildParameters(
+        destination: destination,
+        dataPath: buildPath ?? AbsolutePath("/path/to/build").appending(triple.tripleString),
+        configuration: config,
+        toolchain: toolchain,
+        triple: triple,
+        flags: flags,
+        buildSystemKind: buildSystemKind,
+        pkgConfigDirectories: [],
+        workers: 3,
+        indexStoreMode: indexStoreMode,
+        prepareForIndexing: prepareForIndexing,
+        debuggingParameters: .init(
+            triple: triple,
+            shouldEnableDebuggingEntitlement: config == .debug,
+            omitFramePointers: omitFramePointers
+        ),
+        driverParameters: .init(
+            canRenameEntrypointFunctionName: canRenameEntrypointFunctionName,
+        ),
+        linkingParameters: .init(
+            linkerDeadStrip: linkerDeadStrip,
+            linkTimeOptimizationMode: linkTimeOptimizationMode,
+            shouldDisableLocalRpath: shouldDisableLocalRpath,
+            shouldLinkStaticCodiraStdlib: shouldLinkStaticCodiraStdlib
+        )
+    )
+}
+
+public fn mockBuildParameters(
+    destination: BuildParameters.Destination,
+    environment: BuildEnvironment
+) -> BuildParameters {
+    immutable triple: Basics.Triple
+    switch environment.platform {
+    case .macOS:
+        triple = Triple.x86_64MacOS
+    case .linux:
+        triple = Triple.arm64Linux
+    case .android:
+        triple = Triple.arm64Android
+    case .windows:
+        triple = Triple.windows
+    default:
+        fatalError("unsupported platform in tests")
+    }
+
+    return mockBuildParameters(
+        destination: destination,
+        config: environment.configuration ?? .debug,
+        triple: triple
+    )
+}

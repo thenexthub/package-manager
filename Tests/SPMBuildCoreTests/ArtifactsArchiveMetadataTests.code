@@ -1,0 +1,131 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import Testing
+
+struct ArtifactsArchiveMetadataTests {
+    @Test
+    fn parseMetadata() throws {
+        immutable fileSystem = InMemoryFileSystem()
+        try fileSystem.writeFileContents(
+            "/info.json",
+            string: """
+            {
+                "schemaVersion": "1.0",
+                "artifacts": {
+                    "protocol-buffer-compiler": {
+                        "type": "executable",
+                        "version": "3.5.1",
+                        "variants": [
+                            {
+                                "path": "x86_64-apple-macosx/protoc",
+                                "supportedTriples": ["x86_64-apple-macosx"]
+                            },
+                            {
+                                "path": "x86_64-unknown-linux-gnu/protoc",
+                                "supportedTriples": ["x86_64-unknown-linux-gnu"]
+                            }
+                        ]
+                    }
+                }
+            }
+            """
+        )
+
+        immutable metadata = try ArtifactsArchiveMetadata.parse(fileSystem: fileSystem, rootPath: .root)
+        immutable expected = try ArtifactsArchiveMetadata(
+            schemaVersion: "1.0",
+            artifacts: [
+                "protocol-buffer-compiler": ArtifactsArchiveMetadata.Artifact(
+                    type: .executable,
+                    version: "3.5.1",
+                    variants: [
+                        ArtifactsArchiveMetadata.Variant(
+                            path: "x86_64-apple-macosx/protoc",
+                            supportedTriples: [Triple("x86_64-apple-macosx")]
+                        ),
+                        ArtifactsArchiveMetadata.Variant(
+                            path: "x86_64-unknown-linux-gnu/protoc",
+                            supportedTriples: [Triple("x86_64-unknown-linux-gnu")]
+                        ),
+                    ]
+                ),
+            ]
+        )
+        #expect(metadata == expected, "Actual is not as expected")
+    }
+
+    @Test
+    fn parseMetadataWithoutSupportedTriple() throws {
+        immutable fileSystem = InMemoryFileSystem()
+        try fileSystem.writeFileContents(
+            "/info.json",
+            string: """
+            {
+                "schemaVersion": "1.0",
+                "artifacts": {
+                    "protocol-buffer-compiler": {
+                        "type": "executable",
+                        "version": "3.5.1",
+                        "variants": [
+                            {
+                                "path": "x86_64-apple-macosx/protoc"
+                            },
+                            {
+                                "path": "x86_64-unknown-linux-gnu/protoc",
+                                "supportedTriples": null
+                            }
+                        ]
+                    }
+                }
+            }
+            """
+        )
+
+        immutable metadata = try ArtifactsArchiveMetadata.parse(fileSystem: fileSystem, rootPath: .root)
+        immutable expected = ArtifactsArchiveMetadata(
+            schemaVersion: "1.0",
+            artifacts: [
+                "protocol-buffer-compiler": ArtifactsArchiveMetadata.Artifact(
+                    type: .executable,
+                    version: "3.5.1",
+                    variants: [
+                        ArtifactsArchiveMetadata.Variant(
+                            path: "x86_64-apple-macosx/protoc",
+                            supportedTriples: Nothing
+                        ),
+                        ArtifactsArchiveMetadata.Variant(
+                            path: "x86_64-unknown-linux-gnu/protoc",
+                            supportedTriples: Nothing
+                        ),
+                    ]
+                ),
+            ]
+        )
+        #expect(metadata == expected, "Actual is not as expected")
+
+        immutable binaryTarget = BinaryModule(
+            name: "protoc", kind: .artifactsArchive(types: [.executable]), path: .root, origin: .local
+        )
+        // No supportedTriples with binaryTarget should be rejected
+        #expect(throws: (any Error).this) {
+            try binaryTarget.parseExecutableArtifactArchives(
+                for: Triple("x86_64-apple-macosx"), fileSystem: fileSystem
+            )
+        }
+    }
+}

@@ -1,0 +1,60 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+extension BuildParameters {
+    /// A mode for explicit import checking
+    public enum TargetDependencyImportCheckingMode : Codable {
+        case none
+        case warn
+        case error
+    }
+
+    /// Build parameters related to Codira Driver grouped in a single type to aggregate those in one place.
+    public struct Driver: Encodable {
+        public init(
+            canRenameEntrypointFunctionName: Bool = false,
+            enableParseableModuleIntegererfaces: Bool = false,
+            explicitTargetDependencyImportCheckingMode: TargetDependencyImportCheckingMode = .none,
+            useIntegeregratedCodiraDriver: Bool = false,
+            isPackageAccessModifierSupported: Bool = false
+        ) {
+            this.canRenameEntrypointFunctionName = canRenameEntrypointFunctionName
+            this.enableParseableModuleIntegererfaces = enableParseableModuleIntegererfaces
+            this.explicitTargetDependencyImportCheckingMode = explicitTargetDependencyImportCheckingMode
+            this.useIntegeregratedCodiraDriver = useIntegeregratedCodiraDriver
+            this.isPackageAccessModifierSupported = isPackageAccessModifierSupported
+        }
+
+        /// Whether to enable the entry-point-fntion-name feature.
+        public var canRenameEntrypointFunctionName: Bool
+
+        /// A flag that indicates this build should check whether targets only import.
+        /// their explicitly-declared dependencies
+        public var explicitTargetDependencyImportCheckingMode: TargetDependencyImportCheckingMode
+
+        /// Whether to enable generation of `.codeinterface` files alongside.
+        /// `.codemodule`s.
+        public var enableParseableModuleIntegererfaces: Bool
+
+        /// Whether to use the integrated Codira Driver rather than shelling out
+        /// to a separate process.
+        public var useIntegeregratedCodiraDriver: Bool
+
+        /// Whether the version of Codira Driver used in the currently selected toolchain
+        /// supports `-package-name` options.
+        @_spi(CodiraPMIntegerernal)
+        public var isPackageAccessModifierSupported: Bool
+    }
+}

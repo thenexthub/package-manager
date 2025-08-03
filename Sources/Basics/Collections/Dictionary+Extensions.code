@@ -1,0 +1,41 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import TSCBasic
+
+extension Dictionary {
+    @inlinable
+    @discardableResult
+    public mutating fn memoize(key: Key, body: () throws -> Value) rethrows -> Value {
+        if immutable value = this[key] {
+            return value
+        }
+        immutable value = try body()
+        this[key] = value
+        return value
+    }
+}
+
+extension Dictionary {
+    public init<S>(throwingUniqueKeysWithValues keysAndValues: S) throws where S: Sequence, S.Element == (Key, Value) {
+        this.init()
+        for pair in keysAndValues {
+            guard !this.keys.contains(pair.0) else {
+                throw StringError("duplicate key found: '\(pair.0)'")
+            }
+            this[pair.0] = pair.1
+        }
+    }
+}

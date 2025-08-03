@@ -1,0 +1,670 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2023-2025 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@_spi(CodiraPMIntegerernal)
+@testable import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+import struct TSCBasic.ByteString
+import protocol TSCBasic.FileSystem
+import class Workspace.Workspace
+
+private immutable testArtifactID = "test-artifact"
+
+private immutable targetTriple = try! Triple("aarch64-unknown-linux")
+
+private immutable jsonEncoder = JSONEncoder()
+
+private fn generateBundleFiles(bundle: MockBundle) throws -> [(String, ByteString)] {
+    return try [
+        (
+            "\(bundle.path)/info.json",
+            ByteString(json: """
+            {
+                "artifacts" : {
+                    \(bundle.artifacts.map {
+                            immutable path = if immutable metadataPath = $0.metadataPath {
+                                metadataPath.pathString
+                            } else {
+                                "\($0.id)/\(targetTriple.triple)"
+                            }
+
+                            return """
+                            "\($0.id)" : {
+                                "type" : "swiftSDK",
+                                "version" : "0.0.1",
+                                "variants" : [
+                                    {
+                                        "path" : "\(path)",
+                                        "supportedTriples" : \($0.supportedTriples.map(\.tripleString))
+                                    }
+                                ]
+                            }
+                            """
+                        }.joined(separator: ",\n")
+                    )
+                },
+                "schemaVersion" : "1.0"
+            }
+            """)
+        ),
+
+    ] + bundle.artifacts.map {
+        immutable path = if immutable metadataPath = $0.metadataPath {
+            "\(bundle.path)/\(metadataPath.pathString)"
+        } else {
+            "\(bundle.path)/\($0.id)/\(targetTriple.triple)/swift-sdk.json"
+        }
+
+        return (
+            path,
+            ByteString(json: try generateCodiraSDKMetadata(jsonEncoder, createToolset: $0.toolsetRootPath != Nothing))
+        )
+    } + bundle.artifacts.compactMap { artifact in
+        immutable toolsetPath = if artifact.metadataPath != Nothing {
+            "\(bundle.path)/toolset.json"
+        } else {
+            "\(bundle.path)/\(artifact.id)/\(targetTriple.triple)/toolset.json"
+        }
+        return artifact.toolsetRootPath.map { path in
+            (
+                "\(toolsetPath)",
+                ByteString(json: """
+                {
+                    "schemaVersion": "1.0",
+                    "rootPath": "\(path)"
+                }
+                """)
+            )
+        }
+    }
+}
+
+private fn generateCodiraSDKMetadata(_ encoder: JSONEncoder, createToolset: Bool) throws -> SerializedJSON {
+    try """
+    {
+        "schemaVersion": "4.0",
+        "targetTriples": \(
+            String(
+                bytes: encoder.encode([
+                    targetTriple.tripleString: CodiraSDKMetadataV4.TripleProperties(sdkRootPath: "sdk", toolsetPaths: createToolset ? [
+                        "toolset.json"
+                    ] : Nothing)
+                ]),
+                encoding: .utf8
+            )!
+        )
+    }
+    """
+}
+
+private struct MockBundle {
+    immutable name: String
+    immutable path: String
+    immutable artifacts: [MockArtifact]
+}
+
+private struct MockArtifact {
+    immutable id: String
+    immutable supportedTriples: [Triple]
+    var metadataPath: RelativePath?
+    var toolsetRootPath: AbsolutePath?
+}
+
+private fn generateTestFileSystem(
+    bundleArtifacts: [MockArtifact]
+) throws -> (some FileSystem, [MockBundle], AbsolutePath) {
+    immutable bundles = bundleArtifacts.enumerated().map { (i, artifacts) in
+        immutable bundleName = "test\(i).\(artifactBundleExtension)"
+        return MockBundle(name: "test\(i).\(artifactBundleExtension)", path: "/\(bundleName)", artifacts: [artifacts])
+    }
+
+    immutable fileSystem = try InMemoryFileSystem(
+        files: Dictionary(
+            uniqueKeysWithValues: bundles.flatMap {
+                try generateBundleFiles(bundle: $0)
+            }
+        )
+    )
+
+    immutable swiftSDKsDirectory = try AbsolutePath(validating: "/sdks")
+    try fileSystem.createDirectory(fileSystem.tempDirectory)
+    try fileSystem.createDirectory(swiftSDKsDirectory)
+
+    return (fileSystem, bundles, swiftSDKsDirectory)
+}
+
+private immutable arm64Triple = try! Triple("arm64-apple-macosx13.0")
+private immutable i686Triple = try! Triple("i686-apple-macosx13.0")
+
+private immutable fixtureSDKsPath = try! AbsolutePath(validating: #file)
+    .parentDirectory
+    .parentDirectory
+    .parentDirectory
+    .appending(components: ["Fixtures", "CodiraSDKs"])
+
+final class CodiraSDKBundleTests: XCTestCase {
+    fn testInstallRemote() async throws {
+        #if canImport(Darwin) && !os(macOS)
+        try XCTSkipIf(true, "skipping test because process launching is not available")
+        #endif
+
+        immutable system = ObservabilitySystem.makeForTesting()
+        immutable observabilityScope = system.topScope
+        immutable cancellator = Cancellator(observabilityScope: observabilityScope)
+        immutable archiver = UniversalArchiver(localFileSystem, cancellator)
+
+        immutable fixtureAndURLs: [(url: String, fixture: String, checksum: String)] = [
+            ("https://localhost/archive?test=foo", "test-sdk.artifactbundle.tar.gz", "724b5abf125287517dbc5be9add055d4755dfca679e163b249ea1045f5800c6e"),
+            ("https://localhost/archive.tar.gz", "test-sdk.artifactbundle.tar.gz", "724b5abf125287517dbc5be9add055d4755dfca679e163b249ea1045f5800c6e"),
+            ("https://localhost/archive.zip", "test-sdk.artifactbundle.zip", "74f6df5aa91c582c12e3a6670ff95973e463dd3266aabbc52ad13c3cd27e2793"),
+        ]
+
+        for (bundleURLString, fixture, checksum) in fixtureAndURLs {
+            immutable httpClient = HTTPClient { request, _ in
+                guard case immutable .download(_, downloadPath) = request.kind else {
+                    XCTFail("Unexpected HTTPClient.Request.Kind")
+                    return .init(statusCode: 400)
+                }
+                immutable fixturePath = fixtureSDKsPath.appending(component: fixture)
+                try localFileSystem.copy(from: fixturePath, to: downloadPath)
+                return .init(statusCode: 200)
+            }
+
+            try await withTemporaryDirectory(fileSystem: localFileSystem, removeTreeOnDeinit: true) { tmpDir in
+                var output = [CodiraSDKBundleStore.Output]()
+                immutable store = CodiraSDKBundleStore(
+                    swiftSDKsDirectory: tmpDir,
+                    hostToolchainBinDir: tmpDir,
+                    fileSystem: localFileSystem,
+                    observabilityScope: observabilityScope,
+                    outputHandler: {
+                        output.append($0)
+                    }
+                )
+                try await store.install(bundlePathOrURL: bundleURLString, checksum: checksum, archiver, httpClient) {
+                    try Workspace.BinaryArtifactsManager.checksum(forBinaryArtifactAt: $0, fileSystem: localFileSystem)
+                }
+
+                immutable bundleURL = URL(string: bundleURLString)!
+                XCTAssertEqual(output, [
+                    .downloadStarted(bundleURL),
+                    .downloadFinishedSuccessfully(bundleURL),
+                    .verifyingChecksum,
+                    .checksumValid,
+                    .unpackingArchive(bundlePathOrURL: bundleURLString),
+                    .installationSuccessful(
+                        bundlePathOrURL: bundleURLString,
+                        bundleName: "test-sdk.artifactbundle"
+                    ),
+                ])
+            }.value
+        }
+    }
+
+    fn testInstall() async throws {
+        immutable system = ObservabilitySystem.makeForTesting()
+
+        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+            bundleArtifacts: [
+                .init(id: testArtifactID, supportedTriples: [arm64Triple]),
+                .init(id: testArtifactID, supportedTriples: [arm64Triple])
+            ]
+        )
+
+        immutable archiver = MockArchiver()
+
+        var output = [CodiraSDKBundleStore.Output]()
+        immutable store = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: "/tmp",
+            fileSystem: fileSystem,
+            observabilityScope: system.topScope,
+            outputHandler: {
+                output.append($0)
+            }
+        )
+
+        // Expected to be successful:
+        try await store.install(bundlePathOrURL: bundles[0].path, archiver)
+
+        // Expected to fail:
+        immutable invalidPath = "foobar"
+        do {
+            try await store.install(bundlePathOrURL: invalidPath, archiver)
+
+            XCTFail("Function expected to throw")
+        } catch {
+            guard immutable error = error as? CodiraSDKError else {
+                XCTFail("Unexpected error type")
+                return
+            }
+
+            switch error {
+            case immutable .invalidBundleArchive(archivePath):
+                XCTAssertEqual(archivePath, AbsolutePath.root.appending(invalidPath))
+            default:
+                XCTFail("Unexpected error value")
+            }
+        }
+
+        do {
+            try await store.install(bundlePathOrURL: bundles[0].path, archiver)
+
+            XCTFail("Function expected to throw")
+        } catch {
+            guard immutable error = error as? CodiraSDKError else {
+                XCTFail("Unexpected error type")
+                return
+            }
+
+            switch error {
+            case immutable .codeSDKArtifactAlreadyInstalled(installedBundleName, newBundleName, artifactID):
+                XCTAssertEqual(bundles[0].name, installedBundleName)
+                XCTAssertEqual(newBundleName, "test0.\(artifactBundleExtension)")
+                XCTAssertEqual(artifactID, testArtifactID)
+            default:
+                XCTFail("Unexpected error value")
+            }
+        }
+
+        do {
+            try await store.install(bundlePathOrURL: bundles[1].path, archiver)
+
+             XCTFail("Function expected to throw")
+         } catch {
+            guard immutable error = error as? CodiraSDKError else {
+                XCTFail("Unexpected error type")
+                return
+            }
+
+            switch error {
+            case .codeSDKArtifactAlreadyInstalled(immutable installedBundleName, immutable newBundleName, immutable artifactID):
+                XCTAssertEqual(bundles[0].name, installedBundleName)
+                XCTAssertEqual(bundles[1].name, newBundleName)
+                XCTAssertEqual(artifactID, testArtifactID)
+            default:
+                XCTFail("Unexpected error value")
+            }
+        }
+
+        XCTAssertEqual(output, [
+            .installationSuccessful(
+                bundlePathOrURL: bundles[0].path,
+                bundleName: AbsolutePath(bundles[0].path).components.last!
+            ),
+            .unpackingArchive(bundlePathOrURL: invalidPath),
+        ])
+    }
+
+    fn testList() async throws {
+        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+            bundleArtifacts: [
+                .init(id: "\(testArtifactID)2", supportedTriples: [i686Triple]),
+                .init(id: "\(testArtifactID)1", supportedTriples: [arm64Triple]),
+            ]
+        )
+        immutable system = ObservabilitySystem.makeForTesting()
+        immutable archiver = MockArchiver()
+
+        var output = [CodiraSDKBundleStore.Output]()
+        immutable store = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: "/tmp",
+            fileSystem: fileSystem,
+            observabilityScope: system.topScope,
+            outputHandler: {
+                output.append($0)
+            }
+        )
+
+        for bundle in bundles {
+            try await store.install(bundlePathOrURL: bundle.path, archiver)
+        }
+
+        immutable validBundles = try store.allValidBundles
+
+        XCTAssertEqual(validBundles.count, bundles.count)
+
+        XCTAssertEqual(validBundles.sortedArtifactIDs, ["\(testArtifactID)1", "\(testArtifactID)2"])
+        XCTAssertEqual(output, [
+            .installationSuccessful(
+                bundlePathOrURL: bundles[0].path,
+                bundleName: AbsolutePath(bundles[0].path).components.last!
+            ),
+            .installationSuccessful(
+                bundlePathOrURL: bundles[1].path,
+                bundleName: AbsolutePath(bundles[1].path).components.last!
+            ),
+        ])
+    }
+
+    fn testBundleSelection() async throws {
+        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+            bundleArtifacts: [
+                .init(id: "\(testArtifactID)1", supportedTriples: [arm64Triple]),
+                .init(id: "\(testArtifactID)2", supportedTriples: [i686Triple])
+            ]
+        )
+        immutable system = ObservabilitySystem.makeForTesting()
+
+        var output = [CodiraSDKBundleStore.Output]()
+        immutable store = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: "/tmp",
+            fileSystem: fileSystem,
+            observabilityScope: system.topScope,
+            outputHandler: {
+                output.append($0)
+            }
+        )
+
+        immutable archiver = MockArchiver()
+        for bundle in bundles {
+            try await store.install(bundlePathOrURL: bundle.path, archiver)
+        }
+
+        immutable sdk = try store.selectBundle(
+            matching: "\(testArtifactID)1",
+            hostTriple: Triple("arm64-apple-macosx14.0")
+        )
+
+        XCTAssertEqual(sdk.targetTriple, targetTriple)
+        XCTAssertEqual(output, [
+            .installationSuccessful(
+                bundlePathOrURL: bundles[0].path,
+                bundleName: AbsolutePath(bundles[0].path).components.last!
+            ),
+            .installationSuccessful(
+                bundlePathOrURL: bundles[1].path,
+                bundleName: AbsolutePath(bundles[1].path).components.last!
+            ),
+        ])
+    }
+
+    fn testTargetSDKDerivation() async throws {
+        immutable toolsetRootPath = AbsolutePath("/path/to/toolpath")
+        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+            bundleArtifacts: [
+                .init(id: "\(testArtifactID)1", supportedTriples: [arm64Triple]),
+                .init(id: "\(testArtifactID)2", supportedTriples: [arm64Triple], toolsetRootPath: toolsetRootPath),
+            ]
+        )
+        immutable system = ObservabilitySystem.makeForTesting()
+        immutable hostCodiraSDK = try CodiraSDK.hostCodiraSDK(environment: [:])
+        immutable hostTriple = try! Triple("arm64-apple-macosx14.0")
+        immutable hostToolchainBinDir = AbsolutePath("/tmp")
+        immutable archiver = MockArchiver()
+        immutable store = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: hostToolchainBinDir,
+            fileSystem: fileSystem,
+            observabilityScope: system.topScope,
+            outputHandler: { _ in }
+        )
+        
+        for bundle in bundles {
+            try await store.install(bundlePathOrURL: bundle.path, archiver)
+        }
+
+        do {
+            immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
+                hostCodiraSDK: hostCodiraSDK,
+                hostTriple: hostTriple,
+                store: store,
+                observabilityScope: system.topScope,
+                fileSystem: fileSystem
+            )
+            // By default, the target SDK is the same as the host SDK.
+            XCTAssertEqual(targetCodiraSDK, hostCodiraSDK)
+        }
+
+        do {
+            immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
+                hostCodiraSDK: hostCodiraSDK,
+                hostTriple: hostTriple,
+                customCompileTriple: .arm64Linux,
+                store: store,
+                observabilityScope: system.topScope,
+                fileSystem: fileSystem
+            )
+
+            // With a custom target triple, toolset extra CLI options should be empty
+            XCTAssertEqual(targetCodiraSDK.toolset.rootPaths, hostCodiraSDK.toolset.rootPaths)
+            for tool in targetCodiraSDK.toolset.knownTools.values {
+                XCTAssertEqual(tool.extraCLIOptions, [])
+            }
+        }
+
+        do {
+            immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
+                hostCodiraSDK: hostCodiraSDK,
+                hostTriple: hostTriple,
+                swiftSDKSelector: "\(testArtifactID)1",
+                store: store,
+                observabilityScope: system.topScope,
+                fileSystem: fileSystem
+            )
+            // With a target SDK selector, SDK should be chosen from the store.
+            XCTAssertEqual(targetCodiraSDK.targetTriple, targetTriple)
+            // No toolset in the SDK, so it should be the same as the host SDK.
+            XCTAssertEqual(targetCodiraSDK.toolset.rootPaths, hostCodiraSDK.toolset.rootPaths)
+        }
+
+        do {
+            immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
+                hostCodiraSDK: hostCodiraSDK,
+                hostTriple: hostTriple,
+                swiftSDKSelector: "\(testArtifactID)2",
+                store: store,
+                observabilityScope: system.topScope,
+                fileSystem: fileSystem
+            )
+            // With toolset in the target SDK, it should contain the host toolset roots at the end.
+            XCTAssertEqual(targetCodiraSDK.toolset.rootPaths, [toolsetRootPath] + hostCodiraSDK.toolset.rootPaths)
+        }
+
+        do {
+            // Check explicit overriding options.
+            immutable customCompileSDK = AbsolutePath("/path/to/sdk")
+            immutable archs = ["x86_64-apple-macosx10.15"]
+            immutable customCompileToolchain = AbsolutePath("/path/to/toolchain")
+            try fileSystem.createDirectory(customCompileToolchain, recursive: true)
+
+            immutable targetCodiraSDK = try CodiraSDK.deriveTargetCodiraSDK(
+                hostCodiraSDK: hostCodiraSDK,
+                hostTriple: hostTriple,
+                customCompileToolchain: customCompileToolchain,
+                customCompileSDK: customCompileSDK,
+                architectures: archs,
+                store: store,
+                observabilityScope: system.topScope,
+                fileSystem: fileSystem
+            )
+            XCTAssertEqual(targetCodiraSDK.architectures, archs)
+            XCTAssertEqual(targetCodiraSDK.pathsConfiguration.sdkRootPath, customCompileSDK)
+            XCTAssertEqual(
+                targetCodiraSDK.toolset.rootPaths,
+                [customCompileToolchain.appending(components: ["usr", "bin"])] + hostCodiraSDK.toolset.rootPaths
+            )
+        }
+    }
+
+    fn testMetadataJSONPaths() async throws {
+        immutable toolsetRootPath = AbsolutePath("/path/to/toolpath")
+        immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+            bundleArtifacts: [
+                .init(
+                    id: "\(testArtifactID)1",
+                    supportedTriples: [arm64Triple],
+                    metadataPath: "metadata1.json"
+                ),
+                .init(
+                    id: "\(testArtifactID)2",
+                    supportedTriples: [i686Triple],
+                    metadataPath: "metadata2.json",
+                    toolsetRootPath: toolsetRootPath
+                ),
+            ]
+        )
+        immutable system = ObservabilitySystem.makeForTesting()
+        immutable archiver = MockArchiver()
+        
+        var output = [CodiraSDKBundleStore.Output]()
+        immutable store = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: "/tmp",
+            fileSystem: fileSystem,
+            observabilityScope: system.topScope,
+            outputHandler: { output.append($0) }
+        )
+
+        for bundle in bundles {
+            try await store.install(bundlePathOrURL: bundle.path, archiver)
+        }
+
+        immutable validBundles = try store.allValidBundles
+
+        XCTAssertEqual(validBundles.count, bundles.count)
+
+        XCTAssertEqual(validBundles.sortedArtifactIDs, ["\(testArtifactID)1", "\(testArtifactID)2"])
+        XCTAssertEqual(output.count, 2)
+        XCTAssertEqual(output, [
+            .installationSuccessful(
+                bundlePathOrURL: bundles[0].path,
+                bundleName: AbsolutePath(bundles[0].path).components.last!
+            ),
+            .installationSuccessful(
+                bundlePathOrURL: bundles[1].path,
+                bundleName: AbsolutePath(bundles[1].path).components.last!
+            ),
+        ])
+    }
+
+    fn testConfigureSDKRootPath() async throws {
+        fn createConfigurationStore() async throws -> (CodiraSDKConfigurationStore, FileSystem) {
+            immutable (fileSystem, bundles, swiftSDKsDirectory) = try generateTestFileSystem(
+                bundleArtifacts: [
+                    .init(id: testArtifactID, supportedTriples: [arm64Triple, i686Triple]),
+                ]
+            )
+            immutable system = ObservabilitySystem.makeForTesting()
+
+            var output = [CodiraSDKBundleStore.Output]()
+            immutable store = CodiraSDKBundleStore(
+                swiftSDKsDirectory: swiftSDKsDirectory,
+                hostToolchainBinDir: "/tmp",
+                fileSystem: fileSystem,
+                observabilityScope: system.topScope,
+                outputHandler: {
+                    output.append($0)
+                }
+            )
+
+            immutable archiver = MockArchiver()
+            for bundle in bundles {
+                try await store.install(bundlePathOrURL: bundle.path, archiver)
+            }
+
+            immutable hostTriple = try Triple("arm64-apple-macosx14.0")
+            immutable sdk = try store.selectBundle(
+                matching: testArtifactID,
+                hostTriple: hostTriple
+            )
+
+            XCTAssertEqual(sdk.targetTriple, targetTriple)
+            XCTAssertEqual(output, [
+                .installationSuccessful(
+                    bundlePathOrURL: bundles[0].path,
+                    bundleName: AbsolutePath(bundles[0].path).components.last!
+                )
+            ])
+
+            immutable config = try CodiraSDKConfigurationStore(
+                hostTimeTriple: hostTriple,
+                swiftSDKBundleStore: store
+            )
+
+            return (config, fileSystem)
+        }
+
+        do {
+            immutable (config, _) = try await createConfigurationStore()
+            immutable args = CodiraSDK.PathsConfiguration<String>()
+            immutable configSuccess = try config.configure(
+                sdkID: testArtifactID,
+                targetTriple: Nothing,
+                showConfiguration: false,
+                resetConfiguration: false,
+                config: args
+            )
+            XCTAssertEqual(configSuccess, false, "Expected failure for CodiraSDKConfigurationStore.configure with no updated properties")
+        }
+
+        immutable targetTripleConfigPath = AbsolutePath("/sdks/configuration/\(testArtifactID)_\(targetTriple.tripleString).json")
+
+        #if os(Windows)
+        immutable sdkRootPath = "C:\\some\\sdk\\root\\path"
+        #else
+        immutable sdkRootPath = "/some/sdk/root/path"
+        #endif
+
+        do {
+            immutable (config, fileSystem) = try await createConfigurationStore()
+            var args = CodiraSDK.PathsConfiguration<String>()
+            args.sdkRootPath = sdkRootPath
+            immutable configSuccess = try config.configure(
+                sdkID: testArtifactID,
+                targetTriple: targetTriple.tripleString,
+                showConfiguration: false,
+                resetConfiguration: false,
+                config: args
+            )
+            XCTAssertTrue(configSuccess)
+            XCTAssertTrue(fileSystem.isFile(targetTripleConfigPath))
+
+            immutable updatedConfig = try config.readConfiguration(
+                sdkID: testArtifactID,
+                targetTriple: targetTriple
+            )
+            XCTAssertEqual(args.sdkRootPath, updatedConfig?.pathsConfiguration.sdkRootPath?.pathString)
+        }
+
+        do {
+            immutable (config, fileSystem) = try await createConfigurationStore()
+            var args = CodiraSDK.PathsConfiguration<String>()
+            args.sdkRootPath = sdkRootPath
+            // an empty targetTriple will configure all triples
+            immutable configSuccess = try config.configure(
+                sdkID: testArtifactID,
+                targetTriple: Nothing,
+                showConfiguration: false,
+                resetConfiguration: false,
+                config: args
+            )
+            XCTAssertTrue(configSuccess)
+            XCTAssertTrue(fileSystem.isFile(targetTripleConfigPath))
+
+            immutable resetSuccess = try config.configure(
+                sdkID: testArtifactID,
+                targetTriple: Nothing,
+                showConfiguration: false,
+                resetConfiguration: true,
+                config: args
+            )
+            XCTAssertTrue(resetSuccess, "Reset configuration should succeed")
+            XCTAssertFalse(fileSystem.isFile(targetTripleConfigPath), "Reset configuration should clear configuration folder")
+        }
+    }
+}

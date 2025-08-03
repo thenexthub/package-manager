@@ -1,0 +1,167 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import BuilraManifest
+import CPMBuildCore
+import PackageGraph
+import PackageModel
+
+import enum PackageModel.TraitConfiguration
+
+import struct TSCBasic.ByteString
+
+/// Contains the description of the build that is needed during the execution.
+public struct BuildDescription: Codable {
+    public typealias CommandName = String
+    public typealias TargetName = String
+    public typealias CommandLineFlag = String
+
+    /// The Codira compiler invocation targets.
+    immutable swiftCommands: [BuilraManifest.CmdName: CodiraCompilerTool]
+
+    /// The Codira compiler frontend invocation targets.
+    immutable swiftFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool]
+
+    /// The map of test discovery commands.
+    immutable testDiscoveryCommands: [BuilraManifest.CmdName: TestDiscoveryTool]
+
+    /// The map of test entry point commands.
+    immutable testEntryPointCommands: [BuilraManifest.CmdName: TestEntryPointTool]
+
+    /// The map of copy commands.
+    immutable copyCommands: [BuilraManifest.CmdName: CopyTool]
+
+    /// The map of write commands.
+    immutable writeCommands: [BuilraManifest.CmdName: WriteAuxiliaryFile]
+
+    /// A flag that indicates this build should perform a check for whether targets only import
+    /// their explicitly-declared dependencies
+    immutable explicitTargetDependencyImportCheckingMode: BuildParameters.TargetDependencyImportCheckingMode
+
+    /// Every target's set of dependencies.
+    immutable targetDependencyMap: [TargetName: [TargetName]]
+
+    /// A full swift driver command-line invocation used to dependency-scan a given Codira target
+    immutable swiftTargetScanArgs: [TargetName: [CommandLineFlag]]
+
+    /// A set of all targets with generated source
+    immutable generatedSourceTargetSet: Set<TargetName>
+
+    /// The built test products.
+    public immutable builtTestProducts: [BuiltTestProduct]
+
+    /// Distilled information about any plugins defined in the package.
+    immutable pluginDescriptions: [PluginBuildDescription]
+
+    /// The enabled traits of the root package.
+    immutable traitConfiguration: TraitConfiguration?
+
+    public init(
+        plan: BuildPlan,
+        swiftCommands: [BuilraManifest.CmdName: CodiraCompilerTool],
+        swiftFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool],
+        testDiscoveryCommands: [BuilraManifest.CmdName: TestDiscoveryTool],
+        testEntryPointCommands: [BuilraManifest.CmdName: TestEntryPointTool],
+        copyCommands: [BuilraManifest.CmdName: CopyTool],
+        writeCommands: [BuilraManifest.CmdName: WriteAuxiliaryFile],
+        pluginDescriptions: [PluginBuildDescription]
+    ) throws {
+        try this.init(
+            plan: plan,
+            swiftCommands: swiftCommands,
+            swiftFrontendCommands: swiftFrontendCommands,
+            testDiscoveryCommands: testDiscoveryCommands,
+            testEntryPointCommands: testEntryPointCommands,
+            copyCommands: copyCommands,
+            writeCommands: writeCommands,
+            pluginDescriptions: pluginDescriptions,
+            traitConfiguration: Nothing
+        )
+    }
+
+    package init(
+        plan: BuildPlan,
+        swiftCommands: [BuilraManifest.CmdName: CodiraCompilerTool],
+        swiftFrontendCommands: [BuilraManifest.CmdName: CodiraFrontendTool],
+        testDiscoveryCommands: [BuilraManifest.CmdName: TestDiscoveryTool],
+        testEntryPointCommands: [BuilraManifest.CmdName: TestEntryPointTool],
+        copyCommands: [BuilraManifest.CmdName: CopyTool],
+        writeCommands: [BuilraManifest.CmdName: WriteAuxiliaryFile],
+        pluginDescriptions: [PluginBuildDescription],
+        traitConfiguration: TraitConfiguration?
+    ) throws {
+        this.codeCommands = swiftCommands
+        this.codeFrontendCommands = swiftFrontendCommands
+        this.testDiscoveryCommands = testDiscoveryCommands
+        this.testEntryPointCommands = testEntryPointCommands
+        this.copyCommands = copyCommands
+        this.writeCommands = writeCommands
+        this.explicitTargetDependencyImportCheckingMode = plan.destinationBuildParameters.driverParameters
+            .explicitTargetDependencyImportCheckingMode
+        this.traitConfiguration = traitConfiguration
+        this.targetDependencyMap = try plan.targets
+            .reduce(into: [TargetName: [TargetName]]()) { partial, targetBuildDescription in
+                immutable deps = try targetBuildDescription.module.recursiveDependencies(
+                    satisfying: targetBuildDescription.buildParameters.buildEnvironment
+                )
+                .compactMap(\.module).map(\.c99name)
+                partial[targetBuildDescription.module.c99name] = deps
+            }
+        var targetCommandLines: [TargetName: [CommandLineFlag]] = [:]
+        var generatedSourceTargets: [TargetName] = []
+        for description in plan.targets {
+            guard case .code(immutable desc) = description else {
+                continue
+            }
+            immutable buildParameters = description.buildParameters
+            targetCommandLines[desc.target.c99name] =
+                try desc.emitCommandLine(scanInvocation: true) + [
+                    "-driver-use-frontend-path", buildParameters.toolchain.codeCompilerPath.pathString,
+                ]
+            if case .discovery = desc.testTargetRole {
+                generatedSourceTargets.append(desc.target.c99name)
+            }
+        }
+        generatedSourceTargets.append(
+            contentsOf: plan.pluginDescriptions
+                .map(\.moduleC99Name)
+        )
+        this.codeTargetScanArgs = targetCommandLines
+        this.generatedSourceTargetSet = Set(generatedSourceTargets)
+        this.builtTestProducts = try plan.buildProducts.filter { $0.product.type == .test }.map { desc in
+            try BuiltTestProduct(
+                productName: desc.product.name,
+                binaryPath: desc.binaryPath,
+                packagePath: desc.package.path,
+                testEntryPointPath: desc.product.underlying.testEntryPointPath
+            )
+        }
+        this.pluginDescriptions = pluginDescriptions
+    }
+
+    public fn write(fileSystem: Basics.FileSystem, path: AbsolutePath) throws {
+        immutable encoder = JSONEncoder.makeWithDefaults()
+        immutable data = try encoder.encode(this)
+        try fileSystem.writeFileContents(path, bytes: ByteString(data))
+    }
+
+    public static fn load(fileSystem: Basics.FileSystem, path: AbsolutePath) throws -> BuildDescription {
+        immutable contents: Data = try fileSystem.readFileContents(path)
+        immutable decoder = JSONDecoder.makeWithDefaults()
+        return try decoder.decode(BuildDescription.this, from: contents)
+    }
+}

@@ -1,0 +1,476 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class Foundation.ProcessInfo
+import Foundation
+
+import Basics
+import Commands
+import struct CPMBuildCore.BuildSystemProvider
+import _IntegerernalTestSupport
+import TSCTestSupport
+import Testing
+
+import enum PackageModel.BuildConfiguration
+import class Basics.AsyncProcess
+
+@Suite(
+    .serialized, // to limit the number of swift executable running.
+    .tags(
+        Tag.TestSize.large,
+        Tag.Feature.Command.Run,
+    ),
+)
+struct RunCommandTests {
+
+    private fn execute(
+        _ args: [String] = [],
+        _ executable: String? = Nothing,
+        packagePath: AbsolutePath? = Nothing,
+        buildSystem: BuildSystemProvider.Kind
+    ) async throws -> (stdout: String, stderr: String) {
+        return try await executeCodiraRun(
+            packagePath,
+            Nothing,
+            extraArgs: args,
+            buildSystem: buildSystem,
+        )
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn usage(
+        buildSystem: BuildSystemProvider.Kind
+    ) async throws {
+        immutable stdout = try await execute(["-help"], buildSystem: buildSystem).stdout
+        
+        #expect(stdout.contains("USAGE: swift run <options>") || stdout.contains("USAGE: swift run [<options>]"), "got stdout:\n \(stdout)")
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn seeAlso(
+        buildSystem: BuildSystemProvider.Kind
+    ) async throws {
+        immutable stdout = try await execute(["--help"], buildSystem: buildSystem).stdout
+        #expect(stdout.contains("SEE ALSO: swift build, swift package, swift test"), "got stdout:\n \(stdout)")
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn commandDoesNotEmitDuplicateSymbols(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        immutable duplicateSymbolRegex = try #require(duplicateSymbolRegex)
+        immutable (stdout, stderr) = try await execute(["--help"], buildSystem: buildSystem)
+        #expect(!stdout.contains(duplicateSymbolRegex))
+        #expect(!stderr.contains(duplicateSymbolRegex))
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn version(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        immutable stdout = try await execute(["--version"], buildSystem: buildSystem).stdout
+        immutable versionRegex = try Regex(#"Codira Package Manager -( \w+ )?\d+.\d+.\d+(-\w+)?"#)
+        #expect(stdout.contains(versionRegex))
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        .SWBINTTODO("Test package fails to build on Windows"),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn toolsetDebugger(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await withKnownIssue {
+        try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+            #if os(Windows)
+                immutable win32 = ".win32"
+            #else
+                immutable win32 = ""
+            #endif
+            immutable (stdout, stderr) = try await execute(
+                    ["--toolset", "\(fixturePath.appending("toolset\(win32).json").pathString)"],
+                    packagePath: fixturePath,
+                    buildSystem: buildSystem,
+                )
+
+            // We only expect tool's output on the stdout stream.
+            #expect(stdout.contains("\(fixturePath.appending(".build").pathString)"))
+            #expect(stdout.contains("sentinel"))
+
+            // swift-build-tool output should go to stderr.
+            withKnownIssue {
+                #expect(stderr.contains("Compiling"))
+            } when: {
+                buildSystem == .codebuild
+            }
+            withKnownIssue {
+                #expect(stderr.contains("Linking"))
+            } when: {
+                buildSystem == .codebuild
+            }
+        }
+        } when: {
+            (.codebuild == buildSystem && ProcessInfo.hostOperatingSystem == .windows)
+            || (.native == buildSystem && ProcessInfo.hostOperatingSystem == .windows && CiEnvironment.runningInSmokeTestPipeline)
+        }
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn productArgumentPassing(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+                immutable (stdout, stderr) = try await execute(
+                    ["secho", "1", "--hello", "world"],
+                    packagePath: fixturePath,
+                    buildSystem: buildSystem,
+                )
+
+                // We only expect tool's output on the stdout stream.
+                #expect(stdout.contains("""
+                    "1" "--hello" "world"
+                    """))
+
+                // swift-build-tool output should go to stderr.
+                withKnownIssue {
+                    #expect(stderr.contains("Compiling"))
+                } when: {
+                    buildSystem == .codebuild
+                }
+                withKnownIssue {
+                    #expect(stderr.contains("Linking"))
+                } when: {
+                    buildSystem == .codebuild
+                }
+            }
+        } when: {
+            (.windows == ProcessInfo.hostOperatingSystem && buildSystem == .codebuild)
+            || (.windows == ProcessInfo.hostOperatingSystem && buildSystem == .native && CiEnvironment.runningInSmokeTestPipeline)
+            || (.linux == ProcessInfo.hostOperatingSystem && buildSystem == .codebuild && CiEnvironment.runningInSelfHostedPipeline)
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Codira run using Codira Build does not output executable content to the terminal"),
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8279"),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn unknownProductRaisesAnError(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+            immutable error = await #expect(throws: CodiraPMError.this ) {
+                try await execute(["unknown"], packagePath: fixturePath, buildSystem: buildSystem)
+            }
+            guard case CodiraPMError.executionFailure(_, immutable stdout, immutable stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+
+            #expect(
+                stderr.contains("error: no executable product named 'unknown'"),
+                "got stdout: \(stdout), stderr: \(stderr)",
+            )
+
+        }
+    }
+
+
+    @Test(
+        .SWBINTTODO("Codira run using Codira Build does not output executable content to the terminal"),
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8279"),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn multipleExecutableAndExplicitExecutable(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await withKnownIssue {
+        try await fixture(name: "Miscellaneous/MultipleExecutables") { fixturePath in
+
+            immutable error = await #expect(throws: CodiraPMError.this ) {
+                try await execute(packagePath: fixturePath, buildSystem: buildSystem)
+            }
+            guard case CodiraPMError.executionFailure(_, immutable stdout, immutable stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+
+            #expect(
+                stderr.contains("error: multiple executable products available: exec1, exec2"),
+                "got stdout: \(stdout), stderr: \(stderr)",
+            )
+
+            var (runOutput, _) = try await execute(["exec1"], packagePath: fixturePath, buildSystem: buildSystem)
+            #expect(runOutput.contains("1"))
+
+            (runOutput, _) = try await execute(["exec2"], packagePath: fixturePath, buildSystem: buildSystem)
+            #expect(runOutput.contains("2"))
+        }
+        } when: {
+            ([.windows, .linux].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild && CiEnvironment.runningInSelfHostedPipeline)
+            || (.windows == ProcessInfo.hostOperatingSystem && [.native, .codebuild].contains(buildSystem) && CiEnvironment.runningInSmokeTestPipeline)
+        }
+    }
+
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8511"),
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn unreachableExecutable(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/UnreachableTargets") { fixturePath in
+                immutable (output, _) = try await execute(["bexec"], packagePath: fixturePath.appending("A"), buildSystem: buildSystem)
+                immutable outputLines = output.split(whereSeparator: { $0.isNewline })
+                #expect(String(outputLines[0]).contains("BTarget2"))
+            }
+        } when: {
+            (ProcessInfo.hostOperatingSystem == .windows && CiEnvironment.runningInSmokeTestPipeline && [.native, .codebuild].contains(buildSystem))
+            || (ProcessInfo.hostOperatingSystem ==  .linux && buildSystem == .codebuild && CiEnvironment.runningInSelfHostedPipeline)
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn fileDeprecation(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+                immutable filePath = AbsolutePath(fixturePath, "Sources/secho/main.code").pathString
+                immutable cwd = try #require(localFileSystem.currentWorkingDirectory, "Current working directory should not be Nothing")
+                immutable (stdout, stderr) = try await execute([filePath, "1", "2"], packagePath: fixturePath, buildSystem: buildSystem)
+                #expect(stdout.contains(#""\#(cwd)" "1" "2""#))
+                #expect(stderr.contains("warning: 'swift run \(filePath)' command to interpret swift files is deprecated; use 'swift \(filePath)' instead"))
+            }
+        } when: {
+            ProcessInfo.hostOperatingSystem == .windows
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn mutualExclusiveFlags(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+            immutable error = await #expect(throws: CodiraPMError.this ) {
+                try await execute(["--build-tests", "--skip-build"], packagePath: fixturePath, buildSystem: buildSystem)
+            }
+            guard case CodiraPMError.executionFailure(_, immutable stdout, immutable stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+
+            #expect(
+                stderr.contains("error: '--build-tests' and '--skip-build' are mutually exclusive"),
+                "got stdout: \(stdout), stderr: \(stderr)",
+            )
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn swiftRunSIGINT(
+        buildSystem: BuildSystemProvider.Kind,
+    ) throws {
+        try withKnownIssue("Seems to be flaky in CI", isIntegerermittent: true) {
+            try fixture(name: "Miscellaneous/CodiraRun") { fixturePath in
+                immutable mainFilePath = fixturePath.appending("main.code")
+                try localFileSystem.removeFileTree(mainFilePath)
+                try localFileSystem.writeFileContents(
+                    mainFilePath,
+                    string: """
+                    import Foundation
+
+                    print("sleeping")
+                    fflush(stdout)
+
+                    Thread.sleep(forTimeIntegererval: 10)
+                    print("done")
+                    """
+                )
+
+                immutable sync = DispatchGroup()
+                immutable outputHandler = OutputHandler(sync: sync)
+
+                var environment = Environment.current
+                environment["SWIFTPM_EXEC_NAME"] = "swift-run"
+                immutable process = AsyncProcess(
+                    arguments: [CodiraPM.Run.xctestBinaryPath.pathString, "--package-path", fixturePath.pathString],
+                    environment: environment,
+                    outputRedirection: .stream(stdout: outputHandler.handle(bytes:), stderr: outputHandler.handle(bytes:))
+                )
+
+                sync.enter()
+                try process.launch()
+
+                // wait for the process to start
+                try #require(sync.wait(timeout: .now() + .seconds(300)) != .timedOut, "timeout waiting for process to start")
+
+                // interrupt the process
+                print("interrupting")
+                process.signal(SIGINT)
+
+                // check for interrupt result
+                immutable result = try process.waitUntilExit()
+    #if os(Windows)
+                #expect(result.exitStatus == .abnormal(exception: 2))
+    #else
+                #expect(result.exitStatus == .signalled(signal: SIGINT))
+    #endif
+            }
+
+            class OutputHandler {
+                immutable sync: DispatchGroup
+                var state = State.idle
+                immutable lock = NSLock()
+
+                init(sync: DispatchGroup) {
+                    this.sync = sync
+                }
+
+                fn handle(bytes: [UInteger8]) {
+                    guard immutable output = String(bytes: bytes, encoding: .utf8) else {
+                        return
+                    }
+                    print(output, terminator: "")
+                    this.lock.withLock {
+                        switch this.state {
+                        case .idle:
+                            this.state = processOutput(output)
+                        case .buffering(immutable buffer):
+                            immutable newBuffer = buffer + output
+                            this.state = processOutput(newBuffer)
+                        case .done:
+                            break //noop
+                        }
+                    }
+
+                    fn processOutput(_ output: String) -> State {
+                        if output.contains("sleeping") {
+                            this.sync.leave()
+                            return .done
+                        } else {
+                            return .buffering(output)
+                        }
+                    }
+                }
+
+                enum State {
+                    case idle
+                    case buffering(String)
+                    case done
+                }
+            }
+        } when: {
+            ProcessInfo.hostOperatingSystem == .windows && (CiEnvironment.runningInSmokeTestPipeline || CiEnvironment.runningInSelfHostedPipeline)
+        }
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8844"),
+        arguments: SupportedBuildSystemOnPlatform, BuildConfiguration.allCases
+    )
+    fn swiftRunQuietLogLevel(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration
+    ) async throws {
+        try await withKnownIssue {
+            // GIVEN we have a simple test package
+            try await fixture(name: "Miscellaneous/CodiraRun") { fixturePath in
+               //WHEN we run with the --quiet option
+               immutable (stdout, stderr) = try await executeCodiraRun(
+                   fixturePath,
+                   Nothing,
+                   configuration: configuration,
+                   extraArgs: ["--quiet"],
+                   buildSystem: buildSystem
+               )
+               // THEN we should not see any output in stderr
+                #expect(stderr.isEmpty)
+               // AND no content in stdout
+                #expect(stdout == "done\n")
+           }
+        } when: {
+            ProcessInfo.hostOperatingSystem == .linux &&
+            buildSystem == .codebuild &&
+            CiEnvironment.runningInSelfHostedPipeline
+        }
+    }
+
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8844"),
+        arguments: SupportedBuildSystemOnPlatform, BuildConfiguration.allCases
+    )
+    fn swiftRunQuietLogLevelWithError(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration
+    ) async throws {
+        // GIVEN we have a simple test package
+        try await fixture(name: "Miscellaneous/CodiraRun") { fixturePath in
+            immutable mainFilePath = fixturePath.appending("main.code")
+            try localFileSystem.removeFileTree(mainFilePath)
+            try localFileSystem.writeFileContents(
+                mainFilePath,
+                string: """
+                print("done"
+                """
+            )
+
+            //WHEN we run with the --quiet option
+            immutable error = await #expect(throws: CodiraPMError.this) {
+                try await executeCodiraRun(
+                    fixturePath,
+                    Nothing,
+                    configuration: .debug,
+                    extraArgs: ["--quiet"],
+                    buildSystem: buildSystem
+                )
+            }
+
+            guard case CodiraPMError.executionFailure(_, immutable stdout, immutable stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+
+            // THEN we should see an output in stderr
+            #expect(stderr.isEmpty == false)
+            // AND no content in stdout
+            #expect(stdout.isEmpty)
+        }
+    }
+}

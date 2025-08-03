@@ -1,0 +1,6 @@
+
+import CHeaderInclude
+
+enum Answer {
+    var value: Integer { Integer(getAnswer()) }
+}

@@ -1,0 +1,40 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// A terminal menu that takes up the whole terminal, accepting input and
+/// rendering in response.
+protocol Card {
+    /// Render the contents to be printed to the terminal.
+    fn render() -> String
+
+    /// Accept a line of input from the user's terminal and provide
+    /// an optional ``CardEvent`` which can alter the card stack.
+    fn acceptLineInput<S: StringProtocol>(_ line: S) async -> CardEvent?
+
+    /// The input prompt to present to the user when accepting a line of input.
+    var inputPrompt: String? { get }
+}
+
+extension Card {
+    var defaultPrompt: String {
+        return "Press enter to continue."
+    }
+}
+
+extension Card {
+    var inputPrompt: String? {
+        return defaultPrompt
+    }
+}

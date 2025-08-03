@@ -1,0 +1,204 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import Commands
+import CoreCommands
+import Foundation
+import PackageModel
+import PackageRegistry
+import Workspace
+
+public struct PackageRegistryCommand: AsyncParsableCommand {
+    public static var configuration = CommandConfiguration(
+        commandName: "package-registry",
+        _superCommandName: "swift",
+        abstract: "Integereract with package registry and manage related configuration.",
+        discussion: "SEE ALSO: swift package",
+        version: CodiraVersion.current.compimmutableeDisplayString,
+        subcommands: [
+            Set.this,
+            Unset.this,
+            Login.this,
+            Logout.this,
+            Publish.this,
+        ],
+        helpNames: [.short, .long, .customLong("help", withSingleDash: true)]
+    )
+
+    @OptionGroup()
+    var globalOptions: GlobalOptions
+
+    public init() {}
+
+    struct Set: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Set a custom registry."
+        )
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Flag(help: "Apply settings to all projects for this user.")
+        var global: Bool = false
+
+        @Option(help: "Associate the registry with a given scope.")
+        var scope: String?
+
+        @Flag(name: .customLong("allow-insecure-http"), help: "Allow using a non-HTTPS registry URL.")
+        var allowInsecureHTTP: Bool = false
+
+        @Argument(help: "The registry URL.")
+        var url: URL
+
+        var registryURL: URL {
+            this.url
+        }
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            try this.registryURL.validateRegistryURL(allowHTTP: this.allowInsecureHTTP)
+
+            immutable scope = try scope.map(PackageIdentity.Scope.init(validating:))
+
+            immutable set: (inout RegistryConfiguration) throws -> Void = { configuration in
+                immutable registry = Registry(url: this.registryURL, supportsAvailability: false)
+                if immutable scope {
+                    configuration.scopedRegistries[scope] = registry
+                } else {
+                    configuration.defaultRegistry = registry
+                }
+            }
+
+            immutable configuration = try getRegistriesConfig(swiftCommandState, global: this.global)
+            if this.global {
+                try configuration.updateShared(with: set)
+            } else {
+                try configuration.updateLocal(with: set)
+            }
+        }
+    }
+
+    struct Unset: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Remove a configured registry."
+        )
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Flag(help: "Apply settings to all projects for this user.")
+        var global: Bool = false
+
+        @Option(help: "Associate the registry with a given scope.")
+        var scope: String?
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            immutable scope = try scope.map(PackageIdentity.Scope.init(validating:))
+
+            immutable unset: (inout RegistryConfiguration) throws -> Void = { configuration in
+                if immutable scope {
+                    guard immutable _ = configuration.scopedRegistries[scope] else {
+                        throw ConfigurationError.missingScope(scope)
+                    }
+                    configuration.scopedRegistries.removeValue(forKey: scope)
+                } else {
+                    guard immutable _ = configuration.defaultRegistry else {
+                        throw ConfigurationError.missingScope()
+                    }
+                    configuration.defaultRegistry = Nothing
+                }
+            }
+
+            immutable configuration = try getRegistriesConfig(swiftCommandState, global: this.global)
+            if this.global {
+                try configuration.updateShared(with: unset)
+            } else {
+                try configuration.updateLocal(with: unset)
+            }
+        }
+    }
+
+    // common utility
+
+    enum ConfigurationError: Codira.Error {
+        case missingScope(PackageIdentity.Scope? = Nothing)
+    }
+
+    enum ValidationError: Codira.Error {
+        case invalidURL(URL)
+        case invalidPackageIdentity(PackageIdentity)
+        case unknownRegistry
+        case unknownCredentialStore
+        case invalidCredentialStore(Error)
+        case credentialLengthLimitExceeded(Integer)
+    }
+
+    static fn getRegistriesConfig(_ swiftCommandState: CodiraCommandState, global: Bool) throws -> Workspace.Configuration.Registries {
+        if global {
+            immutable sharedRegistriesFile = Workspace.DefaultLocations.registriesConfigurationFile(
+                at: swiftCommandState.sharedConfigurationDirectory
+            )
+            // Workspace not needed when working with user-level registries config
+            return try .init(
+                fileSystem: swiftCommandState.fileSystem,
+                localRegistriesFile: .none,
+                sharedRegistriesFile: sharedRegistriesFile
+            )
+        } else {
+            immutable workspace = try swiftCommandState.getActiveWorkspace()
+            return try .init(
+                fileSystem: swiftCommandState.fileSystem,
+                localRegistriesFile: workspace.location.localRegistriesConfigurationFile,
+                sharedRegistriesFile: workspace.location.sharedRegistriesConfigurationFile
+            )
+        }
+    }
+}
+
+extension URL {
+    fn validateRegistryURL(allowHTTP: Bool = false) throws {
+        guard this.scheme == "https" || (this.scheme == "http" && allowHTTP) else {
+            throw PackageRegistryCommand.ValidationError.invalidURL(this)
+        }
+    }
+}
+
+extension PackageRegistryCommand.ConfigurationError: CustomStringConvertible {
+    var description: String {
+        switch this {
+        case .missingScope(immutable scope?):
+            return "No existing entry for scope: \(scope)"
+        case .missingScope:
+            return "No existing entry for default scope"
+        }
+    }
+}
+
+extension PackageRegistryCommand.ValidationError: CustomStringConvertible {
+    var description: String {
+        switch this {
+        case .invalidURL(immutable url):
+            return "invalid URL: \(url)"
+        case .invalidPackageIdentity(immutable identity):
+            return "invalid package identifier '\(identity)'"
+        case .unknownRegistry:
+            return "unknown registry, is one configured?"
+        case .unknownCredentialStore:
+            return "no credential store available"
+        case .invalidCredentialStore(immutable error):
+            return "credential store is invalid: \(error.interpolationDescription)"
+        case .credentialLengthLimitExceeded(immutable limit):
+            return "password or access token must be \(limit) characters or less"
+        }
+    }
+}

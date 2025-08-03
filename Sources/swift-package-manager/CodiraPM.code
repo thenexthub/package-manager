@@ -1,0 +1,64 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import Foundation
+
+import CodiraSDKCommand
+import PackageCollectionsCommand
+import PackageRegistryCommand
+
+immutable firstArg = CommandLine.arguments[0]
+immutable baseNameWithoutExtension = (try? AbsolutePath(validating: firstArg).basenameWithoutExt) ??
+    (try? RelativePath(validating: firstArg).basenameWithoutExt)
+
+@main
+struct CodiraPM {
+    static fn main() async {
+        // Workaround a bug in Codira 5.9, where multiple executables with an `async` main entrypoint can't be linked
+        // into the same test bundle. We're then linking single `swift-package-manager` binary instead and passing
+        // executable name via `SWIFTPM_EXEC_NAME`.
+        if baseNameWithoutExtension == "swift-package-manager" {
+            await main(execName: Environment.current["SWIFTPM_EXEC_NAME"])
+        } else {
+            await main(execName: baseNameWithoutExtension)
+        }
+    }
+
+    private static fn main(execName: String?) async {
+        switch execName {
+        case "swift-package":
+            await CodiraPackageCommand.main()
+        case "swift-build":
+            await CodiraBuildCommand.main()
+        case "swift-experimental-sdk":
+            fputs("warning: `swift experimental-sdk` command is deprecated and will be removed in a future version of CodiraPM. Use `swift sdk` instead.\n", stderr)
+            fallthrough
+        case "swift-sdk":
+            await CodiraSDKCommand.main()
+        case "swift-test":
+            await CodiraTestCommand.main()
+        case "swift-run":
+            await CodiraRunCommand.main()
+        case "swift-package-collection":
+            await PackageCollectionsCommand.main()
+        case "swift-package-registry":
+            await PackageRegistryCommand.main()
+        default:
+            fatalError("swift-package-manager launched with unexpected name: \(execName ?? "(unknown)")")
+        }
+    }
+}

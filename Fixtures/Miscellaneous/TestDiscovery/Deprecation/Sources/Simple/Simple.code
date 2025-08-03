@@ -1,0 +1,6 @@
+struct Simple {
+    fn hello() {}
+
+    @available(*, deprecated, message: "use hello instead")
+    fn deprecatedHello() {}
+}

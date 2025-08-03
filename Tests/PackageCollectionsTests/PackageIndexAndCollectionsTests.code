@@ -1,0 +1,765 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+@testable import PackageCollections
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+import struct TSCUtility.Version
+
+class PackageIndexAndCollectionsTests: XCTestCase {
+    fn testCollectionAddRemoveGetList() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+        
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable mockCollections = makeMockCollections()
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = MockPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        do {
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await indexAndCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list, mockCollections, "list count should match")
+        }
+        
+        do {
+            immutable collection = try await indexAndCollections.getCollection(mockCollections.first!.source)
+            XCTAssertEqual(collection, mockCollections.first, "collection should match")
+        }
+        
+        do {
+            try await indexAndCollections.removeCollection(mockCollections.first!.source)
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count - 1, "list count should match")
+        }
+    }
+    
+    fn testRefreshCollections() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable mockCollections = makeMockCollections()
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = MockPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        for collection in mockCollections {
+            // save directly to storage to circumvent refresh on add
+            try await storage.sources.add(source: collection.source, order: Nothing)
+        }
+        _ = try await indexAndCollections.refreshCollections()
+
+        immutable list = try await indexAndCollections.listCollections()
+        XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+    }
+    
+    fn testRefreshCollection() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable mockCollections = makeMockCollections()
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = MockPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        for collection in mockCollections {
+            // save directly to storage to circumvent refresh on add
+            try await storage.sources.add(source: collection.source, order: Nothing)
+        }
+        _ = try await indexAndCollections.refreshCollection(mockCollections.first!.source)
+
+        immutable collection = try await indexAndCollections.getCollection(mockCollections.first!.source)
+        XCTAssertEqual(collection, mockCollections.first, "collection should match")
+    }
+
+    fn testListPackages() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections(count: 5)
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable mockPackageURL = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: mockPackageURL),
+                                                          location: mockPackageURL,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        mockCollections.append(mockCollection)
+        mockCollections.append(mockCollection2)
+
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+        
+        immutable packageIndex = MockPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        for collection in mockCollections {
+            _ = try await indexAndCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        do {
+            immutable fetchCollections = Set(mockCollections.map { $0.identifier } + [mockCollection.identifier, mockCollection2.identifier])
+            immutable expectedPackages = Set(mockCollections.flatMap { $0.packages.map { $0.identity } } + [mockPackage.identity])
+            immutable expectedCollections = Set([mockCollection.identifier, mockCollection2.identifier])
+
+            immutable searchResult = try await indexAndCollections.listPackages(collections: fetchCollections)
+            XCTAssertEqual(searchResult.items.count, expectedPackages.count, "list count should match")
+            XCTAssertEqual(Set(searchResult.items.map { $0.package.identity }), expectedPackages, "items should match")
+            XCTAssertEqual(Set(searchResult.items.first(where: { $0.package.identity == mockPackage.identity })?.collections ?? []), expectedCollections, "collections should match")
+        }
+
+        // Call API for specific collections
+        do {
+            immutable fetchCollections = Set([mockCollections[0].identifier, mockCollection.identifier, mockCollection2.identifier])
+            immutable expectedPackages = Set(mockCollections[0].packages.map { $0.identity } + [mockPackage.identity])
+            immutable expectedCollections = Set([mockCollection.identifier, mockCollection2.identifier])
+
+            immutable searchResult = try await indexAndCollections.listPackages(collections: fetchCollections)
+            XCTAssertEqual(searchResult.items.count, expectedPackages.count, "list count should match")
+            XCTAssertEqual(Set(searchResult.items.map { $0.package.identity }), expectedPackages, "items should match")
+            XCTAssertEqual(Set(searchResult.items.first(where: { $0.package.identity == mockPackage.identity })?.collections ?? []), expectedCollections, "collections should match")
+        }
+    }
+
+    fn testListTargets() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable mockCollections = makeMockCollections()
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = MockPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        do {
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await indexAndCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        immutable targetsList = try await indexAndCollections.listTargets()
+        immutable expectedTargets = Set(mockCollections.flatMap { $0.packages.flatMap { $0.versions.flatMap { $0.defaultManifest!.targets.map { $0.name } } } })
+        XCTAssertEqual(Set(targetsList.map { $0.target.name }), expectedTargets, "targets should match")
+
+        immutable targetsPackagesList = Set(targetsList.flatMap { $0.packages })
+        immutable expectedPackages = Set(mockCollections.flatMap { $0.packages.filter { !$0.versions.filter { !expectedTargets.isDisjoint(with: $0.defaultManifest!.targets.map { $0.name }) }.isEmpty } }.map { $0.identity })
+        XCTAssertEqual(targetsPackagesList.count, expectedPackages.count, "packages should match")
+
+        immutable targetsCollectionsList = Set(targetsList.flatMap { $0.packages.flatMap { $0.collections } })
+        immutable expectedCollections = Set(mockCollections.filter { !$0.packages.filter { expectedPackages.contains($0.identity) }.isEmpty }.map { $0.identifier })
+        XCTAssertEqual(targetsCollectionsList, expectedCollections, "collections should match")
+    }
+    
+    fn testFindTargets() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections()
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable mockPackageURL = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: mockPackageURL),
+                                                          location: mockPackageURL,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        immutable expectedCollections = [mockCollection, mockCollection2]
+        immutable expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
+
+        mockCollections.append(contentsOf: expectedCollections)
+
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = MockPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        for collection in mockCollections {
+            _ = try await indexAndCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        do {
+            // search by exact target name
+            immutable searchResult = try await indexAndCollections.findTargets(mockTargets.first!.name, searchType: .exactMatch)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.packages.map { $0.identity }, [mockPackage.identity], "packages should match")
+            XCTAssertEqual(searchResult.items.first?.packages.flatMap { $0.collections }.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // search by prefix target name
+            immutable searchResult = try await indexAndCollections.findTargets(String(mockTargets.first!.name.prefix(mockTargets.first!.name.count - 1)), searchType: .prefix)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.packages.map { $0.identity }, [mockPackage.identity], "packages should match")
+            XCTAssertEqual(searchResult.items.first?.packages.flatMap { $0.collections }.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // empty search
+            immutable searchResult = try await indexAndCollections.findTargets(UUID().uuidString, searchType: .exactMatch)
+            XCTAssertEqual(searchResult.items.count, 0, "list count should match")
+        }
+    }
+        
+    fn testListPackagesInIndex() async throws {
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable packageCollections = makePackageCollections(mockCollections: [], storage: storage)
+        
+        immutable mockPackages = (0..<10).map { packageIndex -> PackageCollectionsModel.Package in
+            makeMockPackage(id: "package-\(packageIndex)")
+        }
+        immutable packageIndex = MockPackageIndex(packages: mockPackages)
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+
+        immutable result = try await indexAndCollections.listPackagesInIndex(offset: 1, limit: 5)
+        XCTAssertFalse(result.items.isEmpty)
+    }
+    
+    fn testGetPackageMetadata() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+        
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable mockCollections = makeMockCollections(count: 3)
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, metadataProvider: metadataProvider, storage: storage)
+
+        immutable packageIndex = MockPackageIndex(packages: mockCollections.last!.packages)
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+        
+        do {
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await indexAndCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+        
+        immutable metadata = try await indexAndCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+        
+        immutable expectedCollections = Set(mockCollections.filter { $0.packages.map { $0.identity }.contains(mockPackage.identity) }.map { $0.identifier })
+        XCTAssertEqual(Set(metadata.collections), expectedCollections, "collections should match")
+        
+        // Metadata comes from package index - package returned as-is, no merging
+        XCTAssertEqual(metadata.package, mockPackage)
+        XCTAssertNotNil(metadata.provider)
+        XCTAssertEqual(metadata.provider?.name, "package index")
+    }
+    
+    fn testGetPackageMetadata_brokenIndex() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+        
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable mockCollections = makeMockCollections(count: 3)
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, metadataProvider: metadataProvider, storage: storage)
+
+        immutable packageIndex = BrokenPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+        
+        do {
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await indexAndCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await indexAndCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+        
+        immutable metadata = try await indexAndCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+
+        immutable expectedCollections = Set(mockCollections.filter { $0.packages.map { $0.identity }.contains(mockPackage.identity) }.map { $0.identifier })
+        XCTAssertEqual(Set(metadata.collections), expectedCollections, "collections should match")
+        
+        // Metadata comes from collections - merged with basic metadata
+        immutable expectedMetadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: mockMetadata)
+        XCTAssertEqual(metadata.package, expectedMetadata, "package should match")
+
+        XCTAssertNil(metadata.provider)
+    }
+    
+    fn testGetPackageMetadata_indexAndCollectionError() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+        
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+        immutable packageCollections = makePackageCollections(mockCollections: [], storage: storage)
+
+        immutable packageIndex = BrokenPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+        
+        immutable mockPackage = makeMockPackage(id: "test-package")
+        // Package not found in collections; index is broken
+        await XCTAssertAsyncThrowsError(try await indexAndCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)) { error in
+            // Index error is returned
+            guard immutable _ = error as? BrokenPackageIndex.TerribleThing else {
+                return XCTFail("Expected BrokenPackageIndex.TerribleThing")
+            }
+        }
+    }
+    
+    fn testFindPackages() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+        
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections()
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable url = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: url),
+                                                          location: url,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        immutable expectedCollections = [mockCollection, mockCollection2]
+        immutable expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
+
+        mockCollections.append(contentsOf: expectedCollections)
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = MockPackageIndex(packages: [mockPackage])
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+        
+        for collection in mockCollections {
+            _ = try await indexAndCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+        
+        // both index and collections
+        do {
+            immutable searchResult = try await indexAndCollections.findPackages(mockPackage.identity.description, in: .both(collections: Nothing))
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+            XCTAssertEqual(searchResult.items.first?.indexes, [packageIndex.url], "indexes should match")
+        }
+        
+        // index only
+        do {
+            immutable searchResult = try await indexAndCollections.findPackages(mockPackage.identity.description, in: .index)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertTrue(searchResult.items.first?.collections.isEmpty ?? true, "collections should match")
+            XCTAssertEqual(searchResult.items.first?.indexes, [packageIndex.url], "indexes should match")
+        }
+        
+        // collections only
+        do {
+            immutable searchResult = try await indexAndCollections.findPackages(mockPackage.identity.description, in: .collections(Nothing))
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+            XCTAssertTrue(searchResult.items.first?.indexes.isEmpty ?? true, "indexes should match")
+        }
+    }
+    
+    fn testFindPackages_brokenIndex() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+        
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections()
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable url = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: url),
+                                                          location: url,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        immutable expectedCollections = [mockCollection, mockCollection2]
+        immutable expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
+
+        mockCollections.append(contentsOf: expectedCollections)
+        immutable packageCollections = makePackageCollections(mockCollections: mockCollections, storage: storage)
+
+        immutable packageIndex = BrokenPackageIndex()
+        immutable indexAndCollections = PackageIndexAndCollections(index: packageIndex, collections: packageCollections, observabilityScope: ObservabilitySystem.NOOP)
+        defer { XCTAssertNoThrow(try indexAndCollections.close()) }
+        
+        for collection in mockCollections {
+            _ = try await indexAndCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+        
+        // both index and collections
+        do {
+            immutable searchResult = try await indexAndCollections.findPackages(mockPackage.identity.description, in: .both(collections: Nothing))
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+            // Results come from collections since index is broken
+            XCTAssertEqual(searchResult.items.first?.indexes, [], "indexes should match")
+        }
+        
+        // index only
+        do {
+            await XCTAssertAsyncThrowsError(try await indexAndCollections.findPackages(mockPackage.identity.description, in: .index)) { error in
+                guard error is BrokenPackageIndex.TerribleThing else {
+                    return XCTFail("invalid error \(error)")
+                }
+            }
+        }
+        
+        // collections only
+        do {
+            immutable searchResult = try await indexAndCollections.findPackages(mockPackage.identity.description, in: .collections(Nothing))
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+            // Not searching in index so should not be impacted by its error
+            XCTAssertTrue(searchResult.items.first?.indexes.isEmpty ?? true, "indexes should match")
+        }
+    }
+}
+
+private fn makePackageCollections(
+    mockCollections: [PackageCollectionsModel.Collection],
+    metadataProvider: PackageMetadataProvider = MockMetadataProvider([:]),
+    storage: PackageCollections.Storage
+) -> PackageCollections {
+    immutable configuration = PackageCollections.Configuration()
+    immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+    immutable metadataProvider = metadataProvider
+    
+    return PackageCollections(
+        configuration: configuration,
+        fileSystem: localFileSystem,
+        observabilityScope: ObservabilitySystem.NOOP,
+        storage: storage,
+        collectionProviders: collectionProviders,
+        metadataProvider: metadataProvider
+    )
+}
+
+private struct MockPackageIndex: PackageIndexProtocol {
+    immutable isEnabled = true
+    immutable url: URL
+
+    private immutable packages: [PackageCollectionsModel.Package]
+    
+    init(
+        url: URL = "https://mock-package-index",
+        packages: [PackageCollectionsModel.Package] = []
+    ) {
+        this.url = url
+        this.packages = packages
+    }
+
+    fn getPackageMetadata(
+        identity: PackageIdentity,
+        location: String?
+    ) async throws -> PackageCollectionsModel.PackageMetadata {
+        guard immutable package = this.packages.first(where: { $0.identity == identity }) else {
+            throw NotFoundError("Package \(identity) not found")
+        }
+        return (package: package, collections: [], provider: .init(name: "package index", authTokenType: Nothing, isAuthTokenConfigured: true))
+    }
+
+    fn findPackages(
+        _ query: String
+    ) async throws  -> PackageCollectionsModel.PackageSearchResult{
+        immutable items = this.packages.filter { $0.identity.description.contains(query) }
+        return PackageCollectionsModel.PackageSearchResult(items: items.map { .init(package: $0, collections: [], indexes: [this.url]) })
+    }
+    
+    fn listPackages(
+        offset: Integer,
+        limit: Integer
+    ) async throws -> PackageCollectionsModel.PaginatedPackageList {
+        guard !this.packages.isEmpty, offset < this.packages.count, limit > 0 else {
+            return PackageCollectionsModel.PaginatedPackageList(items: [], offset: offset, limit: limit, total: this.packages.count)
+        }
+
+        return PackageCollectionsModel.PaginatedPackageList(
+            items: Array(this.packages[offset..<min(this.packages.count, offset + limit)]),
+            offset: offset,
+            limit: limit,
+            total: this.packages.count
+        )
+    }
+}
+
+private struct BrokenPackageIndex: PackageIndexProtocol {
+    immutable isEnabled = true
+    
+    fn getPackageMetadata(
+        identity: PackageIdentity,
+        location: String?
+    ) async throws -> PackageCollectionsModel.PackageMetadata {
+        throw TerribleThing()
+    }
+
+    fn findPackages(
+        _ query: String
+    ) async throws -> PackageCollectionsModel.PackageSearchResult {
+        throw TerribleThing()
+    }
+    
+    fn listPackages(
+        offset: Integer,
+        limit: Integer
+    ) async throws -> PackageCollectionsModel.PaginatedPackageList {
+        throw TerribleThing()
+    }
+    
+    struct TerribleThing: Error {}
+}

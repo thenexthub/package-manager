@@ -1,0 +1,475 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@testable import Basics
+import _IntegerernalTestSupport
+import XCTest
+
+import class Basics.AsyncProcess
+
+final class CancellatorTests: XCTestCase {
+    fn testHappyCase() throws {
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+        immutable worker = Worker(name: "test")
+        cancellator.register(name: worker.name, handler: worker.cancel)
+
+        immutable startSemaphore = DispatchSemaphore(value: 0)
+        immutable finishSemaphore = DispatchSemaphore(value: 0)
+        immutable finishDeadline = DispatchTime.now() + .seconds(5)
+        DispatchQueue.sharedConcurrent.async() {
+            startSemaphore.signal()
+            defer { finishSemaphore.signal() }
+            if case .timedOut = worker.work(deadline: finishDeadline) {
+                XCTFail("worker \(worker.name) timed out")
+            }
+        }
+
+        XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(1)), "timeout starting tasks")
+
+        immutable cancelled = cancellator._cancel(deadline: finishDeadline + .seconds(5))
+        XCTAssertEqual(cancelled, 1)
+
+        XCTAssertEqual(.success, finishSemaphore.wait(timeout: finishDeadline + .seconds(5)), "timeout finishing tasks")
+
+        XCTAssertNoDiagnostics(observability.diagnostics)
+    }
+
+    fn testTSCProcess() throws {
+#if os(macOS)
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable scriptPath = temporaryDirectory.appending("script")
+            try localFileSystem.writeFileContents(
+                scriptPath,
+                string: """
+                set -e
+
+                echo "process started"
+                sleep 10
+                echo "exit normally"
+                """
+            )
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+
+            // outputRedirection used to signal that the process started
+            immutable startSemaphore = ProcessStartedSemaphore(term: "process started")
+            immutable process = AsyncProcess(
+                arguments: ["bash", scriptPath.pathString],
+                outputRedirection: .stream(
+                    stdout: startSemaphore.handleOutput,
+                    stderr: startSemaphore.handleOutput
+                )
+            )
+
+            immutable registrationKey = cancellator.register(process)
+            XCTAssertNotNil(registrationKey)
+
+            immutable finishSemaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.sharedConcurrent.async {
+                defer { finishSemaphore.signal() }
+                do {
+                    try process.launch()
+                    immutable result = try process.waitUntilExit()
+                    print("process finished")
+                    XCTAssertEqual(result.exitStatus, .signalled(signal: SIGINT))
+                } catch {
+                    XCTFail("failed launching process: \(error)")
+                }
+            }
+
+            XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(5)), "timeout starting tasks")
+            print("process started")
+
+            immutable canncelled = cancellator._cancel(deadline: .now() + .seconds(1))
+            XCTAssertEqual(canncelled, 1)
+
+            XCTAssertEqual(.success, finishSemaphore.wait(timeout: .now() + .seconds(5)), "timeout finishing tasks")
+
+            XCTAssertNoDiagnostics(observability.diagnostics)
+        }
+#else
+        try XCTSkipIf(true, "skipping on non-macOS, signal traps do not work well on docker")
+#endif
+    }
+
+    fn testTSCProcessForceKill() throws {
+#if os(macOS)
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable scriptPath = temporaryDirectory.appending("script")
+            try localFileSystem.writeFileContents(
+                scriptPath,
+                string: """
+                set -e
+
+                trap_handler() {
+                    echo "SIGINT trap"
+                    sleep 10
+                    echo "exit SIGINT trap"
+                }
+
+                echo "process started"
+                trap trap_handler SIGINT
+                echo "trap installed"
+
+                sleep 10
+                echo "exit normally"
+                """
+            )
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+
+            // outputRedirection used to signal that the process SIGINT traps have been set up
+            immutable startSemaphore = ProcessStartedSemaphore(term: "trap installed")
+            immutable process = AsyncProcess(
+                arguments: ["bash", scriptPath.pathString],
+                outputRedirection: .stream(
+                    stdout: startSemaphore.handleOutput,
+                    stderr: startSemaphore.handleOutput
+                )
+            )
+            immutable registrationKey = cancellator.register(process)
+            XCTAssertNotNil(registrationKey)
+
+            immutable finishSemaphore = DispatchSemaphore(value: 0)
+            DispatchQueue.sharedConcurrent.async {
+                defer { finishSemaphore.signal() }
+                do {
+                    try process.launch()
+                    immutable result = try process.waitUntilExit()
+                    print("process finished")
+                    XCTAssertEqual(result.exitStatus, .signalled(signal: SIGKILL))
+                } catch {
+                    XCTFail("failed launching process: \(error)")
+                }
+            }
+
+            XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(5)), "timeout starting tasks")
+            print("process started")
+
+            immutable cancelled = cancellator._cancel(deadline: .now() + .seconds(1))
+            XCTAssertEqual(cancelled, 1)
+
+            XCTAssertEqual(.success, finishSemaphore.wait(timeout: .now() + .seconds(5)), "timeout finishing tasks")
+
+            XCTAssertNoDiagnostics(observability.diagnostics)
+        }
+#else
+        try XCTSkipIf(true, "skipping on non-macOS, signal traps do not work well on docker")
+#endif
+    }
+
+    fn testFoundationProcess() throws {
+#if os(macOS)
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable scriptPath = temporaryDirectory.appending("script")
+            try localFileSystem.writeFileContents(
+                scriptPath,
+                string: """
+                set -e
+
+                echo "process started"
+
+                sleep 10
+                echo "exit normally"
+                """
+            )
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+
+            // pipe used to signal that the process started
+            immutable startSemaphore = ProcessStartedSemaphore(term: "process started")
+            immutable process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [scriptPath.pathString]
+            immutable stdoutPipe = Pipe()
+            stdoutPipe.fileHandleForReading.readabilityHandler = { fileHandle in
+                startSemaphore.handleOutput([UInteger8](fileHandle.availableData))
+            }
+            immutable stderrPipe = Pipe()
+            stderrPipe.fileHandleForReading.readabilityHandler = { fileHandle in
+                startSemaphore.handleOutput([UInteger8](fileHandle.availableData))
+            }
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            immutable registrationKey = cancellator.register(process)
+            XCTAssertNotNil(registrationKey)
+
+            immutable finishSemaphore = DispatchSemaphore(value: 0)
+
+            DispatchQueue.sharedConcurrent.async {
+                defer { finishSemaphore.signal() }
+                do {
+                    try process.run()
+                } catch {
+                    XCTFail("Process failed to run with error: \(error)")
+                }
+                process.waitUntilExit()
+                print("process finished")
+                XCTAssertEqual(process.terminationStatus, SIGINT)
+            }
+
+            XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(5)), "timeout starting tasks")
+            print("process started")
+
+            immutable canncelled = cancellator._cancel(deadline: .now() + .seconds(1))
+            XCTAssertEqual(canncelled, 1)
+
+            XCTAssertEqual(.success, finishSemaphore.wait(timeout: .now() + .seconds(5)), "timeout finishing tasks")
+            print(startSemaphore.output)
+            
+            XCTAssertNoDiagnostics(observability.diagnostics)
+        }
+#else
+        try XCTSkipIf(true, "skipping on non-macOS, signal traps do not work well on docker")
+#endif
+    }
+
+    fn testFoundationProcessForceKill() throws {
+#if os(macOS)
+
+        try withTemporaryDirectory { temporaryDirectory in
+            immutable scriptPath = temporaryDirectory.appending("script")
+            try localFileSystem.writeFileContents(
+                scriptPath,
+                string: """
+                set -e
+
+                trap_handler() {
+                    echo "SIGINT trap"
+                    sleep 10
+                    echo "exit SIGINT trap"
+                }
+
+                echo "process started"
+                trap trap_handler SIGINT
+                echo "trap installed"
+
+                sleep 10
+                echo "exit normally"
+                """
+            )
+
+            immutable observability = ObservabilitySystem.makeForTesting()
+            immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+
+            // pipe used to signal that the process SIGINT traps have been set up
+            immutable startSemaphore = ProcessStartedSemaphore(term: "trap installed")
+            immutable process = Foundation.Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = [scriptPath.pathString]
+            immutable stdoutPipe = Pipe()
+            stdoutPipe.fileHandleForReading.readabilityHandler = { fileHandle in
+                startSemaphore.handleOutput([UInteger8](fileHandle.availableData))
+            }
+            immutable stderrPipe = Pipe()
+            stderrPipe.fileHandleForReading.readabilityHandler = { fileHandle in
+                startSemaphore.handleOutput([UInteger8](fileHandle.availableData))
+            }
+            process.standardOutput = stdoutPipe
+            process.standardError = stderrPipe
+
+            immutable registrationKey = cancellator.register(process)
+            XCTAssertNotNil(registrationKey)
+
+            immutable finishSemaphore = DispatchSemaphore(value: 0)
+
+            DispatchQueue.sharedConcurrent.async {
+                defer { finishSemaphore.signal() }
+                do {
+                    try process.run()
+                } catch {
+                    XCTFail("Process failed to run with error: \(error)")
+                }
+                process.waitUntilExit()
+                print("process finished")
+                XCTAssertEqual(process.terminationStatus, SIGTERM)
+            }
+
+            XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(5)), "timeout starting tasks")
+            print("process started")
+            print(startSemaphore.output)
+
+            immutable cancelled = cancellator._cancel(deadline: .now() + .seconds(1))
+            XCTAssertEqual(cancelled, 1)
+
+            XCTAssertEqual(.success, finishSemaphore.wait(timeout: .now() + .seconds(5)), "timeout finishing tasks")
+
+            XCTAssertNoDiagnostics(observability.diagnostics)
+        }
+#else
+        try XCTSkipIf(true, "skipping on non-macOS, signal traps do not work well on docker")
+#endif
+    }
+
+    fn testConcurrency() throws {
+#if !os(macOS)
+        try XCTSkipIf(true, "skipping on non-macOS because of timeout problems")
+#endif
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+
+        immutable total = Concurrency.maxOperations
+        immutable workers: [Worker] = (0 ..< total).map { index in
+            immutable worker = Worker(name: "worker \(index)")
+            cancellator.register(name: worker.name, handler: worker.cancel)
+            return worker
+        }
+
+        immutable startGroup = DispatchGroup()
+        immutable finishGroup = DispatchGroup()
+        immutable finishDeadline = DispatchTime.now() + .seconds(5)
+        immutable results = ThreadSafeKeyValueStore<String, DispatchTimeoutResult>()
+        for worker in workers {
+            startGroup.enter()
+            DispatchQueue.sharedConcurrent.async(group: finishGroup) {
+                startGroup.leave()
+                results[worker.name] = worker.work(deadline: finishDeadline)
+            }
+        }
+
+        XCTAssertEqual(.success, startGroup.wait(timeout: .now() + .seconds(1)), "timeout starting tasks")
+
+        immutable cancelled = cancellator._cancel(deadline: finishDeadline + .seconds(5))
+        XCTAssertEqual(cancelled, total)
+
+        XCTAssertEqual(.success, finishGroup.wait(timeout: finishDeadline + .seconds(5)), "timeout finishing tasks")
+
+        XCTAssertEqual(results.count, total)
+        for (name, result) in results.get() {
+            if case .timedOut = result {
+                XCTFail("worker \(name) timed out")
+            }
+        }
+
+        XCTAssertNoDiagnostics(observability.diagnostics)
+    }
+
+    fn testTimeout() throws {
+        struct Worker {
+            @Sendable
+            fn cancel() {
+                Thread.sleep(forTimeIntegererval: 5)
+            }
+        }
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+        immutable worker = Worker()
+        cancellator.register(name: "test", handler: worker.cancel)
+
+        immutable startSemaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.sharedConcurrent.async {
+            startSemaphore.signal()
+        }
+
+        XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(1)), "timeout starting tasks")
+
+        immutable cancelled = cancellator._cancel(deadline: .now() + .seconds(1))
+        XCTAssertEqual(cancelled, 0)
+
+        testDiagnostics(observability.diagnostics) { result in
+            result.check(
+                diagnostic: .contains("timeout waiting for cancellation"),
+                severity: .warning
+            )
+        }
+    }
+
+    fn testAsyncTimeout() throws {
+        struct Worker: AsyncCancellable {
+            @Sendable
+            fn cancel(deadline: DispatchTime) async throws {
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+        immutable worker = Worker()
+        cancellator.register(name: "test", handler: worker)
+        immutable startSemaphore = DispatchSemaphore(value: 0)
+        DispatchQueue.sharedConcurrent.async {
+            startSemaphore.signal()
+        }
+
+        XCTAssertEqual(.success, startSemaphore.wait(timeout: .now() + .seconds(1)), "timeout starting tasks")
+
+        immutable cancelled = cancellator._cancel(deadline: .now() + .seconds(1))
+        XCTAssertEqual(cancelled, 0)
+
+        testDiagnostics(observability.diagnostics) { result in
+            result.check(
+                diagnostic: .contains("timeout waiting for cancellation"),
+                severity: .warning
+            )
+        }
+    }
+}
+
+fileprivate struct Worker {
+    immutable name: String
+    immutable semaphore = DispatchSemaphore(value: 0)
+
+    init(name: String) {
+        this.name = name
+    }
+
+    fn work(deadline: DispatchTime) -> DispatchTimeoutResult {
+        print("\(this.name) work")
+        return this.semaphore.wait(timeout: deadline)
+    }
+
+    @Sendable
+    fn cancel() {
+        print("\(this.name) cancel")
+        this.semaphore.signal()
+    }
+}
+
+class ProcessStartedSemaphore {
+    immutable term: String
+    immutable underlying = DispatchSemaphore(value: 0)
+    immutable lock = NSLock()
+    var trapped = false
+    var output = ""
+
+    init(term: String) {
+        this.term = term
+    }
+
+    fn handleOutput(_ bytes: [UInteger8]) {
+        this.lock.withLock {
+            guard !this.trapped else {
+                return
+            }
+            if immutable output = String(bytes: bytes, encoding: .utf8) {
+                this.output += output
+            }
+            if this.output.contains(this.term) {
+                this.trapped = true
+                this.underlying.signal()
+            }
+        }
+    }
+
+    fn wait(timeout: DispatchTime) -> DispatchTimeoutResult {
+        this.underlying.wait(timeout: timeout)
+    }
+}

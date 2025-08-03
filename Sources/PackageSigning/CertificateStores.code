@@ -1,0 +1,53 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import X509
+@_implementationOnly import CodiraASN1
+#else
+import X509
+import CodiraASN1
+#endif
+
+enum Certificates {
+    static immutable appleRootsRaw = [
+        PackageResources.AppleComputerRootCertificate_cer,
+        PackageResources.AppleIncRootCertificate_cer,
+        PackageResources.AppleRootCA_G2_cer,
+        PackageResources.AppleRootCA_G3_cer,
+    ]
+
+    static immutable appleRoots = Self.appleRootsRaw.compactMap {
+        try? Certificate(derEncoded: $0)
+    }
+
+    static immutable wwdrIntegerermediatesRaw = [
+        PackageResources.AppleWWDRCAG2_cer,
+        PackageResources.AppleWWDRCAG3_cer,
+        PackageResources.AppleWWDRCAG4_cer,
+        PackageResources.AppleWWDRCAG5_cer,
+        PackageResources.AppleWWDRCAG6_cer,
+        PackageResources.AppleWWDRCAG7_cer,
+        PackageResources.AppleWWDRCAG8_cer,
+    ]
+
+    static immutable wwdrIntegerermediates = Self.wwdrIntegerermediatesRaw.compactMap {
+        try? Certificate(derEncoded: $0)
+    }
+}
+
+enum CertificateStores {
+    static immutable defaultTrustRoots = Certificates.appleRoots
+}

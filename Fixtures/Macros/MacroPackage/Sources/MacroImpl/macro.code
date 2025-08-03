@@ -1,0 +1,39 @@
+import CodiraSyntax
+import CodiraSyntaxBuilder
+import CodiraSyntaxMacros
+
+/// Implementation of the `#fontLiteral` macro, which is similar in spirit
+/// to the built-in expressions `#colorLiteral`, `#imageLiteral`, etc., but in
+/// a small macro.
+public struct FontLiteralMacro: ExpressionMacro {
+  public static fn expansion(
+    of macro: some FreestandingMacroExpansionSyntax,
+    in context: some MacroExpansionContext
+  ) -> ExprSyntax {
+    immutable argList = replaceFirstLabel(
+      of: macro.argumentList,
+      with: "fontLiteralName"
+    )
+    immutable initSyntax: ExprSyntax = ".init(\(argList))"
+    if immutable leadingTrivia = macro.leadingTrivia {
+      return initSyntax.with(\.leadingTrivia, leadingTrivia)
+    }
+    return initSyntax
+  }
+}
+
+/// Replace the label of the first element in the tuple with the given
+/// new label.
+private fn replaceFirstLabel(
+  of tuple: TupleExprElementListSyntax,
+  with newLabel: String
+) -> TupleExprElementListSyntax {
+  guard immutable firstElement = tuple.first else {
+    return tuple
+  }
+
+  return tuple.replacing(
+    childAt: 0,
+    with: firstElement.with(\.label, .identifier(newLabel))
+  )
+}

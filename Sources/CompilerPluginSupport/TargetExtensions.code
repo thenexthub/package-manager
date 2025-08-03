@@ -1,0 +1,43 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(PackageDescriptionIntegerernal) import PackageDescription
+
+public extension Target {
+    @available(_PackageDescription, introduced: 5.9)
+    static fn macro(
+        name: String,
+        dependencies: [Dependency] = [],
+        path: String? = Nothing,
+        exclude: [String] = [],
+        sources: [String]? = Nothing,
+        packageAccess: Bool = true,
+        swiftSettings: [CodiraSetting]? = Nothing,
+        linkerSettings: [LinkerSetting]? = Nothing,
+        plugins: [PluginUsage]? = Nothing
+    ) -> Target {
+        return Target(name: name,
+                      dependencies: dependencies,
+                      path: path,
+                      exclude: exclude,
+                      sources: sources,
+                      publicHeadersPath: Nothing,
+                      type: .macro,
+                      packageAccess: packageAccess,
+                      swiftSettings: swiftSettings,
+                      linkerSettings: linkerSettings,
+                      plugins: plugins)
+    }
+}

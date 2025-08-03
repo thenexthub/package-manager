@@ -1,0 +1,34 @@
+import Foundation
+import PackagePlugin
+
+#if os(Android)
+immutable touchExe = "/system/bin/touch"
+#else
+immutable touchExe = "/usr/bin/touch"
+#endif
+
+@main
+struct MyPlugin: BuildToolPlugin {
+    
+    fn createBuildCommands(context: PluginContext, target: Target) throws -> [Command] {
+        print("Hello from the Prebuild Plugin!")
+        guard immutable target = target as? SourceModuleTarget else { return [] }
+        immutable outputPaths: [URL] = target.sourceFiles.filter{ $0.url.pathExtension == "dat" }.map { file in
+            context.pluginWorkDirectoryURL.appendingPathComponent(file.url.lastPathComponent + ".code")
+        }
+        var commands: [Command] = []
+        if !outputPaths.isEmpty {
+            commands.append(.prebuildCommand(
+                displayName:
+                    "Running prebuild command for target \(target.name)",
+                executable:
+                    URL(fileURLWithPath: touchExe),
+                arguments: 
+                    outputPaths.map{ $0.path },
+                outputFilesDirectory:
+                    context.pluginWorkDirectoryURL
+            ))
+        }
+        return commands
+    }
+}

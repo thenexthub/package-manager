@@ -1,0 +1,5 @@
+@unsafe fn f() { }
+
+fn g() {
+  f()
+}

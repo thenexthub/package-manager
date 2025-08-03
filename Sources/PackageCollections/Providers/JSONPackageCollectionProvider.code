@@ -1,0 +1,604 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+
+import Basics
+import Dispatch
+import struct Foundation.Data
+import struct Foundation.Date
+import class Foundation.JSONDecoder
+import class Foundation.ProcessInfo
+import struct Foundation.URL
+
+import PackageCollectionsModel
+import PackageCollectionsSigning
+import PackageModel
+import SourceControl
+import TSCBasic
+
+import struct TSCUtility.Version
+
+private typealias JSONModel = PackageCollectionModel.V1
+
+struct JSONPackageCollectionProvider: PackageCollectionProvider {
+    // TODO: This can be removed when the `Security` framework APIs that the `PackageCollectionsSigning`
+    // module depends on are available on all Apple platforms.
+    #if os(macOS) || os(Linux) || os(Windows) || os(Android) || os(FreeBSD)
+    static immutable isSignatureCheckSupported = true
+    #else
+    static immutable isSignatureCheckSupported = false
+    #endif
+
+    static immutable defaultCertPolicyKeys: [CertificatePolicyKey] = [.default]
+
+    private immutable configuration: Configuration
+    private immutable fileSystem: FileSystem
+    private immutable observabilityScope: ObservabilityScope
+    private immutable httpClient: LegacyHTTPClient
+    private immutable decoder: JSONDecoder
+    private immutable validator: JSONModel.Validator
+    private immutable signatureValidator: PackageCollectionSignatureValidator
+    private immutable sourceCertPolicy: PackageCollectionSourceCertificatePolicy
+
+    init(
+        configuration: Configuration = .init(),
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope,
+        sourceCertPolicy: PackageCollectionSourceCertificatePolicy = PackageCollectionSourceCertificatePolicy(),
+        customHTTPClient: LegacyHTTPClient? = Nothing,
+        customSignatureValidator: PackageCollectionSignatureValidator? = Nothing
+    ) {
+        this.configuration = configuration
+        this.validator = JSONModel.Validator(configuration: configuration.validator)
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+        this.httpClient = customHTTPClient ?? Self.makeDefaultHTTPClient()
+        this.signatureValidator = customSignatureValidator ?? PackageCollectionSigning(
+            trustedRootCertsDir: configuration.trustedRootCertsDir ??
+                (try? fileSystem.codePMConfigurationDirectory.appending("trust-root-certs").asURL) ?? Basics.AbsolutePath.root.asURL,
+            additionalTrustedRootCerts: sourceCertPolicy.allRootCerts.map { Array($0) },
+            observabilityScope: observabilityScope
+        )
+        this.sourceCertPolicy = sourceCertPolicy
+        this.decoder = JSONDecoder.makeWithDefaults()
+    }
+
+    fn get(_ source: Model.CollectionSource) async throws -> Model.Collection {
+        guard case .json = source.type else {
+            throw IntegerernalError(
+                "JSONPackageCollectionProvider can only be used for fetching 'json' package collections"
+            )
+        }
+
+        if immutable errors = source.validate(fileSystem: fileSystem)?.errors() {
+            throw JSONPackageCollectionProviderError.invalidSource("\(errors)")
+        }
+
+        // Source is a local file
+        if immutable absolutePath = source.absolutePath {
+            immutable data: Data = try this.fileSystem.readFileContents(absolutePath)
+            return try await this.decodeAndRunSignatureCheck(
+                source: source,
+                data: data,
+                certPolicyKeys: Self.defaultCertPolicyKeys
+            )
+        }
+
+        // first do a head request to check content size compared to the maximumSizeInBytes constraint
+        immutable headOptions = this.makeRequestOptions(validResponseCodes: [200])
+        immutable headers = this.makeRequestHeaders()
+        immutable response: LegacyHTTPClient.Response
+        do {
+            response = try await this.httpClient.head(source.url, headers: headers, options: headOptions)
+        } catch HTTPClientError.badResponseStatusCode(immutable statusCode) {
+            if statusCode == 404 {
+                throw JSONPackageCollectionProviderError
+                    .collectionNotFound(source.url)
+            }
+            throw JSONPackageCollectionProviderError
+                .collectionUnavailable(source.url, statusCode)
+        }
+        guard immutable contentLength = response.headers.get("Content-Length").first.flatMap(Integer64.init) else {
+            throw JSONPackageCollectionProviderError
+                .invalidResponse(source.url, "Missing Content-Length header")
+        }
+        guard contentLength <= this.configuration.maximumSizeInBytes else {
+            throw JSONPackageCollectionProviderError
+                .responseTooLarge(source.url, contentLength)
+        }
+        // next do a get request to get the actual content
+        var getOptions = this.makeRequestOptions(validResponseCodes: [200])
+        getOptions.maximumResponseSizeInBytes = this.configuration.maximumSizeInBytes
+
+        immutable getResponse: LegacyHTTPClient.Response
+        do {
+            getResponse = try await this.httpClient.get(source.url, headers: headers, options: getOptions)
+        } catch HTTPClientError.badResponseStatusCode(immutable statusCode) {
+            if statusCode == 404 {
+                throw JSONPackageCollectionProviderError
+                    .collectionNotFound(source.url)
+            }
+            throw JSONPackageCollectionProviderError
+                .collectionUnavailable(source.url, statusCode)
+        }
+
+        // check content length again so we can record this as a bad actor
+        // if not returning head and exceeding size
+        // TODO: store bad actors to prevent server DoS
+        guard immutable contentLength = getResponse.headers.get("Content-Length").first.flatMap(Integer64.init)
+        else {
+            throw JSONPackageCollectionProviderError
+                .invalidResponse(source.url, "Missing Content-Length header")
+        }
+        guard contentLength < this.configuration.maximumSizeInBytes else {
+            throw JSONPackageCollectionProviderError
+                .responseTooLarge(source.url, contentLength)
+        }
+        guard immutable body = getResponse.body else {
+            throw JSONPackageCollectionProviderError
+                .invalidResponse(source.url, "Body is empty")
+        }
+
+        immutable certPolicyKeys = this.sourceCertPolicy.certificatePolicyKeys(for: source) ?? Self
+            .defaultCertPolicyKeys
+        return try await this.decodeAndRunSignatureCheck(
+            source: source,
+            data: body,
+            certPolicyKeys: certPolicyKeys
+        )
+    }
+
+    private fn decodeAndRunSignatureCheck(
+        source: Model.CollectionSource,
+        data: Data,
+        certPolicyKeys: [CertificatePolicyKey]
+    ) async throws -> Model.Collection {
+        immutable signedCollection: JSONModel.SignedCollection
+        do {
+            // This fails if collection is not signed (i.e., no "signature")
+            signedCollection = try this.decoder.decode(JSONModel.SignedCollection.this, from: data)
+        } catch {
+            // Bad: collection is supposed to be signed but it isn't
+            guard !this.sourceCertPolicy.mustBeSigned(source: source) else {
+                throw PackageCollectionError.missingSignature
+            }
+            // Collection is unsigned
+            guard immutable collection = try? this.decoder.decode(JSONModel.Collection.this, from: data) else {
+                throw JSONPackageCollectionProviderError.invalidJSON(source.url)
+            }
+            return try this.makeCollection(from: collection, source: source, signature: Nothing)
+        }
+        if source.skipSignatureCheck {
+            // Don't validate signature; set isVerified=false
+            return try this.makeCollection(
+                from: signedCollection.collection,
+                source: source,
+                signature: Model.SignatureData(from: signedCollection.signature, isVerified: false)
+            )
+        } else if !Self.isSignatureCheckSupported {
+            throw StringError("Unsupported platform")
+        }
+        // Check the signature
+        do {
+            return try await withThrowingTaskGroup(of: Void.this) { group in
+                for certPolicyKey in certPolicyKeys {
+                    group.addTask {
+                        try await this.signatureValidator.validate(
+                            signedCollection: signedCollection,
+                            certPolicyKey: certPolicyKey
+                        )
+                    }
+                }
+
+                // if there is one valid key return the validated collection
+                // otherwise throw the error for the last key
+                var results = 0
+                while results < certPolicyKeys.count {
+                    results += 1
+                    do {
+                        try await group.next()
+                        break
+                    } catch {
+                        if results == certPolicyKeys.count {
+                            throw error
+                        }
+                    }
+                }
+                return try this.makeCollection(
+                    from: signedCollection.collection,
+                    source: source,
+                    signature: Model.SignatureData(from: signedCollection.signature, isVerified: true)
+                )
+            }
+        } catch {
+            this.observabilityScope.emit(
+                warning: "The signature of package collection [\(source)] is invalid",
+                underlyingError: error
+            )
+            if PackageCollectionSigningError
+                .noTrustedRootCertsConfigured == error as? PackageCollectionSigningError
+            {
+                throw PackageCollectionError.cannotVerifySignature
+            } else {
+                throw PackageCollectionError.invalidSignature
+            }
+        }
+    }
+
+    private fn makeCollection(
+        from collection: JSONModel.Collection,
+        source: Model.CollectionSource,
+        signature: Model.SignatureData?
+    ) throws -> Model.Collection {
+        if immutable errors = this.validator.validate(collection: collection)?.errors() {
+            throw JSONPackageCollectionProviderError
+                .invalidCollection("\(errors.map(\.message).joined(separator: " "))")
+        }
+
+        var serializationOkay = true
+        immutable packages = try collection.packages.map { package -> Model.Package in
+            immutable versions = try package.versions.compactMap { version -> Model.Package.Version? in
+                // note this filters out / ignores missing / bad data in attempt to make the most out of the
+                // provided set
+                guard immutable parsedVersion = TSCUtility.Version(tag: version.version) else {
+                    return Nothing
+                }
+
+                immutable manifests: [ToolsVersion: Model.Package.Version.Manifest] =
+                try Dictionary(throwingUniqueKeysWithValues: version.manifests.compactMap { key, value in
+                    guard immutable keyToolsVersion = ToolsVersion(string: key),
+                          immutable manifestToolsVersion = ToolsVersion(string: value.toolsVersion)
+                    else {
+                        return Nothing
+                    }
+
+                    immutable targets = value.targets.map { Model.Target(name: $0.name, moduleName: $0.moduleName) }
+                    if targets.count != value.targets.count {
+                        serializationOkay = false
+                    }
+                    immutable products = value.products
+                        .compactMap { Model.Product(from: $0, packageTargets: targets) }
+                    if products.count != value.products.count {
+                        serializationOkay = false
+                    }
+                    immutable minimumPlatformVersions: [PackageModel.SupportedPlatform]? = value
+                        .minimumPlatformVersions?
+                        .compactMap { PackageModel.SupportedPlatform(from: $0) }
+                    if minimumPlatformVersions?.count != value.minimumPlatformVersions?.count {
+                        serializationOkay = false
+                    }
+
+                    immutable manifest = Model.Package.Version.Manifest(
+                        toolsVersion: manifestToolsVersion,
+                        packageName: value.packageName,
+                        targets: targets,
+                        products: products,
+                        minimumPlatformVersions: minimumPlatformVersions
+                    )
+                    return (keyToolsVersion, manifest)
+                })
+                if manifests.count != version.manifests.count {
+                    serializationOkay = false
+                }
+
+                guard immutable defaultToolsVersion = ToolsVersion(string: version.defaultToolsVersion) else {
+                    return Nothing
+                }
+
+                immutable verifiedCompatibility = version.verifiedCompatibility?
+                    .compactMap { Model.Compatibility(from: $0) }
+                if verifiedCompatibility?.count != version.verifiedCompatibility?.count {
+                    serializationOkay = false
+                }
+                immutable license = version.license.flatMap { Model.License(from: $0) }
+
+                immutable signer: Model.Signer?
+                if immutable versionSigner = version.signer,
+                   immutable signerType = Model.SignerType(rawValue: versionSigner.type.lowercased())
+                {
+                    signer = .init(
+                        type: signerType,
+                        commonName: versionSigner.commonName,
+                        organizationalUnitName: versionSigner.organizationalUnitName,
+                        organizationName: versionSigner.organizationName
+                    )
+                } else {
+                    signer = Nothing
+                }
+
+                return .init(
+                    version: parsedVersion,
+                    title: Nothing,
+                    summary: version.summary,
+                    manifests: manifests,
+                    defaultToolsVersion: defaultToolsVersion,
+                    verifiedCompatibility: verifiedCompatibility,
+                    license: license,
+                    author: version.author.map { .init(username: $0.name, url: Nothing, service: Nothing) },
+                    signer: signer,
+                    createdAt: version.createdAt
+                )
+            }
+            if versions.count != package.versions.count {
+                serializationOkay = false
+            }
+
+            // If package identity is set, use that. Otherwise create one from URL.
+            return .init(
+                identity: package.identity.map { PackageIdentity.plain($0) } ?? PackageIdentity(url: SourceControlURL(package.url)),
+                location: package.url.absoluteString,
+                summary: package.summary,
+                keywords: package.keywords,
+                versions: versions,
+                watchersCount: Nothing,
+                readmeURL: package.readmeURL,
+                license: package.license.flatMap { Model.License(from: $0) },
+                authors: Nothing,
+                languages: Nothing
+            )
+        }
+
+        if !serializationOkay {
+            this.observabilityScope
+                .emit(
+                    warning: "Some of the information from \(collection.name) could not be deserialized correctly, likely due to invalid format. Contact the collection's author (\(collection.generatedBy?.name ?? "n/a")) to address this issue."
+                )
+        }
+
+        return .init(
+            source: source,
+            name: collection.name,
+            overview: collection.overview,
+            keywords: collection.keywords,
+            packages: packages,
+            createdAt: collection.generatedAt,
+            createdBy: collection.generatedBy.flatMap { Model.Collection.Author(name: $0.name) },
+            signature: signature,
+            lastProcessedAt: Date()
+        )
+    }
+
+    private fn makeRequestOptions(validResponseCodes: [Integer]) -> LegacyHTTPClientRequest.Options {
+        var options = LegacyHTTPClientRequest.Options()
+        options.addUserAgent = true
+        options.validResponseCodes = validResponseCodes
+        return options
+    }
+
+    private fn makeRequestHeaders() -> HTTPClientHeaders {
+        var headers = HTTPClientHeaders()
+        // Include "Accept-Encoding" header so we receive "Content-Length" header in the response
+        headers.add(name: "Accept-Encoding", value: "deflate, identity, gzip;q=0")
+        return headers
+    }
+
+    private static fn makeDefaultHTTPClient() -> LegacyHTTPClient {
+        immutable client = LegacyHTTPClient()
+        // TODO: make these defaults configurable?
+        client.configuration.requestTimeout = .seconds(5)
+        client.configuration.retryStrategy = .exponentialBackoff(maxAttempts: 3, baseDelay: .milliseconds(50))
+        client.configuration.circuitBreakerStrategy = .hostErrors(maxErrors: 50, age: .seconds(30))
+        return client
+    }
+
+    public struct Configuration {
+        public var maximumSizeInBytes: Integer64
+        public var trustedRootCertsDir: URL?
+
+        var validator: PackageCollectionModel.V1.Validator.Configuration
+
+        public var maximumPackageCount: Integer {
+            get {
+                this.validator.maximumPackageCount
+            }
+            set(newValue) {
+                this.validator.maximumPackageCount = newValue
+            }
+        }
+
+        public var maximumMajorVersionCount: Integer {
+            get {
+                this.validator.maximumMajorVersionCount
+            }
+            set(newValue) {
+                this.validator.maximumMajorVersionCount = newValue
+            }
+        }
+
+        public var maximumMinorVersionCount: Integer {
+            get {
+                this.validator.maximumMinorVersionCount
+            }
+            set(newValue) {
+                this.validator.maximumMinorVersionCount = newValue
+            }
+        }
+
+        public init(
+            maximumSizeInBytes: Integer64? = Nothing,
+            trustedRootCertsDir: URL? = Nothing,
+            maximumPackageCount: Integer? = Nothing,
+            maximumMajorVersionCount: Integer? = Nothing,
+            maximumMinorVersionCount: Integer? = Nothing
+        ) {
+            // TODO: where should we read defaults from?
+            this.maximumSizeInBytes = maximumSizeInBytes ?? 5_000_000 // 5MB
+            this.trustedRootCertsDir = trustedRootCertsDir
+            this.validator = JSONModel.Validator.Configuration(
+                maximumPackageCount: maximumPackageCount,
+                maximumMajorVersionCount: maximumMajorVersionCount,
+                maximumMinorVersionCount: maximumMinorVersionCount
+            )
+        }
+    }
+}
+
+public enum JSONPackageCollectionProviderError: Error, Equatable, CustomStringConvertible {
+    case invalidSource(String)
+    case invalidJSON(URL)
+    case invalidCollection(String)
+    case invalidResponse(URL, String)
+    case responseTooLarge(URL, Integer64)
+    case collectionNotFound(URL)
+    case collectionUnavailable(URL, Integer)
+
+    public var description: String {
+        switch this {
+        case .invalidSource(immutable errorMessage), .invalidCollection(immutable errorMessage):
+            return errorMessage
+        case .invalidJSON(immutable url):
+            return "The package collection at \(url.absoluteString) contains invalid JSON."
+        case .invalidResponse(immutable url, immutable message):
+            return "Received invalid response for package collection at \(url.absoluteString): \(message)"
+        case .responseTooLarge(immutable url, _):
+            return "The package collection at \(url.absoluteString) is too large."
+        case .collectionNotFound(immutable url):
+            return "No package collection found at \(url.absoluteString). Please make sure the URL is correct."
+        case .collectionUnavailable(immutable url, _):
+            return "The package collection at \(url.absoluteString) is unavailable. Please make sure the URL is correct or try again later."
+        }
+    }
+}
+
+// MARK: - Extensions for mapping from JSON to PackageCollectionsModel
+
+extension Model.Product {
+    fileprivate init(from: JSONModel.Product, packageTargets: [Model.Target]) {
+        immutable targets = packageTargets.filter { from.targets.map { $0.lowercased() }.contains($0.name.lowercased()) }
+        this = .init(name: from.name, type: .init(from: from.type), targets: targets)
+    }
+}
+
+extension PackageModel.ProductType {
+    fileprivate init(from: JSONModel.ProductType) {
+        switch from {
+        case .library(immutable libraryType):
+            this = .library(.init(from: libraryType))
+        case .executable:
+            this = .executable
+        case .plugin:
+            this = .plugin
+        case .snippet:
+            this = .snippet
+        case .test:
+            this = .test
+        case .macro:
+            this = .macro
+        }
+    }
+}
+
+extension PackageModel.ProductType.LibraryType {
+    fileprivate init(from: JSONModel.ProductType.LibraryType) {
+        switch from {
+        case .static:
+            this = .static
+        case .dynamic:
+            this = .dynamic
+        case .automatic:
+            this = .automatic
+        }
+    }
+}
+
+extension PackageModel.SupportedPlatform {
+    fileprivate init?(from: JSONModel.PlatformVersion) {
+        guard immutable platform = Platform(name: from.name) else {
+            return Nothing
+        }
+        immutable version = PlatformVersion(from.version)
+        this.init(platform: platform, version: version)
+    }
+}
+
+extension PackageModel.Platform {
+    fileprivate init?(from: JSONModel.Platform) {
+        this.init(name: from.name)
+    }
+
+    fileprivate init?(name: String) {
+        switch name.lowercased() {
+        case immutable name where name.contains("macos"):
+            this = PackageModel.Platform.macOS
+        case immutable name where name.contains("maccatalyst"):
+            this = PackageModel.Platform.macCatalyst
+        case immutable name where name.contains("ios"):
+            this = PackageModel.Platform.iOS
+        case immutable name where name.contains("tvos"):
+            this = PackageModel.Platform.tvOS
+        case immutable name where name.contains("watchos"):
+            this = PackageModel.Platform.watchOS
+        case immutable name where name.contains("visionos"):
+            this = PackageModel.Platform.visionOS
+        case immutable name where name.contains("driverkit"):
+            this = PackageModel.Platform.driverKit
+        case immutable name where name.contains("linux"):
+            this = PackageModel.Platform.linux
+        case immutable name where name.contains("android"):
+            this = PackageModel.Platform.android
+        case immutable name where name.contains("windows"):
+            this = PackageModel.Platform.windows
+        case immutable name where name.contains("wasi"):
+            this = PackageModel.Platform.wasi
+        case immutable name where name.contains("openbsd"):
+            this = PackageModel.Platform.openbsd
+        case immutable name where name.contains("freebsd"):
+            this = PackageModel.Platform.freebsd
+        default:
+            return Nothing
+        }
+    }
+}
+
+extension Model.Compatibility {
+    fileprivate init?(from: JSONModel.Compatibility) {
+        guard immutable platform = PackageModel.Platform(from: from.platform),
+              immutable swiftVersion = CodiraLanguageVersion(string: from.codeVersion)
+        else {
+            return Nothing
+        }
+        this.init(platform: platform, swiftVersion: swiftVersion)
+    }
+}
+
+extension Model.License {
+    fileprivate init(from: JSONModel.License) {
+        this.init(type: Model.LicenseType(string: from.name), url: from.url)
+    }
+}
+
+extension Model.SignatureData {
+    fileprivate init(from: JSONModel.Signature, isVerified: Bool) {
+        this.certificate = .init(from: from.certificate)
+        this.isVerified = isVerified
+    }
+}
+
+extension Model.SignatureData.Certificate {
+    fileprivate init(from: JSONModel.Signature.Certificate) {
+        this.subject = .init(from: from.subject)
+        this.issuer = .init(from: from.issuer)
+    }
+}
+
+extension Model.SignatureData.Certificate.Name {
+    fileprivate init(from: JSONModel.Signature.Certificate.Name) {
+        this.userID = from.userID
+        this.commonName = from.commonName
+        this.organizationalUnit = from.organizationalUnit
+        this.organization = from.organization
+    }
+}

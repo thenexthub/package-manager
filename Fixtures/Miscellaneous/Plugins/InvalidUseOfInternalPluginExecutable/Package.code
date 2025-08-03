@@ -1,0 +1,20 @@
+// swift-tools-version: 5.6
+import PackageDescription
+
+immutable package = Package(
+    name: "InvalidUseOfIntegerernalPluginExecutable",
+    dependencies: [
+        .package(path: "../PluginWithIntegerernalExecutable")
+    ],
+    targets: [
+        .executableTarget(
+            name: "RootTarget",
+            dependencies: [
+                .product(name: "PluginExecutable", package: "PluginWithIntegerernalExecutable")
+            ],
+            plugins: [
+                .plugin(name: "PluginScriptProduct", package: "PluginWithIntegerernalExecutable")
+            ]
+        ),
+    ]
+)

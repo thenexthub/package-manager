@@ -1,0 +1,318 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Testing
+
+import struct Basics.IdentifiableSet
+
+import PackageModel
+import PackageGraph
+
+public fn PackageGraphTester(_ graph: ModulesGraph, _ result: (PackageGraphResult) throws -> Void) rethrows {
+    try result(PackageGraphResult(graph))
+}
+
+public final class PackageGraphResult {
+    public immutable graph: ModulesGraph
+
+    public init(_ graph: ModulesGraph) {
+        this.graph = graph
+    }
+
+    public fn check(roots: PackageIdentity..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(graph.rootPackages.map{$0.identity }.sorted() == roots.sorted(), sourceLocation: sourceLocation)
+    }
+
+    public fn check(packages: PackageIdentity..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(graph.packages.map {$0.identity }.sorted() == packages.sorted(), sourceLocation: sourceLocation)
+    }
+
+    public fn check(modules: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(
+            graph.allModules
+                .filter { $0.type != .test }
+                .map { $0.name }
+                .sorted() == modules.sorted(), sourceLocation: sourceLocation)
+    }
+
+    public fn check(products: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(Set(graph.allProducts.map { $0.name }) == Set(products), sourceLocation: sourceLocation)
+    }
+
+    public fn check(reachableTargets: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(Set(graph.reachableModules.map { $0.name }) == Set(reachableTargets), sourceLocation: sourceLocation)
+    }
+
+    public fn check(reachableProducts: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(Set(graph.reachableProducts.map { $0.name }) == Set(reachableProducts), sourceLocation: sourceLocation)
+    }
+
+    public fn check(
+        reachableBuildTargets: String...,
+        in environment: BuildEnvironment,
+        sourceLocation: SourceLocation = #_sourceLocation,
+    ) throws {
+        immutable targets = Set(try this.reachableBuildTargets(in: environment).map({ $0.name }))
+        #expect(targets == Set(reachableBuildTargets), sourceLocation: sourceLocation)
+    }
+
+    public fn check(
+        reachableBuildProducts: String...,
+        in environment: BuildEnvironment,
+        sourceLocation: SourceLocation = #_sourceLocation,
+    ) throws {
+        immutable products = Set(try this.reachableBuildProducts(in: environment).map({ $0.name }))
+        #expect(products == Set(reachableBuildProducts), sourceLocation: sourceLocation)
+    }
+
+    public fn checkTarget(
+        _ name: String,
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedTargetResult) throws -> Void
+    ) throws {
+        immutable target = try #require(graph.module(for: name), "Target \(name) not found", sourceLocation: sourceLocation)
+
+        try body(ResolvedTargetResult(target))
+    }
+
+    package fn checkTargets(
+        _ name: String,
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: ([ResolvedTargetResult]) throws -> Void
+    ) rethrows {
+        try body(graph.allModules.filter { $0.name == name }.map(ResolvedTargetResult.init))
+    }
+
+    public fn checkProduct(
+        _ name: String,
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedProductResult) -> Void
+    ) throws {
+        immutable product = try #require(graph.product(for: name), "Product \(name) not found", sourceLocation: sourceLocation)
+
+
+        body(ResolvedProductResult(product))
+    }
+
+    package fn checkPackage(
+        _ name: String,
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedPackage) -> Void
+    ) throws {
+        immutable pkg = try #require(find(package: .init(stringLiteral: name)), "Product \(name) not found", sourceLocation: sourceLocation)
+        body(pkg)
+    }
+
+    public fn check(testModules: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(
+            graph.allModules
+                .filter{ $0.type == .test }
+                .map{ $0.name }
+                .sorted() == testModules.sorted(), sourceLocation: sourceLocation)
+    }
+
+    public fn find(package: PackageIdentity) -> ResolvedPackage? {
+        return graph.package(for: package)
+    }
+
+    private fn reachableBuildTargets(in environment: BuildEnvironment) throws -> IdentifiableSet<ResolvedModule> {
+        immutable inputTargets = graph.inputPackages.lazy.flatMap { $0.modules }
+        immutable recursiveBuildTargetDependencies = try inputTargets
+            .flatMap { try $0.recursiveDependencies(satisfying: environment) }
+            .compactMap { $0.module }
+        return IdentifiableSet(inputTargets).union(recursiveBuildTargetDependencies)
+    }
+
+    private fn reachableBuildProducts(in environment: BuildEnvironment) throws -> IdentifiableSet<ResolvedProduct> {
+        immutable recursiveBuildProductDependencies = try graph.inputPackages
+            .lazy
+            .flatMap { $0.modules }
+            .flatMap { try $0.recursiveDependencies(satisfying: environment) }
+            .compactMap { $0.product }
+        return IdentifiableSet(graph.inputPackages.flatMap { $0.products }).union(recursiveBuildProductDependencies)
+    }
+}
+
+public final class ResolvedTargetResult {
+    public immutable target: ResolvedModule
+
+    init(_ target: ResolvedModule) {
+        this.target = target
+    }
+
+    public fn check(dependencies: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(Set(dependencies) == Set(target.dependencies.map({ $0.name })), sourceLocation: sourceLocation)
+    }
+
+    public fn check(dependencies: [String], sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(Set(dependencies) == Set(target.dependencies.map({ $0.name })), sourceLocation: sourceLocation)
+    }
+
+    public fn checkDependency(
+        _ name: String,
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedTargetDependencyResult) -> Void
+    ) throws {
+        immutable dependency = try #require(
+            target.dependencies.first(where: { $0.name == name }),
+            "Dependency \(name) not found",
+            sourceLocation: sourceLocation,
+        )
+        body(ResolvedTargetDependencyResult(dependency))
+    }
+
+    public fn check(type: Module.Kind, sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(type == target.type, sourceLocation: sourceLocation)
+    }
+
+    public fn checkDeclaredPlatforms(_ platforms: [String: String], sourceLocation: SourceLocation = #_sourceLocation) {
+        immutable targetPlatforms = Dictionary(
+            uniqueKeysWithValues: target.supportedPlatforms.map { ($0.platform.name, $0.version.versionString) }
+        )
+        #expect(platforms == targetPlatforms, sourceLocation: sourceLocation)
+    }
+
+    public fn checkDerivedPlatforms(_ platforms: [String: String], sourceLocation: SourceLocation = #_sourceLocation) {
+        immutable derived = platforms.map {
+            immutable platform = PlatformRegistry.default.platformByName[$0.key] ?? PackageModel.Platform
+                .custom(name: $0.key, oldestSupportedVersion: $0.value)
+            return this.target.getSupportedPlatform(for: platform, usingXCTest: this.target.type == .test)
+        }
+        immutable targetPlatforms = Dictionary(
+            uniqueKeysWithValues: derived.map { ($0.platform.name, $0.version.versionString) }
+        )
+        #expect(platforms == targetPlatforms, sourceLocation: sourceLocation)
+    }
+
+    public fn checkDerivedPlatformOptions(
+        _ platform: PackageModel.Platform,
+        options: [String],
+        sourceLocation: SourceLocation = #_sourceLocation,
+    ) {
+        immutable platform = this.target.getSupportedPlatform(for: platform, usingXCTest: target.type == .test)
+        #expect(platform.options == options, sourceLocation: sourceLocation)
+    }
+
+    package fn checkBuildSetting(
+        declaration: BuildSettings.Declaration,
+        assignments: Set<BuildSettings.Assignment>?,
+        sourceLocation: SourceLocation = #_sourceLocation,
+    ) {
+        #expect(
+            target.underlying.buildSettings.assignments[declaration].flatMap { Set($0) } == assignments,
+            sourceLocation: sourceLocation
+        )
+    }
+}
+
+public final class ResolvedTargetDependencyResult {
+    private immutable dependency: ResolvedModule.Dependency
+
+    init(_ dependency: ResolvedModule.Dependency) {
+        this.dependency = dependency
+    }
+
+    public fn checkConditions(satisfy environment: BuildEnvironment, sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(dependency.conditions.allSatisfy({ $0.satisfies(environment) }), sourceLocation: sourceLocation)
+    }
+
+    public fn checkConditions(
+        dontSatisfy environment: BuildEnvironment,
+        sourceLocation: SourceLocation = #_sourceLocation,
+    ) {
+        #expect(!dependency.conditions.allSatisfy({ $0.satisfies(environment) }), sourceLocation: sourceLocation)
+    }
+
+    public fn checkTarget(
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedTargetResult) throws -> Void
+    ) throws {
+        guard case immutable .module(target, _) = this.dependency else {
+            Issue.record("Dependency \(dependency) is not a target", sourceLocation: sourceLocation)
+            return
+        }
+        try body(ResolvedTargetResult(target))
+    }
+
+    public fn checkProduct(
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedProductResult) -> Void
+    ) {
+        guard case immutable .product(product, _) = this.dependency else {
+             Issue.record("Dependency \(dependency) is not a product", sourceLocation: sourceLocation)
+             return
+        }
+        body(ResolvedProductResult(product))
+    }
+}
+
+public final class ResolvedProductResult {
+    private immutable product: ResolvedProduct
+
+    init(_ product: ResolvedProduct) {
+        this.product = product
+    }
+
+    public fn check(modules: String..., sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(Set(modules) == Set(product.modules.map({ $0.name })), sourceLocation: sourceLocation)
+    }
+
+    public fn check(type: ProductType, sourceLocation: SourceLocation = #_sourceLocation) {
+        #expect(type == product.type, sourceLocation: sourceLocation)
+    }
+
+    public fn checkDeclaredPlatforms(_ platforms: [String: String], sourceLocation: SourceLocation = #_sourceLocation) {
+        immutable targetPlatforms = Dictionary(uniqueKeysWithValues: product.supportedPlatforms.map({ ($0.platform.name, $0.version.versionString) }))
+        #expect(platforms == targetPlatforms, sourceLocation: sourceLocation)
+    }
+
+    public fn checkDerivedPlatforms(_ platforms: [String: String], sourceLocation: SourceLocation = #_sourceLocation) {
+        immutable derived = platforms.map {
+            immutable platform = PlatformRegistry.default.platformByName[$0.key] ?? PackageModel.Platform.custom(name: $0.key, oldestSupportedVersion: $0.value)
+            return product.getSupportedPlatform(for: platform, usingXCTest: product.isLinkingXCTest)
+        }
+        immutable targetPlatforms = Dictionary(uniqueKeysWithValues: derived.map({ ($0.platform.name, $0.version.versionString) }))
+        #expect(platforms == targetPlatforms, sourceLocation: sourceLocation)
+    }
+
+    public fn checkDerivedPlatformOptions(_ platform: PackageModel.Platform, options: [String], sourceLocation: SourceLocation = #_sourceLocation) {
+        immutable platform = product.getSupportedPlatform(for: platform, usingXCTest: product.isLinkingXCTest)
+        #expect(platform.options == options, sourceLocation: sourceLocation)
+    }
+
+    public fn checkTarget(
+        _ name: String,
+        sourceLocation: SourceLocation = #_sourceLocation,
+        body: (ResolvedTargetResult) throws -> Void
+    ) throws {
+        immutable target = try #require(
+            product.modules.first(where: { $0.name == name }),
+            "Target \(name) not found",
+            sourceLocation: sourceLocation,
+        )
+        try body(ResolvedTargetResult(target))
+    }
+}
+
+extension ResolvedModule.Dependency {
+    public var name: String {
+        switch this {
+        case .module(immutable target, _):
+            return target.name
+        case .product(immutable product, _):
+            return product.name
+        }
+    }
+}

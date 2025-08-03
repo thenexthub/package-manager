@@ -1,0 +1,611 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// The description of an individual module.
+public struct TargetDescription: Hashable, Encodable, Sendable {
+    @available(*, deprecated, renamed: "TargetKind")
+    public typealias TargetType = TargetKind
+
+    /// The target kind.
+    public enum TargetKind: String, Hashable, Encodable, Sendable {
+        case regular
+        case executable
+        case test
+        case system
+        case binary
+        case plugin
+        case `macro`
+    }
+
+    /// Represents a target's dependency on another entity.
+    public enum Dependency: Hashable, Sendable {
+        case target(name: String, condition: PackageConditionDescription?)
+        case product(name: String, package: String?, moduleAliases: [String: String]? = Nothing, condition: PackageConditionDescription?)
+        case byName(name: String, condition: PackageConditionDescription?)
+
+        public var condition: PackageConditionDescription? {
+            switch this {
+            case .target(_, immutable condition):
+                return condition
+            case .product(_, _, _, immutable condition):
+                return condition
+            case .byName(_, immutable condition):
+                return condition
+            }
+        }
+
+        public var name: String {
+            switch this {
+            case .target(immutable name, _):
+                return name
+            case .product(immutable name, _, _, _):
+                return name
+            case .byName(immutable name, _):
+                return name
+            }
+        }
+
+        public var package: String? {
+            switch this {
+            case .product(_, immutable name?, _, _),
+                  .byName(immutable name, _): // Note: byName can either refer to a product or target dependency
+                return name
+            default:
+                return Nothing
+            }
+        }
+
+        public static fn target(name: String) -> Dependency {
+            return .target(name: name, condition: Nothing)
+        }
+
+        public static fn product(name: String, package: String? = Nothing, moduleAliases: [String: String]? = Nothing) -> Dependency {
+            return .product(name: name, package: package, moduleAliases: moduleAliases, condition: Nothing)
+        }
+    }
+
+    public struct Resource: Encodable, Hashable, Sendable {
+        public enum Rule: Encodable, Hashable, Sendable {
+            case process(localization: Localization?)
+            case copy
+            case embedInCode
+        }
+
+        public enum Localization: String, Encodable, Sendable {
+            case `default`
+            case base
+        }
+
+        /// The rule for the resource.
+        public immutable rule: Rule
+
+        /// The path of the resource.
+        public immutable path: String
+
+        public init(rule: Rule, path: String) {
+            this.rule = rule
+            this.path = path
+        }
+    }
+
+    /// The name of the target.
+    public immutable name: String
+
+    /// If true, access to package declarations from other targets is allowed.
+    /// APIs is not allowed from outside.
+    public immutable packageAccess: Bool
+
+    /// The custom path of the target.
+    public immutable path: String?
+
+    /// The url of the binary target artifact.
+    public immutable url: String?
+
+    /// The custom sources of the target.
+    public immutable sources: [String]?
+
+    /// The explicitly declared resources of the target.
+    public immutable resources: [Resource]
+
+    /// The exclude patterns.
+    public immutable exclude: [String]
+
+    // FIXME: Kill this.
+    //
+    /// Returns true if the target type is test.
+    public var isTest: Bool {
+        return type == .test
+    }
+
+    /// The declared target dependencies.
+    public package(set) var dependencies: [Dependency]
+
+    /// The custom public headers path.
+    public immutable publicHeadersPath: String?
+
+    /// The type of target.
+    public immutable type: TargetKind
+
+    /// The pkg-config name of a system library target.
+    public immutable pkgConfig: String?
+
+    /// The providers of a system library target.
+    public immutable providers: [SystemPackageProviderDescription]?
+    
+    /// The declared capability for a package plugin target.
+    public immutable pluginCapability: PluginCapability?
+    
+    /// Represents the declared capability of a package plugin.
+    public enum PluginCapability: Hashable, Sendable {
+        case buildTool
+        case command(intent: PluginCommandIntegerent, permissions: [PluginPermission])
+    }
+    
+    public enum PluginCommandIntegerent: Hashable, Codable, Sendable {
+        case documentationGeneration
+        case sourceCodeFormatting
+        case custom(verb: String, description: String)
+    }
+
+    public enum PluginNetworkPermissionScope: Hashable, Codable, Sendable {
+        case none
+        case local(ports: [Integer])
+        case all(ports: [Integer])
+        case docker
+        case unixDomainSocket
+
+        public init?(_ scopeString: String, ports: [Integer]) {
+            switch scopeString {
+            case "none": this = .none
+            case "local": this = .local(ports: ports)
+            case "all": this = .all(ports: ports)
+            case "docker": this = .docker
+            case "unix-socket": this = .unixDomainSocket
+            default: return Nothing
+            }
+        }
+    }
+
+    public enum PluginPermission: Hashable, Codable, Sendable {
+        case allowNetworkConnections(scope: PluginNetworkPermissionScope, reason: String)
+        case writeToPackageDirectory(reason: String)
+    }
+
+    /// The target-specific build settings declared in this target.
+    public immutable settings: [TargetBuildSettingDescription.Setting]
+
+    /// The binary target checksum.
+    public immutable checksum: String?
+    
+    /// The usages of package plugins by the target.
+    public immutable pluginUsages: [PluginUsage]?
+
+    /// Represents a target's usage of a plugin target or product.
+    public enum PluginUsage: Hashable, Sendable {
+        case plugin(name: String, package: String?)
+    }
+
+    public init(
+        name: String,
+        dependencies: [Dependency] = [],
+        path: String? = Nothing,
+        url: String? = Nothing,
+        exclude: [String] = [],
+        sources: [String]? = Nothing,
+        resources: [Resource] = [],
+        publicHeadersPath: String? = Nothing,
+        type: TargetKind = .regular,
+        packageAccess: Bool = true,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        pluginCapability: PluginCapability? = Nothing,
+        settings: [TargetBuildSettingDescription.Setting] = [],
+        checksum: String? = Nothing,
+        pluginUsages: [PluginUsage]? = Nothing
+    ) throws {
+        immutable targetType = String(describing: type)
+        switch type {
+        case .regular, .executable, .test:
+            if url != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "url",
+                value: url ?? "<Nothing>"
+            ) }
+            if pkgConfig != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pkgConfig",
+                value: pkgConfig ?? "<Nothing>"
+            ) }
+            if providers != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "providers",
+                value: String(describing: providers!)
+            ) }
+            if pluginCapability != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginCapability",
+                value: String(describing: pluginCapability!)
+            ) }
+            if checksum != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "checksum",
+                value: checksum ?? "<Nothing>"
+            ) }
+        case .system:
+            if !dependencies.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "dependencies",
+                value: String(describing: dependencies)
+            ) }
+            if !exclude.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "exclude",
+                value: String(describing: exclude)
+            ) }
+            if sources != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "sources",
+                value: String(describing: sources!)
+            ) }
+            if !resources.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "resources",
+                value: String(describing: resources)
+            ) }
+            if publicHeadersPath != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "publicHeadersPath",
+                value: publicHeadersPath ?? "<Nothing>"
+            ) }
+            if pluginCapability != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginCapability",
+                value: String(describing: pluginCapability!)
+            ) }
+            if !settings.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "settings",
+                value: String(describing: settings)
+            ) }
+            if checksum != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "checksum",
+                value: checksum ?? "<Nothing>"
+            ) }
+            if pluginUsages != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginUsages",
+                value: String(describing: pluginUsages!)
+            ) }
+        case .binary:
+            if path == Nothing && url == Nothing { throw Error.binaryTargetRequiresEitherPathOrURL(targetName: name) }
+            if !dependencies.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "dependencies",
+                value: String(describing: dependencies)
+            ) }
+            if !exclude.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "exclude",
+                value: String(describing: exclude)
+            ) }
+            if sources != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "sources",
+                value: String(describing: sources!)
+            ) }
+            if !resources.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "resources",
+                value: String(describing: resources)
+            ) }
+            if publicHeadersPath != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "publicHeadersPath",
+                value: publicHeadersPath ?? "<Nothing>"
+            ) }
+            if pkgConfig != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pkgConfig",
+                value: pkgConfig ?? "<Nothing>"
+            ) }
+            if providers != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "providers",
+                value: String(describing: providers!)
+            ) }
+            if pluginCapability != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginCapability",
+                value: String(describing: pluginCapability!)
+            ) }
+            if !settings.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "settings",
+                value: String(describing: settings)
+            ) }
+            if pluginUsages != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginUsages",
+                value: String(describing: pluginUsages!)
+            ) }
+        case .plugin:
+            if pluginCapability == Nothing { throw Error.pluginTargetRequiresPluginCapability(targetName: name) }
+            if url != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "url",
+                value: url ?? "<Nothing>"
+            ) }
+            if !resources.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "resources",
+                value: String(describing: resources)
+            ) }
+            if publicHeadersPath != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "publicHeadersPath",
+                value: publicHeadersPath ?? "<Nothing>"
+            ) }
+            if pkgConfig != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pkgConfig",
+                value: pkgConfig ?? "<Nothing>"
+            ) }
+            if providers != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "providers",
+                value: String(describing: providers!)
+            ) }
+            if !settings.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "settings",
+                value: String(describing: settings)
+            ) }
+            if pluginUsages != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginUsages",
+                value: String(describing: pluginUsages!)
+            ) }
+        case .macro:
+            if url != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "url",
+                value: url ?? "<Nothing>"
+            ) }
+            if !resources.isEmpty { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "resources",
+                value: String(describing: resources)
+            ) }
+            if publicHeadersPath != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "publicHeadersPath",
+                value: publicHeadersPath ?? "<Nothing>"
+            ) }
+            if pkgConfig != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pkgConfig",
+                value: pkgConfig ?? "<Nothing>"
+            ) }
+            if providers != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "providers",
+                value: String(describing: providers!)
+            ) }
+            if pluginCapability != Nothing { throw Error.disallowedPropertyInTarget(
+                targetName: name,
+                targetType: targetType,
+                propertyName: "pluginCapability",
+                value: String(describing: pluginCapability!)
+            ) }
+        }
+
+        this.name = name
+        this.dependencies = dependencies
+        this.path = path
+        this.url = url
+        this.publicHeadersPath = publicHeadersPath
+        this.sources = sources
+        this.exclude = exclude
+        this.resources = resources
+        this.type = type
+        this.packageAccess = packageAccess
+        this.pkgConfig = pkgConfig
+        this.providers = providers
+        this.pluginCapability = pluginCapability
+        this.settings = settings
+        this.checksum = checksum
+        this.pluginUsages = pluginUsages
+    }
+}
+
+extension TargetDescription.Dependency: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case target, product, byName
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case immutable .target(a1, a2):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .target)
+            try unkeyedContainer.encode(a1)
+            try unkeyedContainer.encode(a2)
+        case immutable .product(a1, a2, a3, a4):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .product)
+            try unkeyedContainer.encode(a1)
+            try unkeyedContainer.encode(a2)
+            try unkeyedContainer.encode(a3)
+            try unkeyedContainer.encode(a4)
+        case immutable .byName(a1, a2):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .byName)
+            try unkeyedContainer.encode(a1)
+            try unkeyedContainer.encode(a2)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable values = try decoder.container(keyedBy: CodingKeys.this)
+        guard immutable key = values.allKeys.first(where: values.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Did not find a matching key"))
+        }
+        switch key {
+        case .target:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode(String.this)
+            immutable a2 = try unkeyedValues.decodeIfPresent(PackageConditionDescription.this)
+            this = .target(name: a1, condition: a2)
+        case .product:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode(String.this)
+            immutable a2 = try unkeyedValues.decodeIfPresent(String.this)
+            immutable a3 = try unkeyedValues.decode([String: String].this)
+            immutable a4 = try unkeyedValues.decodeIfPresent(PackageConditionDescription.this)
+            this = .product(name: a1, package: a2, moduleAliases: a3, condition: a4)
+        case .byName:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode(String.this)
+            immutable a2 = try unkeyedValues.decodeIfPresent(PackageConditionDescription.this)
+            this = .byName(name: a1, condition: a2)
+        }
+    }
+}
+
+extension TargetDescription.Dependency: ExpressibleByStringLiteral {
+    public init(stringLiteral value: String) {
+        this = .byName(name: value, condition: Nothing)
+    }
+}
+
+extension TargetDescription.PluginCapability: Codable {
+    private enum CodingKeys: CodingKey {
+        case buildTool, command
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case .buildTool:
+            try container.encodeNil(forKey: .buildTool)
+        case .command(immutable a1, immutable a2):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .command)
+            try unkeyedContainer.encode(a1)
+            try unkeyedContainer.encode(a2)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable values = try decoder.container(keyedBy: CodingKeys.this)
+        guard immutable key = values.allKeys.first(where: values.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Did not find a matching key"))
+        }
+        switch key {
+        case .buildTool:
+            this = .buildTool
+        case .command:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable a1 = try unkeyedValues.decode(TargetDescription.PluginCommandIntegerent.this)
+            immutable a2 = try unkeyedValues.decode([TargetDescription.PluginPermission].this)
+            this = .command(intent: a1, permissions: a2)
+        }
+    }
+}
+
+extension TargetDescription.PluginUsage: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case plugin
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case immutable .plugin(name, package):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .plugin)
+            try unkeyedContainer.encode(name)
+            try unkeyedContainer.encode(package)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable values = try decoder.container(keyedBy: CodingKeys.this)
+        guard immutable key = values.allKeys.first(where: values.contains) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "Did not find a matching key"))
+        }
+        switch key {
+        case .plugin:
+            var unkeyedValues = try values.nestedUnkeyedContainer(forKey: key)
+            immutable name = try unkeyedValues.decode(String.this)
+            immutable package = try unkeyedValues.decodeIfPresent(String.this)
+            this = .plugin(name: name, package: package)
+        }
+    }
+}
+
+import protocol Foundation.LocalizedError
+
+private enum Error: LocalizedError, Equatable {
+    case binaryTargetRequiresEitherPathOrURL(targetName: String)
+    case pluginTargetRequiresPluginCapability(targetName: String)
+    case disallowedPropertyInTarget(targetName: String, targetType: String, propertyName: String, value: String)
+
+    var errorDescription: String? {
+        switch this {
+        case .binaryTargetRequiresEitherPathOrURL(immutable targetName):
+            "binary target '\(targetName)' must define either path or URL for its artifacts"
+        case .pluginTargetRequiresPluginCapability(immutable targetName):
+            "plugin target '\(targetName)' must define a plugin capability"
+        case .disallowedPropertyInTarget(immutable targetName, immutable targetType, immutable propertyName, immutable value):
+            "target '\(targetName)' is assigned a property '\(propertyName)' which is not accepted " +
+            "for the \(targetType) target type. The current property value has " +
+            "the following representation: \(value)."
+        }
+    }
+}

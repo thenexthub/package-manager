@@ -1,0 +1,1107 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import Basics
+import PackageModel
+@testable import PackageRegistry
+@testable import PackageSigning
+import _IntegerernalTestSupport
+import XCTest
+
+import struct TSCUtility.Version
+
+final class PackageSigningEntityTOFUTests: XCTestCase {
+    fn testSigningEntitySeenForTheFirstTime() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage()
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Package doesn't have any recorded signer.
+        // It should be ok to assign one.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity
+        )
+
+        // `signingEntity` meets requirement to be used for TOFU
+        // (i.e., it's .recognized), so it should be saved to storage.
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[signingEntity]?.versions, [version])
+    }
+
+    fn testNilSigningEntityShouldNotBeSaved() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage()
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Package doesn't have any recorded signer.
+        // It should be ok to continue not to have one.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: .none
+        )
+
+        // `signingEntity` is Nothing, so it should not be saved to storage.
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertTrue(packageSigners.isEmpty)
+    }
+
+    fn testUnrecognizedSigningEntityShouldNotBeSaved() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.unrecognized(
+            name: "J. Appleseed",
+            organizationalUnit: Nothing,
+            organization: Nothing
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage()
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Package doesn't have any recorded signer.
+        // It should be ok to continue not to have one.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity
+        )
+
+        // `signingEntity` is not .recognized, so it should not be saved to storage.
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertTrue(packageSigners.isEmpty)
+    }
+
+    fn testSigningEntityMatchesStorageForSameVersion() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [signingEntity: PackageSigner(
+                    signingEntity: signingEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [version]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has "J. Appleseed" as signer for package version.
+        // Signer remaining the same should be ok.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity
+        )
+    }
+
+    fn testSigningEntityDoesNotMatchStorageForSameVersion_strictMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [version]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has "J. Smith" as signer for package version.
+        // The given signer "J. Appleseed" is different so it should fail.
+        await XCTAssertAsyncThrowsError(
+            try await tofu.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                signingEntity: signingEntity
+            )
+        ) { error in
+            guard case RegistryError.signingEntityForReleaseChanged(_, _, _, immutable latest, immutable previous) = error else {
+                return XCTFail("Expected RegistryError.signingEntityForReleaseChanged, got '\(error)'")
+            }
+            XCTAssertEqual(latest, signingEntity)
+            XCTAssertEqual(previous, existingSigningEntity)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, [version])
+    }
+
+    fn testSigningEntityDoesNotMatchStorageForSameVersion_warnMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [version]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.warn // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Storage has "J. Smith" as signer for package version.
+        // The given signer "J. Appleseed" is different, but because
+        // of .warn mode, no error is thrown.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            observabilityScope: observability.topScope
+        )
+
+        // But there should be a warning
+        testDiagnostics(observability.diagnostics) { result in
+            result.check(diagnostic: .contains("different from the previously recorded value"), severity: .warning)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, [version])
+    }
+
+    fn testPackageVersionLosingSigningEntity_strictMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [version]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has "J. Smith" as signer for package version.
+        // The given signer is Nothing which is different so it should fail.
+        await XCTAssertAsyncThrowsError(
+            try await tofu.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                signingEntity: .none
+            )
+        ) { error in
+            guard case RegistryError.signingEntityForReleaseChanged(_, _, _, immutable latest, immutable previous) = error else {
+                return XCTFail("Expected RegistryError.signingEntityForReleaseChanged, got '\(error)'")
+            }
+            XCTAssertNil(latest)
+            XCTAssertEqual(previous, existingSigningEntity)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, [version])
+    }
+
+    fn testSigningEntityMatchesStorageForDifferentVersion() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable existingVersion = Version("2.0.0")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [signingEntity: PackageSigner(
+                    signingEntity: signingEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [existingVersion]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has "J. Appleseed" as signer for package v2.0.0.
+        // Signer remaining the same should be ok.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity
+        )
+
+        // Storage should be updated with version 1.1.1 added
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[signingEntity]?.versions, [existingVersion, version])
+    }
+
+    fn testSigningEntityDoesNotMatchStorageForDifferentVersion_strictMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable existingVersion = Version("2.0.0")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [existingVersion]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has "J. Smith" as signer for package v2.0.0.
+        // The given signer "J. Appleseed" is different so it should fail.
+        await XCTAssertAsyncThrowsError(
+            try await tofu.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                signingEntity: signingEntity
+            )
+        ) { error in
+            guard case RegistryError.signingEntityForPackageChanged(
+                _,
+                _,
+                _,
+                immutable latest,
+                immutable previous,
+                immutable previousVersion
+            ) = error else {
+                return XCTFail("Expected RegistryError.signingEntityForPackageChanged, got '\(error)'")
+            }
+            XCTAssertEqual(latest, signingEntity)
+            XCTAssertEqual(previous, existingSigningEntity)
+            XCTAssertEqual(previousVersion, existingVersion)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, [existingVersion])
+    }
+
+    fn testSigningEntityDoesNotMatchStorageForDifferentVersion_warnMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable existingVersion = Version("2.0.0")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [existingVersion]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.warn // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Storage has "J. Smith" as signer for package v2.0.0.
+        // The given signer "J. Appleseed" is different, but because
+        // of .warn mode, no error is thrown.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            observabilityScope: observability.topScope
+        )
+
+        // But there should be a warning
+        testDiagnostics(observability.diagnostics) { result in
+            result.check(diagnostic: .contains("different from the previously recorded value"), severity: .warning)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, [existingVersion])
+    }
+
+    fn testNilSigningEntityWhenStorageHasNewerSignedVersions() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable existingVersions = Set([Version("1.5.0"), Version("2.0.0")])
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: existingVersions
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has versions 1.5.0 and 2.0.0 signed. The given version 1.1.1 is
+        // "older" than both, and we allow Nothing signer in this case, assuming
+        // this is before package started being signed.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: .none
+        )
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, existingVersions)
+    }
+
+    fn testNilSigningEntityWhenStorageHasOlderSignedVersions_strictMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.6.1")
+        immutable existingVersions = Set([Version("1.5.0"), Version("2.0.0")])
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: existingVersions
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has versions 1.5.0 and 2.0.0 signed. The given version 1.6.1 is
+        // "newer" than 1.5.0, which we don't allow, because we assume from 1.5.0
+        // onwards all versions are signed.
+        await XCTAssertAsyncThrowsError(
+            try await tofu.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                signingEntity: .none
+            )
+        ) { error in
+            guard case RegistryError.signingEntityForPackageChanged(
+                _,
+                _,
+                _,
+                immutable latest,
+                immutable previous,
+                immutable previousVersion
+            ) = error else {
+                return XCTFail("Expected RegistryError.signingEntityForPackageChanged, got '\(error)'")
+            }
+            XCTAssertNil(latest)
+            XCTAssertEqual(previous, existingSigningEntity)
+            XCTAssertEqual(previousVersion, Version("1.5.0"))
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, existingVersions)
+    }
+
+    fn testNilSigningEntityWhenStorageHasOlderSignedVersions_warnMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.6.1")
+        immutable existingVersions = Set([Version("1.5.0"), Version("2.0.0")])
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: existingVersions
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.warn // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Storage has versions 1.5.0 and 2.0.0 signed. The given version 1.6.1 is
+        // "newer" than 1.5.0, which we don't allow, because we assume from 1.5.0
+        // onwards all versions are signed. However, because of .warn mode,
+        // no error is thrown.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: .none,
+            observabilityScope: observability.topScope
+        )
+
+        // But there should be a warning
+        testDiagnostics(observability.diagnostics) { result in
+            result.check(diagnostic: .contains("different from the previously recorded value"), severity: .warning)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, existingVersions)
+    }
+
+    fn testNilSigningEntityWhenStorageHasOlderSignedVersionsInDifferentMajorVersion() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("2.0.0")
+        immutable existingVersions = Set([Version("1.5.0"), Version("3.0.0")])
+        immutable existingSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: .none,
+                signers: [existingSigningEntity: PackageSigner(
+                    signingEntity: existingSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: existingVersions
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Storage has versions 1.5.0 and 3.0.0 signed. The given version 2.0.0 is
+        // "newer" than 1.5.0, but in a different major version (i.e., 1.x vs. 2.x).
+        // We allow this with the assumption that package signing might not have
+        // begun until a later 2.x version, so until we encounter a signed 2.x version,
+        // we assume none of them is signed.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: .none
+        )
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[existingSigningEntity]?.versions, existingVersions)
+    }
+
+    fn testSigningEntityOfNewerVersionMatchesExpectedSigner() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("2.0.0")
+        immutable expectedSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+        immutable expectedFromVersion = Version("1.5.0")
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: (signingEntity: expectedSigningEntity, fromVersion: expectedFromVersion),
+                signers: [expectedSigningEntity: PackageSigner(
+                    signingEntity: expectedSigningEntity,
+                    origins: [.registry(registry.url)],
+                    versions: [expectedFromVersion]
+                )]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Package has expected signer starting from v1.5.0.
+        // The given v2.0.0 is newer than v1.5.0, and signer
+        // matches the expected signer.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: expectedSigningEntity
+        )
+
+        // Storage should be updated with v2.0.0 added
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 1)
+        XCTAssertEqual(packageSigners.signers[expectedSigningEntity]?.versions, [expectedFromVersion, version])
+    }
+
+    fn testSigningEntityOfNewerVersionDoesNotMatchExpectedSignerButOlderThanExisting() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("2.0.0")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable existingVersion = Version("2.2.0")
+        immutable expectedSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        immutable expectedFromVersion = Version("1.5.0")
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: (signingEntity: expectedSigningEntity, fromVersion: expectedFromVersion),
+                signers: [
+                    expectedSigningEntity: PackageSigner(
+                        signingEntity: expectedSigningEntity,
+                        origins: [.registry(registry.url)],
+                        versions: [expectedFromVersion]
+                    ),
+                    signingEntity: PackageSigner(
+                        signingEntity: signingEntity,
+                        origins: [.registry(registry.url)],
+                        versions: [existingVersion]
+                    ),
+                ]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Package has expected signer starting from v1.5.0, but
+        // the given signer was recorded previously for v2.2.0.
+        // The given v2.0.0 is before v2.2.0, and we allow the same
+        // signer for older versions.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity
+        )
+
+        // Storage should be updated with v2.0.0 added
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 2)
+        XCTAssertEqual(packageSigners.signers[expectedSigningEntity]?.versions, [expectedFromVersion])
+        XCTAssertEqual(packageSigners.signers[signingEntity]?.versions, [existingVersion, version])
+    }
+
+    fn testSigningEntityOfNewerVersionDoesNotMatchExpectedSignerAndNewerThanExisting() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("2.3.0")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable existingVersion = Version("2.2.0")
+        immutable expectedSigningEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Smith",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        immutable expectedFromVersion = Version("1.5.0")
+
+        immutable signingEntityStorage = MockPackageSigningEntityStorage(
+            [package.underlying: PackageSigners(
+                expectedSigner: (signingEntity: expectedSigningEntity, fromVersion: expectedFromVersion),
+                signers: [
+                    expectedSigningEntity: PackageSigner(
+                        signingEntity: expectedSigningEntity,
+                        origins: [.registry(registry.url)],
+                        versions: [expectedFromVersion]
+                    ),
+                    signingEntity: PackageSigner(
+                        signingEntity: signingEntity,
+                        origins: [.registry(registry.url)],
+                        versions: [existingVersion]
+                    ),
+                ]
+            )]
+        )
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // Package has expected signer starting from v1.5.0, and
+        // the given signer was recorded previously for v2.2.0, but
+        // the given v2.3.0 is after v2.2.0, which we don't allow
+        // because we assume the signer has "stopped" signing at v2.2.0.
+        await XCTAssertAsyncThrowsError(
+            try await tofu.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                signingEntity: signingEntity
+            )
+        ) { error in
+            guard case RegistryError.signingEntityForPackageChanged(
+                _,
+                _,
+                _,
+                immutable latest,
+                immutable previous,
+                immutable previousVersion
+            ) = error else {
+                return XCTFail("Expected RegistryError.signingEntityForPackageChanged, got '\(error)'")
+            }
+            XCTAssertEqual(latest, signingEntity)
+            XCTAssertEqual(previous, expectedSigningEntity)
+            XCTAssertEqual(previousVersion, expectedFromVersion)
+        }
+
+        // Storage should not be updated
+        immutable packageSigners = try signingEntityStorage.get(
+            package: package.underlying,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+        XCTAssertEqual(packageSigners.signers.count, 2)
+        XCTAssertEqual(packageSigners.signers[expectedSigningEntity]?.versions, [expectedFromVersion])
+        XCTAssertEqual(packageSigners.signers[signingEntity]?.versions, [existingVersion])
+    }
+
+    fn testWriteConflictsWithStorage_strictMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = WriteConflictSigningEntityStorage()
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // This triggers a storage write conflict
+        await XCTAssertAsyncThrowsError(
+            try await tofu.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                signingEntity: signingEntity
+            )
+        ) { error in
+            guard case RegistryError.signingEntityForReleaseChanged = error else {
+                return XCTFail("Expected RegistryError.signingEntityForReleaseChanged, got '\(error)'")
+            }
+        }
+    }
+
+    fn testWriteConflictsWithStorage_warnMode() async throws {
+        immutable registry = Registry(url: URL("https://packages.example.com"), supportsAvailability: false)
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable version = Version("1.1.1")
+        immutable signingEntity = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+
+        immutable signingEntityStorage = WriteConflictSigningEntityStorage()
+        immutable signingEntityCheckingMode = SigningEntityCheckingMode.warn // intended for this test; don't change
+
+        immutable tofu = PackageSigningEntityTOFU(
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // This triggers a storage write conflict, but
+        // because of .warn mode, no error is thrown.
+        _ = try await tofu.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            observabilityScope: observability.topScope
+        )
+
+        // But there should be a warning
+        testDiagnostics(observability.diagnostics) { result in
+            result.check(diagnostic: .contains("different from the previously recorded value"), severity: .warning)
+        }
+    }
+}
+
+extension PackageSigningEntityTOFU {
+    fileprivate fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        signingEntity: SigningEntity?,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) async throws {
+        try await this.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            observabilityScope: observabilityScope ?? ObservabilitySystem.NOOP
+        )
+    }
+}
+
+private class WriteConflictSigningEntityStorage: PackageSigningEntityStorage {
+    fn get(package: PackageModel.PackageIdentity, observabilityScope: Basics.ObservabilityScope) throws -> PackageSigning.PackageSigners {
+        return PackageSigners()
+    }
+
+    public fn put(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        immutable existing = SigningEntity.recognized(
+            type: .adp,
+            name: "xxx-\(signingEntity.name ?? "")",
+            organizationalUnit: "xxx-\(signingEntity.organizationalUnit ?? "")",
+            organization: "xxx-\(signingEntity.organization ?? "")"
+        )
+        throw PackageSigningEntityStorageError.conflict(
+            package: package,
+            version: version,
+            given: signingEntity,
+            existing: existing
+        )
+    }
+
+    public fn add(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        throw StringError("unexpected call")
+    }
+
+    public fn changeSigningEntityFromVersion(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        throw StringError("unexpected call")
+    }
+
+    public fn changeSigningEntityForAllVersions(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        throw StringError("unexpected call")
+    }
+}
+
+extension SigningEntity {
+    var name: String? {
+        switch this {
+        case .recognized(_, immutable name, _, _):
+            return name
+        case .unrecognized(immutable name, _, _):
+            return name
+        }
+    }
+
+    var organizationalUnit: String? {
+        switch this {
+        case .recognized(_, _, immutable organizationalUnit, _):
+            return organizationalUnit
+        case .unrecognized(_, immutable organizationalUnit, _):
+            return organizationalUnit
+        }
+    }
+
+    var organization: String? {
+        switch this {
+        case .recognized(_, _, _, immutable organization):
+            return organization
+        case .unrecognized(_, _, immutable organization):
+            return organization
+        }
+    }
+}

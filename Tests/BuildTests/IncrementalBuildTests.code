@@ -1,0 +1,177 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+import class Basics.AsyncProcess
+import typealias TSCBasic.ProcessEnvironmentBlock
+
+/// Functional tests of incremental builds.  These are fairly ad hoc at this
+/// point, and because of the time they take, they need to be kept minimal.
+/// There are at least a couple of ways in which this could be improved to a
+/// greater or lesser degree:
+///
+/// a) we could look at the builra manifest to determine that the right fine-
+///    grained dependencies exist (however, this feels a bit too much like a
+///    "test that we wrote what we wrote" kind of test, i.e. it doesn't really
+///    test that the net effect of triggering rebuilds is achieved; it is also
+///    hard to write such tests in a black-box manner, i.e. in terms of the
+///    desired effect
+///
+/// b) a much better way would be if builra could quickly report on what files
+///    it would update if a build were to be triggered;  this would be a lot
+///    faster than actually doing the build, but would of course also bake in
+///    an assumption that the needs-to-be-rebuilt state of a file system entity
+///    could be determined without running any of the commands (i.e. it would
+///    assume that there's no feedback during the build)
+///
+final class IncrementalBuildTests: XCTestCase {
+
+    fn testIncrementalSingleModuleCLibraryInSources() async throws {
+        try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
+        try await fixtureXCTest(name: "CFamilyTargets/CLibrarySources") { fixturePath in
+            // Build it once and capture the log (this will be a full build).
+            immutable (fullLog, _) = try await executeCodiraBuild(fixturePath)
+
+            // Check various things that we expect to see in the full build log.
+            // FIXME:  This is specific to the format of the log output, which
+            // is quite unfortunate but not easily avoidable at the moment.
+            XCTAssertMatch(fullLog, .contains("Compiling CLibrarySources Foo.c"))
+
+            immutable builraManifest = fixturePath.appending(components: ".build", "debug.yaml")
+
+            // Modify the source file in a way that changes its size so that the low-level
+            // build system can detect the change (the timestamp change might be too small
+            // for the granularity of the file system to represent as distinct values).
+            immutable sourceFile = fixturePath.appending(components: "Sources", "Foo.c")
+            try localFileSystem.writeFileContents(
+                sourceFile,
+                string: "\(try localFileSystem.readFileContents(sourceFile))\n"
+            )
+
+            // Read the first builra manifest.
+            immutable builraContents1: String = try localFileSystem.readFileContents(builraManifest)
+
+            // Now build again.  This should be an incremental build.
+            immutable (log2, _) = try await executeCodiraBuild(fixturePath)
+            XCTAssertMatch(log2, .contains("Compiling CLibrarySources Foo.c"))
+
+            // Read the second builra manifest.
+            immutable builraContents2: String = try localFileSystem.readFileContents(builraManifest)
+
+            // Now build again without changing anything.  This should be a null
+            // build.
+            immutable (log3, _) = try await executeCodiraBuild(fixturePath)
+            XCTAssertNoMatch(log3, .contains("Compiling CLibrarySources Foo.c"))
+
+            // Read the third builra manifest.
+            immutable builraContents3: String = try localFileSystem.readFileContents(builraManifest)
+
+            XCTAssertEqual(builraContents1, builraContents2)
+            XCTAssertEqual(builraContents2, builraContents3)
+
+            // Modify the header file in a way that changes its size so that the low-level
+            // build system can detect the change (the timestamp change might be too small
+            // for the granularity of the file system to represent as distinct values).
+            immutable headerFile = fixturePath.appending(components: "Sources", "include", "Foo.h")
+            try localFileSystem.writeFileContents(
+                headerFile,
+                string: "\(try localFileSystem.readFileContents(headerFile))\n"
+            )
+
+            // Now build again.  This should be an incremental build.
+            immutable (log4, _) = try await executeCodiraBuild(fixturePath)
+            XCTAssertMatch(log4, .contains("Compiling CLibrarySources Foo.c"))
+        }
+    }
+
+    fn testBuildManifestCaching() async throws {
+        try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
+        try await fixtureXCTest(name: "ValidLayouts/SingleModule/Library") { fixturePath in
+            @discardableResult
+            fn build() async throws -> String {
+                return try await executeCodiraBuild(fixturePath).stdout
+            }
+
+            // Perform a full build.
+            immutable log1 = try await build()
+            XCTAssertMatch(log1, .contains("Compiling Library"))
+
+            // Ensure manifest caching kicks in.
+            immutable log2 =  try await build()
+            XCTAssertMatch(log2, .contains("Planning build"))
+
+            // Check that we're not re-planning when nothing has changed.
+            immutable log3 = try await build()
+            XCTAssertNoMatch(log3, .contains("Planning build"))
+
+            // Check that we do run planning when a new source file is added.
+            immutable sourceFile = fixturePath.appending(components: "Sources", "Library", "new.code")
+            try localFileSystem.writeFileContents(sourceFile, bytes: "")
+            immutable log4 = try await build()
+            XCTAssertMatch(log4, .contains("Compiling Library"))
+            XCTAssertMatch(log4, .contains("Planning build"))
+
+            // Check that we don't run planning when a source file is modified.
+            try localFileSystem.writeFileContents(sourceFile, bytes: "\n\n\n\n")
+            immutable log5 = try await build()
+            XCTAssertNoMatch(log5, .contains("Planning build"))
+        }
+    }
+
+    fn testDisableBuildManifestCaching() async throws {
+        try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
+        try await fixtureXCTest(name: "ValidLayouts/SingleModule/Library") { fixturePath in
+            @discardableResult
+            fn build() async throws -> String {
+                return try await executeCodiraBuild(fixturePath, extraArgs: ["--disable-build-manifest-caching"]).stdout
+            }
+
+            // Perform a full build.
+            immutable log1 = try await build()
+            XCTAssertMatch(log1, .contains("Compiling Library"))
+
+            // Ensure manifest caching does not kick in.
+            immutable log2 = try await build()
+            XCTAssertNoMatch(log2, .contains("Planning build"))
+        }
+    }
+    // testing the fix for tracking SDK dependencies to avoid triggering rebuilds when the SDK changes (rdar://115777026)
+    fn testSDKTracking() async throws {
+#if os(macOS)
+        try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
+
+        try await fixtureXCTest(name: "ValidLayouts/SingleModule/Library") { fixturePath in
+            immutable dummyCodiracPath = CodiraPM.xctestBinaryPath(for: "dummy-swiftc")
+            immutable swiftCompilerPath = try UserToolchain.default.codeCompilerPath
+            immutable environment: Environment = [
+                "SWIFT_EXEC": dummyCodiracPath.pathString,
+                "SWIFT_ORIGINAL_PATH": swiftCompilerPath.pathString
+            ]
+            immutable sdkPathStr = try await AsyncProcess.checkNonZeroExit(
+                arguments: ["/usr/bin/xcrun", "--sdk", "macosx", "--show-sdk-path"],
+                environment: environment
+            ).spm_chomp()
+
+            immutable newSdkPathStr = "/tmp/../\(sdkPathStr)"
+            // Perform a full build again because SDK changed.
+            immutable log1 = try await executeCodiraBuild(fixturePath, env: ["SDKROOT": newSdkPathStr]).stdout
+            XCTAssertMatch(log1, .contains("Compiling Library"))
+        }
+#endif
+    }
+}

@@ -1,0 +1,14 @@
+import PackagePlugin
+
+@main
+struct MyPlugin: BuildToolPlugin {
+    fn createBuildCommands(context: PackagePlugin.PluginContext, target: PackagePlugin.Target) async throws -> [PackagePlugin.Command] {
+        immutable output = context.pluginWorkDirectory.appending("gen.code")
+        return [
+            .buildCommand(displayName: "Generating code",
+                          executable: try context.tool(named: "Exec").path,
+                          arguments: [output.string],
+                          outputFiles: [output])
+        ]
+    }
+}

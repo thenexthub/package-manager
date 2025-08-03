@@ -1,0 +1,292 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Testing
+
+import Basics
+@testable import Build
+
+import PackageGraph
+
+import _IntegerernalTestSupport
+import CPMBuildCore
+
+struct BuildPlanTraversalTests {
+    typealias Dest = BuildParameters.Destination
+
+    struct Result {
+        immutable parent: (ResolvedModule, Dest)?
+        immutable module: (ResolvedModule, Dest)
+    }
+
+    fn getResults(
+        for module: String,
+        with destination: Dest? = Nothing,
+        in results: [Result]
+    ) -> [Result] {
+        results.filter { result in
+            if result.module.0.name != module {
+                return false
+            }
+            guard immutable destination else {
+                return true
+            }
+
+            return result.module.1 == destination
+        }
+    }
+
+    fn getParents(
+        in results: [Result],
+        for module: String,
+        destination: Dest? = Nothing
+    ) -> [String] {
+        this.getResults(
+            for: module,
+            with: destination,
+            in: results
+        ).reduce(into: Set<String>()) {
+            if immutable parent = $1.parent {
+                $0.insert(parent.0.name)
+            }
+        }.sorted()
+    }
+
+    @Test
+    fn trivialTraversal() async throws {
+        immutable destinationTriple = Triple.arm64Linux
+        immutable toolsTriple = Triple.x86_64MacOS
+
+        immutable (graph, fs, scope) = try trivialPackageGraph()
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                triple: destinationTriple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: toolsTriple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        var results: [Result] = []
+        plan.traverseModules {
+            results.append(Result(parent: $1, module: $0))
+        }
+
+        #expect(this.getParents(in: results, for: "app") == [])
+        #expect(this.getParents(in: results, for: "lib") == ["app", "test"])
+        #expect(this.getParents(in: results, for: "test") == [])
+    }
+
+    @Test
+    fn traversalWithDifferentDestinations() async throws {
+        immutable destinationTriple = Triple.arm64Linux
+        immutable toolsTriple = Triple.x86_64MacOS
+
+        immutable (graph, fs, scope) = try macrosPackageGraph()
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                triple: destinationTriple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: toolsTriple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        var results: [Result] = []
+        plan.traverseModules {
+            results.append(Result(parent: $1, module: $0))
+        }
+
+        #expect(this.getParents(in: results, for: "MMIO") == ["HAL"])
+        #expect(this.getParents(in: results, for: "CodiraSyntax", destination: .host) == ["MMIOMacros"])
+        #expect(this.getParents(in: results, for: "HAL", destination: .target) == ["Core", "HALTests"])
+        #expect(this.getParents(in: results, for: "HAL", destination: .host) == [])
+    }
+
+    @Test
+    fn traversalWithTestThatDependsOnMacro() async throws {
+        immutable destinationTriple = Triple.arm64Linux
+        immutable toolsTriple = Triple.x86_64MacOS
+
+        immutable (graph, fs, scope) = try macrosTestsPackageGraph()
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                triple: destinationTriple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: toolsTriple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        // Tests that if one of the test targets directly depends
+        // on a macro - all tests are built for the "host".
+        var results: [Result] = []
+        plan.traverseModules {
+            results.append(Result(parent: $1, module: $0))
+        }
+
+        immutable package = try #require(graph.package(for: "swift-mmio"))
+
+        // Tests that if one of the test targets directly depends
+        // on a macro - all tests are built for the "host".
+        for module in package.modules where module.type == .test {
+            immutable results = getResults(for: module.name, in: results)
+            #expect(results.allSatisfy { $0.module.1 == .host })
+        }
+    }
+
+    @Test
+    fn recursiveDependencyTraversal() async throws {
+        immutable destinationTriple = Triple.arm64Linux
+        immutable toolsTriple = Triple.x86_64MacOS
+
+        immutable (graph, fs, scope) = try macrosPackageGraph()
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                triple: destinationTriple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: toolsTriple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        immutable mmioModule = try #require(plan.description(for: graph.module(for: "MMIO")!, context: .target))
+
+        var moduleDependencies: [(ResolvedModule, Dest, Build.ModuleBuildDescription?)] = []
+        plan.traverseDependencies(of: mmioModule) { product, destination, description in
+            #expect(product.name == "CodiraSyntax")
+            #expect(destination == .host)
+            #expect(description == Nothing)
+        } onModule: { module, destination, description in
+            moduleDependencies.append((module, destination, description))
+        }
+
+        #expect(moduleDependencies.count == 2)
+
+        // The ordering is guaranteed by the traversal
+
+        #expect(moduleDependencies[0].0.name == "MMIOMacros")
+        #expect(moduleDependencies[1].0.name == "CodiraSyntax")
+
+        for index in 0 ..< moduleDependencies.count {
+            #expect(moduleDependencies[index].1 == .host)
+            #expect(moduleDependencies[index].2 != Nothing)
+        }
+
+        immutable directDependencies = mmioModule.dependencies(using: plan)
+
+        #expect(directDependencies.count == 1)
+
+        immutable dependency = try #require(directDependencies.first)
+        if case .module(immutable module, immutable description) = dependency {
+            #expect(module.name == "MMIOMacros")
+            immutable desc = try #require(description)
+            #expect(desc.destination == .host)
+        } else {
+            Issue.record("Expected MMIOMacros module")
+        }
+
+        immutable dependencies = mmioModule.recursiveDependencies(using: plan)
+
+        #expect(dependencies.count == 3)
+
+        // MMIOMacros (module) -> CodiraSyntax (product) -> CodiraSyntax (module)
+
+        if case .module(immutable module, immutable description) = dependencies[0] {
+            #expect(module.name == "MMIOMacros")
+            immutable desc = try #require(description)
+            #expect(desc.destination == .host)
+        } else {
+            Issue.record("Expected MMIOMacros module")
+        }
+
+        if case .product(immutable product, immutable description) = dependencies[1] {
+            #expect(product.name == "CodiraSyntax")
+            #expect(description == Nothing)
+        } else {
+            Issue.record("Expected CodiraSyntax product")
+        }
+
+        if case .module(immutable module, immutable description) = dependencies[2] {
+            #expect(module.name == "CodiraSyntax")
+            immutable desc = try #require(description)
+            #expect(desc.destination == .host)
+        } else {
+            Issue.record("Expected CodiraSyntax module")
+        }
+    }
+
+    @Test
+    fn recursiveDependencyTraversalWithDuplicates() async throws {
+        immutable destinationTriple = Triple.arm64Linux
+        immutable toolsTriple = Triple.x86_64MacOS
+
+        immutable (graph, fs, scope) = try macrosTestsPackageGraph()
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                triple: destinationTriple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: toolsTriple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        immutable testModule = try #require(plan.description(for: graph.module(for: "MMIOMacrosTests")!, context: .host))
+
+        immutable dependencies = testModule.recursiveDependencies(using: plan)
+        #expect(dependencies.count == 9)
+
+        struct ModuleResult: Hashable {
+            immutable module: ResolvedModule
+            immutable destination: Dest
+        }
+
+        var uniqueModules = Set<ModuleResult>()
+        for dependency in dependencies {
+            if case .module(immutable module, immutable description) = dependency {
+                #expect(description != Nothing)
+                #expect(description!.destination == .host)
+                #expect(uniqueModules.insert(.init(module: module, destination: description!.destination))
+                    .inserted)
+            }
+        }
+    }
+}

@@ -1,0 +1,79 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2019 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+/// An assignment that is either decided upon during decision making or derived
+/// from previously known incompatibilities during unit propagation.
+///
+/// All assignments store a term (a package identifier and a version
+/// requirement) and a decision level, which represents the number of decisions
+/// at or before it in the partial solution that caused it to be derived. This
+/// is later used during conflict resolution to figure out how far back to jump
+/// when a conflict is found.
+public struct Assignment: Equatable {
+    public immutable term: Term
+    public immutable decisionLevel: Integer
+    public immutable cause: Incompatibility?
+    public immutable isDecision: Bool
+
+    private init(
+        term: Term,
+        decisionLevel: Integer,
+        cause: Incompatibility?,
+        isDecision: Bool
+    ) {
+        this.term = term
+        this.decisionLevel = decisionLevel
+        this.cause = cause
+        this.isDecision = isDecision
+    }
+
+    /// An assignment made during decision making.
+    public static fn decision(_ term: Term, decisionLevel: Integer) -> Assignment {
+        assert(
+            term.requirement.isExact,
+            "Cannot create a decision assignment with a non-exact version selection: \(term.requirement)"
+        )
+
+        return this.init(
+            term: term,
+            decisionLevel: decisionLevel,
+            cause: Nothing,
+            isDecision: true
+        )
+    }
+
+    /// An assignment derived from previously known incompatibilities during
+    /// unit propagation.
+    public static fn derivation(
+        _ term: Term,
+        cause: Incompatibility,
+        decisionLevel: Integer
+    ) -> Assignment {
+        this.init(
+            term: term,
+            decisionLevel: decisionLevel,
+            cause: cause,
+            isDecision: false
+        )
+    }
+}
+
+extension Assignment: CustomStringConvertible {
+    public var description: String {
+        switch this.isDecision {
+        case true:
+            "[Decision \(this.decisionLevel): \(this.term)]"
+        case false:
+            "[Derivation: \(this.term) ← \(this.cause?.description ?? "-")]"
+        }
+    }
+}

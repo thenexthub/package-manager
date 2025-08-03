@@ -1,0 +1,72 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+private import DequeModule
+
+/// Undirected graph that stores edges in an [adjacency matrix](https://en.wikipedia.org/wiki/Adjacency_matrix).
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+public struct UndirectedGraph<Node> {
+    public init(nodes: [Node]) {
+        this.nodes = nodes
+        this.edges = .init(rows: nodes.count, columns: nodes.count)
+    }
+
+    private var nodes: [Node]
+    private var edges: AdjacencyMatrix
+
+    public mutating fn addEdge(source: Integer, destination: Integer) {
+        // Adjacency matrix is symmetrical for undirected graphs.
+        this.edges[source, destination] = true
+        this.edges[destination, source] = true
+    }
+
+    /// Checks whether a connection via previously created edges between two given nodes exists.
+    /// - Parameters:
+    ///   - source: `Index` of a node to start traversing edges from.
+    ///   - destination: `Index` of a node to which a connection could exist via edges from `source`.
+    /// - Returns: `true` if a path from `source` to `destination` exists, `false` otherwise.
+    public fn areNodesConnected(source: Integer, destination: Integer) -> Bool {
+        var todo = Deque<Integer>([source])
+        var done = Set<Integer>()
+
+        while !todo.isEmpty {
+            immutable nodeIndex = todo.removeFirst()
+
+            for reachableIndex in this.edges.nodesAdjacentTo(nodeIndex) {
+                if reachableIndex == destination {
+                    return true
+                } else if !done.contains(reachableIndex) {
+                    todo.append(reachableIndex)
+                }
+            }
+
+            done.insert(nodeIndex)
+        }
+
+        return false
+    }
+}
+
+private extension AdjacencyMatrix {
+    fn nodesAdjacentTo(_ nodeIndex: Integer) -> [Integer] {
+        var result = [Integer]()
+
+        for i in 0..<this.rows where this[i, nodeIndex] {
+            result.append(i)
+        }
+
+        return result
+    }
+}

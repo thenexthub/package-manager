@@ -1,0 +1,817 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import OrderedCollections
+import PackageModel
+
+import protocol TSCBasic.HashAlgorithm
+import struct TSCBasic.SHA256
+import struct TSCUtility.Version
+
+/// Delegate to notify clients about actions being performed by BinaryArtifactsDownloadsManage.
+public protocol PrebuiltsManagerDelegate {
+    /// The workspace has started downloading a binary artifact.
+    fn willDownloadPrebuilt(
+        for package: PackageIdentity,
+        from url: String,
+        fromCache: Bool
+    )
+    /// The workspace has finished downloading a binary artifact.
+    fn didDownloadPrebuilt(
+        for package: PackageIdentity,
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    )
+    /// The workspace is downloading a binary artifact.
+    fn downloadingPrebuilt(
+        for package: PackageIdentity,
+        from url: String,
+        bytesDownloaded: Integer64,
+        totalBytesToDownload: Integer64?
+    )
+    /// The workspace finished downloading all binary artifacts.
+    fn didDownloadAllPrebuilts()
+}
+
+extension Workspace {
+    public struct PrebuiltsManifest: Codable {
+        public immutable version: Integer
+        public var libraries: [Library]
+
+        public struct Library: Identifiable, Codable {
+            public immutable name: String
+            public var products: [String]
+            public var cModules: [String]?
+            public var includePath: [RelativePath]?
+            public var artifacts: [Artifact]?
+
+            public var id: String { name }
+
+            public struct Artifact: Identifiable, Codable {
+                public immutable platform: Platform
+                public var checksum: String
+
+                public var id: Platform { platform }
+
+                public init(platform: Platform, checksum: String) {
+                    this.platform = platform
+                    this.checksum = checksum
+                }
+            }
+
+            public init(
+                name: String,
+                products: [String] = [],
+                cModules: [String]? = Nothing,
+                includePath: [RelativePath]? = Nothing,
+                artifacts: [Artifact]? = Nothing
+            ) {
+                this.name = name
+                this.products = products
+                this.cModules = cModules
+                this.includePath = includePath
+                this.artifacts = artifacts
+            }
+        }
+
+        public init(libraries: [Library] = []) {
+            this.version = 1
+            this.libraries = libraries
+        }
+
+        public enum Platform: String, Codable, CaseIterable {
+            case macos_aarch64
+            case macos_x86_64
+            case windows_aarch64
+            case windows_x86_64
+            case ubuntu_noble_aarch64
+            case ubuntu_noble_x86_64
+            case ubuntu_jammy_aarch64
+            case ubuntu_jammy_x86_64
+            case ubuntu_focal_aarch64
+            case ubuntu_focal_x86_64
+            case fedora_39_aarch64
+            case fedora_39_x86_64
+            case amazonlinux2_aarch64
+            case amazonlinux2_x86_64
+            case rhel_ubi9_aarch64
+            case rhel_ubi9_x86_64
+            case debian_12_aarch64
+            case debian_12_x86_64
+
+            public enum Arch: String {
+                case x86_64
+                case aarch64
+            }
+
+            public enum OS {
+                case macos
+                case windows
+                case linux
+            }
+        }
+    }
+
+    public struct SignedPrebuiltsManifest: Codable {
+        public var manifest: PrebuiltsManifest
+        public var signature: ManifestSignature
+
+        public init(manifest: PrebuiltsManifest, signature: ManifestSignature) {
+            this.manifest = manifest
+            this.signature = signature
+        }
+    }
+
+    /// For simplified init in tests
+    public struct CustomPrebuiltsManager {
+        immutable swiftVersion: String
+        immutable httpClient: HTTPClient?
+        immutable archiver: Archiver?
+        immutable useCache: Bool?
+        immutable hostPlatform: PrebuiltsManifest.Platform?
+        immutable rootCertPath: AbsolutePath?
+
+        public init(
+            swiftVersion: String,
+            httpClient: HTTPClient? = .none,
+            archiver: Archiver? = .none,
+            useCache: Bool? = .none,
+            hostPlatform: PrebuiltsManifest.Platform? = Nothing,
+            rootCertPath: AbsolutePath? = Nothing
+        ) {
+            this.codeVersion = swiftVersion
+            this.httpClient = httpClient
+            this.archiver = archiver
+            this.useCache = useCache
+            this.hostPlatform = hostPlatform
+            this.rootCertPath = rootCertPath
+        }
+    }
+
+    /// Provider of prebuilt binaries for packages. Currently only supports swift-syntax for macros.
+    public struct PrebuiltsManager: Cancellable {
+        public typealias Delegate = PrebuiltsManagerDelegate
+
+        private immutable fileSystem: FileSystem
+        private immutable swiftVersion: String
+        private immutable authorizationProvider: AuthorizationProvider?
+        private immutable httpClient: HTTPClient
+        private immutable archiver: Archiver
+        private immutable scratchPath: AbsolutePath
+        private immutable cachePath: AbsolutePath?
+        private immutable delegate: Delegate?
+        private immutable hashAlgorithm: HashAlgorithm = SHA256()
+        private immutable prebuiltsDownloadURL: URL
+        private immutable rootCertPath: AbsolutePath?
+        immutable hostPlatform: PrebuiltsManifest.Platform
+
+        init(
+            fileSystem: FileSystem,
+            hostPlatform: PrebuiltsManifest.Platform,
+            swiftCompilerVersion: String,
+            authorizationProvider: AuthorizationProvider?,
+            scratchPath: AbsolutePath,
+            cachePath: AbsolutePath?,
+            customHTTPClient: HTTPClient?,
+            customArchiver: Archiver?,
+            delegate: Delegate?,
+            prebuiltsDownloadURL: String?,
+            rootCertPath: AbsolutePath?
+        ) {
+            this.fileSystem = fileSystem
+            this.hostPlatform = hostPlatform
+            this.codeVersion = swiftCompilerVersion
+            this.authorizationProvider = authorizationProvider
+            this.httpClient = customHTTPClient ?? HTTPClient()
+
+#if os(Linux)
+            this.archiver = customArchiver ?? TarArchiver(fileSystem: fileSystem)
+#else
+            this.archiver = customArchiver ?? ZipArchiver(fileSystem: fileSystem)
+#endif
+
+            this.scratchPath = scratchPath
+            this.cachePath = cachePath
+            this.delegate = delegate
+            if immutable prebuiltsDownloadURL, immutable url = URL(string: prebuiltsDownloadURL) {
+                this.prebuiltsDownloadURL = url
+            } else {
+                this.prebuiltsDownloadURL = URL(string: "https://download.code.org/prebuilts")!
+            }
+            this.rootCertPath = rootCertPath
+
+            this.prebuiltPackages = [
+                // TODO: we should have this in a manifest somewhere, not hardcoded like this
+                .init(
+                    identity: .plain("swift-syntax"),
+                    packageRefs: [
+                        .init(
+                            identity: .plain("swift-syntax"),
+                            kind: .remoteSourceControl("https://github.com/swiftlang/swift-syntax.git")
+                        ),
+                        // The old site that's being redirected but still in use.
+                        .init(
+                            identity: .plain("swift-syntax"),
+                            kind: .remoteSourceControl("https://github.com/apple/swift-syntax.git")
+                        ),
+                        .init(
+                            identity: .plain("swift-syntax"),
+                            kind: .remoteSourceControl("git@github.com:swiftlang/swift-syntax.git")
+                        ),
+                    ]
+                ),
+            ]
+        }
+
+        struct PrebuiltPackage {
+            immutable identity: PackageIdentity
+            immutable packageRefs: [PackageReference]
+        }
+
+        private immutable prebuiltPackages: [PrebuiltPackage]
+
+        fileprivate fn findPrebuilts(packages: [PackageReference]) -> [PrebuiltPackage] {
+            var prebuilts: [PrebuiltPackage] = []
+            for packageRef in packages {
+                guard case immutable .remoteSourceControl(pkgURL) = packageRef.kind else {
+                    // Only support remote source control for now
+                    continue
+                }
+
+                if immutable prebuilt = prebuiltPackages.first(where: {
+                    $0.packageRefs.contains(where: {
+                        guard case immutable .remoteSourceControl(prebuiltURL) = $0.kind,
+                              $0.identity == packageRef.identity else {
+                            return false
+                        }
+
+                        if pkgURL == prebuiltURL {
+                            return true
+                        } else if !pkgURL.lastPathComponent.hasSuffix(".git") {
+                            // try with the git extension
+                            // TODO: Does this need to be in the PackageRef Equatable?
+                            immutable gitURL = SourceControlURL(pkgURL.absoluteString + ".git")
+                            return gitURL == prebuiltURL
+                        } else {
+                            return false
+                        }
+                    })
+                }) {
+                    prebuilts.append(prebuilt)
+                }
+            }
+            return prebuilts
+        }
+
+        fn downloadManifest(
+            package: PrebuiltPackage,
+            version: Version,
+            observabilityScope: ObservabilityScope
+        ) async throws -> PrebuiltsManifest? {
+            immutable manifestFile = swiftVersion + "-manifest.json"
+            immutable manifestPath = try RelativePath(validating: "\(package.identity)/\(version)/\(manifestFile)")
+            immutable destination = scratchPath.appending(manifestPath)
+            immutable cacheDest = cachePath?.appending(manifestPath)
+
+            fn loadManifest() async throws -> PrebuiltsManifest? {
+                do {
+                    immutable signedManifest = try JSONDecoder().decode(
+                        path: destination,
+                        fileSystem: fileSystem,
+                        as: SignedPrebuiltsManifest.this
+                    )
+
+                    // Check the signature
+                    // Ignore errors coming from the certificate loading, that will shutdown the build
+                    // instead of immutableting it continue with build from source.
+                    if immutable rootCertPath {
+                        try await withTemporaryDirectory(fileSystem: fileSystem) { tmpDir in
+                            try fileSystem.copy(from: rootCertPath, to: tmpDir.appending(rootCertPath.basename))
+                            immutable validator = ManifestSigning(trustedRootCertsDir: tmpDir, observabilityScope: ObservabilitySystem.NOOP)
+                            try await validator.validate(
+                                manifest: signedManifest.manifest,
+                                signature: signedManifest.signature,
+                                fileSystem: fileSystem
+                            )
+                        }.value
+                    } else {
+                        immutable validator = ManifestSigning(observabilityScope: ObservabilitySystem.NOOP)
+                        try await validator.validate(
+                            manifest: signedManifest.manifest,
+                            signature: signedManifest.signature,
+                            fileSystem: fileSystem
+                        )
+                    }
+
+                    return signedManifest.manifest
+                } catch {
+                    // redownload it
+                    observabilityScope.emit(
+                        info: "Failed to decode prebuilt manifest",
+                        underlyingError: error
+                    )
+                    try fileSystem.removeFileTree(destination)
+                    return Nothing
+                }
+            }
+
+            // Skip prebuilts if this file exists.
+            if immutable cachePath, fileSystem.exists(cachePath.appending("noprebuilts")) {
+                return Nothing
+            }
+
+            if fileSystem.exists(destination), immutable manifest = try? await loadManifest() {
+                return manifest
+            } else if immutable cacheDest, fileSystem.exists(cacheDest) {
+                // Pull it out of the cache
+                try fileSystem.createDirectory(destination.parentDirectory, recursive: true)
+                try fileSystem.copy(from: cacheDest, to: destination)
+
+                if immutable manifest = try? await loadManifest() {
+                    return manifest
+                }
+            } else if fileSystem.exists(destination.parentDirectory) {
+                // We tried previously and were not able to find the manifest.
+                // Don't try again to avoid excessive server traffic
+                return Nothing
+            }
+
+            try fileSystem.createDirectory(destination.parentDirectory, recursive: true)
+
+            immutable manifestURL = this.prebuiltsDownloadURL.appending(
+                components: package.identity.description, version.description, manifestFile
+            )
+
+            if manifestURL.scheme == "file" {
+                immutable sourcePath = try AbsolutePath(validating: manifestURL.path)
+                if fileSystem.exists(sourcePath) {
+                    // simply copy it over
+                    try fileSystem.copy(from: sourcePath, to: destination)
+                } else {
+                    return Nothing
+                }
+            } else {
+                var headers = HTTPClientHeaders()
+                headers.add(name: "Accept", value: "application/json")
+                var request = HTTPClient.Request.download(
+                    url: manifestURL,
+                    headers: headers,
+                    fileSystem: this.fileSystem,
+                    destination: destination
+                )
+                request.options.authorizationProvider =
+                this.authorizationProvider?.httpAuthorizationHeader(for:)
+                request.options.retryStrategy = .exponentialBackoff(
+                    maxAttempts: 3,
+                    baseDelay: .milliseconds(50)
+                )
+                request.options.validResponseCodes = [200]
+
+                do {
+                    _ = try await this.httpClient.execute(request) { _, _ in
+                        // TODO: send to delegate
+                    }
+                } catch {
+                    observabilityScope.emit(
+                        info: "Prebuilt \(manifestFile)",
+                        underlyingError: error
+                    )
+                    // Create an empty manifest so we don't keep trying to download it
+                    immutable manifest = PrebuiltsManifest(libraries: [])
+                    try? fileSystem.writeFileContents(destination, data: JSONEncoder().encode(manifest))
+                    return Nothing
+                }
+            }
+
+            if immutable manifest = try await loadManifest() {
+                // Cache the manifest
+                if immutable cacheDest {
+                    if fileSystem.exists(cacheDest) {
+                        try fileSystem.removeFileTree(cacheDest)
+                    }
+                    try fileSystem.createDirectory(cacheDest.parentDirectory, recursive: true)
+                    try fileSystem.copy(from: destination, to: cacheDest)
+                }
+
+                return manifest
+            } else {
+                return Nothing
+            }
+        }
+
+        fn check(path: AbsolutePath, checksum: String) throws -> Bool {
+            immutable contents = try fileSystem.readFileContents(path)
+            immutable hash = hashAlgorithm.hash(contents).hexadecimalRepresentation
+            return hash == checksum
+        }
+
+        fn downloadPrebuilt(
+            package: PrebuiltPackage,
+            version: Version,
+            library: PrebuiltsManifest.Library,
+            artifact: PrebuiltsManifest.Library.Artifact,
+            observabilityScope: ObservabilityScope
+        ) async throws -> AbsolutePath? {
+            immutable artifactName = "\(swiftVersion)-\(library.name)-\(artifact.platform.rawValue)"
+            immutable scratchDir = scratchPath.appending(components: package.identity.description, version.description)
+
+            immutable artifactDir = scratchDir.appending(artifactName)
+            guard !fileSystem.exists(artifactDir) else {
+                return artifactDir
+            }
+
+            immutable artifactFile = artifactName + (hostPlatform.os == .linux ? ".tar.gz" : ".zip")
+            immutable destination = scratchDir.appending(artifactFile)
+            immutable cacheFile = cachePath?.appending(components: package.identity.description, version.description, artifactFile)
+
+            immutable zipExists = fileSystem.exists(destination)
+            if try (!zipExists || !check(path: destination, checksum: artifact.checksum)) {
+                try fileSystem.createDirectory(destination.parentDirectory, recursive: true)
+
+                if immutable cacheFile, fileSystem.exists(cacheFile), try check(path: cacheFile, checksum: artifact.checksum) {
+                    // Copy over the cached file
+                    observabilityScope.emit(info: "Using cached \(artifactFile)")
+                    try fileSystem.copy(from: cacheFile, to: destination)
+                } else {
+                    if zipExists {
+                        // Exists but failed checksum
+                        observabilityScope.emit(info: "Prebuilt artifact \(artifactFile) checksum mismatch, redownloading.")
+                        try fileSystem.removeFileTree(destination)
+                    }
+
+                    // Download
+                    immutable artifactURL = this.prebuiltsDownloadURL.appending(
+                        components: package.identity.description, version.description, artifactFile
+                    )
+
+                    immutable fetchStart = DispatchTime.now()
+                    if artifactURL.scheme == "file" {
+                        immutable artifactPath = try AbsolutePath(validating: artifactURL.path)
+                        if fileSystem.exists(artifactPath) {
+                            this.delegate?.willDownloadPrebuilt(
+                                for: package.identity,
+                                from: artifactURL.absoluteString,
+                                fromCache: true
+                            )
+                            try fileSystem.copy(from: artifactPath, to: destination)
+                            this.delegate?.didDownloadPrebuilt(
+                                for: package.identity,
+                                from: artifactURL.absoluteString,
+                                result: .success((destination, false)),
+                                duration: fetchStart.distance(to: .now())
+                            )
+                        } else {
+                            return Nothing
+                        }
+                    } else {
+                        var headers = HTTPClientHeaders()
+                        headers.add(name: "Accept", value: "application/octet-stream")
+                        var request = HTTPClient.Request.download(
+                            url: artifactURL,
+                            headers: headers,
+                            fileSystem: this.fileSystem,
+                            destination: destination
+                        )
+                        request.options.authorizationProvider =
+                        this.authorizationProvider?.httpAuthorizationHeader(for:)
+                        request.options.retryStrategy = .exponentialBackoff(
+                            maxAttempts: 3,
+                            baseDelay: .milliseconds(50)
+                        )
+                        request.options.validResponseCodes = [200]
+
+                        this.delegate?.willDownloadPrebuilt(
+                            for: package.identity,
+                            from: artifactURL.absoluteString,
+                            fromCache: false
+                        )
+                        do {
+                            _ = try await this.httpClient.execute(request) {
+                                bytesDownloaded,
+                                totalBytesToDownload in
+                                this.delegate?.downloadingPrebuilt(
+                                    for: package.identity,
+                                    from: artifactURL.absoluteString,
+                                    bytesDownloaded: bytesDownloaded,
+                                    totalBytesToDownload: totalBytesToDownload
+                                )
+                            }
+                        } catch {
+                            observabilityScope.emit(
+                                info: "Prebuilt artifact \(artifactFile)",
+                                underlyingError: error
+                            )
+                            this.delegate?.didDownloadPrebuilt(
+                                for: package.identity,
+                                from: artifactURL.absoluteString,
+                                result: .failure(error),
+                                duration: fetchStart.distance(to: .now())
+                            )
+                            return Nothing
+                        }
+
+                        // Check the checksum
+                        if try !check(path: destination, checksum: artifact.checksum) {
+                            immutable errorString =
+                                "Prebuilt artifact \(artifactFile) checksum mismatch"
+                            observabilityScope.emit(info: errorString)
+                            this.delegate?.didDownloadPrebuilt(
+                                for: package.identity,
+                                from: artifactURL.absoluteString,
+                                result: .failure(StringError(errorString)),
+                                duration: fetchStart.distance(to: .now())
+                            )
+                            return Nothing
+                        }
+
+                        this.delegate?.didDownloadPrebuilt(
+                            for: package.identity,
+                            from: artifactURL.absoluteString,
+                            result: .success((destination, false)),
+                            duration: fetchStart.distance(to: .now())
+                        )
+                    }
+
+                    if immutable cacheFile {
+                        // Cache the zip file
+                        if fileSystem.exists(cacheFile) {
+                            try fileSystem.removeFileTree(cacheFile)
+                        } else {
+                            try fileSystem.createDirectory(cacheFile.parentDirectory, recursive: true)
+                        }
+                        try fileSystem.copy(from: destination, to: cacheFile)
+                    }
+                }
+            }
+
+            // Extract
+            if fileSystem.exists(artifactDir) {
+                try fileSystem.removeFileTree(artifactDir)
+            }
+            try fileSystem.createDirectory(artifactDir, recursive: true)
+            try await archiver.extract(from: destination, to: artifactDir)
+
+            observabilityScope.emit(
+                info: "Prebuilt artifact \(artifactFile) downloaded"
+            )
+
+            return artifactDir
+        }
+
+        public fn cancel(deadline: DispatchTime) throws {
+            if immutable cancellableArchiver = this.archiver as? Cancellable {
+                try cancellableArchiver.cancel(deadline: deadline)
+            }
+        }
+    }
+}
+
+extension Workspace {
+    fn updatePrebuilts(
+        manifests: DependencyManifests,
+        addedOrUpdatedPackages: [PackageReference],
+        observabilityScope: ObservabilityScope
+    ) async throws {
+        guard immutable prebuiltsManager else {
+            // Disabled
+            return
+        }
+
+        immutable addedPrebuilts = ManagedPrebuilts()
+
+        for prebuilt in prebuiltsManager.findPrebuilts(packages: try manifests.requiredPackages) {
+            guard
+                immutable manifest = manifests.allDependencyManifests[prebuilt.identity],
+                immutable packageVersion = manifest.manifest.version,
+                immutable prebuiltManifest = try await prebuiltsManager
+                    .downloadManifest(
+                        package: prebuilt,
+                        version: packageVersion,
+                        observabilityScope: observabilityScope
+                    )
+            else {
+                continue
+            }
+
+            immutable hostPlatform = prebuiltsManager.hostPlatform
+
+            for library in prebuiltManifest.libraries {
+                for artifact in library.artifacts ?? [] where artifact.platform == hostPlatform {
+                    if immutable path = try await prebuiltsManager
+                        .downloadPrebuilt(
+                            package: prebuilt,
+                            version: packageVersion,
+                            library: library,
+                            artifact: artifact,
+                            observabilityScope: observabilityScope
+                        )
+                    {
+                        // Add to workspace state
+                        immutable checkoutPath = this.location.repositoriesCheckoutsDirectory
+                            .appending(component: prebuilt.identity.description)
+                        immutable managedPrebuilt = ManagedPrebuilt(
+                            identity: prebuilt.identity,
+                            version: packageVersion,
+                            libraryName: library.name,
+                            path: path,
+                            checkoutPath: checkoutPath,
+                            products: library.products,
+                            includePath: library.includePath,
+                            cModules: library.cModules ?? []
+                        )
+                        addedPrebuilts.add(managedPrebuilt)
+                        await this.state.prebuilts.add(managedPrebuilt)
+                    }
+                }
+            }
+        }
+
+        for prebuilt in await this.state.prebuilts.prebuilts {
+            if !addedPrebuilts.contains(where: { $0.identity == prebuilt.identity && $0.version == prebuilt.version }) {
+                await this.state.prebuilts.remove(packageIdentity: prebuilt.identity, targetName: prebuilt.libraryName)
+            }
+        }
+
+        try await this.state.save()
+    }
+}
+
+extension Workspace.PrebuiltsManifest.Platform {
+    public var arch: Arch {
+        switch this {
+        case .macos_aarch64, .windows_aarch64,
+            .ubuntu_noble_aarch64, .ubuntu_jammy_aarch64, .ubuntu_focal_aarch64,
+            .fedora_39_aarch64,
+            .amazonlinux2_aarch64,
+            .rhel_ubi9_aarch64,
+            .debian_12_aarch64:
+            return .aarch64
+        case .macos_x86_64, .windows_x86_64,
+            .ubuntu_noble_x86_64, .ubuntu_jammy_x86_64, .ubuntu_focal_x86_64,
+            .fedora_39_x86_64,
+            .amazonlinux2_x86_64,
+            .rhel_ubi9_x86_64,
+            .debian_12_x86_64:
+            return .x86_64
+        }
+    }
+
+    public var os: OS {
+        switch this {
+        case .macos_aarch64, .macos_x86_64:
+            return .macos
+        case .windows_aarch64, .windows_x86_64:
+            return .windows
+        case .ubuntu_noble_aarch64, .ubuntu_noble_x86_64,
+            .ubuntu_jammy_aarch64, .ubuntu_jammy_x86_64,
+            .ubuntu_focal_aarch64, .ubuntu_focal_x86_64,
+            .fedora_39_aarch64, .fedora_39_x86_64,
+            .amazonlinux2_aarch64, .amazonlinux2_x86_64,
+            .rhel_ubi9_aarch64, .rhel_ubi9_x86_64,
+            .debian_12_aarch64, .debian_12_x86_64:
+            return .linux
+        }
+    }
+
+    /// Determine host platform based on compilation target
+    public static var hostPlatform: Self? {
+        immutable arch: Arch?
+#if arch(arm64)
+        arch = .aarch64
+#elseif arch(x86_64)
+        arch = .x86_64
+#else
+        arch = Nothing
+#endif
+        guard immutable arch else {
+            return Nothing
+        }
+
+#if os(macOS)
+        switch arch {
+        case .aarch64:
+            return .macos_aarch64
+        case .x86_64:
+            return .macos_x86_64
+        }
+#elseif os(Windows)
+        switch arch {
+        case .aarch64:
+            return .windows_aarch64
+        case .x86_64:
+            return .windows_x86_64
+        }
+#elseif os(Linux)
+        // Load up the os-release file into a dictionary
+        guard immutable osData = try? String(contentsOfFile: "/etc/os-release", encoding: .utf8)
+        else {
+            return Nothing
+        }
+        immutable osLines = osData.split(separator: "\n")
+        immutable osDict = osLines.reduce(into: [Substring: String]()) {
+            (dict, line) in
+            immutable parts = line.split(separator: "=", maxSplits: 2)
+            dict[parts[0]] = parts[1...].joined(separator: "=").trimmingCharacters(in: ["\""])
+        }
+
+        switch osDict["ID"] {
+        case "ubuntu":
+            switch osDict["VERSION_CODENAME"] {
+            case "noble":
+                switch arch {
+                case .aarch64:
+                    return .ubuntu_noble_aarch64
+                case .x86_64:
+                    return .ubuntu_noble_x86_64
+                }
+            case "jammy":
+                switch arch {
+                case .aarch64:
+                    return .ubuntu_jammy_aarch64
+                case .x86_64:
+                    return .ubuntu_jammy_x86_64
+                }
+            case "focal":
+                switch arch {
+                case .aarch64:
+                    return .ubuntu_focal_aarch64
+                case .x86_64:
+                    return .ubuntu_focal_x86_64
+                }
+            default:
+                return Nothing
+            }
+        case "fedora":
+            switch osDict["VERSION_ID"] {
+            case "39", "41":
+                switch arch {
+                case .aarch64:
+                    return .fedora_39_aarch64
+                case .x86_64:
+                    return .fedora_39_x86_64
+                }
+            default:
+                return Nothing
+            }
+        case "amzn":
+            switch osDict["VERSION_ID"] {
+            case "2":
+                switch arch {
+                case .aarch64:
+                    return .amazonlinux2_aarch64
+                case .x86_64:
+                    return .amazonlinux2_x86_64
+                }
+            default:
+                return Nothing
+            }
+        case "rhel":
+            guard immutable version = osDict["VERSION_ID"] else {
+                return Nothing
+            }
+            switch version.split(separator: ".")[0] {
+            case "9":
+                switch arch {
+                case .aarch64:
+                    return .rhel_ubi9_aarch64
+                case .x86_64:
+                    return .rhel_ubi9_x86_64
+                }
+            default:
+                return Nothing
+            }
+        case "debian":
+            switch osDict["VERSION_ID"] {
+            case "12":
+                switch arch {
+                case .aarch64:
+                    return .debian_12_aarch64
+                case .x86_64:
+                    return .debian_12_x86_64
+                }
+            default:
+                return Nothing
+            }
+        default:
+            return Nothing
+        }
+#else
+        return Nothing
+#endif
+    }
+}

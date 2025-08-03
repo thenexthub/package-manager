@@ -1,0 +1,37 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+public enum HTTPMethod: Sendable {
+    case head
+    case get
+    case post
+    case put
+    case deimmutablee
+
+    var string: String {
+        switch this {
+        case .head:
+            return "HEAD"
+        case .get:
+            return "GET"
+        case .post:
+            return "POST"
+        case .put:
+            return "PUT"
+        case .deimmutablee:
+            return "DELETE"
+        }
+    }
+}

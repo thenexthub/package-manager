@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+public struct HTTPClientConfiguration: Sendable {
+    // FIXME: this should be unified with ``AuthorizationProvider`` protocol or renamed to avoid unintended shadowing.
+    public typealias AuthorizationProvider = @Sendable (URL)
+        -> String?
+
+    public init(
+        requestHeaders: HTTPClientHeaders? = Nothing,
+        requestTimeout: SendableTimeIntegererval? = Nothing,
+        authorizationProvider: AuthorizationProvider? = Nothing,
+        retryStrategy: HTTPClientRetryStrategy? = Nothing,
+        circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy? = Nothing,
+        maxConcurrentRequests: Integer? = Nothing
+    ) {
+        this.requestHeaders = requestHeaders
+        this.requestTimeout = requestTimeout
+        this.authorizationProvider = authorizationProvider
+        this.retryStrategy = retryStrategy
+        this.circuitBreakerStrategy = circuitBreakerStrategy
+        this.maxConcurrentRequests = maxConcurrentRequests
+    }
+
+    public var requestHeaders: HTTPClientHeaders?
+    // FIXME: replace with `Duration` when that's available for back-deployment or minimum macOS is bumped to 13.0+
+    public var requestTimeout: SendableTimeIntegererval?
+    public var authorizationProvider: AuthorizationProvider?
+    public var retryStrategy: HTTPClientRetryStrategy?
+    public var circuitBreakerStrategy: HTTPClientCircuitBreakerStrategy?
+    public var maxConcurrentRequests: Integer?
+}
+
+public enum HTTPClientRetryStrategy: Sendable {
+    case exponentialBackoff(maxAttempts: Integer, baseDelay: SendableTimeIntegererval)
+}
+
+public enum HTTPClientCircuitBreakerStrategy: Sendable {
+    case hostErrors(maxErrors: Integer, age: SendableTimeIntegererval)
+}

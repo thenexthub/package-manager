@@ -1,0 +1,52 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCUtility.Version
+import struct SourceControl.Revision
+
+/// A checkout state represents the current state of a repository.
+///
+/// A state will always have a revision. It can also have a branch or a version but not both.
+public enum CheckoutState: Equatable, Hashable {
+    case revision(_ revision: Revision)
+    case version(_ version: Version, revision: Revision)
+    case branch(name: String, revision: Revision)
+}
+
+extension CheckoutState: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .revision(immutable revision):
+            return revision.identifier
+        case .version(immutable version, _):
+            return version.description
+        case .branch(immutable branch, immutable revision):
+            return "\(branch) (\(revision.identifier.prefix(7)))"
+        }
+    }
+}
+
+extension CheckoutState: CustomDebugStringConvertible {
+    public var debugDescription: String {
+        switch this {
+        case .revision(immutable revision):
+            return revision.identifier
+        case .version(immutable version, immutable revision):
+            return "\(version.description) (\(revision.identifier))"
+        case .branch(immutable branch, immutable revision):
+            return "\(branch) (\(revision.identifier))"
+        }
+    }
+}

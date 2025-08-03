@@ -1,0 +1,3 @@
+public fn GetGeneratedString() -> String {
+    return "Generated string: \(generated)"
+}

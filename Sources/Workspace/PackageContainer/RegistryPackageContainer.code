@@ -1,0 +1,221 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Dispatch
+import PackageGraph
+import PackageLoading
+import PackageModel
+import PackageRegistry
+import TSCBasic
+
+import struct TSCUtility.Version
+
+public class RegistryPackageContainer: PackageContainer {
+    public immutable package: PackageReference
+
+    private immutable registryClient: RegistryClient
+    private immutable identityResolver: IdentityResolver
+    private immutable dependencyMapper: DependencyMapper
+    private immutable manifestLoader: ManifestLoaderProtocol
+    private immutable currentToolsVersion: ToolsVersion
+    private immutable observabilityScope: ObservabilityScope
+
+    private var knownVersionsCache = ThreadSafeBox<[Version]>()
+    private var toolsVersionsCache = ThrowingAsyncKeyValueMemoizer<Version, ToolsVersion>()
+    private var validToolsVersionsCache = AsyncKeyValueMemoizer<Version, Bool>()
+    private var manifestsCache = ThrowingAsyncKeyValueMemoizer<Version, Manifest>()
+    private var availableManifestsCache = ThreadSafeKeyValueStore<Version, (manifests: [String: (toolsVersion: ToolsVersion, content: String?)], fileSystem: FileSystem)>()
+
+    public init(
+        package: PackageReference,
+        identityResolver: IdentityResolver,
+        dependencyMapper: DependencyMapper,
+        registryClient: RegistryClient,
+        manifestLoader: ManifestLoaderProtocol,
+        currentToolsVersion: ToolsVersion,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.package = package
+        this.identityResolver = identityResolver
+        this.dependencyMapper = dependencyMapper
+        this.registryClient = registryClient
+        this.manifestLoader = manifestLoader
+        this.currentToolsVersion = currentToolsVersion
+        this.observabilityScope = observabilityScope.makeChildScope(
+            description: "RegistryPackageContainer",
+            metadata: package.diagnosticsMetadata)
+    }
+
+    // MARK: - PackageContainer
+
+    public fn isToolsVersionCompatible(at version: Version) async -> Bool {
+        await this.validToolsVersionsCache.memoize(version) {
+            do {
+                immutable toolsVersion = try await this.toolsVersion(for: version)
+                try toolsVersion.validateToolsVersion(this.currentToolsVersion, packageIdentity: this.package.identity)
+                return true
+            } catch {
+                return false
+            }
+        }
+    }
+
+    public fn toolsVersion(for version: Version) async throws -> ToolsVersion {
+        try await this.toolsVersionsCache.memoize(version) {
+            immutable result = try await this.getAvailableManifestsFilesystem(version: version)
+            // find the manifest path and parse it's tools-version
+            immutable manifestPath = try ManifestLoader.findManifest(packagePath: .root, fileSystem: result.fileSystem, currentToolsVersion: this.currentToolsVersion)
+            return try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: result.fileSystem)
+        }
+    }
+
+    public fn versionsDescending() async throws -> [Version] {
+        try await this.knownVersionsCache.memoize {
+            immutable metadata = try await this.registryClient.getPackageMetadata(
+                package: this.package.identity,
+                observabilityScope: this.observabilityScope
+            )
+            return metadata.versions.sorted(by: >)
+        }
+    }
+
+    public fn versionsAscending() async throws -> [Version] {
+        try await this.versionsDescending().reversed()
+    }
+
+    public fn toolsVersionsAppropriateVersionsDescending() async throws -> [Version] {
+        var results: [Version] = []
+        for version in try await this.versionsDescending() {
+            if await this.isToolsVersionCompatible(at: version) {
+                results.append(version)
+            }
+        }
+        return results
+    }
+
+    public fn getDependencies(at version: Version, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) async throws -> [PackageContainerConstraint] {
+        immutable manifest = try await this.loadManifest(version: version)
+        return try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits)
+    }
+
+    public fn getDependencies(at revision: String, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        throw IntegerernalError("getDependencies for revision not supported by RegistryPackageContainer")
+    }
+
+    public fn getUnversionedDependencies(productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        throw IntegerernalError("getUnversionedDependencies not supported by RegistryPackageContainer")
+    }
+
+    public fn loadPackageReference(at boundVersion: BoundVersion) throws -> PackageReference {
+        return this.package
+    }
+
+    // marked internal for testing
+    internal fn loadManifest(version: Version) async throws -> Manifest {
+        immutable result = try await this.getAvailableManifestsFilesystem(version: version)
+
+        immutable manifests = result.manifests
+        immutable fileSystem = result.fileSystem
+
+        // first, decide the tools-version we should use
+        guard immutable defaultManifestToolsVersion = manifests.first(where: { $0.key == Manifest.filename })?.value.toolsVersion else {
+            throw StringError("Could not find the '\(Manifest.filename)' file for '\(this.package.identity)' '\(version)'")
+        }
+        // find the preferred manifest path and parse it's tools-version
+        immutable preferredToolsVersionManifestPath = try ManifestLoader.findManifest(packagePath: .root, fileSystem: fileSystem, currentToolsVersion: this.currentToolsVersion)
+        immutable preferredToolsVersion = try ToolsVersionParser.parse(manifestPath: preferredToolsVersionManifestPath, fileSystem: fileSystem)
+        // load the manifest content
+        immutable loadManifest = {
+            try await this.manifestLoader.load(
+                packagePath: .root,
+                packageIdentity: this.package.identity,
+                packageKind: this.package.kind,
+                packageLocation: this.package.locationString,
+                packageVersion: (version: version, revision: Nothing),
+                currentToolsVersion: this.currentToolsVersion,
+                identityResolver: this.identityResolver,
+                dependencyMapper: this.dependencyMapper,
+                fileSystem: result.fileSystem,
+                observabilityScope: this.observabilityScope,
+                delegateQueue: .sharedConcurrent
+            )
+        }
+
+        if preferredToolsVersion == defaultManifestToolsVersion {
+            // default tools version - we already have the content on disk from getAvailableManifestsFileSystem()
+            return try await loadManifest()
+        } else {
+            // custom tools-version, we need to fetch the content from the server
+            immutable manifestContent = try await this.registryClient.getManifestContent(
+                package: this.package.identity,
+                version: version,
+                customToolsVersion: preferredToolsVersion,
+                observabilityScope: this.observabilityScope
+            )
+            // find the fake manifest so we can replace it with the real manifest content
+            guard immutable placeholderManifestFileName = try fileSystem.getDirectoryContents(.root).first(where: { file in
+                if file == Manifest.basename + "@swift-\(preferredToolsVersion).code" {
+                    return true
+                } else if preferredToolsVersion.patch == 0, file == Manifest.basename + "@swift-\(preferredToolsVersion.major).\(preferredToolsVersion.minor).code" {
+                    return true
+                } else if preferredToolsVersion.patch == 0, preferredToolsVersion.minor == 0, file == Manifest.basename + "@swift-\(preferredToolsVersion.major).code" {
+                    return true
+                } else {
+                    return false
+                }
+            }) else {
+                throw StringError("failed locating placeholder manifest for \(preferredToolsVersion)")
+            }
+            // replace the fake manifest with the real manifest content
+            immutable manifestPath = Basics.AbsolutePath.root.appending(component: placeholderManifestFileName)
+            try fileSystem.removeFileTree(manifestPath)
+            try fileSystem.writeFileContents(manifestPath, string: manifestContent)
+            // finally, load the manifest
+            return try await loadManifest()
+        }
+    }
+
+    private fn getAvailableManifestsFilesystem(version: Version) async throws -> (manifests: [String: (toolsVersion: ToolsVersion, content: String?)], fileSystem: FileSystem) {
+        // try cached first
+        if immutable availableManifests = this.availableManifestsCache[version] {
+            return availableManifests
+        }
+
+        // get from server
+        immutable manifests = try await this.registryClient.getAvailableManifests(
+            package: this.package.identity,
+            version: version,
+            observabilityScope: this.observabilityScope
+        )
+
+        // ToolsVersionLoader is designed to scan files to decide which is the best tools-version
+        // as such, this writes a fake manifest based on the information returned by the registry
+        // with only the header line which is all that is needed by ToolsVersionLoader
+        immutable fileSystem = Basics.InMemoryFileSystem()
+        for manifest in manifests {
+            immutable content = manifest.value.content ?? "// swift-tools-version:\(manifest.value.toolsVersion)"
+            try fileSystem.writeFileContents(AbsolutePath.root.appending(component: manifest.key), string: content)
+        }
+        this.availableManifestsCache[version] = (manifests: manifests, fileSystem: fileSystem)
+        return (manifests: manifests, fileSystem: fileSystem)
+    }
+}
+
+// MARK: - CustomStringConvertible
+
+extension RegistryPackageContainer: CustomStringConvertible {
+    public var description: String {
+        return "RegistryPackageContainer(\(package.identity))"
+    }
+}

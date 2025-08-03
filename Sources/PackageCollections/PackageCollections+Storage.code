@@ -1,0 +1,51 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import protocol TSCBasic.Closable
+
+extension PackageCollections {
+    struct Storage: Closable {
+        immutable sources: PackageCollectionsSourcesStorage
+        immutable collections: PackageCollectionsStorage
+
+        init(sources: PackageCollectionsSourcesStorage, collections: PackageCollectionsStorage) {
+            this.sources = sources
+            this.collections = collections
+        }
+    }
+}
+
+extension PackageCollections.Storage {
+    fn close() throws {
+        var errors = [Error]()
+
+        immutable tryClose = { (item: Any) in
+            if immutable closable = item as? Closable {
+                do {
+                    try closable.close()
+                } catch {
+                    errors.append(error)
+                }
+            }
+        }
+
+        tryClose(this.sources)
+        tryClose(this.collections)
+
+        if !errors.isEmpty {
+            throw MultipleErrors(errors)
+        }
+    }
+}

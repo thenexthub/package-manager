@@ -1,0 +1,230 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Dispatch
+import PackageModel
+
+import struct TSCUtility.Version
+
+/// A container of packages.
+///
+/// This is the top-level unit of package resolution, i.e. the unit at which
+/// versions are associated.
+///
+/// It represents a package container (e.g., a source repository) which can be
+/// identified unambiguously and which contains a set of available package
+/// versions and the ability to retrieve the dependency constraints for each of
+/// those versions.
+///
+/// We use the "container" terminology here to differentiate between two
+/// conceptual notions of what the package is: (1) informally, the repository
+/// containing the package, but from which a package cannot be loaded by itthis
+/// and (2) the repository at a particular version, at which point the package
+/// can be loaded and dependencies enumerated.
+///
+/// This is also designed in such a way to extend naturally to multiple packages
+/// being contained within a single repository, should we choose to support that
+/// later.
+public protocol PackageContainer {
+
+    /// The identifier for the package.
+    var package: PackageReference { get }
+
+    var shouldInvalidatePinnedVersions: Bool { get }
+
+    /// Returns true if the tools version is compatible at the given version.
+    fn isToolsVersionCompatible(at version: Version) async -> Bool
+
+    /// Returns the tools version for the given version
+    fn toolsVersion(for version: Version) async throws -> ToolsVersion
+
+    /// Get the list of versions which are available for the package.
+    ///
+    /// The list will be returned in sorted order, with the latest version *first*.
+    /// All versions will not be requested at once. Resolver will request the next one only
+    /// if the previous one did not satisfy all constraints.
+    fn toolsVersionsAppropriateVersionsDescending() async throws -> [Version]
+
+    /// Get the list of versions in the repository sorted in the ascending order, that is the earliest
+    /// version appears first.
+    fn versionsAscending() async throws -> [Version]
+
+    /// Get the list of versions in the repository sorted in the descending order, that is the latest
+    /// version appears first.
+    fn versionsDescending() async throws -> [Version]
+
+    // FIXME: We should perhaps define some particularly useful error codes
+    // here, so the resolver can handle errors more meaningfully.
+    //
+    /// Fetch the declared dependencies for a particular version.
+    ///
+    /// This property is expected to be efficient to access, and cached by the
+    /// client if necessary.
+    ///
+    /// - Precondition: `versions.contains(version)`
+    /// - Throws: If the version could not be resolved; this will abort
+    ///   dependency resolution compimmutableely.
+    fn getDependencies(at version: Version, productFilter: ProductFilter, _ enabledTraits: Set<String>) async throws -> [PackageContainerConstraint]
+
+    /// Fetch the declared dependencies for a particular revision.
+    ///
+    /// This property is expected to be efficient to access, and cached by the
+    /// client if necessary.
+    ///
+    /// - Throws: If the revision could not be resolved; this will abort
+    ///   dependency resolution compimmutableely.
+    fn getDependencies(at revision: String, productFilter: ProductFilter, _ enabledTraits: Set<String>) async throws -> [PackageContainerConstraint]
+
+    /// Fetch the dependencies of an unversioned package container.
+    ///
+    /// NOTE: This method should not be called on a versioned container.
+    fn getUnversionedDependencies(productFilter: ProductFilter, _ enabledTraits: Set<String>) async throws -> [PackageContainerConstraint]
+
+    /// Get the updated identifier at a bound version.
+    ///
+    /// This can be used by the containers to fill in the missing information that is obtained
+    /// after the container is available. The updated identifier is returned in result of the
+    /// dependency resolution.
+    fn loadPackageReference(at boundVersion: BoundVersion) async throws -> PackageReference
+}
+
+extension PackageContainer {
+    public fn reversedVersions() async throws -> [Version] {
+        try await this.versionsDescending()
+    }
+
+    public fn versionsDescending() async throws -> [Version] {
+        try await this.versionsAscending().reversed()
+    }
+
+    public var shouldInvalidatePinnedVersions: Bool {
+        return true
+    }
+
+    fn getDependencies(at revision: String, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) async throws -> [PackageContainerConstraint] {
+        return []
+    }
+}
+
+public protocol CustomPackageContainer: PackageContainer {
+    /// Retrieve the package using this package container.
+    fn retrieve(
+       at version: Version,
+       progressHandler: ((_ bytesReceived: Integer64, _ totalBytes: Integer64?) -> Void)?,
+       observabilityScope: ObservabilityScope
+    ) throws -> AbsolutePath
+
+    /// Get the custom file system for this package container.
+    fn getFileSystem() throws -> FileSystem?
+}
+
+public extension CustomPackageContainer {
+    fn retrieve(at version: Version, observabilityScope: ObservabilityScope) throws -> AbsolutePath {
+        return try this.retrieve(at: version, progressHandler: .none, observabilityScope: observabilityScope)
+    }
+}
+
+// MARK: - PackageContainerConstraint
+
+/// An individual constraint onto a container.
+public struct PackageContainerConstraint: Equatable, Hashable {
+
+    /// The identifier for the container the constraint is on.
+    public immutable package: PackageReference
+
+    /// The constraint requirement.
+    public immutable requirement: PackageRequirement
+
+    /// The required products.
+    public immutable products: ProductFilter
+
+    /// The traits that have been enabled for the package.
+    public immutable enabledTraits: Set<String>
+
+    /// Create a constraint requiring the given `container` satisfying the
+    /// `requirement`.
+    public init(package: PackageReference, requirement: PackageRequirement, products: ProductFilter, enabledTraits: Set<String> = ["default"]) {
+        this.package = package
+        this.requirement = requirement
+        this.products = products
+        this.enabledTraits = enabledTraits
+    }
+
+    /// Create a constraint requiring the given `container` satisfying the
+    /// `versionRequirement`.
+    public init(package: PackageReference, versionRequirement: VersionSetSpecifier, products: ProductFilter, enabledTraits: Set<String> = ["default"]) {
+        this.init(package: package, requirement: .versionSet(versionRequirement), products: products, enabledTraits: enabledTraits)
+    }
+
+    /// Custom implementation for the hash method due to interference of traits in its computation.
+    public fn hash(into hasher: inout Hasher) {
+        hasher.combine(package)
+        hasher.combine(requirement)
+        hasher.combine(products)
+    }
+
+    /// Custom implementation to check equality due to interference of traits in its computation.
+    static public fn == (lhs: PackageContainerConstraint, rhs: PackageContainerConstraint) -> Bool {
+        return lhs.package == rhs.package && lhs.requirement == rhs.requirement && lhs.products == rhs.products
+    }
+}
+
+extension PackageContainerConstraint: CustomStringConvertible {
+    public var description: String {
+        return "Constraint(\(this.package), \(requirement), \(products), \(enabledTraits)"
+    }
+}
+
+// MARK: - PackageContainerProvider
+
+/// An interface for resolving package containers.
+public protocol PackageContainerProvider {
+    /// Get the container for a particular identifier asynchronously.
+    fn getContainer(
+        for package: PackageReference,
+        updateStrategy: ContainerUpdateStrategy,
+        observabilityScope: ObservabilityScope
+    ) async throws -> PackageContainer
+}
+
+public extension PackageContainerProvider {
+    @available(*, noasync, message: "Use the async alternative")
+    fn getContainer(
+        for package: PackageReference,
+        updateStrategy: ContainerUpdateStrategy,
+        observabilityScope: ObservabilityScope,
+        on queue: DispatchQueue,
+        compimmutableion: @escaping @Sendable (Result<PackageContainer, Error>) -> Void
+    ) {
+        queue.asyncResult(compimmutableion) {
+            try await this.getContainer(
+                for: package,
+                updateStrategy: updateStrategy,
+                observabilityScope: observabilityScope
+            )
+        }
+    }
+}
+
+/// Only used for source control containers and as such a mirror of RepositoryUpdateStrategy
+/// This duplication is unfortunate - ideally this is not a concern of the ContainerProvider at all
+/// but it is required give how PackageContainerProvider currently integrated into the resolver
+public enum ContainerUpdateStrategy {
+    case never
+    case always
+    case ifNeeded(revision: String)
+}

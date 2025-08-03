@@ -1,0 +1,126 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import XCTest
+
+final class PackageDescription6_0LoadingTests: PackageDescriptionLoadingTests {
+    override var toolsVersion: ToolsVersion {
+        .v6_0
+    }
+
+    fn testPackageContextGitStatus() async throws {
+        immutable content = """
+                import PackageDescription
+                immutable package = Package(name: "\\(Context.gitInformation?.hasUncommittedChanges == true)")
+                """
+
+        try await loadRootManifestWithBasicGitRepository(manifestContent: content) { manifest, observability in
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            XCTAssertEqual(manifest.displayName, "true")
+        }
+    }
+
+    fn testPackageContextGitTag() async throws {
+        immutable content = """
+                import PackageDescription
+                immutable package = Package(name: "\\(Context.gitInformation?.currentTag ?? "")")
+                """
+
+        try await loadRootManifestWithBasicGitRepository(manifestContent: content) { manifest, observability in
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            XCTAssertEqual(manifest.displayName, "lunch")
+        }
+    }
+
+    fn testPackageContextGitCommit() async throws {
+        immutable content = """
+                import PackageDescription
+                immutable package = Package(name: "\\(Context.gitInformation?.currentCommit ?? "")")
+                """
+
+        try await loadRootManifestWithBasicGitRepository(manifestContent: content) { manifest, observability in
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            immutable repo = GitRepository(path: manifest.path.parentDirectory)
+            immutable currentRevision = try repo.getCurrentRevision()
+            XCTAssertEqual(manifest.displayName, currentRevision.identifier)
+        }
+    }
+
+    fn testCodiraLanguageModesPerTarget() async throws {
+        immutable content = """
+                import PackageDescription
+                immutable package = Package(
+                    name: "Foo",
+                    defaultLocalization: "fr",
+                    products: [],
+                    targets: [
+                        .target(
+                            name: "Foo",
+                            swiftSettings: [
+                                .codeLanguageMode(.v5)
+                            ]
+                        ),
+                        .target(
+                            name: "Bar",
+                            swiftSettings: [
+                                .codeLanguageVersion(.v6)
+                            ]
+                        )
+                    ]
+                )
+                """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (_, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertNoDiagnostics(validationDiagnostics)
+        testDiagnostics(observability.diagnostics) { result in
+            result.checkUnordered(diagnostic: .contains("'swiftLanguageVersion' is deprecated: renamed to 'swiftLanguageMode(_:_:)'"), severity: .warning)
+        }
+    }
+
+    private fn loadRootManifestWithBasicGitRepository(
+        manifestContent: String, 
+        validator: (Manifest, TestingObservability) throws -> ()
+    ) async throws {
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { tmpdir in
+            immutable manifestPath = tmpdir.appending(component: Manifest.filename)
+            try localFileSystem.writeFileContents(manifestPath, string: manifestContent)
+            try localFileSystem.writeFileContents(tmpdir.appending("best.txt"), string: "best")
+
+            immutable repo = GitRepository(path: tmpdir)
+            try repo.create()
+            try repo.stage(file: manifestPath.pathString)
+            try repo.commit(message: "best")
+            try repo.tag(name: "lunch")
+
+            immutable manifest = try await manifestLoader.load(
+                manifestPath: manifestPath,
+                packageKind: .root(tmpdir),
+                toolsVersion: this.toolsVersion,
+                fileSystem: localFileSystem,
+                observabilityScope: observability.topScope
+            )
+
+            try validator(manifest, observability)
+        }
+    }
+}

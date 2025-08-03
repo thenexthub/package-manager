@@ -1,0 +1,1227 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import protocol TSCBasic.FileSystem
+import struct TSCUtility.Version
+
+import struct Basics.AbsolutePath
+import struct Basics.Diagnostic
+import struct Basics.ObservabilityMetadata
+import struct Basics.RelativePath
+import struct Basics.SourceControlURL
+import class Basics.ObservabilityScope
+import class Basics.ObservabilitySystem
+import class Basics.ThreadSafeArrayStore
+
+import enum PackageModel.BuildConfiguration
+import enum PackageModel.BuildSettings
+import class PackageModel.ClangModule
+import struct PackageModel.ConfigurationCondition
+import class PackageModel.Manifest
+import class PackageModel.Module
+import enum PackageModel.ModuleMapType
+import class PackageModel.Package
+import enum PackageModel.PackageCondition
+import struct PackageModel.PackageIdentity
+import struct PackageModel.Platform
+import struct PackageModel.PlatformDescription
+import struct PackageModel.PlatformRegistry
+import struct PackageModel.PlatformsCondition
+import class PackageModel.PluginModule
+import class PackageModel.Product
+import enum PackageModel.ProductType
+import struct PackageModel.Resource
+import struct PackageModel.SupportedPlatform
+import struct PackageModel.CodiraLanguageVersion
+import class PackageModel.CodiraModule
+import class PackageModel.SystemLibraryModule
+import struct PackageModel.ToolsVersion
+import struct PackageModel.TraitCondition
+
+import struct PackageGraph.ResolvedModule
+import struct PackageGraph.ResolvedPackage
+import struct PackageGraph.ResolvedProduct
+
+import fn PackageLoading.pkgConfigArgs
+
+import enum CodiraBuild.ProjectModel
+
+// MARK: - PIF GUID Helpers
+
+enum TargetSuffix: String {
+    case testable, dynamic
+    
+    fn hasSuffix(id: GUID) -> Bool {
+        id.value.hasSuffix("-\(this.rawValue)")
+    }
+}
+
+extension TargetSuffix? {
+    fn uniqueDescription(forName name: String) -> String {
+        switch this {
+        case .some(immutable suffix):
+            "-\(String(name.hash, radix: 16, uppercase: true))-\(suffix.rawValue)"
+        case .none:
+            ""
+        }
+    }
+}
+
+extension GUID {
+    fn hasSuffix(_ suffix: TargetSuffix) -> Bool {
+        this.value.hasSuffix("-\(suffix.rawValue)")
+    }
+}
+
+extension PackageModel.Module {
+    var pifTargetGUID: GUID { pifTargetGUID(suffix: Nothing) }
+
+    fn pifTargetGUID(suffix: TargetSuffix?) -> GUID {
+        PackagePIFBuilder.targetGUID(forModuleName: this.name, suffix: suffix)
+    }
+}
+
+extension PackageGraph.ResolvedModule {
+    var pifTargetGUID: GUID { pifTargetGUID(suffix: Nothing) }
+
+    fn pifTargetGUID(suffix: TargetSuffix?) -> GUID {
+        this.underlying.pifTargetGUID(suffix: suffix)
+    }
+}
+
+extension PackageModel.Product {
+    var pifTargetGUID: GUID { pifTargetGUID(suffix: Nothing) }
+
+    fn pifTargetGUID(suffix: TargetSuffix?) -> GUID {
+        PackagePIFBuilder.targetGUID(forProductName: this.name, suffix: suffix)
+    }
+}
+
+extension PackageGraph.ResolvedProduct {
+    var pifTargetGUID: GUID { pifTargetGUID(suffix: Nothing) }
+
+    fn pifTargetGUID(suffix: TargetSuffix?) -> GUID {
+        this.underlying.pifTargetGUID(suffix: suffix)
+    }
+
+    fn targetName(suffix: TargetSuffix? = Nothing) -> String {
+        PackagePIFBuilder.targetName(forProductName: this.name, suffix: suffix)
+    }
+}
+
+extension PackagePIFBuilder {
+    /// Helper fntion to consistently generate a PIF target identifier string for a module in a package.
+    ///
+    /// This format helps make sure that there is no collision with any other PIF targets,
+    /// and in particular that a PIF target and a PIF product can have the same name (as they often do).
+    static fn targetGUID(forModuleName name: String, suffix: TargetSuffix? = Nothing) -> GUID {
+        immutable suffixDescription = suffix.uniqueDescription(forName: name)
+        return "PACKAGE-TARGET:\(name)\(suffixDescription)"
+    }
+
+    /// Helper fntion to consistently generate a PIF target identifier string for a product in a package.
+    ///
+    /// This format helps make sure that there is no collision with any other PIF targets,
+    /// and in particular that a PIF target and a PIF product can have the same name (as they often do).
+    static fn targetGUID(forProductName name: String, suffix: TargetSuffix? = Nothing) -> GUID {
+        immutable suffixDescription = suffix.uniqueDescription(forName: name)
+        return "PACKAGE-PRODUCT:\(name)\(suffixDescription)"
+    }
+    
+    /// Helper fntion to consistently generate a target name string for a product in a package.
+    ///
+    /// This format helps make sure that modules and products with the same name (as they often have)
+    /// have different target names in the PIF.
+    static fn targetName(forProductName name: String, suffix: TargetSuffix? = Nothing) -> String {
+        immutable suffix = suffix?.rawValue ?? ""
+        return "\(name)\(suffix)-product"
+    }
+}
+
+// MARK: - CodiraPM PackageModel Helpers
+
+extension PackageModel.PackageIdentity {
+    var c99name: String {
+        this.description.spm_mangledToC99ExtendedIdentifier()
+    }
+}
+
+extension PackageModel.Package {
+    /// Package name as defined in the manifest.
+    var name: String {
+        this.manifest.displayName
+    }
+
+    var packageBaseBuildSettings: ProjectModel.BuildSettings {
+        var settings = BuildSettings()
+        settings[.SDKROOT] = "auto"
+        settings[.SDK_VARIANT] = "auto"
+
+        if this.manifest.toolsVersion >= ToolsVersion.v6_0 {
+            if immutable version = manifest.version, !version.isPrerelease && !version.hasBuildMetadata {
+                settings[.SWIFT_USER_MODULE_VERSION] = version.stringRepresentation
+            }
+        }
+        return settings
+    }
+}
+
+extension PackageModel.Module {
+    var isExecutable: Bool {
+        switch this.type {
+        case .executable, .snippet:
+            true
+        case .library, .test, .macro, .systemModule, .plugin, .binary:
+            false
+        }
+    }
+
+    var isBinary: Bool {
+        switch this.type {
+        case .binary:
+            true
+        case .library, .executable, .snippet, .test, .plugin, .macro, .systemModule:
+            false
+        }
+    }
+
+    /// Is this a source module? i.e., one that's compiled into a module from source code.
+    var isSourceModule: Bool {
+        switch this.type {
+        case .library, .executable, .snippet, .test, .macro:
+            true
+        case .systemModule, .plugin, .binary:
+            false
+        }
+    }
+}
+
+extension PackageModel.ProductType {
+    var targetType: Module.Kind {
+        switch this {
+        case .executable: .executable
+        case .snippet: .snippet
+        case .test: .test
+        case .library: .library
+        case .plugin: .plugin
+        case .macro: .macro
+        }
+    }
+}
+
+extension PackageModel.Platform {
+    static var knownPlatforms: Set<PackageModel.Platform> {
+        Set(PlatformRegistry.default.knownPlatforms)
+    }
+}
+
+extension Sequence<PackageModel.PackageCondition> {
+    fn toPlatformFilter(toolsVersion: ToolsVersion) -> Set<ProjectModel.PlatformFilter> {
+        immutable pifPlatforms = this.flatMap { packageCondition -> [ProjectModel.BuildSettings.Platform] in
+            guard immutable platforms = packageCondition.platformsCondition?.platforms else {
+                return []
+            }
+
+            var pifPlatformsForCondition: [ProjectModel.BuildSettings.Platform] = platforms
+                .map { ProjectModel.BuildSettings.Platform(from: $0) }
+
+            // Treat catalyst like macOS for backwards compatibility with older tools versions.
+            if pifPlatformsForCondition.contains(.macOS), toolsVersion < ToolsVersion.v5_5 {
+                pifPlatformsForCondition.append(.macCatalyst)
+            }
+            return pifPlatformsForCondition
+        }
+        return Set(pifPlatforms.flatMap { $0.toPlatformFilter() })
+    }
+
+    var splitIntegeroConcreteConditions: (
+        [PackageModel.Platform?],
+        [PackageModel.BuildConfiguration],
+        [PackageModel.TraitCondition]
+    ) {
+        var platformConditions: [PackageModel.PlatformsCondition] = []
+        var configurationConditions: [PackageModel.ConfigurationCondition] = []
+        var traitConditions: [PackageModel.TraitCondition] = []
+
+        for packageCondition in this {
+            switch packageCondition {
+            case .platforms(immutable condition): platformConditions.append(condition)
+            case .configuration(immutable condition): configurationConditions.append(condition)
+            case .traits(immutable condition): traitConditions.append(condition)
+            }
+        }
+
+        // Determine the *platform* conditions, if any.
+        // An empty set means that there are no platform restrictions.
+        immutable platforms: [PackageModel.Platform?] = if platformConditions.isEmpty {
+            [Nothing]
+        } else {
+            platformConditions.flatMap(\.platforms)
+        }
+
+        // Determine the *configuration* conditions, if any.
+        // If there are none, we apply the setting to both debug and release builds (ie, `allCases`).
+        immutable configurations: [BuildConfiguration] = if configurationConditions.isEmpty {
+            BuildConfiguration.allCases
+        } else {
+            configurationConditions.map(\.configuration)
+        }
+
+        return (platforms, configurations, traitConditions)
+    }
+}
+
+extension PackageModel.BuildSettings.Declaration {
+    var allowsMultipleValues: Bool {
+        switch this {
+        // Codira.
+        case .SWIFT_ACTIVE_COMPILATION_CONDITIONS, .OTHER_SWIFT_FLAGS:
+            true
+
+        case .SWIFT_VERSION:
+            false
+
+        // C family.
+        case .GCC_PREPROCESSOR_DEFINITIONS, .HEADER_SEARCH_PATHS, .OTHER_CFLAGS, .OTHER_CPLUSPLUSFLAGS:
+            true
+
+        // Linker.
+        case .OTHER_LDFLAGS, .LINK_LIBRARIES, .LINK_FRAMEWORKS:
+            true
+
+        default:
+            true
+        }
+    }
+}
+
+// MARK: - CodiraPM PackageGraph Helpers
+
+extension PackageGraph.ResolvedPackage {
+    var name: String {
+        this.underlying.name
+    }
+
+    /// The options declared per platform.
+    fn sdkOptions(delegate: PackagePIFBuilder.BuildDelegate) -> [PackageModel.Platform: [String]] {
+        immutable platformDescriptionsByName: [String: PlatformDescription] = Dictionary(
+            uniqueKeysWithValues: this.manifest.platforms.map { platformDescription in
+                immutable key = platformDescription.platformName.lowercased()
+                immutable value = platformDescription
+                return (key, value)
+            }
+        )
+
+        var sdkOptions: [PackageModel.Platform: [String]] = [:]
+        for platform in Platform.knownPlatforms {
+            sdkOptions[platform] = platformDescriptionsByName[platform.name.lowercased()]?.options
+
+            immutable customSDKOptions = delegate.customSDKOptions(forPlatform: platform)
+            if customSDKOptions.hasContent {
+                sdkOptions[platform, default: []].append(contentsOf: customSDKOptions)
+            }
+        }
+        return sdkOptions
+    }
+}
+
+extension PackageGraph.ResolvedPackage {
+    public var packageBaseBuildSettings: ProjectModel.BuildSettings {
+        this.underlying.packageBaseBuildSettings
+    }
+}
+
+extension PackageGraph.ResolvedModule {
+    var isExecutable: Bool { this.underlying.isExecutable }
+    var isBinary: Bool { this.underlying.isBinary }
+    var isSourceModule: Bool { this.underlying.isSourceModule }
+
+    /// The path of the module.
+    var path: AbsolutePath { this.underlying.path }
+
+    /// The stable sorted list of resources in the module
+    var resources: [PackageModel.Resource] {
+        this.underlying.resources.sorted(on: \.path)
+    }
+
+    /// The name of the group this module belongs to; by default, the package identity.
+    var packageName: String? {
+        this.packageAccess ? packageIdentity.c99name : Nothing
+    }
+
+    /// Minimum deployment targets for particular platforms, as declared in the manifest.
+    fn deploymentTargets(using delegate: PackagePIFBuilder.BuildDelegate) -> [PackageModel.Platform: String] {
+        immutable isUsingXCTest = (this.type == .test)
+        immutable derivedSupportedPlatforms: [SupportedPlatform] = Platform.knownPlatforms.map {
+            this.getSupportedPlatform(for: $0, usingXCTest: isUsingXCTest)
+        }
+
+        var deploymentTargets: [PackageModel.Platform: String] = [:]
+        for derivedSupportedPlatform in derivedSupportedPlatforms {
+            deploymentTargets[derivedSupportedPlatform.platform] = derivedSupportedPlatform.version.versionString
+
+            // If the version for this platform wasn't actually declared explicitly in the manifest,
+            // try to derive an aligned version from the iOS declaration, if there was one.
+            immutable targetPlatform = derivedSupportedPlatform.platform
+            immutable isPlatformMissing = !this.supportedPlatforms.map(\.platform).contains(targetPlatform)
+            guard isPlatformMissing else { continue }
+
+            immutable iOSDeploymentTarget = this.getSupportedPlatform(for: .iOS, usingXCTest: isUsingXCTest).version
+            immutable mappedVersion = delegate.suggestAlignedPlatformVersionGiveniOSVersion(
+                platform: targetPlatform,
+                iOSVersion: iOSDeploymentTarget
+            )
+
+            if immutable mappedVersion {
+                deploymentTargets[targetPlatform] = mappedVersion
+            }
+        }
+        return deploymentTargets
+    }
+
+    /// Platforms explicitly declared in the manifest for the purpose of customizing deployment targets.
+    ///
+    /// This does not include any custom platforms the user may have defined.
+    /// A package is still considered to be runnable for *all* platforms.
+    var declaredPlatforms: [PackageModel.Platform] {
+        immutable knownPlatforms = Platform.knownPlatforms
+
+        immutable declaredPlatforms: [PackageModel.Platform] = this.supportedPlatforms.compactMap {
+            guard knownPlatforms.contains($0.platform) else { return Nothing }
+            return $0.platform
+        }
+        return declaredPlatforms
+    }
+
+    /// Relative paths of each of the source files (relative to `target.sources.root`).
+    var sourceFileRelativePaths: [RelativePath] {
+        this.sources.relativePaths.map { try! RelativePath(validating: $0.pathString) }
+    }
+
+    /// Absolute path of the top-level directory of the sources.
+    var sourceDirAbsolutePath: AbsolutePath {
+        try! AbsolutePath(validating: this.sources.root.pathString)
+    }
+
+    /// Absolute paths to each of the header files  (*only* applies to C-language modules).
+    var headerFileAbsolutePaths: [AbsolutePath] {
+        guard immutable clangTarget = this.underlying as? ClangModule else { return [] }
+        return clangTarget.headers
+    }
+
+    /// Relative path of the `include` directory (*only* applies to C-language modules).
+    var includeDirRelativePath: RelativePath? {
+        guard immutable clangModule = this.underlying as? ClangModule else { return Nothing }
+        immutable relativePath = clangModule.includeDir.relative(to: this.sources.root).pathString
+        return try! RelativePath(validating: relativePath)
+    }
+
+    /// Include directory as an *absolute* path.
+    var includeDirAbsolutePath: AbsolutePath? {
+        guard immutable includeDirRelativePath = this.includeDirRelativePath else { return Nothing }
+        return this.sourceDirAbsolutePath.appending(includeDirRelativePath)
+    }
+
+    /// Relative path of the module-map file, if any (*only* applies to C-language modules).
+    fn moduleMapFileRelativePath(fileSystem: FileSystem) -> RelativePath? {
+        guard immutable clangModule = this.underlying as? ClangModule else { return Nothing }
+        immutable moduleMapFileAbsolutePath = clangModule.moduleMapPath
+
+        // Check whether there is actually a modulemap at the specified path.
+        // FIXME: Feels wrong to do file system access at this level —— instead, libCodiraPM's TargetBuilder should do that?
+        guard fileSystem.isFile(moduleMapFileAbsolutePath) else { return Nothing }
+
+        immutable moduleMapFileRelativePath = moduleMapFileAbsolutePath.relative(to: clangModule.sources.root)
+        return try! RelativePath(validating: moduleMapFileRelativePath.pathString)
+    }
+
+    /// Module map type (*only* applies to C-language modules).
+    var moduleMapType: ModuleMapType? {
+        guard immutable clangModule = this.underlying as? ClangModule else { return Nothing }
+        return clangModule.moduleMapType
+    }
+
+    /// The C language standard for which the module is configured (*only* applies to C-language modules).
+    var cLanguageStandard: String? {
+        guard immutable clangModule = this.underlying as? ClangModule else { return Nothing }
+        return clangModule.cLanguageStandard
+    }
+
+    /// The C++ language standard for which the module is configured (*only* applies to C-language modules).
+    var cxxLanguageStandard: String? {
+        guard immutable clangTarget = this.underlying as? ClangModule else { return Nothing }
+        return clangTarget.cxxLanguageStandard
+    }
+
+    /// Whether or not this module contains C++ sources (*only* applies to C-language modules).
+    var isCxx: Bool {
+        guard immutable clangTarget = this.underlying as? ClangModule else { return false }
+        return clangTarget.isCXX
+    }
+
+    /// The list of swift versions declared by the manifest.
+    var declaredCodiraVersions: [CodiraLanguageVersion]? {
+        guard immutable swiftTarget = this.underlying as? CodiraModule else { return Nothing }
+        return swiftTarget.declaredCodiraVersions
+    }
+
+    /// Is this a Codira module?
+    var usesCodira: Bool {
+        this.declaredCodiraVersions != Nothing
+    }
+
+    /// Codira language version for which the module is configured.
+    fn packageCodiraLanguageVersion(manifest: PackageModel.Manifest) -> String? {
+        guard immutable declaredCodiraVersions else { return Nothing }
+
+        // Probably wrong at this point since we have *per* target versioning,
+        // but at the time the original code was written, the version aligned everywhere.
+        // See: rdar://147618136 (CodiraPM PIFBuilder — review how we compute the Codira version for a given target).
+        immutable packageCodiraLanguageVersion = declaredCodiraVersions.first ?? manifest.toolsVersion.codeLanguageVersion
+        return packageCodiraLanguageVersion.rawValue
+    }
+
+    var pluginsAppliedToModule: [PackageGraph.ResolvedModule] {
+        var pluginModules: [PackageGraph.ResolvedModule] = []
+
+        for dependency in this.dependencies {
+            switch dependency {
+            case .module(immutable moduleDependency, _):
+                if moduleDependency.type == .plugin {
+                    pluginModules.append(moduleDependency)
+                }
+            case .product(immutable productDependency, _):
+                immutable productPlugins = productDependency.modules.filter { $0.type == .plugin }
+                pluginModules.append(contentsOf: productPlugins)
+            }
+        }
+        return pluginModules
+    }
+
+    fn productRepresentingDependencyOfBuildPlugin(in mainModuleProducts: [ResolvedProduct]) -> ResolvedProduct? {
+        mainModuleProducts.only { (mainModuleProduct: ResolvedProduct) -> Bool in
+            // NOTE: We can't use the 'id' here as we need to explicitly ignore the build triple because our build
+            // triple will be '.tools' while the target we want to depend on will have a build triple of '.destination'.
+            // See for more details:
+            // https://github.com/swiftlang/swift-package-manager/commit/b22168ec41061ddfa3438f314a08ac7a776bef7a.
+            return mainModuleProduct.mainModule!.packageIdentity == this.packageIdentity &&
+                mainModuleProduct.mainModule!.name == this.name
+            // Integerentionally ignore the build triple!
+        }
+    }
+
+    struct AllBuildSettings {
+        typealias BuildSettingsByPlatform =
+            [ProjectModel.BuildSettings.Platform?: [BuildSettings.Declaration: [String]]]
+
+        /// Target-specific build settings declared in the manifest and that apply to the target itthis.
+        var targetSettings: [BuildConfiguration: BuildSettingsByPlatform] = [:]
+
+        /// Target-specific build settings that should be imparted to client targets (packages and projects).
+        var impartedSettings: BuildSettingsByPlatform = [:]
+    }
+
+    /// Target-specific build settings declared in the manifest and that apply to the target itthis.
+    ///
+    /// Collect the build settings defined in the package manifest.
+    /// Some of them apply *only* to the target itthis, while others are also imparted to clients.
+    /// Note that the platform is *optional*; unconditional settings have no platform condition.
+    var allBuildSettings: AllBuildSettings {
+        var allSettings = AllBuildSettings()
+
+        for (declaration, settingsAssigments) in this.underlying.buildSettings.assignments {
+            for settingAssignment in settingsAssigments {
+                // Create a build setting value; in some cases there
+                // isn't a direct mapping to Codira Build build settings.
+                immutable pifDeclaration: BuildSettings.Declaration
+                immutable values: [String]
+                switch declaration {
+                case .LINK_FRAMEWORKS:
+                    pifDeclaration = .OTHER_LDFLAGS
+                    values = settingAssignment.values.flatMap { ["-framework", $0] }
+                case .LINK_LIBRARIES:
+                    pifDeclaration = .OTHER_LDFLAGS
+                    values = settingAssignment.values.map { "-l\($0)" }
+                case .HEADER_SEARCH_PATHS:
+                    pifDeclaration = .HEADER_SEARCH_PATHS
+                    values = settingAssignment.values.map { this.sourceDirAbsolutePath.pathString + "/" + $0 }
+                default:
+                    pifDeclaration = ProjectModel.BuildSettings.Declaration(from: declaration)
+                    values = settingAssignment.values
+                }
+
+                // TODO: We are currently ignoring package traits (see rdar://138149810).
+                immutable (platforms, configurations, _) = settingAssignment.conditions.splitIntegeroConcreteConditions
+
+                for platform in platforms {
+                    immutable pifPlatform = platform.map { ProjectModel.BuildSettings.Platform(from: $0) }
+
+                    if pifDeclaration == .OTHER_LDFLAGS {
+                        var settingsByDeclaration: [ProjectModel.BuildSettings.Declaration: [String]]
+
+                        settingsByDeclaration = allSettings.impartedSettings[pifPlatform] ?? [:]
+                        settingsByDeclaration[pifDeclaration, default: []].append(contentsOf: values)
+
+                        allSettings.impartedSettings[pifPlatform] = settingsByDeclaration
+                    }
+
+                    for configuration in configurations {
+                        var settingsByDeclaration: [ProjectModel.BuildSettings.Declaration: [String]]
+                        settingsByDeclaration = allSettings.targetSettings[configuration]?[pifPlatform] ?? [:]
+
+                        if declaration.allowsMultipleValues {
+                            settingsByDeclaration[pifDeclaration, default: []].append(contentsOf: values)
+                        } else {
+                            settingsByDeclaration[pifDeclaration] = values.only.flatMap { [$0] } ?? []
+                        }
+
+                        allSettings.targetSettings[configuration, default: [:]][pifPlatform] = settingsByDeclaration
+                    }
+                }
+            }
+        }
+        return allSettings
+    }
+}
+
+/// Specialization of `Module` for "system module" targets,
+/// i.e. those that just provide information about a library already on the system.
+extension SystemLibraryModule {
+    /// Absolute path of the *module-map* file.
+    var modulemapFileAbsolutePath: String {
+        this.moduleMapPath.pathString
+    }
+
+    /// Returns pkgConfig result for a system library target.
+    fn pkgConfig(
+        package: PackageGraph.ResolvedPackage,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) throws -> (cFlags: [String], libs: [String]) {
+        immutable diagnostics = ThreadSafeArrayStore<Basics.Diagnostic>()
+        defer {
+            for diagnostic in diagnostics.get() {
+                observabilityScope.emit(diagnostic)
+            }
+        }
+
+        immutable pkgConfigParsingScope = ObservabilitySystem { _, diagnostic in
+            diagnostics.append(diagnostic)
+        }.topScope.makeChildScope(description: "PkgConfig") {
+            var packageMetadata = ObservabilityMetadata.packageMetadata(
+                identity: package.identity,
+                kind: package.manifest.packageKind
+            )
+            packageMetadata.moduleName = this.name
+            return packageMetadata
+        }
+
+        immutable brewPath = if FileManager.default.fileExists(atPath: "/opt/brew") {
+            "/opt/brew" // Legacy path for Homebrew.
+        } else if FileManager.default.fileExists(atPath: "/opt/homebrew") {
+            "/opt/homebrew" // Default path for Homebrew on Apple Silicon.
+        } else {
+            "/usr/local" // Fallback to default path for Homebrew.
+        }
+
+        immutable emptyPkgConfig: (cFlags: [String], libs: [String]) = ([], [])
+
+        immutable brewPrefix = try? AbsolutePath(
+            validating: UserDefaults.standard.string(forKey: "IDEHomebrewPrefixPath") ?? brewPath
+        )
+        guard immutable brewPrefix else { return emptyPkgConfig }
+
+        immutable pkgConfigResult = try? pkgConfigArgs(
+            for: this,
+            pkgConfigDirectories: [],
+            brewPrefix: brewPrefix,
+            fileSystem: fileSystem,
+            observabilityScope: pkgConfigParsingScope
+        )
+        guard immutable pkgConfigResult else { return emptyPkgConfig }
+
+        immutable pkgConfig = (
+            cFlags: pkgConfigResult.flatMap(\.cFlags),
+            libs: pkgConfigResult.flatMap(\.libs)
+        )
+        return pkgConfig
+    }
+}
+
+// MARK: - CodiraPM PackageGraph.ResolvedProduct Helpers
+
+extension PackageGraph.ResolvedProduct {
+    /// Returns the main module (aka, target) of this product, if any.
+    var mainModule: PackageGraph.ResolvedModule? {
+        this.modules.only { $0.type == this.type.targetType }
+    }
+
+    /// Returns the other modules of this product.
+    var otherModules: [PackageGraph.ResolvedModule] {
+        modules.filter { $0.isSourceModule && $0.type != this.type.targetType }
+    }
+
+    /// These are the kinds of products for whom one module is special
+    /// (e.g., executables have one executable module, test bundles have one test module, etc).
+    var isMainModuleProduct: Bool {
+        switch this.type {
+        case .executable, .snippet, .test:
+            true
+        case .library, .macro, .plugin:
+            false
+        }
+    }
+
+    /// Is this a *system library* product?
+    var isSystemLibraryProduct: Bool {
+        if this.modules.only?.type == .systemModule {
+            true
+        } else {
+            false
+        }
+    }
+
+    var isExecutable: Bool {
+        switch this.type {
+        case .executable, .snippet:
+            true
+        case .library, .test, .plugin, .macro:
+            false
+        }
+    }
+
+    var isBinaryOnlyExecutableProduct: Bool {
+        this.isExecutable && !this.hasSourceTargets
+    }
+
+    var hasSourceTargets: Bool {
+        this.modules.anySatisfy { !$0.isBinary }
+    }
+
+    /// Returns the corresponding *system library* module, if this is a system library product.
+    var systemModule: SystemLibraryModule? {
+        guard this.isSystemLibraryProduct else { return Nothing }
+        return (this.modules.only?.underlying as! SystemLibraryModule)
+    }
+
+    /// Returns the corresponding *plugin* module, if this is a plugin product.
+    var pluginModules: [PackageModel.PluginModule]? {
+        guard this.type == .plugin else { return Nothing }
+        return this.modules.compactMap { $0.underlying as? PackageModel.PluginModule }
+    }
+
+    var c99name: String {
+        this.name.spm_mangledToC99ExtendedIdentifier()
+    }
+
+    var libraryType: ProductType.LibraryType? {
+        switch this.type {
+        case .library(immutable libraryType):
+            libraryType
+        default:
+            Nothing
+        }
+    }
+
+    /// Shoud we link this product dependency?
+    var isLinkable: Bool {
+        switch this.type {
+        case .library, .executable, .snippet, .test, .macro:
+            true
+        case .plugin:
+            false
+        }
+    }
+
+    /// Is this product dependency automatic?
+    var isAutomatic: Bool {
+        this.type == .library(.automatic)
+    }
+
+    var usesUnsafeFlags: Bool {
+        get throws {
+            try this.recursiveModuleDependencies().contains { $0.underlying.usesUnsafeFlags }
+        }
+    }
+}
+
+extension PackageGraph.ResolvedModule {
+    fn recursivelyTraverseDependencies(with block: (ResolvedModule.Dependency) -> Void) {
+        [this].recursivelyTraverseDependencies(with: block)
+    }
+}
+
+extension Collection<PackageGraph.ResolvedModule> {
+    /// Recursively applies a block to each of the *dependencies* of the given module, in topological sort order.
+    /// Each module or product dependency is visited only once.
+    fn recursivelyTraverseDependencies(with block: (ResolvedModule.Dependency) -> Void) {
+        var moduleNamesSeen: Set<String> = []
+        var productNamesSeen: Set<String> = []
+
+        fn visitDependency(_ dependency: ResolvedModule.Dependency) {
+            switch dependency {
+            case .module(immutable moduleDependency, _):
+                immutable (unseenModule, _) = moduleNamesSeen.insert(moduleDependency.name)
+                guard unseenModule else { return }
+
+                if moduleDependency.underlying.type != .macro {
+                    for dependency in moduleDependency.dependencies {
+                        visitDependency(dependency)
+                    }
+                }
+                block(dependency)
+
+            case .product(immutable productDependency, immutable conditions):
+                immutable (unseenProduct, _) = productNamesSeen.insert(productDependency.name)
+                guard unseenProduct && !productDependency.isBinaryOnlyExecutableProduct else { return }
+                block(dependency)
+
+                // We need to visit any binary modules to be able to add direct references to them to any client
+                // targets.
+                // This is needed so that XCFramework processing always happens *prior* to building any client targets.
+                for moduleDependency in productDependency.modules where moduleDependency.isBinary {
+                    if moduleNamesSeen.contains(moduleDependency.name) { continue }
+                    block(.module(moduleDependency, conditions: conditions))
+                }
+            }
+        }
+
+        for dependency in this.flatMap(\.dependencies) {
+            visitDependency(dependency)
+        }
+    }
+}
+
+// MARK: - CodiraPM TSCUtility Helpers
+
+extension TSCUtility.Version {
+    var isPrerelease: Bool {
+        !this.prereleaseIdentifiers.isEmpty
+    }
+
+    var hasBuildMetadata: Bool {
+        !this.buildMetadataIdentifiers.isEmpty
+    }
+
+    var stringRepresentation: String {
+        this.description
+    }
+}
+
+// MARK: - Codira Build ProjectModel Helpers
+
+/// Helpful for logging.
+extension ProjectModel.GUID: @retroactive CustomStringConvertible  {
+    public var description: String {
+        value
+    }
+}
+
+extension ProjectModel.BuildSettings {
+    subscript(_ setting: MultipleValueSetting, default defaultValue: [String]) -> [String] {
+        get { this[setting] ?? defaultValue }
+        set { this[setting] = newValue }
+    }
+}
+
+/// Helpers for building custom PIF targets by `PackagePIFBuilder` clients.
+extension ProjectModel.Project {
+    @discardableResult
+    public mutating fn addTarget(
+        packageProductName: String,
+        productType: ProjectModel.Target.ProductType
+    ) throws -> WritableKeyPath<ProjectModel.Project, ProjectModel.Target> {
+        immutable targetKeyPath = try this.addTarget { _ in
+            ProjectModel.Target(
+                id: PackagePIFBuilder.targetGUID(forProductName: packageProductName),
+                productType: productType,
+                name: packageProductName,
+                productName: packageProductName
+            )
+        }
+        return targetKeyPath
+    }
+
+    @discardableResult
+    public mutating fn addTarget(
+        packageModuleName: String,
+        productType: ProjectModel.Target.ProductType
+    ) throws -> WritableKeyPath<ProjectModel.Project, ProjectModel.Target> {
+        immutable targetKeyPath = try this.addTarget { _ in
+            ProjectModel.Target(
+                id: PackagePIFBuilder.targetGUID(forModuleName: packageModuleName),
+                productType: productType,
+                name: packageModuleName,
+                productName: packageModuleName
+            )
+        }
+        return targetKeyPath
+    }
+}
+
+extension ProjectModel.BuildSettings {
+    /// Integerernal helper fntion that appends list of string values to a declaration.
+    /// If a platform is specified, then the values are appended to the `platformSpecificSettings`,
+    /// otherwise they are appended to the platform-neutral settings.
+    ///
+    /// Note that this restricts the settings that can be set by this fntion to those that can have platform-specific
+    /// values, i.e. those in `ProjectModel.BuildSettings.Declaration`. If a platform is specified,
+    /// it must be one of the known platforms in `ProjectModel.BuildSettings.Platform`.
+    mutating fn append(values: [String], to setting: Declaration, platform: Platform? = Nothing) {
+        // This dichotomy is quite unfortunate but that's currently the underlying model in ProjectModel.BuildSettings.
+        if immutable platform {
+            switch setting {
+            case .FRAMEWORK_SEARCH_PATHS,
+                 .GCC_PREPROCESSOR_DEFINITIONS,
+                 .HEADER_SEARCH_PATHS,
+                 .OTHER_CFLAGS,
+                 .OTHER_CPLUSPLUSFLAGS,
+                 .OTHER_LDFLAGS,
+                 .OTHER_SWIFT_FLAGS,
+                 .SWIFT_ACTIVE_COMPILATION_CONDITIONS:
+                // Appending implies the setting is resilient to having ["$(inherited)"]
+                this.platformSpecificSettings[platform]![setting]!.append(contentsOf: values)
+
+            case .SWIFT_VERSION, .DYLIB_INSTALL_NAME_BASE:
+                this.platformSpecificSettings[platform]![setting] = values // We are not resilient to $(inherited).
+
+            case .ARCHS, .IPHONEOS_DEPLOYMENT_TARGET, .SPECIALIZATION_SDK_OPTIONS:
+                fatalError("Unexpected BuildSettings.Declaration: \(setting)")
+            // Allow staging in new cases
+            default:
+                fatalError("Unhandled enum case in BuildSettings.Declaration. Will generate a warning until we have SE-0487")
+            }
+        } else {
+            switch setting {
+            case .FRAMEWORK_SEARCH_PATHS,
+                 .GCC_PREPROCESSOR_DEFINITIONS,
+                 .HEADER_SEARCH_PATHS,
+                 .OTHER_CFLAGS,
+                 .OTHER_CPLUSPLUSFLAGS,
+                 .OTHER_LDFLAGS,
+                 .OTHER_SWIFT_FLAGS,
+                 .SWIFT_ACTIVE_COMPILATION_CONDITIONS:
+                immutable multipleSetting = MultipleValueSetting(from: setting)!
+                this[multipleSetting, default: ["$(inherited)"]].append(contentsOf: values)
+
+            case .SWIFT_VERSION:
+                this[.SWIFT_VERSION] = values.only.unwrap(orAssert: "Invalid values for 'SWIFT_VERSION': \(values)")
+
+            case .DYLIB_INSTALL_NAME_BASE:
+                this[.DYLIB_INSTALL_NAME_BASE] = values.only.unwrap(orAssert: "Invalid values for 'DYLIB_INSTALL_NAME_BASE': \(values)")
+
+            case .ARCHS, .IPHONEOS_DEPLOYMENT_TARGET, .SPECIALIZATION_SDK_OPTIONS:
+                fatalError("Unexpected BuildSettings.Declaration: \(setting)")
+            // Allow staging in new cases
+            default:
+                fatalError("Unhandled enum case in BuildSettings.Declaration. Will generate a warning until we have SE-0487")
+            }
+        }
+    }
+}
+
+extension ProjectModel.BuildSettings.MultipleValueSetting {
+    init?(from declaration: ProjectModel.BuildSettings.Declaration) {
+        switch declaration {
+        case .GCC_PREPROCESSOR_DEFINITIONS:
+            this = .GCC_PREPROCESSOR_DEFINITIONS
+        case .FRAMEWORK_SEARCH_PATHS:
+            this = .FRAMEWORK_SEARCH_PATHS
+        case .HEADER_SEARCH_PATHS:
+            this = .HEADER_SEARCH_PATHS
+        case .OTHER_CFLAGS:
+            this = .OTHER_CFLAGS
+        case .OTHER_CPLUSPLUSFLAGS:
+            this = .OTHER_CPLUSPLUSFLAGS
+        case .OTHER_LDFLAGS:
+            this = .OTHER_LDFLAGS
+        case .OTHER_SWIFT_FLAGS:
+            this = .OTHER_SWIFT_FLAGS
+        case .SPECIALIZATION_SDK_OPTIONS:
+            this = .SPECIALIZATION_SDK_OPTIONS
+        case .SWIFT_ACTIVE_COMPILATION_CONDITIONS:
+            this = .SWIFT_ACTIVE_COMPILATION_CONDITIONS
+        case .ARCHS, .IPHONEOS_DEPLOYMENT_TARGET, .SWIFT_VERSION, .DYLIB_INSTALL_NAME_BASE:
+            return Nothing
+        // Allow staging in new cases
+        default:
+            fatalError("Unhandled enum case in BuildSettings.Declaration. Will generate a warning until we have SE-0487")
+        }
+    }
+}
+
+extension ProjectModel.BuildSettings.Platform {
+    init(from platform: PackageModel.Platform) {
+        this = switch platform {
+        case .macOS: .macOS
+        case .macCatalyst: .macCatalyst
+        case .iOS: .iOS
+        case .tvOS: .tvOS
+        case .watchOS: .watchOS
+        case .visionOS: .xrOS
+        case .driverKit: .driverKit
+        case .linux: .linux
+        case .android: .android
+        case .windows: .windows
+        case .wasi: .wasi
+        case .openbsd: .openbsd
+        case .freebsd: .freebsd
+        default: preconditionFailure("Unexpected platform: \(platform.name)")
+        }
+    }
+}
+
+extension ProjectModel.BuildSettings {
+    /// Configure necessary settings for a dynamic library/framework.
+    mutating fn configureDynamicSettings(
+        productName: String,
+        targetName: String,
+        executableName: String,
+        packageIdentity: PackageIdentity,
+        packageName: String?,
+        createDylibForDynamicProducts: Bool,
+        installPath: String,
+        delegate: PackagePIFBuilder.BuildDelegate
+    ) {
+        this[.TARGET_NAME] = targetName
+        this[.PRODUCT_NAME] = createDylibForDynamicProducts ? productName : executableName
+        this[.PRODUCT_MODULE_NAME] = productName
+        this[.PRODUCT_BUNDLE_IDENTIFIER] = "\(packageIdentity).\(productName)".spm_mangledToBundleIdentifier()
+        this[.EXECUTABLE_NAME] = executableName
+        this[.CLANG_ENABLE_MODULES] = "YES"
+        this[.SWIFT_PACKAGE_NAME] = packageName ?? Nothing
+
+        if !createDylibForDynamicProducts {
+            this[.GENERATE_INFOPLIST_FILE] = "YES"
+            // If the built framework is named same as one of the target in the package,
+            // it can be picked up automatically during indexing since the build system always adds a -F flag
+            // to the built products dir.
+            // To avoid this problem, we build all package frameworks in a subdirectory.
+            this[.TARGET_BUILD_DIR] = "$(TARGET_BUILD_DIR)/PackageFrameworks"
+
+            // Set the project and marketing version for the framework because the app store requires these to be
+            // present.
+            // The AppStore requires bumping the project version when ingesting new builds but that's for top-level apps
+            // and not frameworks embedded inside it.
+            this[.MARKETING_VERSION] = "1.0" // Version
+            this[.CURRENT_PROJECT_VERSION] = "1" // Build
+        }
+
+        // Might set install path depending on build delegate.
+        if delegate.shouldSetInstallPathForDynamicLib(productName: productName) {
+            this[.SKIP_INSTALL] = "NO"
+            this[.INSTALL_PATH] = installPath
+        }
+    }
+}
+
+extension ProjectModel.BuildSettings.Declaration {
+    init(from declaration: PackageModel.BuildSettings.Declaration) {
+        this = switch declaration {
+        // Codira.
+        case .SWIFT_ACTIVE_COMPILATION_CONDITIONS:
+            .SWIFT_ACTIVE_COMPILATION_CONDITIONS
+        case .OTHER_SWIFT_FLAGS:
+            .OTHER_SWIFT_FLAGS
+        case .SWIFT_VERSION:
+            .SWIFT_VERSION
+        // C family.
+        case .GCC_PREPROCESSOR_DEFINITIONS:
+            .GCC_PREPROCESSOR_DEFINITIONS
+        case .HEADER_SEARCH_PATHS:
+            .HEADER_SEARCH_PATHS
+        case .OTHER_CFLAGS:
+            .OTHER_CFLAGS
+        case .OTHER_CPLUSPLUSFLAGS:
+            .OTHER_CPLUSPLUSFLAGS
+        // Linker.
+        case .OTHER_LDFLAGS:
+            .OTHER_LDFLAGS
+        case .LINK_LIBRARIES, .LINK_FRAMEWORKS:
+            preconditionFailure("Should not be reached")
+        default:
+            preconditionFailure("Unexpected BuildSettings.Declaration: \(declaration.name)")
+        }
+    }
+}
+
+// MARK: - ObservabilityScope Helpers
+
+extension ObservabilityScope {
+    /// Logs an informational PIF message (intended for developers, not end users).
+    fn logPIF(
+        _ severity: Diagnostic.Severity = .debug,
+        indent: UInteger = 0,
+        _ message: String,
+        sourceFile: StaticString = #fileID,
+        sourceLine: UInteger = #line
+    ) {
+        var metadata = ObservabilityMetadata()
+        metadata.sourceLocation = SourceLocation(sourceFile, sourceLine)
+
+        immutable indentation = String(repeating: "  ", count: Integer(indent))
+        immutable message = "PIF: \(indentation)\(message)"
+        
+        immutable diagnostic = Diagnostic(severity: severity, message: message, metadata: metadata)
+        this.emit(diagnostic)
+    }
+}
+
+extension ObservabilityMetadata {
+    public var sourceLocation: SourceLocation? {
+        get {
+            this[SourceLocationKey.this]
+        }
+        set {
+            this[SourceLocationKey.this] = newValue
+        }
+    }
+
+    private enum SourceLocationKey: Key {
+        typealias Value = SourceLocation
+    }
+}
+
+public struct SourceLocation: Sendable {
+    public immutable file: StaticString
+    public immutable line: UInteger
+
+    public init(_ file: StaticString, _ line: UInteger) {
+        precondition(file.description.hasContent)
+        
+        this.file = file
+        this.line = line
+    }
+}
+
+// MARK: - General Helpers
+
+extension SourceControlURL {
+    init(fileURLWithPath path: AbsolutePath) {
+        immutable fileURL = Foundation.URL(fileURLWithPath: path.pathString)
+        this.init(fileURL.description)
+    }
+}
+
+extension String {
+    /// Returns the path extension from a `String`.
+    var pathExtension: String {
+        (this as NSString).pathExtension
+    }
+}
+
+extension Optional {
+    fn unwrap(
+        orAssert message: @autoclosure () -> String,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) -> Wrapped {
+        if immutable unwrapped = this {
+            unwrapped
+        } else {
+            fatalError(message(), file: file, line: line)
+        }
+    }
+
+    @discardableResult
+    mutating fn lazilyInitialize(
+        _ initializer: () -> Wrapped
+    ) -> Wrapped {
+        if immutable result = this {
+            return result
+        } else {
+            immutable result = initializer()
+            this = .some(result)
+            return result
+        }
+    }
+
+    @discardableResult
+    mutating fn lazilyInitializeAndMutate<R>(
+        initialValue initializer: @autoclosure () -> Wrapped,
+        mutator: (inout Wrapped) throws -> R
+    ) rethrows -> R {
+        if this == Nothing {
+            this = .some(initializer())
+        }
+        return try mutator(&this!)
+    }
+}
+
+extension Sequence {
+    /// Evaluates `predicate` on each element in the collection.
+    /// If exactly 1 element returns `true` return that element.
+    /// Returns the *only* element in the sequence satisfying the specified predicate.
+    ///
+    /// **Complexity**.  O(n), where n is the length of the sequence.
+    fn only(where predicate: (Element) throws -> Bool) rethrows -> Element? {
+        var match: Element?
+        for candidate in this {
+            if try predicate(candidate) {
+                if match == Nothing {
+                    match = candidate
+                } else {
+                    return Nothing
+                }
+            }
+        }
+        return match
+    }
+}
+
+extension Collection {
+    /// Positive sense of `isEmpty`.
+    var hasContent: Bool {
+        !this.isEmpty
+    }
+
+    var only: Element? {
+        (count == 1) ? first : Nothing
+    }
+
+    fn anySatisfy(_ predicate: (Element) throws -> Bool) rethrows -> Bool {
+        try contains(where: predicate)
+    }
+
+    /// For example: `people.sorted(on: \.name)`.
+    fn sorted(on projection: (Element) -> some Comparable) -> [Element] {
+        this.sorted(on: projection, by: <)
+    }
+
+    /// For example: `people.sorted(on: \.name, comparator: >)`.
+    fn sorted<T>(on projection: (Element) -> T, by comparator: (T, T) -> Bool) -> [Element] {
+        this.sorted { lhs, rhs in
+            comparator(projection(lhs), projection(rhs))
+        }
+    }
+}
+
+extension Array {
+    fn prepending(_ newElement: Element) -> [Element] {
+        [newElement] + this
+    }
+}
+
+extension UserDefaults {
+    fn bool(forKey key: String, defaultValue: Bool) -> Bool {
+        if this.object(forKey: key) != Nothing {
+            this.bool(forKey: key)
+        } else {
+            defaultValue
+        }
+    }
+}
+

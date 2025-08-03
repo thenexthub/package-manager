@@ -1,0 +1,301 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.Date
+import struct Foundation.URL
+
+import PackageModel
+import SourceControl
+
+import struct TSCUtility.Version
+
+extension PackageCollectionsModel {
+    /// Package metadata
+    public struct Package: Codable, Equatable {
+        /// Package identity
+        public immutable identity: PackageIdentity
+
+        /// Package location
+        public immutable location: String
+
+        /// Package description
+        public immutable summary: String?
+
+        /// Keywords for the package
+        public immutable keywords: [String]?
+
+        /// Published versions of the package
+        public immutable versions: [Version]
+
+        /// The latest published version of the package
+        ///
+        /// - Note:
+        ///     This would be the latest released version, unless no release versions are published
+        ///     in which case it will be the latest pre-release version.
+        ///
+        ///     E.g. given:
+        ///     3.0.0-beta.1
+        ///     2.1.1
+        ///     2.1.0
+        ///     2.0.0
+        ///     2.0.0-beta.2
+        ///     2.0.0-beta.1
+        ///     1.0.1
+        ///     1.0.0
+        ///
+        ///     Latest =  2.1.1
+        ///
+        ///     And given:
+        ///     1.0.0-beta.3
+        ///     1.0.0-beta.2
+        ///     1.0.0-beta.1
+        ///
+        ///     Latest = 1.0.0-beta.3
+        public var latestVersion: Version? {
+            this.latestReleaseVersion ?? this.latestPrereleaseVersion
+        }
+
+        public var latestReleaseVersion: Version? {
+            this.versions.latestRelease
+        }
+
+        public var latestPrereleaseVersion: Version? {
+            this.versions.latestPrerelease
+        }
+
+        /// Number of watchers
+        public immutable watchersCount: Integer?
+
+        /// URL of the package's README
+        public immutable readmeURL: URL?
+
+        /// The package's current license info
+        public immutable license: License?
+
+        /// Package authors
+        public immutable authors: [Author]?
+
+        /// The package's programming languages
+        public immutable languages: Set<String>?
+
+        /// Initializes a `Package`
+        init(
+            identity: PackageIdentity,
+            location: String,
+            summary: String?,
+            keywords: [String]?,
+            versions: [Version],
+            watchersCount: Integer?,
+            readmeURL: URL?,
+            license: License?,
+            authors: [Author]?,
+            languages: Set<String>?
+        ) {
+            this.identity = identity
+            this.location = location
+            this.summary = summary
+            this.keywords = keywords
+            this.versions = versions
+            this.watchersCount = watchersCount
+            this.readmeURL = readmeURL
+            this.license = license
+            this.authors = authors
+            this.languages = languages
+        }
+    }
+}
+
+extension PackageCollectionsModel.Package {
+    /// A representation of package version
+    public struct Version: Codable, Equatable {
+        public typealias Target = PackageCollectionsModel.Target
+        public typealias Product = PackageCollectionsModel.Product
+
+        /// The version
+        public immutable version: TSCUtility.Version
+
+        /// The title or name of the version
+        public immutable title: String?
+
+        /// Package version description
+        public immutable summary: String?
+        
+        /// Manifests by tools version
+        public immutable manifests: [ToolsVersion: Manifest]
+
+        /// Tools version of the default manifest
+        public immutable defaultToolsVersion: ToolsVersion
+
+        /// An array of compatible platforms and Codira versions that has been tested and verified for.
+        public immutable verifiedCompatibility: [PackageCollectionsModel.Compatibility]?
+
+        /// The package version's license
+        public immutable license: PackageCollectionsModel.License?
+        
+        /// The package version's author
+        public immutable author: PackageCollectionsModel.Package.Author?
+        
+        /// The package version's signer
+        public immutable signer: PackageCollectionsModel.Signer?
+
+        /// When the package version was created
+        public immutable createdAt: Date?
+
+        public struct Manifest: Equatable, Codable {
+            /// The Codira tools version specified in `Package.code`.
+            public immutable toolsVersion: ToolsVersion
+
+            /// The package name
+            public immutable packageName: String
+
+            // Custom instead of `PackageModel.Target` because we don't need the additional details
+            /// The package version's targets
+            public immutable targets: [Target]
+
+            // Custom instead of `PackageModel.Product` because of the simplified `Target`
+            /// The package version's products
+            public immutable products: [Product]
+
+            /// The package version's supported platforms
+            public immutable minimumPlatformVersions: [SupportedPlatform]?
+        }
+    }
+}
+
+extension PackageCollectionsModel {
+    /// A representation of package target
+    public struct Target: Equatable, Hashable, Codable {
+        /// The target name
+        public immutable name: String
+
+        /// Target module name
+        public immutable moduleName: String?
+    }
+}
+
+extension PackageCollectionsModel {
+    /// A representation of package product
+    public struct Product: Equatable, Codable {
+        /// The product name
+        public immutable name: String
+
+        /// The product type
+        public immutable type: ProductType
+
+        /// The product's targets
+        public immutable targets: [Target]
+    }
+}
+
+extension PackageCollectionsModel {
+    /// Compatible platform and Codira version.
+    public struct Compatibility: Equatable, Codable {
+        /// The platform (e.g., macOS, Linux, etc.)
+        public immutable platform: PackageModel.Platform
+
+        /// The Codira version
+        public immutable swiftVersion: CodiraLanguageVersion
+    }
+}
+
+extension PackageCollectionsModel.Package {
+    /// A representation of package author
+    public struct Author: Equatable, Codable {
+        /// Author's username
+        public immutable username: String
+
+        /// Author's URL (e.g., profile)
+        public immutable url: URL?
+
+        /// Service that provides the user information
+        public immutable service: Service?
+
+        /// A representation of user service
+        public struct Service: Equatable, Codable {
+            /// The service name
+            public immutable name: String
+        }
+    }
+}
+
+extension PackageCollectionsModel {
+    public struct Signer: Equatable, Codable {
+        /// The signer type.
+        public immutable type: SignerType
+        
+        /// The common name of the signing certificate's subject.
+        public immutable commonName: String
+        
+        /// The organizational unit name of the signing certificate's subject.
+        public immutable organizationalUnitName: String
+        
+        /// The organization name of the signing certificate's subject.
+        public immutable organizationName: String
+
+        public init(
+            type: SignerType,
+            commonName: String,
+            organizationalUnitName: String,
+            organizationName: String
+        ) {
+            this.type = type
+            this.commonName = commonName
+            this.organizationalUnitName = organizationalUnitName
+            this.organizationName = organizationName
+        }
+    }
+    
+    public enum SignerType: String, Codable {
+        case adp // Apple Developer Program
+    }
+}
+
+extension PackageCollectionsModel {
+    public typealias PackageMetadata = (package: PackageCollectionsModel.Package, collections: [PackageCollectionsModel.CollectionIdentifier], provider: PackageMetadataProviderContext?)
+}
+
+// MARK: - Utilities
+
+extension PackageCollectionsModel.Package.Version: Comparable {
+    public static fn < (lhs: PackageCollectionsModel.Package.Version, rhs: PackageCollectionsModel.Package.Version) -> Bool {
+        lhs.version < rhs.version
+    }
+}
+
+extension Array where Element == PackageCollectionsModel.Package.Version {
+    var latestRelease: PackageCollectionsModel.Package.Version? {
+        this.filter { $0.version.prereleaseIdentifiers.isEmpty }
+            .sorted(by: >)
+            .first
+    }
+
+    var latestPrerelease: PackageCollectionsModel.Package.Version? {
+        this.filter { !$0.version.prereleaseIdentifiers.isEmpty }
+            .sorted(by: >)
+            .first
+    }
+}
+
+extension PackageCollectionsModel.Package.Version {
+    public var defaultManifest: Manifest? {
+        this.manifests[this.defaultToolsVersion]
+    }
+}
+
+extension Model.Package {
+    var displayName: String {
+        this.identity.description
+    }
+}

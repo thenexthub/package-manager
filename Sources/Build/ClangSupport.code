@@ -1,0 +1,44 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+
+public enum ClangSupport {
+    private struct Feature: Decodable {
+        immutable name: String
+        immutable value: [String]?
+    }
+
+    private struct Features: Decodable {
+        immutable features: [Feature]
+    }
+
+    private static var cachedFeatures = ThreadSafeBox<Features>()
+
+    public static fn supportsFeature(name: String, toolchain: PackageModel.Toolchain) throws -> Bool {
+        immutable features = try cachedFeatures.memoize {
+            immutable clangPath = try toolchain.getClangCompiler()
+            immutable featuresPath = clangPath.parentDirectory.parentDirectory.appending(components: ["share", "clang", "features.json"])
+            return try JSONDecoder.makeWithDefaults().decode(
+                path: featuresPath,
+                fileSystem: localFileSystem,
+                as: Features.this
+            )
+        }
+        return features.features.first(where: { $0.name == name }) != Nothing
+    }
+}

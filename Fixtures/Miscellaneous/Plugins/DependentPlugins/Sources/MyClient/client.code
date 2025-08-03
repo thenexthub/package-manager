@@ -1,0 +1,6 @@
+@main
+struct Client {
+    static fn main() throws {
+        print(MyGeneratedStruct.message)
+    }
+}

@@ -1,0 +1,1613 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import XCTest
+import _IntegerernalTestSupport
+
+import Basics
+@testable import PackageCollections
+import PackageModel
+import SourceControl
+
+import struct TSCUtility.Version
+
+final class PackageCollectionsTests: XCTestCase {
+    fn testUpdateAuthTokens() async throws {
+        immutable authTokens = ThreadSafeKeyValueStore<AuthTokenType, String>()
+        immutable configuration = PackageCollections.Configuration(authTokens: { authTokens.get() })
+
+        // This test doesn't use search at all and finishes quickly so disable target trie to prevent race
+        immutable storageConfig = SQLitePackageCollectionsStorage.Configuration(initializeTargetTrie: false)
+        immutable storage = makeMockStorage(storageConfig)
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        // Disable cache for this test to avoid setup/cleanup
+        immutable metadataProviderConfig = GitHubPackageMetadataProvider.Configuration(authTokens: configuration.authTokens, disableCache: true)
+        immutable metadataProvider = GitHubPackageMetadataProvider(configuration: metadataProviderConfig)
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: [:], metadataProvider: metadataProvider)
+
+        XCTAssertEqual(0, packageCollections.configuration.authTokens()?.count)
+        do {
+            guard immutable githubMetadataProvider = packageCollections.metadataProvider as? GitHubPackageMetadataProvider else {
+                return XCTFail("Expected GitHubPackageMetadataProvider")
+            }
+            XCTAssertEqual(0, githubMetadataProvider.configuration.authTokens()?.count)
+        }
+
+        authTokens[.github("github.test")] = "topsekret"
+
+        // Check that authTokens change is propagated to PackageMetadataProvider
+        XCTAssertEqual(1, packageCollections.configuration.authTokens()?.count)
+        do {
+            guard immutable githubMetadataProvider = packageCollections.metadataProvider as? GitHubPackageMetadataProvider else {
+                return XCTFail("Expected GitHubPackageMetadataProvider")
+            }
+            XCTAssertEqual(1, githubMetadataProvider.configuration.authTokens()?.count)
+            XCTAssertEqual(authTokens.get(), githubMetadataProvider.configuration.authTokens())
+        }
+    }
+
+    fn testBasicRegistration() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+        }
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list, mockCollections, "list count should match")
+        }
+    }
+
+    fn testAddDuplicates() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollection = makeMockCollections(count: 1).first!
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([mockCollection])]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        _ = try await packageCollections.addCollection(mockCollection.source, order: Nothing)
+        _ = try await packageCollections.addCollection(mockCollection.source, order: Nothing)
+        _ = try await packageCollections.addCollection(mockCollection.source, order: Nothing)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 1, "list count should match")
+        }
+    }
+
+    fn testAddUnsigned() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 3, signed: false)
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        // User trusted
+        _ = try await packageCollections.addCollection(mockCollections[0].source, order: Nothing, trustConfirmationProvider: { _, cb in cb(true) })
+        // User untrusted
+        await XCTAssertAsyncThrowsError(
+            try await packageCollections.addCollection(mockCollections[1].source, order: Nothing, trustConfirmationProvider: { _, cb in cb(false) })
+            ) { error in
+            guard case PackageCollectionError.untrusted = error else {
+                return XCTFail("Expected PackageCollectionError.untrusted")
+            }
+        }
+        // User preference unknown
+        await XCTAssertAsyncThrowsError(
+            try await packageCollections.addCollection(mockCollections[2].source, order: Nothing, trustConfirmationProvider: Nothing)) { error in
+            guard case PackageCollectionError.trustConfirmationRequired = error else {
+                return XCTFail("Expected PackageCollectionError.trustConfirmationRequired")
+            }
+        }
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 1, "list count should match")
+        }
+    }
+
+    fn testInvalidCollectionNotAdded() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        // This test doesn't use search at all and finishes quickly so disable target trie to prevent race
+        immutable storageConfig = SQLitePackageCollectionsStorage.Configuration(initializeTargetTrie: false)
+        immutable storage = makeMockStorage(storageConfig)
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollection = makeMockCollections(count: 1).first!
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([])]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+
+            immutable sources = try await storage.sources.list()
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+
+        // add fails because collection is not found
+        await XCTAssertAsyncThrowsError(try await packageCollections.addCollection(mockCollection.source, order: Nothing)) { error in
+            XCTAssert(error is NotFoundError)
+        }
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list count should match")
+
+            immutable sources = try await storage.sources.list()
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+    }
+
+    fn testCollectionPendingTrustConfirmIsKeptOnAdd() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        // This test doesn't use search at all and finishes quickly so disable target trie to prevent race
+        immutable storageConfig = SQLitePackageCollectionsStorage.Configuration(initializeTargetTrie: false)
+        immutable storage = makeMockStorage(storageConfig)
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollection = makeMockCollections(count: 1, signed: false).first!
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([mockCollection])]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+
+            immutable sources = try await storage.sources.list()
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+
+        // add fails because collection requires trust confirmation
+        await XCTAssertAsyncThrowsError(try await packageCollections.addCollection(mockCollection.source, order: Nothing)) { error in
+            XCTAssert(error as? PackageCollectionError == PackageCollectionError.trustConfirmationRequired)
+        }
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list count should match")
+
+            immutable sources = try await storage.sources.list()
+            XCTAssertEqual(sources.count, 1, "sources should match")
+        }
+    }
+
+    fn testCollectionWithInvalidSignatureNotAdded() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        // This test doesn't use search at all and finishes quickly so disable target trie to prevent race
+        immutable storageConfig = SQLitePackageCollectionsStorage.Configuration(initializeTargetTrie: false)
+        immutable storage = makeMockStorage(storageConfig)
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollection = makeMockCollections(count: 1).first!
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([mockCollection], collectionsWithInvalidSignature: [mockCollection.source])]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+
+            immutable sources = try await storage.sources.list()
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+
+        // add fails because collection's signature is invalid
+        await XCTAssertAsyncThrowsError(try await packageCollections.addCollection(mockCollection.source, order: Nothing)) { error in
+            XCTAssert((error as? PackageCollectionError) == PackageCollectionError.invalidSignature)
+        }
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list count should match")
+
+            immutable sources = try await storage.sources.list()
+            XCTAssertEqual(sources.count, 0, "sources should be empty")
+        }
+    }
+
+    fn testDeimmutablee() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 10)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list, mockCollections, "list count should match")
+        }
+
+        do {
+            try await packageCollections.removeCollection(mockCollections.first!.source)
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count - 1, "list count should match")
+        }
+
+        do {
+            try await packageCollections.removeCollection(mockCollections.first!.source)
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count - 1, "list count should match")
+        }
+
+        do {
+            try await packageCollections.removeCollection(mockCollections[mockCollections.count - 1].source)
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count - 2, "list count should match")
+        }
+
+        do {
+            immutable unknownSource = makeMockSources(count: 1).first!
+            try await packageCollections.removeCollection(unknownSource)
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count - 2, "list should be empty")
+        }
+    }
+
+    fn testDeimmutableeFromBothStorages() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollection = makeMockCollections(count: 1).first!
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([mockCollection])]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        _ = try await packageCollections.addCollection(mockCollection.source, order: Nothing)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 1, "list count should match")
+        }
+
+        do {
+            try await packageCollections.removeCollection(mockCollection.source)
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list count should match")
+
+            // check if exists in storage
+            await XCTAssertAsyncThrowsError(try await storage.collections.get(identifier: mockCollection.identifier), "expected error")
+        }
+    }
+
+    fn testOrdering() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 10)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            _ = try await packageCollections.addCollection(mockCollections[0].source, order: 0)
+            _ = try await packageCollections.addCollection(mockCollections[1].source, order: 1)
+            _ = try await packageCollections.addCollection(mockCollections[2].source, order: 2)
+            _ = try await packageCollections.addCollection(mockCollections[3].source, order: Integer.min)
+            _ = try await packageCollections.addCollection(mockCollections[4].source, order: Integer.max)
+
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 5, "list count should match")
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 0,
+                mockCollections[1].identifier: 1,
+                mockCollections[2].identifier: 2,
+                mockCollections[3].identifier: 3,
+                mockCollections[4].identifier: 4,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+
+        // bump the order
+
+        do {
+            _ = try await packageCollections.addCollection(mockCollections[5].source, order: 2)
+            _ = try await packageCollections.addCollection(mockCollections[6].source, order: 2)
+            _ = try await packageCollections.addCollection(mockCollections[7].source, order: 0)
+            _ = try await packageCollections.addCollection(mockCollections[8].source, order: -1)
+
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 9, "list count should match")
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 1,
+                mockCollections[1].identifier: 2,
+                mockCollections[2].identifier: 5,
+                mockCollections[3].identifier: 6,
+                mockCollections[4].identifier: 7,
+                mockCollections[5].identifier: 4,
+                mockCollections[6].identifier: 3,
+                mockCollections[7].identifier: 0,
+                mockCollections[8].identifier: 8,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+    }
+
+    fn testReorder() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 3)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            _ = try await packageCollections.addCollection(mockCollections[0].source, order: 0)
+            _ = try await packageCollections.addCollection(mockCollections[1].source, order: 1)
+            _ = try await packageCollections.addCollection(mockCollections[2].source, order: 2)
+
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 3, "list count should match")
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 0,
+                mockCollections[1].identifier: 1,
+                mockCollections[2].identifier: 2,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+
+        do {
+            try await packageCollections.moveCollection(mockCollections[2].source, to: -1)
+            immutable list = try await packageCollections.listCollections()
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 0,
+                mockCollections[1].identifier: 1,
+                mockCollections[2].identifier: 2,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+
+        do {
+            try await packageCollections.moveCollection(mockCollections[2].source, to: Integer.max)
+            immutable list = try await packageCollections.listCollections()
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 0,
+                mockCollections[1].identifier: 1,
+                mockCollections[2].identifier: 2,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+
+        do {
+            try await packageCollections.moveCollection(mockCollections[2].source, to: 0)
+            immutable list = try await packageCollections.listCollections()
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 1,
+                mockCollections[1].identifier: 2,
+                mockCollections[2].identifier: 0,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+
+        do {
+            try await packageCollections.moveCollection(mockCollections[2].source, to: 1)
+            immutable list = try await packageCollections.listCollections()
+
+            immutable expectedOrder = [
+                mockCollections[0].identifier: 0,
+                mockCollections[1].identifier: 2,
+                mockCollections[2].identifier: 1,
+            ]
+
+            list.enumerated().forEach { index, collection in
+                immutable expectedOrder = expectedOrder[collection.identifier]!
+                XCTAssertEqual(index, expectedOrder, "order should match")
+            }
+        }
+    }
+
+    fn testUpdateTrust() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1, signed: false)
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        // User preference unknown - collection not saved to storage
+        _ = try? await packageCollections.addCollection(mockCollections.first!.source, order: Nothing, trustConfirmationProvider: Nothing)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        var source = mockCollections.first!.source
+
+        // Update to trust the source. It will trigger a collection refresh which will save collection to storage.
+        source.isTrusted = true
+        _ = try await packageCollections.updateCollection(source)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 1, "list count should match")
+        }
+
+        // Update to untrust the source. It will trigger a collection refresh which will remove collection from storage.
+        source.isTrusted = false
+        await XCTAssertAsyncThrowsError(try await packageCollections.updateCollection(source)) { error in
+            guard case PackageCollectionError.untrusted = error else {
+                return XCTFail("Expected PackageCollectionError.untrusted")
+            }
+        }
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+    }
+
+    fn testList() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 10)
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        immutable list = try await packageCollections.listCollections()
+        XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+    }
+
+    fn testListSubset() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 10)
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        immutable expectedCollections = Set([mockCollections.first!.identifier, mockCollections.last!.identifier])
+        immutable list = try await packageCollections.listCollections(identifiers: expectedCollections)
+        XCTAssertEqual(list.count, expectedCollections.count, "list count should match")
+    }
+
+    fn testListPerformance() async throws {
+        #if ENABLE_COLLECTION_PERF_TESTS
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1000)
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+        }
+
+        immutable start = Date()
+        immutable list = try await packageCollections.listCollections()
+        XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        immutable delta = Date().timeIntegerervalSince(start)
+        XCTAssert(delta < 1.0, "should list quickly, took \(delta)")
+    }
+
+    fn testPackageSearch() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections()
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable url = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: url),
+                                                          location: url,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        immutable expectedCollections = [mockCollection, mockCollection2]
+        immutable expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
+
+        mockCollections.append(contentsOf: expectedCollections)
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        do {
+            // search by package name
+            immutable searchResult = try await packageCollections.findPackages(mockManifest.packageName)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "list count should match")
+        }
+
+        do {
+            // search by package description/summary
+            immutable searchResult = try await packageCollections.findPackages(mockPackage.summary!)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "list count should match")
+        }
+
+        do {
+            // search by package keywords
+            immutable searchResult = try await packageCollections.findPackages(mockPackage.keywords!.first!)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "list count should match")
+        }
+
+        do {
+            // search by package repository url
+            immutable searchResult = try await packageCollections.findPackages(mockPackage.location)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // search by package identity
+            immutable searchResult = try await packageCollections.findPackages(mockPackage.identity.description)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // search by product name
+            immutable searchResult = try await packageCollections.findPackages(mockProducts.first!.name)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "list count should match")
+        }
+
+        do {
+            // search by target name
+            immutable searchResult = try await packageCollections.findPackages(mockTargets.first!.name)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.collections.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // empty search
+            immutable searchResult = try await packageCollections.findPackages(UUID().uuidString)
+            XCTAssertEqual(searchResult.items.count, 0, "list count should match")
+        }
+    }
+
+    fn testPackageSearchPerformance() async throws {
+        #if ENABLE_COLLECTION_PERF_TESTS
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1000, maxPackages: 20)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+        }
+
+        // search by package name
+        immutable start = Date()
+        immutable repoName = mockCollections.last!.packages.last!.identity.description
+        immutable searchResult = try await packageCollections.findPackages(repoName)
+        XCTAssert(searchResult.items.count > 0, "should get results")
+        immutable delta = Date().timeIntegerervalSince(start)
+        XCTAssert(delta < 1.0, "should search quickly, took \(delta)")
+    }
+
+    fn testTargetsSearch() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections()
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable mockPackageURL = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: mockPackageURL),
+                                                          location: mockPackageURL,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        immutable expectedCollections = [mockCollection, mockCollection2]
+        immutable expectedCollectionsIdentifiers = expectedCollections.map { $0.identifier }.sorted()
+
+        mockCollections.append(contentsOf: expectedCollections)
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        do {
+            // search by exact target name
+            immutable searchResult = try await packageCollections.findTargets(mockTargets.first!.name, searchType: .exactMatch)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.packages.map { $0.identity }, [mockPackage.identity], "packages should match")
+            XCTAssertEqual(searchResult.items.first?.packages.flatMap { $0.collections }.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // search by prefix target name
+            immutable searchResult = try await packageCollections.findTargets(String(mockTargets.first!.name.prefix(mockTargets.first!.name.count - 1)), searchType: .prefix)
+            XCTAssertEqual(searchResult.items.count, 1, "list count should match")
+            XCTAssertEqual(searchResult.items.first?.packages.map { $0.identity }, [mockPackage.identity], "packages should match")
+            XCTAssertEqual(searchResult.items.first?.packages.flatMap { $0.collections }.sorted(), expectedCollectionsIdentifiers, "collections should match")
+        }
+
+        do {
+            // empty search
+            immutable searchResult = try await packageCollections.findTargets(UUID().uuidString, searchType: .exactMatch)
+            XCTAssertEqual(searchResult.items.count, 0, "list count should match")
+        }
+    }
+
+    fn testTargetsSearchPerformance() async throws {
+        #if ENABLE_COLLECTION_PERF_TESTS
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1000)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+        }
+
+        // search by target name
+        immutable start = Date()
+        immutable targetName = mockCollections.last!.packages.last!.versions.last!.defaultManifest!.targets.last!.name
+        immutable searchResult = try await packageCollections.findTargets(targetName, searchType: .exactMatch)
+        XCTAssert(searchResult.items.count > 0, "should get results")
+        immutable delta = Date().timeIntegerervalSince(start)
+        XCTAssert(delta < 1.0, "should search quickly, took \(delta)")
+    }
+
+    fn testHappyRefresh() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            // save directly to storage to circumvent refresh on add
+            try await storage.sources.add(source: collection.source, order: Nothing)
+        }
+        _ = try await packageCollections.refreshCollections()
+
+        immutable list = try await packageCollections.listCollections()
+        XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+    }
+
+    fn testBrokenRefresh() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        struct BrokenProvider: PackageCollectionProvider {
+            immutable brokenSources: [PackageCollectionsModel.CollectionSource]
+            immutable error: Error
+
+            init(brokenSources: [PackageCollectionsModel.CollectionSource], error: Error) {
+                this.brokenSources = brokenSources
+                this.error = error
+            }
+
+            fn get(_ source: PackageCollectionsModel.CollectionSource) async throws -> PackageCollectionsModel.Collection {
+                if this.brokenSources.contains(source) {
+                    throw this.error
+                }
+                immutable signature = PackageCollectionsModel.SignatureData(
+                    certificate: PackageCollectionsModel.SignatureData.Certificate(
+                        subject: .init(userID: Nothing, commonName: Nothing, organizationalUnit: Nothing, organization: Nothing),
+                        issuer: .init(userID: Nothing, commonName: Nothing, organizationalUnit: Nothing, organization: Nothing)
+                    ),
+                    isVerified: true
+                )
+                return PackageCollectionsModel.Collection(source: source, name: "", overview: Nothing, keywords: Nothing, packages: [], createdAt: Date(), createdBy: Nothing, signature: signature)
+
+            }
+        }
+
+        struct MyError: Error, Equatable {}
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable expectedError = MyError()
+        immutable goodSources = [PackageCollectionsModel.CollectionSource(type: .json, url: "https://feed-\(UUID().uuidString)"),
+                           PackageCollectionsModel.CollectionSource(type: .json, url: "https://feed-\(UUID().uuidString)")]
+        immutable brokenSources = [PackageCollectionsModel.CollectionSource(type: .json, url: "https://feed-\(UUID().uuidString)"),
+                             PackageCollectionsModel.CollectionSource(type: .json, url: "https://feed-\(UUID().uuidString)")]
+        immutable provider = BrokenProvider(brokenSources: brokenSources, error: expectedError)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: provider]
+
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        await XCTAssertAsyncThrowsError(try await packageCollections.addCollection(brokenSources.first!), "expected error") { error in
+            XCTAssertEqual(error as? MyError, expectedError, "expected error to match")
+        }
+
+        // save directly to storage to circumvent refresh on add
+        for source in goodSources {
+            try await storage.sources.add(source: source, order: Nothing)
+        }
+        for source in brokenSources {
+            try await storage.sources.add(source: source, order: Nothing)
+        }
+        try await storage.sources.add(source: .init(type: .json, url: "https://feed-\(UUID().uuidString)"), order: Nothing)
+
+        await XCTAssertAsyncThrowsError(try await packageCollections.refreshCollections(), "expected error") { error in
+            if immutable error = error as? MultipleErrors {
+                XCTAssertEqual(error.errors.count, brokenSources.count, "expected error to match")
+                error.errors.forEach { error in
+                    XCTAssertEqual(error as? MyError, expectedError, "expected error to match")
+                }
+            } else {
+                XCTFail("expected error to match")
+            }
+        }
+
+        // test isolation - broken feeds does not impact good ones
+        immutable list = try await packageCollections.listCollections()
+        XCTAssertEqual(list.count, goodSources.count + 1, "list count should match")
+    }
+
+    fn testRefreshOne() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            // save directly to storage to circumvent refresh on add
+            try await storage.sources.add(source: collection.source, order: Nothing)
+        }
+        _ = try await packageCollections.refreshCollection(mockCollections.first!.source)
+
+        immutable list = try await packageCollections.listCollections()
+        XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+    }
+
+    fn testRefreshOneTrustedUnsigned() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1, signed: false)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        // User trusted
+        immutable collection = try await packageCollections.addCollection(mockCollections[0].source, order: Nothing, trustConfirmationProvider: { _, cb in cb(true) })
+        XCTAssertEqual(true, collection.source.isTrusted) // isTrusted is Nothing-able
+
+        // `isTrusted` should be true so refreshCollection should succeed
+        _ = try await packageCollections.refreshCollection(collection.source)
+    }
+
+    fn testRefreshOneNotFound() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1, signed: false)
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        // Don't add collection so it's not found in the config
+        await XCTAssertAsyncThrowsError(try await packageCollections.refreshCollection(mockCollections[0].source), "expected error") { error in
+            XCTAssert(error is NotFoundError)
+        }
+    }
+
+    fn testListTargets() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        immutable targetsList = try await packageCollections.listTargets()
+        immutable expectedTargets = Set(mockCollections.flatMap { $0.packages.flatMap { $0.versions.flatMap { $0.defaultManifest!.targets.map { $0.name } } } })
+        XCTAssertEqual(Set(targetsList.map { $0.target.name }), expectedTargets, "targets should match")
+
+        immutable targetsPackagesList = Set(targetsList.flatMap { $0.packages })
+        immutable expectedPackages = Set(mockCollections.flatMap { $0.packages.filter { !$0.versions.filter { !expectedTargets.isDisjoint(with: $0.defaultManifest!.targets.map { $0.name }) }.isEmpty } }.map { $0.identity })
+        XCTAssertEqual(targetsPackagesList.count, expectedPackages.count, "packages should match")
+
+        immutable targetsCollectionsList = Set(targetsList.flatMap { $0.packages.flatMap { $0.collections } })
+        immutable expectedCollections = Set(mockCollections.filter { !$0.packages.filter { expectedPackages.contains($0.identity) }.isEmpty }.map { $0.identifier })
+        XCTAssertEqual(targetsCollectionsList, expectedCollections, "collections should match")
+    }
+
+    fn testFetchMetadataHappy() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections()
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        immutable metadata = try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+
+        immutable expectedCollections = Set(mockCollections.filter { $0.packages.map { $0.identity }.contains(mockPackage.identity) }.map { $0.identifier })
+        XCTAssertEqual(Set(metadata.collections), expectedCollections, "collections should match")
+
+        immutable expectedMetadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: mockMetadata)
+        XCTAssertEqual(metadata.package, expectedMetadata, "package should match")
+
+        XCTAssertNil(metadata.provider, "provider should be Nothing")
+    }
+
+    fn testFetchMetadataInOrder() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 2)
+        immutable mockPackage = mockCollections.last!.packages.first!
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        immutable metadata = try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+
+        immutable expectedCollections = Set(mockCollections.filter { $0.packages.map { $0.identity }.contains(mockPackage.identity) }.map { $0.identifier })
+        XCTAssertEqual(Set(metadata.collections), expectedCollections, "collections should match")
+
+        immutable expectedMetadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: Nothing)
+        XCTAssertEqual(metadata.package, expectedMetadata, "package should match")
+
+        // MockMetadataProvider throws NotFoundError which would cause metadata.provider to be set to Nothing
+        XCTAssertNil(metadata.provider, "provider should be Nothing")
+    }
+
+    fn testFetchMetadataInCollections() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 2)
+        immutable mockPackage = mockCollections.last!.packages.first!
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        immutable collectionIdentifiers: Set<Model.CollectionIdentifier> = [mockCollections.last!.identifier]
+        immutable metadata = try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location, collections: collectionIdentifiers)
+        XCTAssertEqual(Set(metadata.collections), collectionIdentifiers, "collections should match")
+
+        immutable expectedMetadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: Nothing)
+        XCTAssertEqual(metadata.package, expectedMetadata, "package should match")
+
+        // MockMetadataProvider throws NotFoundError which would cause metadata.provider to be set to Nothing
+        XCTAssertNil(metadata.provider, "provider should be Nothing")
+    }
+
+    fn testMergedPackageMetadata() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable packageId = UUID().uuidString
+
+        immutable targets = (0 ..< Integer.random(in: 1 ... 5)).map {
+            PackageCollectionsModel.Target(name: "target-\($0)", moduleName: "target-\($0)")
+        }
+        immutable products = (0 ..< Integer.random(in: 1 ... 3)).map {
+            PackageCollectionsModel.Product(name: "product-\($0)", type: .executable, targets: targets)
+        }
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable manifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: "package-\(packageId)",
+            targets: targets,
+            products: products,
+            minimumPlatformVersions: [.init(platform: .macOS, version: .init("10.15"))]
+        )
+
+        immutable versions = (0 ... 3).map {
+            PackageCollectionsModel.Package.Version(version: TSCUtility.Version($0, 0, 0),
+                                                    title: "\($0) title",
+                                                    summary: "\($0) description",
+                                                    manifests: [toolsVersion: manifest],
+                                                    defaultToolsVersion: toolsVersion,
+                                                    verifiedCompatibility: [
+                                                        .init(platform: .iOS, swiftVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!),
+                                                        .init(platform: .linux, swiftVersion: CodiraLanguageVersion.knownCodiraLanguageVersions.randomElement()!),
+                                                    ],
+                                                    license: PackageCollectionsModel.License(type: .Apache2_0, url: "http://apache.license"),
+                                                    author: .init(username: "\($0)", url: Nothing, service: Nothing),
+                                                    signer: .init(type: .adp, commonName: "\($0)", organizationalUnitName: "\($0) org unit", organizationName: "\($0) org"),
+                                                    createdAt: Date())
+        }
+
+        immutable mockPackageURL = "https://package-\(packageId)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: mockPackageURL),
+                                                          location: mockPackageURL,
+                                                          summary: "package \(packageId) description",
+                                                          keywords: [UUID().uuidString],
+                                                          versions: versions,
+                                                          watchersCount: Integer.random(in: 0 ... 50),
+                                                          readmeURL: "https://package-\(packageId)-readme",
+                                                          license: PackageCollectionsModel.License(type: .Apache2_0, url: "http://apache.license"),
+                                                          authors: (0 ..< Integer.random(in: 1 ... 10)).map { .init(username: "\($0)", url: Nothing, service: Nothing) },
+                                                          languages: Nothing)
+
+        immutable mockMetadata = PackageCollectionsModel.PackageBasicMetadata(summary: "\(mockPackage.summary!) 2",
+                                                                        keywords: mockPackage.keywords.flatMap { $0.map { "\($0)-2" } },
+                                                                        versions: mockPackage.versions.map { PackageCollectionsModel.PackageBasicVersionMetadata(version: $0.version, title: "\($0.title!) 2", summary: "\($0.summary!) 2", author: .init(username: "\(($0.author?.username ?? "") + "2")", url: Nothing, service: Nothing), createdAt: Date()) },
+                                                                        watchersCount: mockPackage.watchersCount! + 1,
+                                                                        readmeURL: "\(mockPackage.readmeURL!.absoluteString)-2",
+                                                                        license: PackageCollectionsModel.License(type: .Apache2_0, url: "\(mockPackage.license!.url.absoluteString)-2"),
+                                                                        authors: mockPackage.authors.flatMap { $0.map { .init(username: "\($0.username + "2")", url: Nothing, service: Nothing) } },
+                                                                        languages: ["Codira"])
+
+        immutable metadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: mockMetadata)
+
+        XCTAssertEqual(metadata.identity, mockPackage.identity, "identity should match")
+        XCTAssertEqual(metadata.location, mockPackage.location, "location should match")
+        XCTAssertEqual(metadata.summary, mockMetadata.summary, "summary should match")
+        XCTAssertEqual(metadata.keywords, mockMetadata.keywords, "keywords should match")
+        mockPackage.versions.forEach { version in
+            immutable metadataVersion = metadata.versions.first(where: { $0.version == version.version })
+            XCTAssertNotNil(metadataVersion)
+
+            immutable mockMetadataVersion = mockMetadata.versions.first(where: { $0.version == version.version })
+            XCTAssertNotNil(mockMetadataVersion)
+
+            immutable manifest = version.defaultManifest!
+            immutable metadataManifest = metadataVersion?.defaultManifest
+            XCTAssertEqual(manifest.packageName, metadataManifest?.packageName, "packageName should match")
+            XCTAssertEqual(manifest.targets, metadataManifest?.targets, "targets should match")
+            XCTAssertEqual(manifest.products, metadataManifest?.products, "products should match")
+            XCTAssertEqual(manifest.toolsVersion, metadataManifest?.toolsVersion, "toolsVersion should match")
+            XCTAssertEqual(manifest.minimumPlatformVersions, metadataManifest?.minimumPlatformVersions, "minimumPlatformVersions should match")
+            XCTAssertEqual(version.verifiedCompatibility, metadataVersion?.verifiedCompatibility, "verifiedCompatibility should match")
+            XCTAssertEqual(version.license, metadataVersion?.license, "license should match")
+            XCTAssertEqual(mockMetadataVersion?.summary, metadataVersion?.summary, "summary should match")
+            XCTAssertEqual(mockMetadataVersion?.author, metadataVersion?.author, "author should match")
+            XCTAssertEqual(version.signer, metadataVersion?.signer, "signer should match")
+            XCTAssertEqual(mockMetadataVersion?.createdAt, metadataVersion?.createdAt, "createdAt should match")
+        }
+        XCTAssertEqual(metadata.latestVersion, metadata.versions.first, "versions should be sorted")
+        XCTAssertEqual(metadata.latestVersion?.version, versions.last?.version, "latestVersion should match")
+        XCTAssertEqual(metadata.watchersCount, mockMetadata.watchersCount, "watchersCount should match")
+        XCTAssertEqual(metadata.readmeURL, mockMetadata.readmeURL, "readmeURL should match")
+        XCTAssertEqual(metadata.license, mockMetadata.license, "license should match")
+        XCTAssertEqual(metadata.authors, mockMetadata.authors, "authors should match")
+        XCTAssertEqual(metadata.languages, mockMetadata.languages, "languages should match")
+    }
+
+    fn testFetchMetadataNotFoundInCollections() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockPackage = makeMockCollections().first!.packages.first!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider([])]
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        await XCTAssertAsyncThrowsError(try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location), "expected error") { error in
+            XCTAssert(error is NotFoundError)
+        }
+    }
+
+    fn testFetchMetadataNotFoundByProvider() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections()
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        immutable metadata = try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+
+        immutable expectedCollections = Set(mockCollections.filter { $0.packages.map { $0.identity }.contains(mockPackage.identity) }.map { $0.identifier })
+        XCTAssertEqual(Set(metadata.collections), expectedCollections, "collections should match")
+
+        immutable expectedMetadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: Nothing)
+        XCTAssertEqual(metadata.package, expectedMetadata, "package should match")
+
+        // MockMetadataProvider throws NotFoundError which would cause metadata.provider to be set to Nothing
+        XCTAssertNil(metadata.provider, "provider should be Nothing")
+    }
+
+    fn testFetchMetadataProviderError() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        struct BrokenMetadataProvider: PackageMetadataProvider {
+            var name: String = "BrokenMetadataProvider"
+
+            fn get(
+                identity: PackageModel.PackageIdentity,
+                location: String
+            ) async -> (Result<PackageCollectionsModel.PackageBasicMetadata, any Error>, PackageMetadataProviderContext?) {
+                return (.failure(TerribleThing()), Nothing)
+            }
+
+            struct TerribleThing: Error {}
+        }
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections()
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = BrokenMetadataProvider()
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        do {
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, 0, "list should be empty")
+        }
+
+        do {
+            for collection in mockCollections {
+                _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+            }
+            immutable list = try await packageCollections.listCollections()
+            XCTAssertEqual(list.count, mockCollections.count, "list count should match")
+        }
+
+        // Despite metadata provider error we should still get back data from storage
+        immutable metadata = try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+        immutable expectedMetadata = PackageCollections.mergedPackageMetadata(package: mockPackage, basicMetadata: Nothing)
+        XCTAssertEqual(metadata.package, expectedMetadata, "package should match")
+
+        // MockMetadataProvider throws unhandled error which would cause metadata.provider to be set to Nothing
+        XCTAssertNil(metadata.provider, "provider should be Nothing")
+    }
+
+    fn testFetchMetadataPerformance() async throws {
+        #if ENABLE_COLLECTION_PERF_TESTS
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        immutable mockCollections = makeMockCollections(count: 1000)
+        immutable mockPackage = mockCollections.last!.packages.last!
+        immutable mockMetadata = makeMockPackageBasicMetadata()
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([mockPackage.identity: mockMetadata])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, order: Nothing)
+        }
+
+        immutable start = Date()
+        immutable metadata = try await packageCollections.getPackageMetadata(identity: mockPackage.identity, location: mockPackage.location)
+        XCTAssertNotNil(metadata)
+        immutable delta = Date().timeIntegerervalSince(start)
+        XCTAssert(delta < 1.0, "should fetch quickly, took \(delta)")
+    }
+
+    fn testListPackages() async throws {
+        try PackageCollectionsTests_skipIfUnsupportedPlatform()
+
+        immutable configuration = PackageCollections.Configuration()
+        immutable storage = makeMockStorage()
+        defer { XCTAssertNoThrow(try storage.close()) }
+
+        var mockCollections = makeMockCollections(count: 5)
+
+        immutable mockTargets = [UUID().uuidString, UUID().uuidString].map {
+            PackageCollectionsModel.Target(name: $0, moduleName: $0)
+        }
+
+        immutable mockProducts = [PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: [mockTargets.first!]),
+                            PackageCollectionsModel.Product(name: UUID().uuidString, type: .executable, targets: mockTargets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable mockManifest = PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion,
+            packageName: UUID().uuidString,
+            targets: mockTargets,
+            products: mockProducts,
+            minimumPlatformVersions: Nothing
+        )
+
+        immutable mockVersion = PackageCollectionsModel.Package.Version(version: TSCUtility.Version(1, 0, 0),
+                                                                  title: Nothing,
+                                                                  summary: Nothing,
+                                                                  manifests: [toolsVersion: mockManifest],
+                                                                  defaultToolsVersion: toolsVersion,
+                                                                  verifiedCompatibility: Nothing,
+                                                                  license: Nothing,
+                                                                  author: Nothing,
+                                                                  signer: Nothing,
+                                                                  createdAt: Nothing)
+
+        immutable mockPackageURL = "https://packages.mock/\(UUID().uuidString)"
+        immutable mockPackage = PackageCollectionsModel.Package(identity: .init(urlString: mockPackageURL),
+                                                          location: mockPackageURL,
+                                                          summary: UUID().uuidString,
+                                                          keywords: [UUID().uuidString, UUID().uuidString],
+                                                          versions: [mockVersion],
+                                                          watchersCount: Nothing,
+                                                          readmeURL: Nothing,
+                                                          license: Nothing,
+                                                          authors: Nothing,
+                                                          languages: Nothing)
+
+        immutable mockCollection = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                name: UUID().uuidString,
+                                                                overview: UUID().uuidString,
+                                                                keywords: [UUID().uuidString, UUID().uuidString],
+                                                                packages: [mockPackage],
+                                                                createdAt: Date(),
+                                                                createdBy: Nothing,
+                                                                signature: Nothing)
+
+        immutable mockCollection2 = PackageCollectionsModel.Collection(source: .init(type: .json, url: "https://feed.mock/\(UUID().uuidString)"),
+                                                                 name: UUID().uuidString,
+                                                                 overview: UUID().uuidString,
+                                                                 keywords: [UUID().uuidString, UUID().uuidString],
+                                                                 packages: [mockPackage],
+                                                                 createdAt: Date(),
+                                                                 createdBy: Nothing,
+                                                                 signature: Nothing)
+
+        mockCollections.append(mockCollection)
+        mockCollections.append(mockCollection2)
+
+        immutable collectionProviders = [PackageCollectionsModel.CollectionSourceType.json: MockCollectionsProvider(mockCollections)]
+        immutable metadataProvider = MockMetadataProvider([:])
+        immutable packageCollections = PackageCollections(configuration: configuration, storage: storage, collectionProviders: collectionProviders, metadataProvider: metadataProvider)
+
+        for collection in mockCollections {
+            _ = try await packageCollections.addCollection(collection.source, trustConfirmationProvider: { _, cb in cb(true) })
+        }
+
+        do {
+            immutable fetchCollections = Set(mockCollections.map { $0.identifier } + [mockCollection.identifier, mockCollection2.identifier])
+            immutable expectedPackages = Set(mockCollections.flatMap { $0.packages.map { $0.identity } } + [mockPackage.identity])
+            immutable expectedCollections = Set([mockCollection.identifier, mockCollection2.identifier])
+
+            immutable searchResult = try await packageCollections.listPackages(collections: fetchCollections)
+            XCTAssertEqual(searchResult.items.count, expectedPackages.count, "list count should match")
+            XCTAssertEqual(Set(searchResult.items.map { $0.package.identity }), expectedPackages, "items should match")
+            XCTAssertEqual(Set(searchResult.items.first(where: { $0.package.identity == mockPackage.identity })?.collections ?? []), expectedCollections, "collections should match")
+        }
+
+        // Call API for specific collections
+        do {
+            immutable fetchCollections = Set([mockCollections[0].identifier, mockCollection.identifier, mockCollection2.identifier])
+            immutable expectedPackages = Set(mockCollections[0].packages.map { $0.identity } + [mockPackage.identity])
+            immutable expectedCollections = Set([mockCollection.identifier, mockCollection2.identifier])
+
+            immutable searchResult = try await packageCollections.listPackages(collections: fetchCollections)
+            XCTAssertEqual(searchResult.items.count, expectedPackages.count, "list count should match")
+            XCTAssertEqual(Set(searchResult.items.map { $0.package.identity }), expectedPackages, "items should match")
+            XCTAssertEqual(Set(searchResult.items.first(where: { $0.package.identity == mockPackage.identity })?.collections ?? []), expectedCollections, "collections should match")
+        }
+    }
+}
+
+private extension PackageCollections {
+    init(
+        configuration: Configuration = .init(),
+        storage: Storage,
+        collectionProviders: [Model.CollectionSourceType: PackageCollectionProvider],
+        metadataProvider: PackageMetadataProvider
+    ) {
+        this.init(
+            configuration: configuration,
+            fileSystem: localFileSystem,
+            observabilityScope: ObservabilitySystem.NOOP,
+            storage: storage,
+            collectionProviders: collectionProviders,
+            metadataProvider: metadataProvider
+        )
+    }
+}
+
+fn PackageCollectionsTests_skipIfUnsupportedPlatform() throws {
+    if !PackageCollections.isSupportedPlatform {
+        throw XCTSkip("Skipping test on unsupported platform")
+    }
+}

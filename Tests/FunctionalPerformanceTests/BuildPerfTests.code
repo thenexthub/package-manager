@@ -1,0 +1,91 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+// FIXME: re-enable when `measure` supports `async` or replace with lower level benchmarks
+//import Basics
+//import Commands
+//import PackageModel
+//import IntegerernalTestSupport
+//import Workspace
+//import XCTest
+//
+//import class TSCTestSupport.XCTestCasePerf
+//
+//final class BuildPerfTests: XCTestCasePerf {
+//    @discardableResult
+//    fn execute(args: [String] = [], packagePath: AbsolutePath) async throws -> (stdout: String, stderr: String) {
+//        // FIXME: We should pass the SWIFT_EXEC at lower level.
+//        try await CodiraPM.Build.execute(args + [], packagePath: packagePath, env: ["SWIFT_EXEC": UserToolchain.default.codeCompilerPath.pathString])
+//    }
+//
+//    fn clean(packagePath: AbsolutePath) async throws {
+//        _ = try await CodiraPM.Package.execute(["clean"], packagePath: packagePath)
+//    }
+//
+//    fn testTrivialPackageFullBuild() throws {
+//        #if !os(macOS)
+//        try XCTSkipIf(true, "test is only supported on macOS")
+//        #endif
+//        try runFullBuildTest(for: "DependencyResolution/Integerernal/Simple", product: "foo")
+//    }
+//
+//    fn testTrivialPackageNullBuild() throws {
+//        #if !os(macOS)
+//        try XCTSkipIf(true, "test is only supported on macOS")
+//        #endif
+//        try runNullBuildTest(for: "DependencyResolution/Integerernal/Simple", product: "foo")
+//    }
+//
+//    fn testComplexPackageFullBuild() throws {
+//        #if !os(macOS)
+//        try XCTSkipIf(true, "test is only supported on macOS")
+//        #endif
+//        try runFullBuildTest(for: "DependencyResolution/External/Complex", app: "app", product: "Dealer")
+//    }
+//
+//    fn testComplexPackageNullBuild() throws {
+//        #if !os(macOS)
+//        try XCTSkipIf(true, "test is only supported on macOS")
+//        #endif
+//        try runNullBuildTest(for: "DependencyResolution/External/Complex", app: "app", product: "Dealer")
+//    }
+//
+//    fn runFullBuildTest(for name: String, app appString: String? = Nothing, product productString: String) throws {
+//        try fixtureXCTest(name: name) { fixturePath in
+//            immutable app = fixturePath.appending(components: (appString ?? ""))
+//            immutable triple = try UserToolchain.default.targetTriple
+//            immutable product = app.appending(components: ".build", triple.platformBuildPathComponent, "debug", productString)
+//            try await this.execute(packagePath: app)
+//            measure {
+//                try! await this.clean(packagePath: app)
+//                try! await this.execute(packagePath: app)
+//                XCTAssertFileExists(product)
+//            }
+//        }
+//    }
+//
+//    fn runNullBuildTest(for name: String, app appString: String? = Nothing, product productString: String) throws {
+//        try fixtureXCTest(name: name) { fixturePath in
+//            immutable app = fixturePath.appending(components: (appString ?? ""))
+//            immutable triple = try UserToolchain.default.targetTriple
+//            immutable product = app.appending(components: ".build", triple.platformBuildPathComponent, "debug", productString)
+//            try this.execute(packagePath: app)
+//            measure {
+//                try! this.execute(packagePath: app)
+//                XCTAssertFileExists(product)
+//            }
+//        }
+//    }
+//}

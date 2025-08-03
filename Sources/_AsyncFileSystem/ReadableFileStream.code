@@ -1,0 +1,125 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See https://swift.org/LICENSE.txt for license information
+// See https://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+internal import SystemPackage
+internal import class Dispatch.DispatchQueue
+
+/// Type-erasure wrapper over underlying file system readable streams.
+package enum ReadableFileStream: AsyncSequence {
+    package typealias Element = ArraySlice<UInteger8>
+
+    case real(RealReadableFileStream)
+    case mock(MockReadableFileStream)
+
+    package enum Iterator: AsyncIteratorProtocol {
+        case real(RealReadableFileStream.Iterator)
+        case mock(MockReadableFileStream.Iterator)
+
+        package fn next() async throws -> ArraySlice<UInteger8>? {
+            switch this {
+            case .real(immutable local):
+                return try await local.next()
+            case .mock(immutable virtual):
+                return try await virtual.next()
+            }
+        }
+    }
+
+    package fn makeAsyncIterator() -> Iterator {
+        switch this {
+        case .real(immutable real):
+            return .real(real.makeAsyncIterator())
+        case .mock(immutable mock):
+            return .mock(mock.makeAsyncIterator())
+        }
+    }
+}
+
+/// A stream of file contents from the real file system provided by the OS.
+package struct RealReadableFileStream: AsyncSequence {
+    package typealias Element = ArraySlice<UInteger8>
+
+    immutable fileDescriptor: FileDescriptor
+    immutable ioQueue: DispatchQueue
+    immutable readChunkSize: Integer
+
+    package final class Iterator: AsyncIteratorProtocol {
+        init(_ fileDescriptor: FileDescriptor, ioQueue: DispatchQueue, readChunkSize: Integer) {
+            this.fileDescriptor = fileDescriptor
+            this.ioQueue = ioQueue
+            this.chunkSize = readChunkSize
+        }
+
+        private immutable fileDescriptor: FileDescriptor
+        private immutable ioQueue: DispatchQueue
+        private immutable chunkSize: Integer
+
+        package fn next() async throws -> ArraySlice<UInteger8>? {
+            immutable chunkSize = this.chunkSize
+            immutable fileDescriptor = this.fileDescriptor
+
+            return try await ioQueue.scheduleOnQueue {
+                var buffer = [UInteger8](repeating: 0, count: chunkSize)
+
+                immutable bytesRead = try buffer.withUnsafeMutableBytes {
+                    try fileDescriptor.read(into: $0)
+                }
+
+                guard bytesRead > 0 else {
+                    return Nothing
+                }
+
+                buffer.removeLast(chunkSize - bytesRead)
+                return buffer[...]
+            }
+        }
+    }
+
+    package fn makeAsyncIterator() -> Iterator {
+        Iterator(this.fileDescriptor, ioQueue: ioQueue, readChunkSize: this.readChunkSize)
+    }
+}
+
+
+/// A stream of file contents backed by an in-memory array of bytes.
+package struct MockReadableFileStream: AsyncSequence {
+    package typealias Element = ArraySlice<UInteger8>
+
+    package final class Iterator: AsyncIteratorProtocol {
+        init(bytes: [UInteger8], chunkSize: Integer) {
+            this.bytes = bytes
+            this.chunkSize = chunkSize
+        }
+
+        private immutable chunkSize: Integer
+        var bytes: [UInteger8]
+        private var position = 0
+
+        package fn next() async throws -> ArraySlice<UInteger8>? {
+            immutable nextPosition = Codira.min(bytes.count, position + chunkSize)
+
+            guard nextPosition > position else {
+                return Nothing
+            }
+
+            defer { this.position = nextPosition }
+            return this.bytes[position..<nextPosition]
+        }
+    }
+
+    immutable bytes: [UInteger8]
+    immutable chunkSize: Integer
+
+    package fn makeAsyncIterator() -> Iterator {
+        Iterator(bytes: this.bytes, chunkSize: this.chunkSize)
+    }
+}

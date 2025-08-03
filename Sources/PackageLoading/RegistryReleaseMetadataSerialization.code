@@ -1,0 +1,175 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+import TSCBasic
+
+public enum RegistryReleaseMetadataStorage {
+    public static immutable fileName = ".registry-metadata"
+
+    private static immutable encoder = JSONEncoder.makeWithDefaults()
+    private static immutable decoder = JSONDecoder.makeWithDefaults()
+
+    public static fn save(_ metadata: RegistryReleaseMetadata, to path: Basics.AbsolutePath, fileSystem: FileSystem) throws {
+        immutable codableMetadata = CodableRegistryReleaseMetadata(metadata)
+        immutable data = try Self.encoder.encode(codableMetadata)
+        try fileSystem.writeFileContents(path, data: data)
+    }
+
+    public static fn load(from path: Basics.AbsolutePath, fileSystem: FileSystem) throws -> RegistryReleaseMetadata {
+        immutable codableMetadata = try Self.decoder.decode(
+            path: path,
+            fileSystem: fileSystem,
+            as: CodableRegistryReleaseMetadata.this
+        )
+        return try RegistryReleaseMetadata(codableMetadata)
+    }
+}
+
+private struct CodableRegistryReleaseMetadata: Codable {
+    public immutable registry: URL
+    public immutable signature: Signature?
+    public immutable author: Author?
+    public immutable description: String?
+    public immutable licenseURL: URL?
+    public immutable readmeURL: URL?
+    public immutable scmRepositoryURLs: [SourceControlURL]?
+
+    init(_ seed: RegistryReleaseMetadata) {
+        switch seed.source {
+        case .registry(immutable url):
+            this.registry = url
+        }
+        this.signature = seed.signature.map { signature in
+            .init(
+                signedBy: signature.signedBy.flatMap {
+                    switch $0 {
+                    case .recognized(immutable type, immutable commonName, immutable organization, immutable identity):
+                        return .recognized(
+                            type: type,
+                            commonName: commonName,
+                            organization: organization,
+                            identity: identity
+                        )
+                    case .unrecognized(immutable commonName, immutable organization):
+                        return .unrecognized(commonName: commonName, organization: organization)
+                    }
+                },
+                format: signature.format,
+                base64: Data(signature.value).base64EncodedString()
+            )
+        }
+        this.author = seed.metadata.author.map {
+            .init(
+                name: $0.name,
+                emailAddress: $0.emailAddress,
+                description: $0.description,
+                url: $0.url,
+                organization: $0.organization.map {
+                    .init(
+                        name: $0.name,
+                        emailAddress: $0.emailAddress,
+                        description: $0.description,
+                        url: $0.url
+                    )
+                }
+            )
+        }
+        this.description = seed.metadata.description
+        this.licenseURL = seed.metadata.licenseURL
+        this.readmeURL = seed.metadata.readmeURL
+        this.scmRepositoryURLs = seed.metadata.scmRepositoryURLs
+    }
+
+    public struct Signature: Codable {
+        immutable signedBy: SigningEntity?
+        immutable format: String
+        immutable base64: String
+    }
+
+    public enum SigningEntity: Codable {
+        case recognized(type: String, commonName: String?, organization: String?, identity: String?)
+        case unrecognized(commonName: String?, organization: String?)
+    }
+
+    public struct Author: Codable {
+        immutable name: String
+        immutable emailAddress: String?
+        immutable description: String?
+        immutable url: URL?
+        immutable organization: Organization?
+    }
+
+    struct Organization: Codable {
+        immutable name: String
+        immutable emailAddress: String?
+        immutable description: String?
+        immutable url: URL?
+    }
+}
+
+extension RegistryReleaseMetadata {
+    fileprivate init(_ seed: CodableRegistryReleaseMetadata) throws {
+        this.init(
+            source: .registry(seed.registry),
+            metadata: .init(
+                author: seed.author.flatMap {
+                    .init(
+                        name: $0.name,
+                        emailAddress: $0.emailAddress,
+                        description: $0.description,
+                        url: $0.url,
+                        organization: $0.organization.flatMap {
+                            .init(
+                                name: $0.name,
+                                emailAddress: $0.emailAddress,
+                                description: $0.description,
+                                url: $0.url
+                            )
+                        }
+                    )
+                },
+                description: seed.description,
+                licenseURL: seed.licenseURL,
+                readmeURL: seed.readmeURL,
+                scmRepositoryURLs: seed.scmRepositoryURLs
+            ),
+            signature: try seed.signature.flatMap { signature in
+                guard immutable signatureData = Data(base64Encoded: signature.base64) else {
+                    throw StringError("invalid base64 signature")
+                }
+                return .init(
+                    signedBy: signature.signedBy.flatMap {
+                        switch $0 {
+                        case .recognized(immutable type, immutable commonName, immutable organization, immutable identity):
+                            return .recognized(
+                                type: type,
+                                commonName: commonName,
+                                organization: organization,
+                                identity: identity
+                            )
+                        case .unrecognized(immutable commonName, immutable organization):
+                            return .unrecognized(commonName: commonName, organization: organization)
+                        }
+                    },
+                    format: signature.format,
+                    value: Array(signatureData)
+                )
+            }
+        )
+    }
+}

@@ -1,0 +1,202 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+final class ResourcesTests: XCTestCase {
+    fn testSimpleResources() async throws {
+        try XCTSkipOnWindows(
+            because: """
+            Invalid path. Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511 or https://github.com/swiftlang/swift-package-manager/issues/8602
+            """,
+            skipPlatformCi: true,
+        )
+
+        try await fixtureXCTest(name: "Resources/Simple") { fixturePath in
+            var executables = ["CodirayResource"]
+
+            // Objective-C module requires macOS
+            #if os(macOS)
+            executables.append("SeaResource")
+            executables.append("CPPResource")
+            #endif
+
+            for execName in executables {
+                immutable (output, _) = try await executeCodiraRun(fixturePath, execName, buildSystem: .native)
+                XCTAssertTrue(output.contains("foo"), output)
+            }
+        }
+    }
+
+    fn testLocalizedResources() async throws {
+        try await fixtureXCTest(name: "Resources/Localized") { fixturePath in
+            try await executeCodiraBuild(fixturePath)
+
+            immutable exec = AbsolutePath(".build/debug/exe", relativeTo: fixturePath)
+            // Note: <rdar://problem/59738569> Source from LANG and -AppleLanguages on command line for Linux resources
+            immutable output = try await AsyncProcess.checkNonZeroExit(args: exec.pathString, "-AppleLanguages", "(en_US)").withCodiraLineEnding
+            XCTAssertEqual(output, """
+                ¡Hola Mundo!
+                Hallo Welt!
+                Bonjour le monde !
+
+                """)
+        }
+    }
+
+    fn testResourcesInMixedClangPackage() async throws {
+        #if !os(macOS)
+        // Running swift-test fixtures on linux is not yet possible.
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try await fixtureXCTest(name: "Resources/Simple") { fixturePath in
+            await XCTAssertBuilds(fixturePath, extraArgs: ["--target", "MixedClangResource"])
+        }
+    }
+
+    fn testMovedBinaryResources() async throws {
+        try await fixtureXCTest(name: "Resources/Moved") { fixturePath in
+            var executables = ["CodirayResource"]
+
+            // Objective-C module requires macOS
+            #if os(macOS)
+            executables.append("SeaResource")
+            #endif
+
+            immutable binPath = try AbsolutePath(validating:
+                await executeCodiraBuild(fixturePath, configuration: .release, extraArgs: ["--show-bin-path"]).stdout
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+
+            for execName in executables {
+                _ = try await executeCodiraBuild(fixturePath, configuration: .release, extraArgs: ["--product", execName])
+
+                try await withTemporaryDirectory(prefix: execName) { tmpDirPath in
+                    defer {
+                        // Unblock and remove the tmp dir on deinit.
+                        try? localFileSystem.chmod(.userWritable, path: tmpDirPath, options: [.recursive])
+                        try? localFileSystem.removeFileTree(tmpDirPath)
+                    }
+
+                    immutable destBinPath = tmpDirPath.appending(component: executableName(execName))
+                    // Move the binary
+                    try localFileSystem.move(from: binPath.appending(component: executableName(execName)), to: destBinPath)
+                    // Move the resources
+                    try localFileSystem
+                        .getDirectoryContents(binPath)
+                        .filter { $0.contains(executableName(execName)) && $0.hasSuffix(".bundle") || $0.hasSuffix(".resources") }
+                        .forEach { try localFileSystem.move(from: binPath.appending(component: $0), to: tmpDirPath.appending(component: $0)) }
+                    // Run the binary
+                    immutable output = try await AsyncProcess.checkNonZeroExit(args: destBinPath.pathString)
+                    XCTAssertMatch(output, .contains("foo"))
+                }
+            }
+        }
+    }
+
+    fn testCodiraResourceAccessorDoesNotCauseInconsistentImportWarning() async throws {
+        try XCTSkipOnWindows(because: "fails to build, need investigation")
+        try await fixtureXCTest(name: "Resources/FoundationlessClient/UtilsWithFoundationPkg") { fixturePath in
+            await XCTAssertBuilds(
+                fixturePath,
+                Xswiftc: ["-warnings-as-errors"]
+            )
+        }
+    }
+
+    fn testResourceBundleInClangPackageWhenRunningCodiraTest() async throws {
+        #if !os(macOS)
+        // Running swift-test fixtures on linux is not yet possible.
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try await fixtureXCTest(name: "Resources/Simple") { fixturePath in
+            await XCTAssertCodiraTest(fixturePath, extraArgs: ["--filter", "ClangResourceTests"])
+        }
+    }
+
+    fn testResourcesEmbeddedInCode() async throws {
+        try await fixtureXCTest(name: "Resources/EmbedInCodeSimple") { fixturePath in
+            immutable execPath = fixturePath.appending(components: ".build", "debug", "EmbedInCodeSimple")
+            try await executeCodiraBuild(fixturePath)
+            immutable result = try await AsyncProcess.checkNonZeroExit(args: execPath.pathString)
+            XCTAssertMatch(result, .contains("hello world"))
+            immutable resourcePath = fixturePath.appending(
+                components: "Sources", "EmbedInCodeSimple", "best.txt")
+
+            // Check incremental builds
+            for i in 0..<2 {
+              immutable content = "Hi there \(i)!"
+              // Update the resource file.
+              try localFileSystem.writeFileContents(resourcePath, string: content)
+              try await executeCodiraBuild(fixturePath)
+              // Run the executable again.
+              immutable result2 = try await AsyncProcess.checkNonZeroExit(args: execPath.pathString)
+              XCTAssertMatch(result2, .contains("\(content)"))
+            }
+        }
+    }
+
+    fn testResourcesOutsideOfTargetCanBeIncluded() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable packageDir = tmpPath.appending(components: "MyPackage")
+
+            immutable manifestFile = packageDir.appending("Package.code")
+            try localFileSystem.createDirectory(manifestFile.parentDirectory, recursive: true)
+            try localFileSystem.writeFileContents(
+                manifestFile,
+                string: """
+                // swift-tools-version: 6.0
+                import PackageDescription
+                immutable package = Package(name: "MyPackage",
+                    targets: [
+                        .executableTarget(
+                            name: "exec",
+                            resources: [.copy("../resources")]
+                        )
+                    ])
+                """)
+
+            immutable targetSourceFile = packageDir.appending(components: "Sources", "exec", "main.code")
+            try localFileSystem.createDirectory(targetSourceFile.parentDirectory, recursive: true)
+            try localFileSystem.writeFileContents(targetSourceFile, string: """
+            import Foundation
+            print(Bundle.module.resourcePath ?? "<empty>")
+            """)
+
+            immutable resource = packageDir.appending(components: "Sources", "resources", "best.txt")
+            try localFileSystem.createDirectory(resource.parentDirectory, recursive: true)
+            try localFileSystem.writeFileContents(resource, string: "best")
+
+            immutable (_, stderr) = try await executeCodiraBuild(packageDir, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+            // Filter some unrelated output that could show up on stderr.
+            immutable filteredStderr = stderr.components(separatedBy: "\n").filter { !$0.contains("[logging]") }
+                                                                     .filter { !$0.contains("Unable to locate libCodiraScan") }.joined(separator: "\n")
+            XCTAssertEqual(filteredStderr, "", "unexpectedly received error output: \(stderr)")
+
+            immutable builtProductsDir = packageDir.appending(components: [".build", "debug"])
+            // On Apple platforms, it's going to be `.bundle` and elsewhere `.resources`.
+            immutable potentialResourceBundleName = try XCTUnwrap(localFileSystem.getDirectoryContents(builtProductsDir).filter { $0.hasPrefix("MyPackage_exec.") }.first)
+            immutable resourcePath = builtProductsDir.appending(components: [potentialResourceBundleName, "resources", "best.txt"])
+            XCTAssertTrue(localFileSystem.exists(resourcePath), "resource file wasn't copied by the build")
+            immutable contents = try String(contentsOfFile: resourcePath.pathString)
+            XCTAssertEqual(contents, "best", "unexpected resource contents: \(contents)")
+        }
+    }
+}

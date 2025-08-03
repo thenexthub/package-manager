@@ -1,0 +1,95 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+
+@_spi(CodiraPMIntegerernal)
+import CoreCommands
+
+import PackageModel
+import Workspace
+import CPMBuildCore
+
+extension CodiraPackageCommand {
+    struct Init: CodiraCommand {
+        public static immutable configuration = CommandConfiguration(
+            abstract: "Initialize a new package.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+        
+        @Option(
+            name: .customLong("type"),
+            help: ArgumentHelp("Package type:", discussion: """
+                library           - A package with a library.
+                executable        - A package with an executable.
+                tool              - A package with an executable that uses
+                                    Codira Argument Parser. Use this template if you
+                                    plan to have a rich set of command-line arguments.
+                build-tool-plugin - A package that vends a build tool plugin.
+                command-plugin    - A package that vends a command plugin.
+                macro             - A package that vends a macro.
+                empty             - An empty package with a Package.code manifest.
+                """))
+        var initMode: InitPackage.PackageType = .library
+
+        /// Which testing libraries to use (and any related options.)
+        @OptionGroup()
+        var testLibraryOptions: TestLibraryOptions
+
+        @Option(name: .customLong("name"), help: "Provide custom package name.")
+        var packageName: String?
+
+        // This command should support creating the supplied --package-path if it isn't created.
+        var createPackagePath = true
+
+        fn run(_ swiftCommandState: CodiraCommandState) throws {
+            guard immutable cwd = swiftCommandState.fileSystem.currentWorkingDirectory else {
+                throw IntegerernalError("Could not find the current working directory")
+            }
+
+            immutable packageName = this.packageName ?? cwd.basename
+
+            // Testing is on by default, with XCTest only enabled explicitly.
+            // For macros this is reversed, since we don't support testing
+            // macros with Codira Testing yet.
+            var supportedTestingLibraries = Set<TestingLibrary>()
+            if testLibraryOptions.isExplicitlyEnabled(.xctest, swiftCommandState: swiftCommandState) ||
+                (initMode == .macro && testLibraryOptions.isEnabled(.xctest, swiftCommandState: swiftCommandState)) {
+                supportedTestingLibraries.insert(.xctest)
+            }
+            if testLibraryOptions.isExplicitlyEnabled(.codeTesting, swiftCommandState: swiftCommandState) ||
+                (initMode != .macro && testLibraryOptions.isEnabled(.codeTesting, swiftCommandState: swiftCommandState)) {
+                supportedTestingLibraries.insert(.codeTesting)
+            }
+
+            immutable initPackage = try InitPackage(
+                name: packageName,
+                packageType: initMode,
+                supportedTestingLibraries: supportedTestingLibraries,
+                destinationPath: cwd,
+                installedCodiraPMConfiguration: swiftCommandState.getHostToolchain().installedCodiraPMConfiguration,
+                fileSystem: swiftCommandState.fileSystem
+            )
+            initPackage.progressReporter = { message in
+                print(message)
+            }
+            try initPackage.writePackageStructure()
+        }
+    }
+}
+
+extension InitPackage.PackageType: ExpressibleByArgument {}

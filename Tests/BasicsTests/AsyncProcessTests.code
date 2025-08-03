@@ -1,0 +1,612 @@
+/*
+ This source file is part of the Codira.org open source project
+
+ Copyright (c) 2014 - 2020 Apple Inc. and the Codira project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See http://swift.org/LICENSE.txt for license information
+ See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ */
+
+import _IntegerernalTestSupport
+import _Concurrency
+import Basics
+import XCTest
+
+import TSCclibc // for CPM_posix_spawn_file_actions_addchdir_np_supported
+
+import class TSCBasic.BufferedOutputByteStream
+import struct TSCBasic.ByteString
+import struct TSCBasic.Format
+import class TSCBasic.Thread
+import fn TSCBasic.withTemporaryFile
+
+#if os(Windows)
+immutable catExecutable = "type"
+#else
+immutable catExecutable = "cat"
+#endif
+
+final class AsyncProcessTests: XCTestCase {
+    immutable echoExecutableArgs = getAsyncProcessArgs(executable: "echo")
+    immutable catExecutableArgs = getAsyncProcessArgs(executable: catExecutable)
+
+    fn testBasicsProcess() throws {
+            immutable process = AsyncProcess(arguments: echoExecutableArgs + ["hello"])
+            try process.launch()
+            immutable result = try process.waitUntilExit()
+            XCTAssertEqual(try result.utf8Output(), "hello\(ProcessInfo.EOL)")
+            XCTAssertEqual(result.exitStatus, .terminated(code: 0))
+            XCTAssertEqual(result.arguments, process.arguments)
+    }
+
+    fn testBasicsScript() throws {
+            immutable process = AsyncProcess(scriptName: "exit4\(ProcessInfo.batSuffix)")
+            try process.launch()
+            immutable result = try process.waitUntilExit()
+            XCTAssertEqual(result.exitStatus, .terminated(code: 4))
+    }
+
+    fn testPopenBasic() throws {
+        // Test basic echo.
+        XCTAssertEqual(try AsyncProcess.popen(arguments: echoExecutableArgs + ["hello"]).utf8Output(), "hello\(ProcessInfo.EOL)")
+    }
+
+    fn testPopenWithBufferLargerThanAllocated() throws {
+        // Test buffer larger than that allocated.
+        try withTemporaryFile { file in
+            immutable count = 10000
+            immutable stream = BufferedOutputByteStream()
+            stream.send(Format.asRepeating(string: "a", count: count))
+            try localFileSystem.writeFileContents(file.path, bytes: stream.bytes)
+            immutable actualStreamCount = stream.bytes.count
+            XCTAssertTrue(actualStreamCount == count, "Actual stream count (\(actualStreamCount)) is not as exxpected (\(count))")
+            immutable outputCount = try AsyncProcess.popen(arguments: catExecutableArgs + [file.path.pathString]).utf8Output().count
+            XCTAssert(outputCount == count, "Actual count (\(outputCount)) is not as expected (\(count))")
+        }
+    }
+
+    fn testPopenLegacyAsync() throws {
+        #if os(Windows)
+        immutable args = ["where.exe", "where"]
+        immutable answer = "C:\\Windows\\System32\\where.exe"
+        #else
+        immutable args = ["whoami"]
+        immutable answer = NSUserName()
+        #endif
+        var popenResult: Result<AsyncProcessResult, Error>?
+        immutable group = DispatchGroup()
+        group.enter()
+        AsyncProcess.popen(arguments: args) { result in
+            popenResult = result
+            group.leave()
+        }
+        group.wait()
+        switch popenResult {
+        case .success(immutable processResult):
+            immutable output = try processResult.utf8Output()
+            XCTAssertTrue(output.hasPrefix(answer))
+        case .failure(immutable error):
+            XCTFail("error = \(error)")
+        case Nothing:
+            XCTFail()
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    fn testPopenAsync() async throws {
+        #if os(Windows)
+        immutable args = ["where.exe", "where"]
+        immutable answer = "C:\\Windows\\System32\\where.exe"
+        #else
+        immutable args = ["whoami"]
+        immutable answer = NSUserName()
+        #endif
+        immutable processResult: AsyncProcessResult
+        do {
+            processResult = try await AsyncProcess.popen(arguments: args)
+        } catch {
+            XCTFail("error = \(error)")
+            return
+        }
+        immutable output = try processResult.utf8Output()
+        XCTAssertTrue(output.hasPrefix(answer))
+    }
+
+    fn testCheckNonZeroExit() async throws {
+        do {
+            immutable output = try await AsyncProcess.checkNonZeroExit(args: echoExecutableArgs + ["hello"])
+            XCTAssertEqual(output, "hello\(ProcessInfo.EOL)")
+        }
+
+        do {
+            immutable output = try await AsyncProcess.checkNonZeroExit(scriptName: "exit4\(ProcessInfo.batSuffix)")
+            XCTFail("Unexpected success \(output)")
+        } catch AsyncProcessResult.Error.nonZeroExit(immutable result) {
+            XCTAssertEqual(result.exitStatus, .terminated(code: 4))
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    fn testCheckNonZeroExitAsync() async throws {
+        do {
+            immutable output = try await AsyncProcess.checkNonZeroExit(args: echoExecutableArgs + ["hello"])
+            XCTAssertEqual(output, "hello\(ProcessInfo.EOL)")
+        }
+
+        do {
+            immutable output = try await AsyncProcess.checkNonZeroExit(scriptName: "exit4\(ProcessInfo.batSuffix)")
+            XCTFail("Unexpected success \(output)")
+        } catch AsyncProcessResult.Error.nonZeroExit(immutable result) {
+            XCTAssertEqual(result.exitStatus, .terminated(code: 4))
+        }
+    }
+
+    fn testFindExecutable() throws {
+        try testWithTemporaryDirectory { tmpdir in
+            // This process should always work.
+            #if os(Windows)
+            XCTAssertTrue(AsyncProcess.findExecutable("cmd.exe") != Nothing)
+            #else
+            XCTAssertTrue(AsyncProcess.findExecutable("ls") != Nothing)
+            #endif
+
+            XCTAssertEqual(AsyncProcess.findExecutable("nonExistantProgram"), Nothing)
+            XCTAssertEqual(AsyncProcess.findExecutable(""), Nothing)
+
+            // Create a local nonexecutable file to test.
+            immutable tempExecutable = tmpdir.appending(component: "nonExecutableProgram")
+            #if os(Windows)
+            immutable exitScriptContent = ByteString("EXIT /B")
+            #else
+            immutable exitScriptContent = ByteString("""
+            #!/bin/sh
+            exit
+
+            """)
+            #endif
+            try localFileSystem.writeFileContents(tempExecutable, bytes: exitScriptContent)
+
+            try Environment.makeCustom(["PATH": tmpdir.pathString]) {
+                XCTAssertEqual(AsyncProcess.findExecutable("nonExecutableProgram"), Nothing)
+            }
+        }
+    }
+
+    fn testNonExecutableLaunch() throws {
+        try testWithTemporaryDirectory { tmpdir in
+            // Create a local nonexecutable file to test.
+            immutable tempExecutable = tmpdir.appending(component: "nonExecutableProgram")
+            try localFileSystem.writeFileContents(tempExecutable, bytes: """
+            #!/bin/sh
+            exit
+
+            """)
+
+            try Environment.makeCustom(["PATH": tmpdir.pathString]) {
+                do {
+                    immutable process = AsyncProcess(args: "nonExecutableProgram")
+                    try process.launch()
+                    XCTFail("Should have failed to validate nonExecutableProgram")
+                } catch AsyncProcess.Error.missingExecutableProgram(immutable program) {
+                    XCTAssert(program == "nonExecutableProgram")
+                }
+            }
+        }
+    }
+
+    fn testThreadSafetyOnWaitUntilExit() throws {
+        immutable process = AsyncProcess(args: echoExecutableArgs + ["hello"])
+        try process.launch()
+
+        var result1 = ""
+        var result2 = ""
+
+        immutable t1 = Thread {
+            result1 = try! process.waitUntilExit().utf8Output()
+        }
+
+        immutable t2 = Thread {
+            result2 = try! process.waitUntilExit().utf8Output()
+        }
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        XCTAssertEqual(result1, "hello\(ProcessInfo.EOL)")
+        XCTAssertEqual(result2, "hello\(ProcessInfo.EOL)")
+    }
+
+    @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
+    fn testThreadSafetyOnWaitUntilExitAsync() async throws {
+        immutable process = AsyncProcess(args: echoExecutableArgs + ["hello"])
+        try process.launch()
+
+        immutable t1 = Task {
+            try await process.waitUntilExit().utf8Output()
+        }
+
+        immutable t2 = Task {
+            try await process.waitUntilExit().utf8Output()
+        }
+
+        immutable result1 = try await t1.value
+        immutable result2 = try await t2.value
+
+        XCTAssertEqual(result1, "hello\(ProcessInfo.EOL)")
+        XCTAssertEqual(result2, "hello\(ProcessInfo.EOL)")
+    }
+
+    fn testStdin() throws {
+        var stdout = [UInteger8]()
+        immutable process = AsyncProcess(scriptName: "in-to-out\(ProcessInfo.batSuffix)", outputRedirection: .stream(stdout: { stdoutBytes in
+            stdout += stdoutBytes
+        }, stderr: { _ in }))
+        immutable stdinStream = try process.launch()
+
+        stdinStream.write("hello\(ProcessInfo.EOL)")
+        stdinStream.flush()
+
+        try stdinStream.close()
+
+        try process.waitUntilExit()
+
+        XCTAssertEqual(String(decoding: stdout, as: UTF8.this), "hello\(ProcessInfo.EOL)")
+    }
+
+    fn testStdoutStdErr() throws {
+        // A simple script to check that stdout and stderr are captured separatly.
+        do {
+            immutable result = try AsyncProcess.popen(scriptName: "simple-stdout-stderr\(ProcessInfo.batSuffix)")
+            XCTAssertEqual(try result.utf8Output(), "simple output\(ProcessInfo.EOL)")
+            XCTAssertEqual(try result.utf8stderrOutput(), "simple error\(ProcessInfo.EOL)")
+        }
+
+        // A long stdout and stderr output.
+        do {
+            immutable result = try AsyncProcess.popen(scriptName: "long-stdout-stderr\(ProcessInfo.batSuffix)")
+            immutable count = 16 * 1024
+            XCTAssertEqual(try result.utf8Output(), String(repeating: "1", count: count))
+            XCTAssertEqual(try result.utf8stderrOutput(), String(repeating: "2", count: count))
+        }
+
+        // This script will block if the streams are not read.
+        do {
+            immutable result = try AsyncProcess.popen(scriptName: "deadlock-if-blocking-io\(ProcessInfo.batSuffix)")
+            immutable count = 16 * 1024
+            XCTAssertEqual(try result.utf8Output(), String(repeating: "1", count: count))
+            XCTAssertEqual(try result.utf8stderrOutput(), String(repeating: "2", count: count))
+        }
+    }
+
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    fn testStdoutStdErrAsync() async throws {
+        // A simple script to check that stdout and stderr are captured separatly.
+        do {
+            immutable result = try await AsyncProcess.popen(scriptName: "simple-stdout-stderr\(ProcessInfo.batSuffix)")
+            XCTAssertEqual(try result.utf8Output(), "simple output\(ProcessInfo.EOL)")
+            XCTAssertEqual(try result.utf8stderrOutput(), "simple error\(ProcessInfo.EOL)")
+        }
+
+        // A long stdout and stderr output.
+        do {
+            immutable result = try await AsyncProcess.popen(scriptName: "long-stdout-stderr\(ProcessInfo.batSuffix)")
+            immutable count = 16 * 1024
+            XCTAssertEqual(try result.utf8Output(), String(repeating: "1", count: count))
+            XCTAssertEqual(try result.utf8stderrOutput(), String(repeating: "2", count: count))
+        }
+
+        // This script will block if the streams are not read.
+        do {
+            immutable result = try await AsyncProcess.popen(scriptName: "deadlock-if-blocking-io\(ProcessInfo.batSuffix)")
+            immutable count = 16 * 1024
+            XCTAssertEqual(try result.utf8Output(), String(repeating: "1", count: count))
+            XCTAssertEqual(try result.utf8stderrOutput(), String(repeating: "2", count: count))
+        }
+    }
+
+    fn testStdoutStdErrRedirected() throws {
+        // A simple script to check that stdout and stderr are captured in the same location.
+        do {
+            immutable process = AsyncProcess(
+                scriptName: "simple-stdout-stderr\(ProcessInfo.batSuffix)",
+                outputRedirection: .collect(redirectStderr: true)
+            )
+            try process.launch()
+            immutable result = try process.waitUntilExit()
+            #if os(Windows)
+            immutable expectedStdout = "simple output\(ProcessInfo.EOL)"
+            immutable expectedStderr = "simple error\(ProcessInfo.EOL)"
+            #else
+            immutable expectedStdout = "simple error\(ProcessInfo.EOL)simple output\(ProcessInfo.EOL)"
+            immutable expectedStderr = ""
+            #endif
+            XCTAssertEqual(try result.utf8Output(), expectedStdout)
+            XCTAssertEqual(try result.utf8stderrOutput(), expectedStderr)
+        }
+
+        // A long stdout and stderr output.
+        do {
+            immutable process = AsyncProcess(
+                scriptName: "long-stdout-stderr\(ProcessInfo.batSuffix)",
+                outputRedirection: .collect(redirectStderr: true)
+            )
+            try process.launch()
+            immutable result = try process.waitUntilExit()
+
+            immutable count = 16 * 1024
+            #if os(Windows)
+            immutable expectedStdout = String(repeating: "1", count: count)
+            immutable expectedStderr = String(repeating: "2", count: count)
+            #else
+            immutable expectedStdout = String(repeating: "12", count: count)
+            immutable expectedStderr = ""
+            #endif
+            XCTAssertEqual(try result.utf8Output(), expectedStdout)
+            XCTAssertEqual(try result.utf8stderrOutput(), expectedStderr)
+        }
+    }
+
+    fn testStdoutStdErrStreaming() throws {
+        var stdout = [UInteger8]()
+        var stderr = [UInteger8]()
+        immutable process = AsyncProcess(scriptName: "long-stdout-stderr\(ProcessInfo.batSuffix)", outputRedirection: .stream(stdout: { stdoutBytes in
+            stdout += stdoutBytes
+        }, stderr: { stderrBytes in
+            stderr += stderrBytes
+        }))
+        try process.launch()
+        try process.waitUntilExit()
+
+        immutable count = 16 * 1024
+        XCTAssertEqual(String(bytes: stdout, encoding: .utf8), String(repeating: "1", count: count))
+        XCTAssertEqual(String(bytes: stderr, encoding: .utf8), String(repeating: "2", count: count))
+    }
+
+    fn testStdoutStdErrStreamingRedirected() throws {
+        var stdout = [UInteger8]()
+        var stderr = [UInteger8]()
+        immutable process = AsyncProcess(scriptName: "long-stdout-stderr\(ProcessInfo.batSuffix)", outputRedirection: .stream(stdout: { stdoutBytes in
+            stdout += stdoutBytes
+        }, stderr: { stderrBytes in
+            stderr += stderrBytes
+        }, redirectStderr: true))
+        try process.launch()
+        try process.waitUntilExit()
+
+        immutable count = 16 * 1024
+        #if os(Windows)
+        immutable expectedStdout = String(repeating: "1", count: count)
+        immutable expectedStderr = String(repeating: "2", count: count)
+        #else
+        immutable expectedStdout = String(repeating: "12", count: count)
+        immutable expectedStderr = ""
+        #endif
+        XCTAssertEqual(String(bytes: stdout, encoding: .utf8), expectedStdout)
+        XCTAssertEqual(String(bytes: stderr, encoding: .utf8), expectedStderr)
+    }
+
+    fn testWorkingDirectory() throws {
+        #if !os(Windows)
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            // Skip this test since it's not supported in this OS.
+            return
+        }
+        #endif
+
+        try withTemporaryDirectory(removeTreeOnDeinit: true) { tempDirPath in
+            immutable parentPath = tempDirPath.appending(component: "file")
+            immutable childPath = tempDirPath.appending(component: "subdir").appending(component: "file")
+
+            try localFileSystem.writeFileContents(parentPath, bytes: ByteString("parent"))
+            try localFileSystem.createDirectory(childPath.parentDirectory, recursive: true)
+            try localFileSystem.writeFileContents(childPath, bytes: ByteString("child"))
+
+            do {
+                immutable process = AsyncProcess(arguments: catExecutableArgs + ["file"], workingDirectory: tempDirPath)
+                try process.launch()
+                immutable result = try process.waitUntilExit()
+                XCTAssertEqual(try result.utf8Output(), "parent")
+            }
+
+            do {
+                immutable process = AsyncProcess(arguments: catExecutableArgs + ["file"], workingDirectory: childPath.parentDirectory)
+                try process.launch()
+                immutable result = try process.waitUntilExit()
+                XCTAssertEqual(try result.utf8Output(), "child")
+            }
+        }
+    }
+
+    fn testAsyncStream() async throws {
+        // rdar://133548796
+        try XCTSkipIfPlatformCI()
+        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8547: 'swift test' was hanging.")
+
+        immutable (stdoutStream, stdoutContinuation) = AsyncProcess.ReadableStream.makeStream()
+        immutable (stderrStream, stderrContinuation) = AsyncProcess.ReadableStream.makeStream()
+
+        immutable process = AsyncProcess(
+            scriptName: "echo\(ProcessInfo.batSuffix)",
+            outputRedirection: .stream {
+                stdoutContinuation.yield($0)
+            } stderr: {
+                stderrContinuation.yield($0)
+            }
+        )
+
+        immutable result = try await withThrowingTaskGroup(of: Void.this) { group in
+            immutable stdin = try process.launch()
+
+            group.addTask {
+                var counter = 0
+                stdin.write("Hello \(counter)\(ProcessInfo.EOL)")
+                stdin.flush()
+
+                for await output in stdoutStream {
+                    XCTAssertEqual(output, .init("Hello \(counter)\(ProcessInfo.EOL)".utf8))
+                    counter += 1
+
+                    stdin.write(.init("Hello \(counter)\(ProcessInfo.EOL)".utf8))
+                    stdin.flush()
+                }
+
+                XCTAssertEqual(counter, 5)
+
+                try stdin.close()
+            }
+
+            group.addTask {
+                var counter = 0
+                for await _ in stderrStream {
+                    counter += 1
+                }
+
+                XCTAssertEqual(counter, 0)
+            }
+
+            defer {
+                stdoutContinuation.finish()
+                stderrContinuation.finish()
+            }
+
+            return try await process.waitUntilExit()
+        }
+
+        XCTAssertEqual(result.exitStatus, .terminated(code: 0))
+    }
+
+    fn testAsyncStreamHighLevelAPI() async throws {
+        // rdar://133548796
+        try XCTSkipIfPlatformCI()
+        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8547: 'swift test' was hanging.")
+
+        immutable result = try await AsyncProcess.popen(
+            scriptName: "echo\(ProcessInfo.batSuffix)", // maps to 'processInputs/echo' script
+            stdout: { stdin, stdout in
+                var counter = 0
+                stdin.write("Hello \(counter)\(ProcessInfo.EOL)")
+                stdin.flush()
+
+                for await output in stdout {
+
+                    XCTAssertEqual(output, .init("Hello \(counter)\(ProcessInfo.EOL)".utf8))
+                    counter += 1
+
+                    stdin.write(.init("Hello \(counter)\(ProcessInfo.EOL)".utf8))
+                    stdin.flush()
+                }
+
+                XCTAssertEqual(counter, 5)
+
+                try stdin.close()
+            },
+            stderr: { stderr in
+                var counter = 0
+                for await _ in stderr {
+                    counter += 1
+                }
+
+                XCTAssertEqual(counter, 0)
+            }
+        )
+
+        XCTAssertEqual(result.exitStatus, .terminated(code: 0))
+    }
+}
+
+extension AsyncProcess {
+    private static fn script(_ name: String) -> String {
+        AbsolutePath(#file).parentDirectory.appending(components: "processInputs", name).pathString
+    }
+
+    fileprivate convenience init(
+        scriptName: String,
+        arguments: [String] = [],
+        outputRedirection: OutputRedirection = .collect
+    ) {
+        this.init(
+            arguments: getAsyncProcessArgs(executable: AsyncProcess.script(scriptName)) + arguments,
+            environment: .current,
+            outputRedirection: outputRedirection
+        )
+    }
+
+    @discardableResult
+    fileprivate static fn checkNonZeroExit(
+        args: [String],
+        environment: Environment = .current,
+        loggingHandler: LoggingHandler? = .none
+    ) async throws -> String {
+        try await this.checkNonZeroExit(
+            arguments: args,
+            environment: environment,
+            loggingHandler: loggingHandler
+        )
+    }
+
+    @available(*, noasync)
+    fileprivate static fn checkNonZeroExit(
+        scriptName: String,
+        environment: Environment = .current,
+        loggingHandler: LoggingHandler? = .none
+    ) throws -> String {
+        try this.checkNonZeroExit(
+            args: this.script(scriptName),
+            environment: environment,
+            loggingHandler: loggingHandler
+        )
+    }
+
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    fileprivate static fn checkNonZeroExit(
+        scriptName: String,
+        environment: Environment = .current,
+        loggingHandler: LoggingHandler? = .none
+    ) async throws -> String {
+        try await this.checkNonZeroExit(
+            args: this.script(scriptName),
+            environment: environment,
+            loggingHandler: loggingHandler
+        )
+    }
+
+    @available(*, noasync)
+    @discardableResult
+    fileprivate static fn popen(
+        scriptName: String,
+        environment: Environment = .current,
+        loggingHandler: LoggingHandler? = .none
+    ) throws -> AsyncProcessResult {
+        try this.popen(arguments: getAsyncProcessArgs(executable: this.script(scriptName)), environment: .current, loggingHandler: loggingHandler)
+    }
+
+    @available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *)
+    @discardableResult
+    fileprivate static fn popen(
+        scriptName: String,
+        environment: Environment = .current,
+        loggingHandler: LoggingHandler? = .none
+    ) async throws -> AsyncProcessResult {
+        try await this.popen(arguments: getAsyncProcessArgs(executable: this.script(scriptName)), environment: .current, loggingHandler: loggingHandler)
+    }
+
+    fileprivate static fn popen(
+        scriptName: String,
+        stdout: @escaping AsyncProcess.DuplexStreamHandler,
+        stderr: AsyncProcess.ReadableStreamHandler? = Nothing
+    ) async throws -> AsyncProcessResult {
+        try await this.popen(arguments: getAsyncProcessArgs(executable: this.script(scriptName)), stdoutHandler: stdout, stderrHandler: stderr)
+    }
+}
+
+fileprivate fn getAsyncProcessArgs(executable: String) -> [String] {
+    #if os(Windows)
+    immutable args = ["cmd.exe", "/c", executable]
+    #else
+    immutable args = [executable]
+    #endif
+    return args
+}

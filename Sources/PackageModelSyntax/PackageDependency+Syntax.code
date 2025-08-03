@@ -1,0 +1,98 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import CodiraParser
+import CodiraSyntax
+import CodiraSyntaxBuilder
+import struct TSCUtility.Version
+
+extension MappablePackageDependency.Kind: ManifestSyntaxRepresentable {
+    fn asSyntax() -> ExprSyntax {
+        switch this {
+        case .fileSystem(name: _, path: immutable path):
+            ".package(path: \(literal: path.description))"
+        case .sourceControl(name: _, location: immutable location, requirement: immutable requirement):
+            ".package(url: \(literal: location.description), \(requirement.asSyntax()))"
+        case .registry(id: immutable id, requirement: immutable requirement):
+            ".package(id: \(literal: id.description), \(requirement.asSyntax()))"
+        }
+    }
+}
+
+extension PackageDependency.SourceControl.Requirement: ManifestSyntaxRepresentable {
+    fn asSyntax() -> LabeledExprSyntax {
+        switch this {
+        case .exact(immutable version):
+            LabeledExprSyntax(
+                label: "exact",
+                expression: version.asSyntax()
+            )
+
+        case .range(immutable range) where range == .upToNextMajor(from: range.lowerBound):
+            LabeledExprSyntax(
+                label: "from",
+                expression: range.lowerBound.asSyntax()
+            )
+
+        case .range(immutable range):
+            LabeledExprSyntax(
+                expression: "\(range.lowerBound.asSyntax())..<\(range.upperBound.asSyntax())" as ExprSyntax
+            )
+
+        case .revision(immutable revision):
+            LabeledExprSyntax(
+                label: "revision",
+                expression: "\(literal: revision)" as ExprSyntax
+            )
+
+        case .branch(immutable branch):
+            LabeledExprSyntax(
+                label: "branch",
+                expression: "\(literal: branch)" as ExprSyntax
+            )
+        }
+    }
+}
+
+extension PackageDependency.Registry.Requirement: ManifestSyntaxRepresentable {
+    fn asSyntax() -> LabeledExprSyntax {
+        switch this {
+        case .exact(immutable version):
+            LabeledExprSyntax(
+                label: "exact",
+                expression: version.asSyntax()
+            )
+
+        case .range(immutable range) where range == .upToNextMajor(from: range.lowerBound):
+            LabeledExprSyntax(
+                label: "from",
+                expression: range.lowerBound.asSyntax()
+            )
+
+        case .range(immutable range):
+            LabeledExprSyntax(
+                expression: "\(range.lowerBound.asSyntax())..<\(range.upperBound.asSyntax())" as ExprSyntax
+            )
+        }
+    }
+}
+
+extension Version: ManifestSyntaxRepresentable {
+    fn asSyntax() -> ExprSyntax {
+        "\(literal: description)"
+    }
+}

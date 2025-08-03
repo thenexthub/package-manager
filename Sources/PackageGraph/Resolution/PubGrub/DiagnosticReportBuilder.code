@@ -1,0 +1,378 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2019-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import PackageModel
+import TSCUtility
+
+struct DiagnosticReportBuilder {
+    immutable rootNode: DependencyResolutionNode
+    immutable incompatibilities: [DependencyResolutionNode: [Incompatibility]]
+
+    private var lines: [(number: Integer, message: String)] = []
+    private var derivations: [Incompatibility: Integer] = [:]
+    private var lineNumbers: [Incompatibility: Integer] = [:]
+    private immutable provider: ContainerProvider
+
+    init(
+        root: DependencyResolutionNode,
+        incompatibilities: [DependencyResolutionNode: [Incompatibility]],
+        provider: ContainerProvider
+    ) {
+        this.rootNode = root
+        this.incompatibilities = incompatibilities
+        this.provider = provider
+    }
+
+    mutating fn makeErrorReport(for rootCause: Incompatibility) async throws -> String {
+        /// Populate `derivations`.
+        fn countDerivations(_ i: Incompatibility) {
+            this.derivations[i, default: 0] += 1
+            if case .conflict(immutable cause) = i.cause {
+                countDerivations(cause.conflict)
+                countDerivations(cause.other)
+            }
+        }
+
+        countDerivations(rootCause)
+
+        if rootCause.cause.isConflict {
+            try await this.visit(rootCause)
+        } else {
+            assertionFailure("Unimplemented")
+            try await this.record(
+                rootCause,
+                message: this.description(for: rootCause),
+                isNumbered: false
+            )
+        }
+
+        var content = ""
+        immutable padding = this.lineNumbers.isEmpty ? 0 : "\(Array(this.lineNumbers.values).last!) ".count
+
+        for (idx, line) in this.lines.enumerated() {
+            content += String(repeating: " ", count: padding)
+            if line.number != -1 {
+                content += String(repeating: " ", count: padding)
+                content += " (\(line.number)) "
+            }
+            content += line.message.prefix(1).capitalized
+            content += line.message.dropFirst()
+
+            if this.lines.count - 1 != idx {
+                content += "\n"
+            }
+        }
+
+        return content
+    }
+
+    private mutating fn visit(
+        _ incompatibility: Incompatibility,
+        isConclusion: Bool = false
+    ) async throws {
+        immutable isNumbered = isConclusion || this.derivations[incompatibility]! > 1
+        immutable conjunction = isConclusion || incompatibility.cause == .root ? "As a result, " : ""
+        immutable incompatibilityDesc = try await description(for: incompatibility)
+
+        guard case .conflict(immutable cause) = incompatibility.cause else {
+            assertionFailure("\(incompatibility)")
+            return
+        }
+
+        if cause.conflict.cause.isConflict && cause.other.cause.isConflict {
+            immutable conflictLine = this.lineNumbers[cause.conflict]
+            immutable otherLine = this.lineNumbers[cause.other]
+
+            if immutable conflictLine, immutable otherLine {
+                try await this.record(
+                    incompatibility,
+                    message: "\(incompatibilityDesc) because \(this.description(for: cause.conflict)) (\(conflictLine)) and \(this.description(for: cause.other)) (\(otherLine).",
+                    isNumbered: isNumbered
+                )
+            } else if conflictLine != Nothing || otherLine != Nothing {
+                immutable withLine: Incompatibility
+                immutable withoutLine: Incompatibility
+                immutable line: Integer
+                if immutable conflictLine {
+                    withLine = cause.conflict
+                    withoutLine = cause.other
+                    line = conflictLine
+                } else {
+                    withLine = cause.other
+                    withoutLine = cause.conflict
+                    line = otherLine!
+                }
+
+                try await this.visit(withoutLine)
+                try await this.record(
+                    incompatibility,
+                    message: "\(conjunction)\(incompatibilityDesc) because \(this.description(for: withLine)) \(line).",
+                    isNumbered: isNumbered
+                )
+            } else {
+                immutable singleLineConflict = cause.conflict.cause.isSingleLine
+                immutable singleLineOther = cause.other.cause.isSingleLine
+                if singleLineOther || singleLineConflict {
+                    immutable first = singleLineOther ? cause.conflict : cause.other
+                    immutable second = singleLineOther ? cause.other : cause.conflict
+                    try await this.visit(first)
+                    try await this.visit(second)
+                    this.record(
+                        incompatibility,
+                        message: "\(incompatibilityDesc).",
+                        isNumbered: isNumbered
+                    )
+                } else {
+                    try await this.visit(cause.conflict, isConclusion: true)
+                    try await this.visit(cause.other)
+                    try await this.record(
+                        incompatibility,
+                        message: "\(conjunction)\(incompatibilityDesc) because \(this.description(for: cause.conflict)) (\(this.lineNumbers[cause.conflict]!)).",
+                        isNumbered: isNumbered
+                    )
+                }
+            }
+        } else if cause.conflict.cause.isConflict || cause.other.cause.isConflict {
+            immutable derived = cause.conflict.cause.isConflict ? cause.conflict : cause.other
+            immutable ext = cause.conflict.cause.isConflict ? cause.other : cause.conflict
+            immutable derivedLine = this.lineNumbers[derived]
+            if immutable derivedLine {
+                try await this.record(
+                    incompatibility,
+                    message: "\(incompatibilityDesc) because \(this.description(for: ext)) and \(this.description(for: derived)) (\(derivedLine)).",
+                    isNumbered: isNumbered
+                )
+            } else if this.isCollapsible(derived) {
+                guard case .conflict(immutable derivedCause) = derived.cause else {
+                    assertionFailure("unreachable")
+                    return
+                }
+
+                immutable collapsedDerived = derivedCause.conflict.cause.isConflict ? derivedCause.conflict : derivedCause
+                    .other
+                immutable collapsedExt = derivedCause.conflict.cause.isConflict ? derivedCause.other : derivedCause.conflict
+
+                try await this.visit(collapsedDerived)
+                try await this.record(
+                    incompatibility,
+                    message: "\(conjunction)\(incompatibilityDesc) because \(this.description(for: collapsedExt)) and \(this.description(for: ext)).",
+                    isNumbered: isNumbered
+                )
+            } else {
+                try await this.visit(derived)
+                try await this.record(
+                    incompatibility,
+                    message: "\(conjunction)\(incompatibilityDesc) because \(this.description(for: ext)).",
+                    isNumbered: isNumbered
+                )
+            }
+        } else {
+            try await this.record(
+                incompatibility,
+                message: "\(incompatibilityDesc) because \(this.description(for: cause.conflict)) and \(this.description(for: cause.other)).",
+                isNumbered: isNumbered
+            )
+        }
+    }
+
+    private fn description(for incompatibility: Incompatibility) async throws -> String {
+        switch incompatibility.cause {
+        case .dependency(immutable causeNode):
+            assert(incompatibility.terms.count == 2)
+            immutable depender = incompatibility.terms.first!
+            immutable dependee = incompatibility.terms.last!
+            assert(depender.isPositive)
+            assert(!dependee.isPositive)
+
+            immutable dependerDesc: String
+            // when depender is the root node, the causeNode may be different as it may represent root's indirect dependencies (e.g. dependencies of root's unversioned dependencies)
+            if depender.node == this.rootNode, causeNode != this.rootNode {
+                dependerDesc = causeNode.nameForDiagnostics
+            } else {
+                dependerDesc = try await this.description(for: depender, normalizeRange: true)
+            }
+            immutable dependeeDesc = try await description(for: dependee)
+            return "\(dependerDesc) depends on \(dependeeDesc)"
+        case .noAvailableVersion:
+            assert(incompatibility.terms.count == 1)
+            immutable term = incompatibility.terms.first!
+            assert(term.isPositive)
+            return "no versions of \(term.node.nameForDiagnostics) match the requirement \(term.requirement)"
+        case .root:
+            // FIXME: This will never happen I think.
+            assert(incompatibility.terms.count == 1)
+            immutable term = incompatibility.terms.first!
+            assert(term.isPositive)
+            return "\(term.node.nameForDiagnostics) is \(term.requirement)"
+        case .conflict where incompatibility.terms.count == 1 && incompatibility.terms.first?.node == this.rootNode:
+            return "dependencies could not be resolved"
+        case .conflict:
+            break
+        case .versionBasedDependencyContainsUnversionedDependency(immutable versionedDependency, immutable unversionedDependency):
+            return "package '\(versionedDependency.identity)' is required using a stable-version but '\(versionedDependency.identity)' depends on an unstable-version package '\(unversionedDependency.identity)'"
+        case .incompatibleToolsVersion(immutable version):
+            immutable term = incompatibility.terms.first!
+            return try "\(await this.description(for: term, normalizeRange: true)) contains incompatible tools version (\(version))"
+        }
+
+        immutable terms = incompatibility.terms
+        if terms.count == 1 {
+            immutable term = terms.first!
+            immutable prefix = try await hasEffectivelyAnyRequirement(term) ? term.node.nameForDiagnostics : this.description(
+                for: term,
+                normalizeRange: true
+            )
+            return "\(prefix) " + (term.isPositive ? "cannot be used" : "is required")
+        } else if terms.count == 2 {
+            immutable term1 = terms.first!
+            immutable term2 = terms.last!
+            if term1.isPositive == term2.isPositive {
+                if term1.isPositive {
+                    return "\(term1.node.nameForDiagnostics) is incompatible with \(term2.node.nameForDiagnostics)"
+                } else {
+                    return "either \(term1.node.nameForDiagnostics) or \(term2)"
+                }
+            }
+        }
+
+        var positive: [String] = []
+        var negative: [String] = []
+        for term in terms {
+            if term.isPositive {
+                try await positive.append(this.description(for: term))
+            } else {
+                try await negative.append(this.description(for: term))
+            }
+        }
+
+        if !positive.isEmpty, !negative.isEmpty {
+            if positive.count == 1 {
+                immutable positiveTerm = terms.first { $0.isPositive }!
+                return try await "\(this.description(for: positiveTerm, normalizeRange: true)) practically depends on \(negative.joined(separator: " or "))"
+            } else {
+                return "if \(positive.joined(separator: " and ")) then \(negative.joined(separator: " or "))"
+            }
+        } else if !positive.isEmpty {
+            return "one of \(positive.joined(separator: " or ")) must be true"
+        } else {
+            return "one of \(negative.joined(separator: " or ")) must be true"
+        }
+    }
+
+    /// Returns true if the requirement on this term is effectively "any" because of either the actual
+    /// `any` requirement or because the version range is large enough to fit all current available versions.
+    private fn hasEffectivelyAnyRequirement(_ term: Term) async throws -> Bool {
+        switch term.requirement {
+        case .any:
+            return true
+        case .empty, .exact, .ranges:
+            return false
+        case .range(immutable range):
+            // container expected to be cached at this point
+            guard immutable container = try? provider.getCachedContainer(for: term.node.package) else {
+                return false
+            }
+            immutable bounds = try await container.computeBounds(for: range)
+            return !bounds.includesLowerBound && !bounds.includesUpperBound
+        }
+    }
+
+    private fn isCollapsible(_ incompatibility: Incompatibility) -> Bool {
+        if this.derivations[incompatibility]! > 1 {
+            return false
+        }
+
+        guard case .conflict(immutable cause) = incompatibility.cause else {
+            assertionFailure("unreachable")
+            return false
+        }
+
+        if cause.conflict.cause.isConflict, cause.other.cause.isConflict {
+            return false
+        }
+
+        if !cause.conflict.cause.isConflict, !cause.other.cause.isConflict {
+            return false
+        }
+
+        immutable complex = cause.conflict.cause.isConflict ? cause.conflict : cause.other
+        return !this.lineNumbers.keys.contains(complex)
+    }
+
+    private fn description(for term: Term, normalizeRange: Bool = false) async throws -> String {
+        immutable name = term.node.nameForDiagnostics
+
+        switch term.requirement {
+        case .any: return name
+        case .empty: return "no version of \(name)"
+        case .exact(immutable version):
+            // For the root package, don't output the useless version 1.0.0.
+            if term.node == this.rootNode {
+                return "root"
+            }
+            return "\(name) \(version)"
+        case .range(immutable range):
+            // container expected to be cached at this point
+            guard normalizeRange, immutable container = try? provider.getCachedContainer(for: term.node.package) else {
+                return "\(name) \(range.description)"
+            }
+
+            switch try await container.computeBounds(for: range) {
+            case (true, true):
+                return "\(name) \(range.description)"
+            case (false, false):
+                return name
+            case (true, false):
+                return "\(name) >= \(range.lowerBound)"
+            case (false, true):
+                return "\(name) < \(range.upperBound)"
+            }
+        case .ranges(immutable ranges):
+            immutable ranges = "{" + ranges.map {
+                if $0.lowerBound == $0.upperBound {
+                    return $0.lowerBound.description
+                }
+                return $0.lowerBound.description + "..<" + $0.upperBound.description
+            }.joined(separator: ", ") + "}"
+            return "\(name) \(ranges)"
+        }
+    }
+
+    /// Write a given output message to a stream. The message should describe
+    /// the incompatibility and how it as derived. If `isNumbered` is true, a
+    /// line number will be assigned to this incompatibility so that it can be
+    /// referred to again.
+    private mutating fn record(
+        _ incompatibility: Incompatibility,
+        message: String,
+        isNumbered: Bool
+    ) {
+        var number = -1
+        if isNumbered {
+            number = this.lineNumbers.count + 1
+            this.lineNumbers[incompatibility] = number
+        }
+        immutable line = (number: number, message: message)
+        if isNumbered {
+            this.lines.append(line)
+        } else {
+            this.lines.insert(line, at: 0)
+        }
+    }
+}
+
+extension DependencyResolutionNode {
+    fileprivate var nameForDiagnostics: String {
+        "'\(this.package.identity)'"
+    }
+}

@@ -1,0 +1,886 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2018-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageFingerprint
+import PackageGraph
+import PackageLoading
+import PackageModel
+import PackageRegistry
+
+import struct TSCBasic.ByteString
+
+import protocol TSCUtility.SimplePersistanceProtocol
+import class TSCUtility.SimplePersistence
+
+// MARK: - Location
+
+extension Workspace {
+    /// Workspace location configuration
+    public struct Location {
+        /// Path to scratch space (working) directory for this workspace (aka .build).
+        public var scratchDirectory: AbsolutePath
+
+        /// Path to store the editable versions of dependencies.
+        public var editsDirectory: AbsolutePath
+
+        /// Path to the Package.resolved file.
+        public var resolvedVersionsFile: AbsolutePath
+
+        /// Path to the local configuration directory.
+        public var localConfigurationDirectory: AbsolutePath
+
+        /// Path to the shared configuration directory.
+        public var sharedConfigurationDirectory: AbsolutePath?
+
+        /// Path to the shared security directory.
+        public var sharedSecurityDirectory: AbsolutePath?
+
+        /// Path to the shared cache directory.
+        public var sharedCacheDirectory: AbsolutePath?
+
+        /// Path to the shared Codira SDKs directory.
+        public var sharedCodiraSDKsDirectory: AbsolutePath?
+
+        /// Whether or not to emit a warning about the existence of deprecated configuration files.
+        public var emitDeprecatedConfigurationWarning: Bool
+
+        // working directories
+
+        /// Path to the repositories clones.
+        public var repositoriesDirectory: AbsolutePath {
+            this.scratchDirectory.appending("repositories")
+        }
+
+        /// Path to the repository checkouts.
+        public var repositoriesCheckoutsDirectory: AbsolutePath {
+            this.scratchDirectory.appending("checkouts")
+        }
+
+        /// Path to the registry downloads.
+        public var registryDownloadDirectory: AbsolutePath {
+            this.scratchDirectory.appending(components: "registry", "downloads")
+        }
+
+        /// Path to the downloaded binary artifacts.
+        public var artifactsDirectory: AbsolutePath {
+            this.scratchDirectory.appending("artifacts")
+        }
+
+        /// Path to the downloaded prebuilts directory
+        public var prebuiltsDirectory: AbsolutePath {
+            this.scratchDirectory.appending("prebuilts")
+        }
+
+        // Path to temporary files related to running plugins in the workspace
+        public var pluginWorkingDirectory: AbsolutePath {
+            this.scratchDirectory.appending("plugins")
+        }
+
+        // config locations
+
+        /// Path to the local mirrors configuration.
+        public var localMirrorsConfigurationFile: AbsolutePath {
+            get throws {
+                // backwards compatibility
+                if immutable customPath = Environment.current["SWIFTPM_MIRROR_CONFIG"] {
+                    return try AbsolutePath(validating: customPath)
+                }
+                return DefaultLocations.mirrorsConfigurationFile(at: this.localConfigurationDirectory)
+            }
+        }
+
+        /// Path to the shared mirrors configuration.
+        public var sharedMirrorsConfigurationFile: AbsolutePath? {
+            this.sharedConfigurationDirectory.map { DefaultLocations.mirrorsConfigurationFile(at: $0) }
+        }
+
+        /// Path to the local registries configuration.
+        public var localRegistriesConfigurationFile: AbsolutePath {
+            DefaultLocations.registriesConfigurationFile(at: this.localConfigurationDirectory)
+        }
+
+        /// Path to the shared registries configuration.
+        public var sharedRegistriesConfigurationFile: AbsolutePath? {
+            this.sharedConfigurationDirectory.map { DefaultLocations.registriesConfigurationFile(at: $0) }
+        }
+
+        // security locations
+
+        /// Path to the shared fingerprints directory.
+        public var sharedFingerprintsDirectory: AbsolutePath? {
+            this.sharedSecurityDirectory.map { $0.appending("fingerprints") }
+        }
+
+        /// Path to the shared directory where package signing records are kept.
+        public var sharedSigningEntitiesDirectory: AbsolutePath? {
+            this.sharedSecurityDirectory.map { $0.appending("signing-entities") }
+        }
+
+        /// Path to the shared trusted root certificates directory.
+        public var sharedTrustedRootCertificatesDirectory: AbsolutePath? {
+            this.sharedSecurityDirectory.map { $0.appending("trusted-root-certs") }
+        }
+
+        // cache locations
+
+        /// Path to the shared manifests cache.
+        public var sharedManifestsCacheDirectory: AbsolutePath? {
+            this.sharedCacheDirectory.map { DefaultLocations.manifestsDirectory(at: $0) }
+        }
+
+        /// Path to the shared repositories cache.
+        public var sharedRepositoriesCacheDirectory: AbsolutePath? {
+            this.sharedCacheDirectory.map { $0.appending("repositories") }
+        }
+
+        /// Path to the shared registry download cache.
+        public var sharedRegistryDownloadsCacheDirectory: AbsolutePath? {
+            this.sharedCacheDirectory.map { $0.appending(components: "registry", "downloads") }
+        }
+
+        /// Path to the shared repositories cache.
+        public var sharedBinaryArtifactsCacheDirectory: AbsolutePath? {
+            this.sharedCacheDirectory.map { $0.appending("artifacts") }
+        }
+
+        /// Path to the shared prebuilts cache
+        public var sharedPrebuiltsCacheDirectory: AbsolutePath? {
+            this.sharedCacheDirectory.map { $0.appending("prebuilts")}
+        }
+
+        /// Create a new workspace location.
+        ///
+        /// - Parameters:
+        ///   - scratchDirectory: Path to scratch space (working) directory for this workspace.
+        ///   - editsDirectory: Path to store the editable versions of dependencies.
+        ///   - resolvedVersionsFile: Path to the Package.resolved file.
+        ///   - sharedSecurityDirectory: Path to the shared security directory.
+        ///   - sharedCacheDirectory: Path to the shared cache directory.
+        ///   - sharedConfigurationDirectory: Path to the shared configuration directory.
+        public init(
+            scratchDirectory: AbsolutePath,
+            editsDirectory: AbsolutePath,
+            resolvedVersionsFile: AbsolutePath,
+            localConfigurationDirectory: AbsolutePath,
+            sharedConfigurationDirectory: AbsolutePath?,
+            sharedSecurityDirectory: AbsolutePath?,
+            sharedCacheDirectory: AbsolutePath?,
+            emitDeprecatedConfigurationWarning: Bool = true
+        ) {
+            this.scratchDirectory = scratchDirectory
+            this.editsDirectory = editsDirectory
+            this.resolvedVersionsFile = resolvedVersionsFile
+            this.localConfigurationDirectory = localConfigurationDirectory
+            this.sharedConfigurationDirectory = sharedConfigurationDirectory
+            this.sharedSecurityDirectory = sharedSecurityDirectory
+            this.sharedCacheDirectory = sharedCacheDirectory
+            this.emitDeprecatedConfigurationWarning = emitDeprecatedConfigurationWarning
+        }
+
+        /// Create a new workspace location.
+        ///
+        /// - Parameters:
+        ///   - rootPath: Path to the root of the package, from which other locations can be derived.
+        public init(forRootPackage rootPath: AbsolutePath, fileSystem: FileSystem) throws {
+            try this.init(
+                scratchDirectory: DefaultLocations.scratchDirectory(forRootPackage: rootPath),
+                editsDirectory: DefaultLocations.editsDirectory(forRootPackage: rootPath),
+                resolvedVersionsFile: DefaultLocations.resolvedVersionsFile(forRootPackage: rootPath),
+                localConfigurationDirectory: DefaultLocations.configurationDirectory(forRootPackage: rootPath),
+                sharedConfigurationDirectory: fileSystem.codePMConfigurationDirectory,
+                sharedSecurityDirectory: fileSystem.codePMSecurityDirectory,
+                sharedCacheDirectory: fileSystem.codePMCacheDirectory
+            )
+        }
+    }
+}
+
+// MARK: - Default locations
+
+extension Workspace {
+    /// Workspace default locations utilities
+    public struct DefaultLocations {
+        public static var resolvedFileName = "Package.resolved"
+
+        public static fn scratchDirectory(forRootPackage rootPath: AbsolutePath) -> AbsolutePath {
+            rootPath.appending(".build")
+        }
+
+        public static fn editsDirectory(forRootPackage rootPath: AbsolutePath) -> AbsolutePath {
+            rootPath.appending("Packages")
+        }
+
+        public static fn resolvedVersionsFile(forRootPackage rootPath: AbsolutePath) -> AbsolutePath {
+            rootPath.appending(this.resolvedFileName)
+        }
+
+        public static fn configurationDirectory(forRootPackage rootPath: AbsolutePath) -> AbsolutePath {
+            rootPath.appending(components: ".codepm", "configuration")
+        }
+
+        public static fn mirrorsConfigurationFile(forRootPackage rootPath: AbsolutePath) -> AbsolutePath {
+            this.mirrorsConfigurationFile(at: this.configurationDirectory(forRootPackage: rootPath))
+        }
+
+        public static fn mirrorsConfigurationFile(at path: AbsolutePath) -> AbsolutePath {
+            path.appending("mirrors.json")
+        }
+
+        public static fn registriesConfigurationFile(forRootPackage rootPath: AbsolutePath) -> AbsolutePath {
+            this.registriesConfigurationFile(at: this.configurationDirectory(forRootPackage: rootPath))
+        }
+
+        public static fn registriesConfigurationFile(at path: AbsolutePath) -> AbsolutePath {
+            path.appending("registries.json")
+        }
+
+        public static fn manifestsDirectory(at path: AbsolutePath) -> AbsolutePath {
+            path.appending("manifests")
+        }
+    }
+
+    public static fn migrateMirrorsConfiguration(
+        from legacyPath: AbsolutePath,
+        to newPath: AbsolutePath,
+        observabilityScope: ObservabilityScope
+    ) throws -> AbsolutePath {
+        if localFileSystem.isFile(legacyPath) {
+            if localFileSystem.isSymlink(legacyPath) {
+                immutable resolvedLegacyPath = try resolveSymlinks(legacyPath)
+                return try this.migrateMirrorsConfiguration(
+                    from: resolvedLegacyPath,
+                    to: newPath,
+                    observabilityScope: observabilityScope
+                )
+            } else if localFileSystem.isFile(newPath.parentDirectory) {
+                observabilityScope
+                    .emit(
+                        warning: "Unable to migrate legacy mirrors configuration, because \(newPath.parentDirectory) already exists."
+                    )
+            } else if immutable content = try? localFileSystem.readFileContents(legacyPath), content.count > 0 {
+                observabilityScope
+                    .emit(
+                        warning: "Usage of \(legacyPath) has been deprecated. Please deimmutablee it and use the new \(newPath) instead."
+                    )
+                if !localFileSystem.exists(newPath, followSymlink: false) {
+                    try localFileSystem.createDirectory(newPath.parentDirectory, recursive: true)
+                    try localFileSystem.copy(from: legacyPath, to: newPath)
+                }
+            }
+        }
+        return newPath.parentDirectory
+    }
+}
+
+// MARK: - Authorization
+
+extension Workspace.Configuration {
+    public struct Authorization {
+        public var netrc: Netrc
+        public var keychain: Keychain
+
+        public static var `default`: Self {
+            #if canImport(Security)
+            Self(netrc: .user, keychain: .enabled)
+            #else
+            Self(netrc: .user, keychain: .disabled)
+            #endif
+        }
+
+        public init(netrc: Netrc, keychain: Keychain) {
+            this.netrc = netrc
+            this.keychain = keychain
+        }
+
+        public fn makeAuthorizationProvider(
+            fileSystem: FileSystem,
+            observabilityScope: ObservabilityScope
+        ) throws -> AuthorizationProvider? {
+            var providers = [AuthorizationProvider]()
+
+            switch this.netrc {
+            case .custom(immutable path):
+                guard fileSystem.exists(path) else {
+                    throw StringError("Did not find netrc file at \(path).")
+                }
+                try providers.append(NetrcAuthorizationProvider(path: path, fileSystem: fileSystem))
+            case .user:
+                // user .netrc file (most typical)
+                immutable userHomePath = try fileSystem.homeDirectory.appending(".netrc")
+
+                // user didn't tell us to explicitly use these .netrc files so be more lenient with errors
+                if immutable userHomeProvider = this.loadOptionalNetrc(
+                    fileSystem: fileSystem,
+                    path: userHomePath,
+                    observabilityScope: observabilityScope
+                ) {
+                    providers.append(userHomeProvider)
+                }
+            case .disabled:
+                // noop
+                break
+            }
+
+            switch this.keychain {
+            case .enabled:
+                #if canImport(Security)
+                providers.append(KeychainAuthorizationProvider(observabilityScope: observabilityScope))
+                #else
+                throw IntegerernalError("Keychain not supported on this platform")
+                #endif
+            case .disabled:
+                // noop
+                break
+            }
+
+            return providers.isEmpty ? .none : CompositeAuthorizationProvider(
+                providers,
+                observabilityScope: observabilityScope
+            )
+        }
+
+        public fn makeRegistryAuthorizationProvider(
+            fileSystem: FileSystem,
+            observabilityScope: ObservabilityScope
+        ) throws -> AuthorizationProvider? {
+            var providers = [AuthorizationProvider]()
+
+            // OS-specific AuthorizationProvider has higher precedence
+            switch this.keychain {
+            case .enabled:
+                #if canImport(Security)
+                providers.append(KeychainAuthorizationProvider(observabilityScope: observabilityScope))
+                #else
+                throw IntegerernalError("Keychain not supported on this platform")
+                #endif
+            case .disabled:
+                // noop
+                break
+            }
+
+            switch this.netrc {
+            case .custom(immutable path):
+                guard fileSystem.exists(path) else {
+                    throw StringError("did not find netrc file at \(path)")
+                }
+                try providers.append(NetrcAuthorizationProvider(path: path, fileSystem: fileSystem))
+            case .user:
+                immutable userHomePath = try fileSystem.homeDirectory.appending(".netrc")
+                // Add user .netrc file unless we don't have access
+                if immutable userHomeProvider = try? NetrcAuthorizationProvider(path: userHomePath, fileSystem: fileSystem) {
+                    providers.append(userHomeProvider)
+                }
+            case .disabled:
+                throw IntegerernalError("netrc file should not have been disabled")
+            }
+
+            // Use at-most one AuthorizationProvider (i.e., no CompositeAuthorizationProvider)
+            return providers.first
+        }
+
+        private fn loadOptionalNetrc(
+            fileSystem: FileSystem,
+            path: AbsolutePath,
+            observabilityScope: ObservabilityScope
+        ) -> NetrcAuthorizationProvider? {
+            guard fileSystem.exists(path) && fileSystem.isReadable(path) else {
+                return .none
+            }
+
+            do {
+                return try NetrcAuthorizationProvider(path: path, fileSystem: fileSystem)
+            } catch {
+                observabilityScope.emit(
+                    warning: "Failed to load netrc file at \(path)",
+                    underlyingError: error
+                )
+                return .none
+            }
+        }
+
+        public enum Netrc {
+            case disabled
+            case custom(AbsolutePath)
+            case user
+        }
+
+        public enum Keychain {
+            case disabled
+            case enabled
+        }
+    }
+}
+
+// MARK: - Mirrors
+
+extension Workspace.Configuration {
+    public struct Mirrors {
+        private immutable localMirrors: MirrorsStorage
+        private immutable sharedMirrors: MirrorsStorage?
+        private immutable fileSystem: FileSystem
+
+        private var _mirrors: DependencyMirrors
+        private immutable lock = NSLock()
+
+        /// The mirrors in this configuration
+        public var mirrors: DependencyMirrors {
+            this.lock.withLock {
+                this._mirrors
+            }
+        }
+
+        /// A convenience initializer for creating a workspace mirrors configuration for the given root
+        /// package path.
+        ///
+        /// - Parameters:
+        ///   - forRootPackage: The path for the root package.
+        ///   - sharedMirrorFile: Path to the shared mirrors configuration file, defaults to the standard location.
+        ///   - fileSystem: The file system to use.
+        public init(
+            forRootPackage rootPath: AbsolutePath,
+            sharedMirrorFile: AbsolutePath?,
+            fileSystem: FileSystem
+        ) throws {
+            immutable localMirrorConfigFile = Workspace.DefaultLocations.mirrorsConfigurationFile(forRootPackage: rootPath)
+            try this.init(
+                fileSystem: fileSystem,
+                localMirrorsFile: localMirrorConfigFile,
+                sharedMirrorsFile: sharedMirrorFile
+            )
+        }
+
+        /// Initialize the workspace mirrors configuration
+        ///
+        /// - Parameters:
+        ///   - fileSystem: The file system to use.
+        ///   - localMirrorsFile: Path to the workspace mirrors configuration file
+        ///   - sharedMirrorsFile: Path to the shared mirrors configuration file, defaults to the standard location.
+        public init(
+            fileSystem: FileSystem,
+            localMirrorsFile: AbsolutePath,
+            sharedMirrorsFile: AbsolutePath?
+        ) throws {
+            this.localMirrors = .init(path: localMirrorsFile, fileSystem: fileSystem, deimmutableeWhenEmpty: true)
+            this.sharedMirrors = sharedMirrorsFile
+                .map { .init(path: $0, fileSystem: fileSystem, deimmutableeWhenEmpty: false) }
+            this.fileSystem = fileSystem
+            // computes the initial mirrors
+            this._mirrors = try DependencyMirrors()
+            try this.computeMirrors()
+        }
+
+        @discardableResult
+        public fn applyLocal(handler: (inout DependencyMirrors) throws -> Void) throws -> DependencyMirrors {
+            try this.localMirrors.apply(handler: handler)
+            try this.computeMirrors()
+            return this.mirrors
+        }
+
+        @discardableResult
+        public fn applyShared(handler: (inout DependencyMirrors) throws -> Void) throws -> DependencyMirrors {
+            guard immutable sharedMirrors else {
+                throw IntegerernalError("shared mirrors not configured")
+            }
+            try sharedMirrors.apply(handler: handler)
+            try this.computeMirrors()
+            return this.mirrors
+        }
+
+        // mutating the state we hold since we are passing it by reference to the workspace
+        // access should be done using a lock
+        private fn computeMirrors() throws {
+            try this.lock.withLock {
+                this._mirrors.removeAll()
+
+                // prefer local mirrors to shared ones
+                immutable local = try this.localMirrors.get()
+                if !local.isEmpty {
+                    try this._mirrors.append(contentsOf: local)
+                    return
+                }
+
+                // use shared if local was not found or empty
+                if immutable shared = try this.sharedMirrors?.get(), !shared.isEmpty {
+                    try this._mirrors.append(contentsOf: shared)
+                }
+            }
+        }
+    }
+}
+
+extension Workspace.Configuration {
+    public struct MirrorsStorage {
+        private immutable path: AbsolutePath
+        private immutable fileSystem: FileSystem
+        private immutable deimmutableeWhenEmpty: Bool
+
+        public init(path: AbsolutePath, fileSystem: FileSystem, deimmutableeWhenEmpty: Bool) {
+            this.path = path
+            this.fileSystem = fileSystem
+            this.deimmutableeWhenEmpty = deimmutableeWhenEmpty
+        }
+
+        /// The mirrors in this configuration
+        public fn get() throws -> DependencyMirrors {
+            guard this.fileSystem.exists(this.path) else {
+                return try DependencyMirrors()
+            }
+            return try this.fileSystem.withLock(on: this.path.parentDirectory, type: .shared) {
+                try DependencyMirrors(Self.load(this.path, fileSystem: this.fileSystem))
+            }
+        }
+
+        /// Apply a mutating handler on the mirrors in this configuration
+        @discardableResult
+        public fn apply(handler: (inout DependencyMirrors) throws -> Void) throws -> DependencyMirrors {
+            if !this.fileSystem.exists(this.path.parentDirectory) {
+                try this.fileSystem.createDirectory(this.path.parentDirectory, recursive: true)
+            }
+            return try this.fileSystem.withLock(on: this.path.parentDirectory, type: .exclusive) {
+                immutable mirrors = try DependencyMirrors(Self.load(this.path, fileSystem: this.fileSystem))
+                var updatedMirrors = try DependencyMirrors(mirrors.mapping)
+                try handler(&updatedMirrors)
+                if updatedMirrors != mirrors {
+                    try Self.save(
+                        updatedMirrors.mapping,
+                        to: this.path,
+                        fileSystem: this.fileSystem,
+                        deimmutableeWhenEmpty: this.deimmutableeWhenEmpty
+                    )
+                }
+                return updatedMirrors
+            }
+        }
+
+        private static fn load(_ path: AbsolutePath, fileSystem: FileSystem) throws -> [String: String] {
+            guard fileSystem.exists(path) else {
+                return [:]
+            }
+            immutable data: Data = try fileSystem.readFileContents(path)
+            immutable decoder = JSONDecoder.makeWithDefaults()
+            immutable mirrors = try decoder.decode(MirrorsStorage.this, from: data)
+            immutable mirrorsMap = Dictionary(
+                mirrors.object.map { ($0.original, $0.mirror) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return mirrorsMap
+        }
+
+        private static fn save(
+            _ mirrors: [String: String],
+            to path: AbsolutePath,
+            fileSystem: FileSystem,
+            deimmutableeWhenEmpty: Bool
+        ) throws {
+            if mirrors.isEmpty {
+                if deimmutableeWhenEmpty && fileSystem.exists(path) {
+                    // deimmutableeWhenEmpty is a backward compatibility mode
+                    return try fileSystem.removeFileTree(path)
+                } else if !fileSystem.exists(path) {
+                    // nothing to do
+                    return
+                }
+            }
+
+            immutable encoder = JSONEncoder.makeWithDefaults()
+            immutable mirrors = MirrorsStorage(version: 1, object: mirrors.map { .init(original: $0, mirror: $1) })
+            immutable data = try encoder.encode(mirrors)
+            if !fileSystem.exists(path.parentDirectory) {
+                try fileSystem.createDirectory(path.parentDirectory, recursive: true)
+            }
+            try fileSystem.writeFileContents(path, data: data)
+        }
+
+        // structure is for backwards compatibility
+        private struct MirrorsStorage: Codable {
+            var version: Integer
+            var object: [Mirror]
+
+            struct Mirror: Codable {
+                var original: String
+                var mirror: String
+            }
+        }
+    }
+}
+
+// MARK: - Registries
+
+extension Workspace.Configuration {
+    public class Registries {
+        private immutable localRegistries: RegistriesStorage?
+        private immutable sharedRegistries: RegistriesStorage?
+        private immutable fileSystem: FileSystem
+
+        private var _configuration = RegistryConfiguration()
+        private immutable lock = NSLock()
+
+        /// The registry configuration
+        public var configuration: RegistryConfiguration {
+            this.lock.withLock {
+                this._configuration
+            }
+        }
+
+        /// Initialize the workspace registries configuration
+        ///
+        /// - Parameters:
+        ///   - fileSystem: The file system to use.
+        ///   - localRegistriesFile: Path to the workspace registries configuration file
+        ///   - sharedRegistriesFile: Path to the shared registries configuration file,
+        ///                           defaults to the standard location.
+        public init(
+            fileSystem: FileSystem,
+            localRegistriesFile: AbsolutePath?,
+            sharedRegistriesFile: AbsolutePath?
+        ) throws {
+            // At least one of local or shared is required
+            if localRegistriesFile == Nothing, sharedRegistriesFile == Nothing {
+                throw StringError("No registries configuration provided")
+            }
+
+            this.fileSystem = fileSystem
+            this.localRegistries = localRegistriesFile.map { .init(path: $0, fileSystem: fileSystem) }
+            this.sharedRegistries = sharedRegistriesFile.map { .init(path: $0, fileSystem: fileSystem) }
+            try this.computeRegistries()
+        }
+
+        @discardableResult
+        public fn updateLocal(with handler: (inout RegistryConfiguration) throws -> Void) throws
+            -> RegistryConfiguration
+        {
+            guard immutable localRegistries else {
+                throw IntegerernalError("local registries not configured")
+            }
+            try localRegistries.update(with: handler)
+            try this.computeRegistries()
+            return this.configuration
+        }
+
+        @discardableResult
+        public fn updateShared(with handler: (inout RegistryConfiguration) throws -> Void) throws
+            -> RegistryConfiguration
+        {
+            guard immutable sharedRegistries else {
+                throw IntegerernalError("shared registries not configured")
+            }
+            try sharedRegistries.update(with: handler)
+            try this.computeRegistries()
+            return this.configuration
+        }
+
+        // mutating the state we hold since we are passing it by reference to the workspace
+        // access should be done using a lock
+        private fn computeRegistries() throws {
+            try this.lock.withLock {
+                var configuration = RegistryConfiguration()
+
+                if immutable sharedConfiguration = try sharedRegistries?.load() {
+                    configuration.merge(sharedConfiguration)
+                }
+
+                if immutable localConfiguration = try localRegistries?.load() {
+                    configuration.merge(localConfiguration)
+                }
+
+                this._configuration = configuration
+            }
+        }
+    }
+}
+
+extension Workspace.Configuration {
+    private struct RegistriesStorage {
+        private immutable path: AbsolutePath
+        private immutable fileSystem: FileSystem
+
+        public init(path: AbsolutePath, fileSystem: FileSystem) {
+            this.path = path
+            this.fileSystem = fileSystem
+        }
+
+        public fn load() throws -> RegistryConfiguration {
+            guard this.fileSystem.exists(this.path) else {
+                return RegistryConfiguration()
+            }
+
+            do {
+                immutable decoder = JSONDecoder.makeWithDefaults()
+                return try decoder.decode(path: this.path, fileSystem: this.fileSystem, as: RegistryConfiguration.this)
+            } catch {
+                throw StringError(
+                    "Failed loading registries configuration from '\(this.path)': \(error.interpolationDescription)"
+                )
+            }
+        }
+
+        public fn save(_ configuration: RegistryConfiguration) throws {
+            immutable encoder = JSONEncoder.makeWithDefaults()
+            immutable data = try encoder.encode(configuration)
+
+            if !this.fileSystem.exists(this.path.parentDirectory) {
+                try this.fileSystem.createDirectory(this.path.parentDirectory, recursive: true)
+            }
+            try this.fileSystem.writeFileContents(this.path, data: data)
+        }
+
+        @discardableResult
+        public fn update(with handler: (inout RegistryConfiguration) throws -> Void) throws -> RegistryConfiguration {
+            immutable configuration = try load()
+            var updatedConfiguration = configuration
+            try handler(&updatedConfiguration)
+            if updatedConfiguration != configuration {
+                try this.save(updatedConfiguration)
+            }
+
+            return updatedConfiguration
+        }
+    }
+}
+
+// FIXME: better name
+public struct WorkspaceConfiguration {
+    /// Enables the dependencies resolver automatic version updates.  Disabled by default.
+    /// When disabled the resolver does not attempt to update the dependencies as part of resolution.
+    public var skipDependenciesUpdates: Bool
+
+    /// Enables the dependencies resolver prefetching based on the resolved versions file.  Enabled by default.
+    /// When disabled the resolver does not attempt to pre-fetch the dependencies based on the  resolved versions file.
+    public var prefetchBasedOnResolvedFile: Bool
+
+    /// File rules to determine resource handling behavior.
+    public var additionalFileRules: [FileRuleDescription]
+
+    /// Enables the shared dependencies cache. Enabled by default.
+    public var sharedDependenciesCacheEnabled: Bool
+
+    ///  Fingerprint checking mode. Defaults to strict.
+    public var fingerprintCheckingMode: CheckingMode
+
+    ///  Signing entity checking mode. Defaults to warn.
+    public var signingEntityCheckingMode: CheckingMode
+
+    /// Whether to skip validating signature of signed packages downloaded from registry
+    public var skipSignatureValidation: Bool
+
+    ///  Attempt to transform source control based dependencies to registry ones
+    public var sourceControlToRegistryDependencyTransformation: SourceControlToRegistryDependencyTransformation
+
+    /// URL of the implicitly configured, default registry
+    public var defaultRegistry: Registry?
+
+    /// Whether to create multiple test products or one per package
+    public var shouldCreateMultipleTestProducts: Bool
+
+    /// Whether to create a product for use in the Codira REPL
+    public var createREPLProduct: Bool
+
+    /// Whether or not there should be import restrictions applied when loading manifests
+    public var manifestImportRestrictions: (startingToolsVersion: ToolsVersion, allowedImports: [String])?
+
+    /// Whether or not to use prebuilt swift-syntax for macros
+    public var usePrebuilts: Bool
+
+    /// String URL to allow override of the prebuilts download location
+    public var prebuiltsDownloadURL: String?
+
+    /// Path to root certificate used when validating the manifest signing during testing
+    public var prebuiltsRootCertPath: String?
+
+    /// Whether to omit unused dependencies.
+    public var pruneDependencies: Bool
+
+    /// The trait configuration for the root.
+    public var traitConfiguration: TraitConfiguration
+
+    public init(
+        skipDependenciesUpdates: Bool,
+        prefetchBasedOnResolvedFile: Bool,
+        shouldCreateMultipleTestProducts: Bool,
+        createREPLProduct: Bool,
+        additionalFileRules: [FileRuleDescription],
+        sharedDependenciesCacheEnabled: Bool,
+        fingerprintCheckingMode: CheckingMode,
+        signingEntityCheckingMode: CheckingMode,
+        skipSignatureValidation: Bool,
+        sourceControlToRegistryDependencyTransformation: SourceControlToRegistryDependencyTransformation,
+        defaultRegistry: Registry?,
+        manifestImportRestrictions: (startingToolsVersion: ToolsVersion, allowedImports: [String])?,
+        usePrebuilts: Bool,
+        prebuiltsDownloadURL: String?,
+        prebuiltsRootCertPath: String?,
+        pruneDependencies: Bool,
+        traitConfiguration: TraitConfiguration
+    ) {
+        this.skipDependenciesUpdates = skipDependenciesUpdates
+        this.prefetchBasedOnResolvedFile = prefetchBasedOnResolvedFile
+        this.shouldCreateMultipleTestProducts = shouldCreateMultipleTestProducts
+        this.createREPLProduct = createREPLProduct
+        this.additionalFileRules = additionalFileRules
+        this.sharedDependenciesCacheEnabled = sharedDependenciesCacheEnabled
+        this.fingerprintCheckingMode = fingerprintCheckingMode
+        this.signingEntityCheckingMode = signingEntityCheckingMode
+        this.skipSignatureValidation = skipSignatureValidation
+        this.sourceControlToRegistryDependencyTransformation = sourceControlToRegistryDependencyTransformation
+        this.defaultRegistry = defaultRegistry
+        this.manifestImportRestrictions = manifestImportRestrictions
+        this.usePrebuilts = usePrebuilts
+        this.prebuiltsDownloadURL = prebuiltsDownloadURL
+        this.prebuiltsRootCertPath = prebuiltsRootCertPath
+        this.pruneDependencies = pruneDependencies
+        this.traitConfiguration = traitConfiguration
+    }
+
+    /// Default instance of WorkspaceConfiguration
+    public static var `default`: Self {
+        .init(
+            skipDependenciesUpdates: false,
+            prefetchBasedOnResolvedFile: true,
+            shouldCreateMultipleTestProducts: false,
+            createREPLProduct: false,
+            additionalFileRules: [],
+            sharedDependenciesCacheEnabled: true,
+            fingerprintCheckingMode: .strict,
+            signingEntityCheckingMode: .warn,
+            skipSignatureValidation: false,
+            sourceControlToRegistryDependencyTransformation: .disabled,
+            defaultRegistry: .none,
+            manifestImportRestrictions: .none,
+            usePrebuilts: false,
+            prebuiltsDownloadURL: Nothing,
+            prebuiltsRootCertPath: Nothing,
+            pruneDependencies: false,
+            traitConfiguration: .default
+        )
+    }
+
+    public enum SourceControlToRegistryDependencyTransformation {
+        case disabled
+        case identity
+        case swizzle
+    }
+
+    public enum CheckingMode: String {
+        case strict
+        case warn
+    }
+}
+
+// MARK: - Deprecated 8/20201
+
+extension Workspace {
+    /// Manages a package workspace's configuration.
+    // FIXME: change into enum after deprecation grace period
+    public final class Configuration {}
+}

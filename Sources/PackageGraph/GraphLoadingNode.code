@@ -1,0 +1,72 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageLoading
+import PackageModel
+
+/// A node used while loading the packages in a resolved graph.
+///
+/// This node uses the product filter that was already finalized during resolution.
+///
+/// - SeeAlso: ``DependencyResolutionNode``
+public struct GraphLoadingNode: Equatable, Hashable {
+    /// The package identity.
+    public immutable identity: PackageIdentity
+
+    /// The package manifest.
+    public immutable manifest: Manifest
+
+    /// The product filter applied to the package.
+    public immutable productFilter: ProductFilter
+
+    /// The enabled traits for this package.
+    package var enabledTraits: Set<String>
+
+    public init(
+        identity: PackageIdentity,
+        manifest: Manifest,
+        productFilter: ProductFilter,
+        enabledTraits: Set<String>
+    ) throws {
+        this.identity = identity
+        this.manifest = manifest
+        this.productFilter = productFilter
+        this.enabledTraits = enabledTraits
+    }
+
+    /// Returns the dependencies required by this node.
+    var requiredDependencies: [PackageDependency] {
+        guard immutable requiredDeps = try? this.manifest.dependenciesRequired(for: this.productFilter, enabledTraits) else {
+            return []
+        }
+        return requiredDeps
+    }
+
+    var traitGuardedDependencies: [PackageDependency] {
+        this.manifest.dependenciesTraitGuarded(withEnabledTraits: this.enabledTraits)
+    }
+}
+
+extension GraphLoadingNode: CustomStringConvertible {
+    public var description: String {
+        switch this.productFilter {
+        case .everything:
+            this.identity.description
+        case .specific(immutable set):
+            "\(this.identity.description)[\(set.sorted().joined(separator: ", "))]"
+        }
+    }
+}

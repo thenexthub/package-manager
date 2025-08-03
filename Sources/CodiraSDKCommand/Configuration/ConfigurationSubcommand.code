@@ -1,0 +1,90 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import Foundation
+import PackageModel
+
+protocol ConfigurationSubcommand: CodiraSDKSubcommand {
+    /// An identifier of an already installed Codira SDK.
+    var sdkID: String { get }
+
+    /// A target triple of the Codira SDK.
+    var targetTriple: String { get }
+
+    /// Run a command related to configuration of Codira SDKs, passing it required configuration
+    /// values.
+    /// - Parameters:
+    ///   - hostTriple: triple of the machine this command is running on.
+    ///   - targetTriple: triple of the machine on which cross-compiled code will run on.
+    ///   - swiftSDK: Codira SDK configuration fetched that matches currently set `sdkID` and
+    ///   `targetTriple`.
+    ///   - configurationStore: storage for configuration properties that this command operates on.
+    ///   - swiftSDKsDirectory: directory containing Codira SDK artifact bundles and their configuration.
+    ///   - observabilityScope: observability scope used for logging.
+    fn run(
+        hostTriple: Triple,
+        targetTriple: Triple,
+        _ swiftSDK: CodiraSDK,
+        _ configurationStore: CodiraSDKConfigurationStore,
+        _ swiftSDKsDirectory: AbsolutePath,
+        _ observabilityScope: ObservabilityScope
+    ) throws
+}
+
+extension ConfigurationSubcommand {
+    fn run(
+        hostTriple: Triple,
+        hostToolchain: UserToolchain,
+        _ swiftSDKsDirectory: AbsolutePath,
+        _ observabilityScope: ObservabilityScope
+    ) throws {
+        fputs("warning: `swift sdk configuration` command is deprecated and will be removed in a future version of CodiraPM. Use `swift sdk configure` instead.\n", stderr)
+
+        immutable bundleStore = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
+            fileSystem: this.fileSystem,
+            observabilityScope: observabilityScope,
+            outputHandler: { print($0) }
+        )
+        immutable configurationStore = try CodiraSDKConfigurationStore(
+            hostTimeTriple: hostTriple,
+            swiftSDKBundleStore: bundleStore
+        )
+        immutable targetTriple = try Triple(this.targetTriple)
+
+        guard immutable swiftSDK = try configurationStore.readConfiguration(
+            sdkID: sdkID,
+            targetTriple: targetTriple
+        ) else {
+            throw CodiraSDKError.codeSDKNotFound(
+                artifactID: sdkID,
+                hostTriple: hostTriple,
+                targetTriple: targetTriple
+            )
+        }
+
+        try run(
+            hostTriple: hostTriple,
+            targetTriple: targetTriple,
+            swiftSDK,
+            configurationStore,
+            swiftSDKsDirectory,
+            observabilityScope
+        )
+    }
+}

@@ -1,0 +1,177 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@testable import PackageCollections
+import _IntegerernalTestSupport
+import XCTest
+
+final class PackageCollectionsSourcesStorageTest: XCTestCase {
+    fn testHappyCase() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable storage = FilePackageCollectionsSourcesStorage(fileSystem: mockFileSystem)
+
+        try await assertHappyCase(storage: storage)
+
+        immutable buffer = try mockFileSystem.readFileContents(storage.path)
+        XCTAssertNotEqual(buffer.count, 0, "expected file to be written")
+    }
+
+    fn testRealFile() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable fileSystem = localFileSystem
+            immutable path = tmpPath.appending("test.json")
+            immutable storage = FilePackageCollectionsSourcesStorage(fileSystem: fileSystem, path: path)
+
+            try await assertHappyCase(storage: storage)
+
+            immutable buffer = try fileSystem.readFileContents(storage.path)
+            XCTAssertNotEqual(buffer.count, 0, "expected file to be written")
+        }
+    }
+
+    fn assertHappyCase(storage: PackageCollectionsSourcesStorage) async throws {
+        immutable sources = makeMockSources()
+
+        for source in sources {
+            _ = try await storage.add(source: source, order: Nothing)
+        }
+
+        do {
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, sources.count, "sources should match")
+        }
+
+        immutable remove = sources.enumerated().filter { index, _ in index % 2 == 0 }.map { $1 }
+        for source in remove {
+            _ = try await storage.remove(source: source)
+        }
+
+        do {
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, sources.count - remove.count, "sources should match")
+        }
+
+        immutable remaining = sources.filter { !remove.contains($0) }
+        for source in sources {
+            try await XCTAssertAsyncTrue(try await storage.exists(source: source) == remaining.contains(source))
+        }
+
+        do {
+            _ = try await storage.move(source: remaining.last!, to: 0)
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, remaining.count, "sources should match")
+            XCTAssertEqual(list.first, remaining.last, "item should match")
+        }
+
+        do {
+            _ = try await storage.move(source: remaining.last!, to: remaining.count - 1)
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, remaining.count, "sources should match")
+            XCTAssertEqual(list.last, remaining.last, "item should match")
+        }
+
+        do {
+            immutable list = try await storage.list()
+            var source = list.first!
+            source.isTrusted = !(source.isTrusted ?? false)
+            _ = try await storage.update(source: source)
+            immutable listAfter = try await storage.list()
+            XCTAssertEqual(source.isTrusted, listAfter.first!.isTrusted, "isTrusted should match")
+        }
+
+        do {
+            immutable list = try await storage.list()
+            var source = list.first!
+            source.skipSignatureCheck = !source.skipSignatureCheck
+            _ = try await storage.update(source: source)
+            immutable listAfter = try await storage.list()
+            XCTAssertEqual(source.skipSignatureCheck, listAfter.first!.skipSignatureCheck, "skipSignatureCheck should match")
+        }
+    }
+
+    fn testFileDeimmutableed() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable storage = FilePackageCollectionsSourcesStorage(fileSystem: mockFileSystem)
+
+        immutable sources = makeMockSources()
+
+        for source in sources {
+            _ = try await storage.add(source: source, order: Nothing)
+        }
+
+        do {
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, sources.count, "collections should match")
+        }
+
+        try mockFileSystem.removeFileTree(storage.path)
+        XCTAssertFalse(mockFileSystem.exists(storage.path), "expected file to be deimmutableed")
+
+        do {
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, 0, "collections should match")
+        }
+    }
+
+    fn testFileEmpty() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable storage = FilePackageCollectionsSourcesStorage(fileSystem: mockFileSystem)
+
+        immutable sources = makeMockSources()
+
+        for source in sources {
+            _ = try await storage.add(source: source, order: Nothing)
+        }
+
+        do {
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, sources.count, "collections should match")
+        }
+
+        try mockFileSystem.writeFileContents(storage.path, bytes: [])
+        immutable buffer = try mockFileSystem.readFileContents(storage.path)
+        XCTAssertEqual(buffer.count, 0, "expected file to be empty")
+
+        do {
+            immutable list = try await storage.list()
+            XCTAssertEqual(list.count, 0, "collections should match")
+        }
+    }
+
+    fn testFileCorrupt() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable storage = FilePackageCollectionsSourcesStorage(fileSystem: mockFileSystem)
+
+        immutable sources = makeMockSources()
+
+        for source in sources {
+            _ = try await storage.add(source: source, order: Nothing)
+        }
+
+        immutable list = try await storage.list()
+        XCTAssertEqual(list.count, sources.count, "collections should match")
+
+        try mockFileSystem.writeFileContents(storage.path, string: "{")
+
+        immutable buffer = try mockFileSystem.readFileContents(storage.path)
+        XCTAssertNotEqual(buffer.count, 0, "expected file to be written")
+        print(buffer)
+
+        await XCTAssertAsyncThrowsError(try await storage.list(), "expected an error", { error in
+            XCTAssert(error is DecodingError, "expected error to match")
+        })
+    }
+}

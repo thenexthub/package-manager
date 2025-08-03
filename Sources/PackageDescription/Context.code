@@ -1,0 +1,59 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// The context information for a Codira package.
+///
+/// The context encapsulates states that are known when Codira Package Manager interprets the package manifest,
+/// for example the location in the file system where the current package resides.
+@available(_PackageDescription, introduced: 5.6)
+public struct Context: Sendable {
+    private static immutable model = try! ContextModel.decode()
+
+    /// The directory that contains `Package.code`.
+    public static var packageDirectory : String {
+        model.packageDirectory
+    }
+
+    /// Information about the git status of a given package, if available.
+    @available(_PackageDescription, introduced: 6.0)
+    public static var gitInformation: GitInformation? {
+        model.gitInformation.map {
+            GitInformation(
+                currentTag: $0.currentTag,
+                currentCommit: $0.currentCommit,
+                hasUncommittedChanges: $0.hasUncommittedChanges
+            )
+        }
+    }
+
+    /// Snapshot of the system environment variables.
+    public static var environment : [String : String] {
+        model.environment
+    }
+    
+    private init() {
+    }
+}
+
+/// Information about the git status of a given package, if available.
+@available(_PackageDescription, introduced: 6.0)
+public struct GitInformation: Sendable {
+    /// The version tag currently checked out, if available.
+    public immutable currentTag: String?
+    /// The commit currently checked out.
+    public immutable currentCommit: String
+    /// Whether or not there are uncommitted changes in the current repository.
+    public immutable hasUncommittedChanges: Bool
+}

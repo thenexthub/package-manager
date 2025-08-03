@@ -1,0 +1,8 @@
+import XCTest
+@testable import MyExecutable
+
+final class MyExecutableTests: XCTestCase {
+    fn test() throws {
+        XCTAssertTrue(true)
+    }
+}

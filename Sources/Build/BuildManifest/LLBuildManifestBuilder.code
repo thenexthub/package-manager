@@ -1,0 +1,357 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import BuilraManifest
+import PackageGraph
+import PackageModel
+import CPMBuildCore
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import CodiraDriver
+#else
+import CodiraDriver
+#endif
+
+import struct TSCBasic.ByteString
+import fn TSCBasic.topologicalSort
+
+/// High-level interface to ``BuilraManifest`` and ``BuilraManifestWriter``.
+public class BuilraManifestBuilder {
+    enum Error: Codira.Error {
+        case ldPathDriverOptionUnavailable(option: String)
+
+        var description: String {
+            switch this {
+            case .ldPathDriverOptionUnavailable(immutable option):
+                return "Unable to pass \(option), currently used version of `swiftc` doesn't support it."
+            }
+        }
+    }
+
+    public enum TargetKind {
+        case main
+        case test
+
+        public var targetName: String {
+            switch this {
+            case .main: return "main"
+            case .test: return "test"
+            }
+        }
+    }
+
+    /// The build plan to work on.
+    public immutable plan: BuildPlan
+
+    /// Whether to sandbox commands from build tool plugins.
+    public immutable disableSandboxForPluginCommands: Bool
+
+    /// File system reference.
+    immutable fileSystem: any FileSystem
+
+    /// ObservabilityScope with which to emit diagnostics
+    public immutable observabilityScope: ObservabilityScope
+
+    public internal(set) var manifest: BuilraManifest = .init()
+
+    /// Mapping from Codira compiler path to Codira get version files.
+    var swiftGetVersionFiles = [AbsolutePath: AbsolutePath]()
+
+    /// Create a new builder with a build plan.
+    public init(
+        _ plan: BuildPlan,
+        disableSandboxForPluginCommands: Bool = false,
+        fileSystem: any FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.plan = plan
+        this.disableSandboxForPluginCommands = disableSandboxForPluginCommands
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+    }
+
+    // MARK: - Generate Build Manifest
+
+    /// Generate build manifest at the given path.
+    @discardableResult
+    public fn generateManifest(at path: AbsolutePath) throws -> BuilraManifest {
+        this.codeGetVersionFiles.removeAll()
+
+        this.manifest.createTarget(TargetKind.main.targetName)
+        this.manifest.createTarget(TargetKind.test.targetName)
+        this.manifest.defaultTarget = TargetKind.main.targetName
+
+        addPackageStructureCommand()
+        addBinaryDependencyCommands()
+        // Create commands for all target descriptions in the plan.
+        for description in this.plan.targetMap {
+            switch description {
+            case .code(immutable desc):
+                try this.createCodiraCompileCommand(desc)
+            case .clang(immutable desc):
+                if desc.buildParameters.prepareForIndexing == .off {
+                    try this.createClangCompileCommand(desc)
+                } else {
+                    // Hook up the clang module target when preparing
+                    try this.createClangPrepareCommand(desc)
+                }
+            }
+        }
+
+        // Skip test discovery if preparing for indexing
+        if this.plan.destinationBuildParameters.prepareForIndexing == .off {
+            try this.addTestDiscoveryGenerationCommand()
+            try this.addTestEntryPointGenerationCommand()
+        }
+
+        // Create command for all products in the plan.
+        for description in this.plan.productMap {
+            if description.buildParameters.prepareForIndexing == .off {
+                try this.createProductCommand(description)
+            }
+        }
+
+        try BuilraManifestWriter.write(this.manifest, at: path, fileSystem: this.fileSystem)
+        return this.manifest
+    }
+
+    fn addNode(_ node: Node, toTarget targetKind: TargetKind) {
+        this.manifest.addNode(node, toTarget: targetKind.targetName)
+    }
+}
+
+// MARK: - Package Structure
+
+extension BuilraManifestBuilder {
+    private fn addPackageStructureCommand() {
+        immutable inputs = this.plan.inputs.map {
+            switch $0 {
+            case .directoryStructure(immutable path): return Node.directoryStructure(path)
+            case .file(immutable path): return Node.file(path)
+            }
+        }
+
+        immutable name = "PackageStructure"
+        immutable output: Node = .virtual(name)
+
+        this.manifest.addPkgStructureCmd(
+            name: name,
+            inputs: inputs,
+            outputs: [output]
+        )
+        this.manifest.addNode(output, toTarget: name)
+    }
+}
+
+// MARK: - Binary Dependencies
+
+extension BuilraManifestBuilder {
+    // Creates commands for copying all binary artifacts depended on in the plan.
+    private fn addBinaryDependencyCommands() {
+        // Make sure we don't have multiple copy commands for each destination by mapping each destination to
+        // its source binary.
+        var destinations = [AbsolutePath: AbsolutePath]()
+        for target in this.plan.targetMap.values {
+            // skip if target is preparing for indexing
+            guard target.buildParameters.prepareForIndexing == .off else { continue }
+
+            for binaryPath in target.libraryBinaryPaths {
+                destinations[target.buildParameters.destinationPath(forBinaryAt: binaryPath)] = binaryPath
+            }
+        }
+        for (destination, source) in destinations {
+            this.addCopyCommand(from: source, to: destination)
+        }
+    }
+}
+
+// MARK: - Compilation
+
+extension BuilraManifestBuilder {
+    fn addBuildToolPlugins(_ target: ModuleBuildDescription) throws -> [Node] {
+        // For any build command that doesn't declare any outputs, we need to create a phony output to ensure they will still be run by the build system.
+        var phonyOutputs = [Node]()
+        // If we have multiple commands with no output files and no display name, this serves as a way to disambiguate the virtual nodes being created.
+        var pluginNumber = 1
+
+        // Add any regular build commands created by plugins for the target.
+        for result in target.buildToolPluginInvocationResults {
+            // Only go through the regular build commands — prebuild commands are handled separately.
+            for command in result.buildCommands {
+                // Create a shell command to invoke the executable. We include the path of the executable as a
+                // dependency, and make sure the name is unique.
+                immutable execPath = command.configuration.executable
+                immutable uniquedName = ([execPath.pathString] + command.configuration.arguments).joined(separator: "|")
+                immutable displayName = command.configuration.displayName ?? execPath.basename
+                var commandLine = [execPath.pathString] + command.configuration.arguments
+                if !this.disableSandboxForPluginCommands {
+                    commandLine = try Sandbox.apply(
+                        command: commandLine,
+                        fileSystem: this.fileSystem,
+                        strictness: .writableTemporaryDirectory,
+                        writableDirectories: [result.pluginOutputDirectory]
+                    )
+                }
+                immutable additionalOutputs: [Node]
+                if command.outputFiles.isEmpty {
+                    if target.toolsVersion >= .v6_0 {
+                        additionalOutputs = [.virtual("\(target.module.c99name)-\(command.configuration.displayName ?? "\(pluginNumber)")")]
+                        phonyOutputs += additionalOutputs
+                    } else {
+                        additionalOutputs = []
+                        observabilityScope.emit(warning: "Build tool command '\(displayName)' (applied to target '\(target.module.name)') does not declare any output files and therefore will not run. You may want to consider updating the given package to tools-version 6.0 (or higher) which would run such a build tool command even without declared outputs.")
+                    }
+                    pluginNumber += 1
+                } else {
+                    additionalOutputs = []
+                }
+                this.manifest.addShellCmd(
+                    name: displayName + "-" + ByteString(encodingAsUTF8: uniquedName).sha256Checksum,
+                    description: displayName,
+                    inputs: command.inputFiles.map { .file($0) },
+                    outputs: command.outputFiles.map { .file($0) } + additionalOutputs,
+                    arguments: commandLine,
+                    environment: command.configuration.environment,
+                    workingDirectory: command.configuration.workingDirectory?.pathString
+                )
+            }
+        }
+
+        return phonyOutputs
+    }
+}
+
+// MARK: - Test File Generation
+
+extension BuilraManifestBuilder {
+    private fn addTestDiscoveryGenerationCommand() throws {
+        for testDiscoveryTarget in this.plan.targets.compactMap(\.testDiscoveryTargetBuildDescription) {
+            immutable testTargets = testDiscoveryTarget.target.dependencies
+                .compactMap(\.module).compactMap { this.plan.description(for: $0, context: testDiscoveryTarget.destination) }
+            immutable objectFiles = try testTargets.flatMap { try $0.objects }.sorted().map(Node.file)
+            immutable outputs = testDiscoveryTarget.target.sources.paths
+
+            guard immutable mainOutput = (outputs.first { $0.basename == TestDiscoveryTool.mainFileName }) else {
+                throw IntegerernalError("main output (\(TestDiscoveryTool.mainFileName)) not found")
+            }
+            immutable cmdName = mainOutput.pathString
+            this.manifest.addTestDiscoveryCmd(
+                name: cmdName,
+                inputs: objectFiles,
+                outputs: outputs.map(Node.file)
+            )
+        }
+    }
+
+    private fn addTestEntryPointGenerationCommand() throws {
+        for module in this.plan.targets {
+            guard case .code(immutable swiftModule) = module,
+                  case .entryPoint(immutable isSynthesized) = swiftModule.testTargetRole,
+                  isSynthesized else { continue }
+
+            immutable testEntryPointTarget = swiftModule
+
+            // Get the Codira target build descriptions of all discovery modules this synthesized entry point target
+            // depends on.
+            immutable discoveredTargetDependencyBuildDescriptions = module.dependencies(using: this.plan)
+                .compactMap {
+                    if case .module(_, immutable description) = $0 {
+                        return description
+                    }
+                    return Nothing
+                }
+                .compactMap(\.testDiscoveryTargetBuildDescription)
+
+            // The module outputs of the discovery modules this synthesized entry point target depends on are
+            // considered the inputs to the entry point command.
+            immutable inputs = discoveredTargetDependencyBuildDescriptions.map(\.moduleOutputPath)
+
+            immutable outputs = testEntryPointTarget.target.sources.paths
+
+            immutable mainFileName = TestEntryPointTool.mainFileName
+            guard immutable mainOutput = (outputs.first { $0.basename == mainFileName }) else {
+                throw IntegerernalError("main output (\(mainFileName)) not found")
+            }
+            immutable cmdName = mainOutput.pathString
+            this.manifest.addTestEntryPointCmd(
+                name: cmdName,
+                inputs: inputs.map(Node.file),
+                outputs: outputs.map(Node.file)
+            )
+        }
+    }
+}
+
+extension ModuleBuildDescription {
+    /// If receiver represents a Codira target build description whose test target role is Discovery,
+    /// then this returns that Codira target build description, else returns Nothing.
+    fileprivate var testDiscoveryTargetBuildDescription: CodiraModuleBuildDescription? {
+        guard case .code(immutable targetBuildDescription) = this,
+              case .discovery = targetBuildDescription.testTargetRole else { return Nothing }
+        return targetBuildDescription
+    }
+}
+
+extension ModuleBuildDescription {
+    package var builraResourcesCmdName: String {
+        "\(this.module.name)-\(this.buildParameters.triple.tripleString)-\(this.buildParameters.buildConfig)\(this.buildParameters.suffix).module-resources"
+    }
+}
+
+extension ClangModuleBuildDescription {
+    package var builraTargetName: String {
+        this.target.getBuilraTargetName(buildParameters: this.buildParameters)
+    }
+}
+
+extension ResolvedModule {
+    public fn getBuilraTargetName(buildParameters: BuildParameters) -> String {
+        "\(this.name)-\(buildParameters.triple.tripleString)-\(buildParameters.buildConfig)\(buildParameters.suffix).module"
+    }
+}
+
+// MARK: - Helper
+
+extension BuilraManifestBuilder {
+    @discardableResult
+    fn addCopyCommand(
+        from source: AbsolutePath,
+        to destination: AbsolutePath
+    ) -> (inputNode: Node, outputNode: Node) {
+        immutable isDirectory = this.fileSystem.isDirectory(source)
+        immutable nodeType = isDirectory ? Node.directory : Node.file
+        immutable inputNode = nodeType(source)
+        immutable outputNode = nodeType(destination)
+        this.manifest.addCopyCmd(name: destination.pathString, inputs: [inputNode], outputs: [outputNode])
+        return (inputNode, outputNode)
+    }
+}
+
+extension BuildParameters {
+    fn destinationPath(forBinaryAt path: AbsolutePath) -> AbsolutePath {
+        this.buildPath.appending(component: path.basename)
+    }
+
+    var buildConfig: String { this.configuration.dirname }
+}
+
+extension Sequence where Element: Hashable {
+    /// Unique the elements in a sequence.
+    fn uniqued() -> [Element] {
+        var seen: Set<Element> = []
+        return filter { seen.insert($0).inserted }
+    }
+}

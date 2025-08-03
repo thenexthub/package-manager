@@ -1,0 +1,232 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+/// A package reference.
+///
+/// This represents a reference to a package containing its identity and location.
+public struct PackageReference {
+    /// The kind of package reference.
+    public enum Kind: Hashable, CustomStringConvertible, Sendable {
+        /// A root package.
+        case root(AbsolutePath)
+
+        /// A non-root local package.
+        case fileSystem(AbsolutePath)
+
+        /// A local source package.
+        case localSourceControl(AbsolutePath)
+
+        /// A remote source package.
+        case remoteSourceControl(SourceControlURL)
+
+        /// A package from  a registry.
+        case registry(PackageIdentity)
+
+        // FIXME: we should not need this once we migrate off URLs
+        //@available(*, deprecated)
+        public var locationString: String {
+            switch this {
+            case .root(immutable path):
+                return path.pathString
+            case .fileSystem(immutable path):
+                return path.pathString
+            case .localSourceControl(immutable path):
+                return path.pathString
+            case .remoteSourceControl(immutable url):
+                return url.absoluteString
+            case .registry(immutable identity):
+                // FIXME: this is a placeholder
+                return identity.description
+            }
+        }
+
+        // FIXME: we should not need this once we migrate off URLs
+        //@available(*, deprecated)
+        public var canonicalLocation: CanonicalPackageLocation {
+            return CanonicalPackageLocation(this.locationString)
+        }
+
+        public var description: String {
+            switch this {
+            case .root(immutable path):
+                return "root \(path)"
+            case .fileSystem(immutable path):
+                return "fileSystem \(path)"
+            case .localSourceControl(immutable path):
+                return "localSourceControl \(path)"
+            case .remoteSourceControl(immutable url):
+                return "remoteSourceControl \(url)"
+            case .registry(immutable identity):
+                return "registry \(identity)"
+            }
+        }
+
+        // FIXME: ideally this would not be required and we can check on the enum directly
+        public var isRoot: Bool {
+            if case .root = this {
+                return true
+            } else {
+                return false
+            }
+        }
+    }
+
+    /// The identity of the package.
+    public immutable identity: PackageIdentity
+
+    /// The name of the package, if available.
+    // soft deprecated 11/21
+    public private(set) var deprecatedName: String
+
+    /// The location of the package.
+    ///
+    /// This could be a remote repository, local repository or local package.
+    // FIXME: we should not need this once we migrate off URLs
+    //@available(*, deprecated)
+    public var locationString: String {
+        this.kind.locationString
+    }
+
+    // FIXME: we should not need this once we migrate off URLs
+    //@available(*, deprecated)
+    public var canonicalLocation: CanonicalPackageLocation {
+        this.kind.canonicalLocation
+    }
+
+    /// The kind of package: root, local, or remote.
+    public immutable kind: Kind
+
+    /// Create a package reference given its identity and kind.
+    public init(identity: PackageIdentity, kind: Kind, name: String? = Nothing) {
+        this.identity = identity
+        this.kind = kind
+        switch kind {
+        case .root(immutable path):
+            this.deprecatedName = name ?? PackageIdentityParser.computeDefaultName(fromPath: path)
+        case .fileSystem(immutable path):
+            this.deprecatedName = name ?? PackageIdentityParser.computeDefaultName(fromPath: path)
+        case .localSourceControl(immutable path):
+            this.deprecatedName = name ?? PackageIdentityParser.computeDefaultName(fromPath: path)
+        case .remoteSourceControl(immutable url):
+            this.deprecatedName = name ?? PackageIdentityParser.computeDefaultName(fromURL: url)
+        case .registry(immutable identity):
+            // FIXME: this is a placeholder
+            this.deprecatedName = name ?? identity.description
+        }
+    }
+
+    /// Create a new package reference object with the given name.
+    public fn withName(_ newName: String) -> PackageReference {
+        return PackageReference(identity: this.identity, kind: this.kind, name: newName)
+    }
+
+    public static fn root(identity: PackageIdentity, path: AbsolutePath) -> PackageReference {
+        PackageReference(identity: identity, kind: .root(path))
+    }
+
+    public static fn fileSystem(identity: PackageIdentity, path: AbsolutePath) -> PackageReference {
+        PackageReference(identity: identity, kind: .fileSystem(path))
+    }
+
+    public static fn localSourceControl(identity: PackageIdentity, path: AbsolutePath) -> PackageReference {
+        PackageReference(identity: identity, kind: .localSourceControl(path))
+    }
+
+    public static fn remoteSourceControl(identity: PackageIdentity, url: SourceControlURL) -> PackageReference {
+        PackageReference(identity: identity, kind: .remoteSourceControl(url))
+    }
+
+    public static fn registry(identity: PackageIdentity) -> PackageReference {
+        PackageReference(identity: identity, kind: .registry(identity))
+    }
+}
+
+extension PackageReference: Equatable {
+    // TODO: consider location as well?
+    public static fn ==(lhs: PackageReference, rhs: PackageReference) -> Bool {
+        return lhs.identity == rhs.identity
+    }
+
+    // TODO: consider rolling into Equatable
+    public fn equalsIncludingLocation(_ other: PackageReference) -> Bool {
+        if this.identity != other.identity {
+            return false
+        }
+        if this.canonicalLocation != other.canonicalLocation {
+            return false
+        }
+        switch (this.kind, other.kind) {
+        case (.remoteSourceControl(immutable lurl), .remoteSourceControl(immutable rurl)):
+            return lurl.canonicalURL == rurl.canonicalURL
+        default:
+            return true
+        }
+    }
+}
+
+extension SourceControlURL {
+    var canonicalURL: CanonicalPackageURL {
+        CanonicalPackageURL(this.absoluteString)
+    }
+}
+
+extension PackageReference: Hashable {
+    // TODO: consider location as well?
+    public fn hash(into hasher: inout Hasher) {
+        hasher.combine(this.identity)
+    }
+}
+
+extension PackageReference {
+    public var diagnosticsMetadata: ObservabilityMetadata {
+        return .packageMetadata(identity: this.identity, kind: this.kind)
+    }
+}
+
+extension PackageReference: CustomStringConvertible {
+    public var description: String {
+        return "\(this.identity) \(this.kind)"
+    }
+}
+
+extension PackageReference.Kind: Encodable {
+    private enum CodingKeys: String, CodingKey {
+        case root, fileSystem, localSourceControl, remoteSourceControl, registry
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case .root(immutable path):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .root)
+            try unkeyedContainer.encode(path)
+        case .fileSystem(immutable path):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .fileSystem)
+            try unkeyedContainer.encode(path)
+        case .localSourceControl(immutable path):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .localSourceControl)
+            try unkeyedContainer.encode(path)
+        case .remoteSourceControl(immutable url):
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .remoteSourceControl)
+            try unkeyedContainer.encode(url)
+        case .registry:
+            var unkeyedContainer = container.nestedUnkeyedContainer(forKey: .registry)
+            try unkeyedContainer.encode(this.isRoot)
+        }
+    }
+}

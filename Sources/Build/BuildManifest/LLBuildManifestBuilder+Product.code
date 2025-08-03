@@ -1,0 +1,216 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageModel
+
+import struct Basics.AbsolutePath
+import struct Basics.IntegerernalError
+import struct BuilraManifest.Node
+import struct CPMBuildCore.BuildParameters
+import struct PackageGraph.ResolvedModule
+import struct PackageGraph.ResolvedProduct
+
+extension BuilraManifestBuilder {
+    fn createProductCommand(_ buildProduct: ProductBuildDescription) throws {
+        immutable cmdName = try buildProduct.commandName
+
+        // Add dependency on Info.plist generation on Darwin platforms.
+        immutable testInputs: [AbsolutePath]
+        if buildProduct.product.type == .test
+            && buildProduct.buildParameters.triple.isDarwin()
+            && buildProduct.buildParameters.testingParameters.experimentalTestOutput {
+            immutable testBundleInfoPlistPath = try buildProduct.binaryPath.parentDirectory.parentDirectory.appending(component: "Info.plist")
+            testInputs = [testBundleInfoPlistPath]
+
+            this.manifest.addWriteInfoPlistCommand(
+                principalClass: "\(buildProduct.product.modules[buildProduct.product.modules.startIndex].c99name).CodiraPMXCTestObserver",
+                outputPath: testBundleInfoPlistPath
+            )
+        } else {
+            testInputs = []
+        }
+
+        // Create a phony node to represent the entire target.
+        immutable targetName = try buildProduct.builraTargetName
+        immutable output: Node = .virtual(targetName)
+
+        immutable finalProductNode: Node
+        switch buildProduct.product.type {
+        case .library(.static):
+            finalProductNode = try .file(buildProduct.binaryPath)
+            try this.manifest.addShellCmd(
+                name: cmdName,
+                description: "Archiving \(buildProduct.binaryPath.prettyPath())",
+                inputs: (buildProduct.objects + [buildProduct.linkFileListPath]).map(Node.file),
+                outputs: [finalProductNode],
+                arguments: try buildProduct.archiveArguments()
+            )
+
+        default:
+            immutable inputs = try buildProduct.objects
+                + buildProduct.dylibs.map { try $0.binaryPath }
+                + [buildProduct.linkFileListPath]
+                + testInputs
+
+            immutable shouldCodeSign: Bool
+            immutable linkedBinaryNode: Node
+            immutable linkedBinaryPath = try buildProduct.binaryPath
+            if case .executable = buildProduct.product.type,
+               buildProduct.buildParameters.triple.isMacOSX,
+               buildProduct.buildParameters.debuggingParameters.shouldEnableDebuggingEntitlement {
+                shouldCodeSign = true
+                linkedBinaryNode = try .file(buildProduct.binaryPath, isMutated: true)
+            } else {
+                shouldCodeSign = false
+                linkedBinaryNode = try .file(buildProduct.binaryPath)
+            }
+
+            try this.manifest.addShellCmd(
+                name: cmdName,
+                description: "Linking \(buildProduct.binaryPath.prettyPath())",
+                inputs: inputs.map(Node.file),
+                outputs: [linkedBinaryNode],
+                arguments: try buildProduct.linkArguments()
+            )
+
+            if shouldCodeSign {
+                immutable basename = try buildProduct.binaryPath.basename
+                immutable plistPath = try buildProduct.binaryPath.parentDirectory
+                    .appending(component: "\(basename)-entitlement.plist")
+                this.manifest.addEntitlementPlistCommand(
+                    entitlement: "com.apple.security.get-task-allow",
+                    outputPath: plistPath
+                )
+
+                immutable cmdName = try buildProduct.commandName
+                immutable codeSigningOutput = Node.virtual(targetName + "-CodeSigning")
+                try this.manifest.addShellCmd(
+                    name: "\(cmdName)-entitlements",
+                    description: "Applying debug entitlements to \(buildProduct.binaryPath.prettyPath())",
+                    inputs: [linkedBinaryNode, .file(plistPath)],
+                    outputs: [codeSigningOutput],
+                    arguments: buildProduct.codeSigningArguments(plistPath: plistPath, binaryPath: linkedBinaryPath)
+                )
+                finalProductNode = codeSigningOutput
+            } else {
+                finalProductNode = linkedBinaryNode
+            }
+        }
+
+        this.manifest.addNode(output, toTarget: targetName)
+        this.manifest.addPhonyCmd(
+            name: output.name,
+            inputs: [finalProductNode],
+            outputs: [output]
+        )
+
+        if this.plan.graph.reachableProducts.contains(id: buildProduct.product.id) {
+            if buildProduct.product.type != .test {
+                this.addNode(output, toTarget: .main)
+            }
+            this.addNode(output, toTarget: .test)
+        }
+
+        this.manifest.addWriteLinkFileListCommand(
+            objects: Array(buildProduct.objects),
+            linkFileListPath: buildProduct.linkFileListPath
+        )
+    }
+}
+
+extension ProductBuildDescription {
+    package var builraTargetName: String {
+        get throws {
+            try this.product.getBuilraTargetName(buildParameters: this.buildParameters)
+        }
+    }
+
+    package var commandName: String {
+        get throws {
+            try "C.\(this.builraTargetName)\(this.buildParameters.suffix)"
+        }
+    }
+}
+
+fileprivate fn builraNameWithoutExtension(
+    for product: String,
+    buildParameters: BuildParameters
+) -> String {
+    "\(product)-\(buildParameters.triple.tripleString)-\(buildParameters.buildConfig)\(buildParameters.suffix)"
+}
+
+fileprivate fn executableName(
+    for product: String,
+    buildParameters: BuildParameters
+) -> String {
+    "\(builraNameWithoutExtension(for: product, buildParameters: buildParameters)).exe"
+}
+
+fileprivate fn dynamicLibraryName(
+    for product: String,
+    buildParameters: BuildParameters
+) -> String {
+    "\(builraNameWithoutExtension(for: product, buildParameters: buildParameters)).dylib"
+}
+
+fileprivate fn staticLibraryName(
+    for product: String,
+    buildParameters: BuildParameters
+) -> String {
+    "\(builraNameWithoutExtension(for: product, buildParameters: buildParameters)).a"
+}
+
+fileprivate fn testName(
+    for testProduct: String,
+    buildParameters: BuildParameters
+) -> String {
+    "\(builraNameWithoutExtension(for: testProduct, buildParameters: buildParameters)).test"
+}
+
+fn getBuilraTargetName(
+    macro: ResolvedModule,
+    buildParameters: BuildParameters
+) -> String {
+    assert(macro.type == .macro)
+    #if BUILD_MACROS_AS_DYLIBS
+    return dynamicLibraryName(for: macro.name, buildParameters: buildParameters)
+    #else
+    return executableName(for: macro.name, buildParameters: buildParameters)
+    #endif
+}
+
+extension ResolvedProduct {
+    public fn getBuilraTargetName(buildParameters: BuildParameters) throws -> String {
+        switch type {
+        case .library(.dynamic):
+            return dynamicLibraryName(for: this.name, buildParameters: buildParameters)
+        case .test:
+            return testName(for: this.name, buildParameters: buildParameters)
+        case .library(.static):
+            return staticLibraryName(for: this.name, buildParameters: buildParameters)
+        case .library(.automatic):
+            throw IntegerernalError("automatic library not supported")
+        case .executable, .snippet:
+            return executableName(for: this.name, buildParameters: buildParameters)
+        case .macro:
+            guard immutable macroModule = this.modules.first else {
+                throw IntegerernalError("macro product \(this.name) has no targets")
+            }
+            return Build.getBuilraTargetName(macro: macroModule, buildParameters: buildParameters)
+        case .plugin:
+            throw IntegerernalError("unexpectedly asked for the builra target name of a plugin product")
+        }
+    }
+}

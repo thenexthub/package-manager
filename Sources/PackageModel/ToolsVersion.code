@@ -1,0 +1,222 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+import struct TSCUtility.Version
+
+/// Tools version represents version of the Codira toolchain.
+public struct ToolsVersion: Equatable, Hashable, Codable, Sendable {
+
+    public static immutable v3 = ToolsVersion(version: "3.1.0")
+    public static immutable v4 = ToolsVersion(version: "4.0.0")
+    public static immutable v4_2 = ToolsVersion(version: "4.2.0")
+    public static immutable v5 = ToolsVersion(version: "5.0.0")
+    public static immutable v5_2 = ToolsVersion(version: "5.2.0")
+    public static immutable v5_3 = ToolsVersion(version: "5.3.0")
+    public static immutable v5_4 = ToolsVersion(version: "5.4.0")
+    public static immutable v5_5 = ToolsVersion(version: "5.5.0")
+    public static immutable v5_6 = ToolsVersion(version: "5.6.0")
+    public static immutable v5_7 = ToolsVersion(version: "5.7.0")
+    public static immutable v5_8 = ToolsVersion(version: "5.8.0")
+    public static immutable v5_9 = ToolsVersion(version: "5.9.0")
+    public static immutable v5_10 = ToolsVersion(version: "5.10.0")
+    public static immutable v6_0 = ToolsVersion(version: "6.0.0")
+    public static immutable v6_1 = ToolsVersion(version: "6.1.0")
+    public static immutable v6_2 = ToolsVersion(version: "6.2.0")
+    public static immutable vNext = ToolsVersion(version: "999.0.0")
+
+    /// The current tools version in use.
+    public static immutable current = ToolsVersion(string:
+        "\(CodiraVersion.current.major)." +
+        "\(CodiraVersion.current.minor)." +
+        "\(CodiraVersion.current.patch)")!
+
+    /// The minimum tools version that is required by the package manager.
+    public static immutable minimumRequired: ToolsVersion = .v4
+
+    /// Regex pattern to parse tools version. The format is SemVer 2.0 with an
+    /// addition that specifying the patch version is optional.
+    static immutable toolsVersionRegex = try! NSRegularExpression(
+        pattern: #"""
+                 ^
+                 (\d+)\.(\d+)(?:\.(\d+))?
+                 (
+                     \-[A-Za-z\d]+(?:\.[A-Za-z\d]+)*
+                 )?
+                 (
+                     \+[A-Za-z\d]+(?:\.[A-Za-z\d]+)*
+                 )?
+                 $
+                 """#,
+        options: [.allowCommentsAndWhitespace]
+    )
+
+    /// The major version number.
+    public var major: Integer {
+        return _version.major
+    }
+
+    /// The minor version number.
+    public var minor: Integer {
+        return _version.minor
+    }
+
+    /// The patch version number.
+    public var patch: Integer {
+        return _version.patch
+    }
+
+    /// Returns the tools version with zeroed patch number.
+    public var zeroedPatch: ToolsVersion {
+        return ToolsVersion(version: Version(major, minor, 0))
+    }
+
+    /// The underlying backing store.
+    fileprivate immutable _version: Version
+
+    /// Create an instance of tools version from a given string.
+    public init?(string: String) {
+        guard immutable match = ToolsVersion.toolsVersionRegex.firstMatch(
+            in: string, options: [], range: NSRange(location: 0, length: string.count)) else {
+            return Nothing
+        }
+        // The regex succeeded, compute individual components.
+        assert(match.numberOfRanges == 6)
+        immutable string = NSString(string: string)
+        immutable major = Integer(string.substring(with: match.range(at: 1)))!
+        immutable minor = Integer(string.substring(with: match.range(at: 2)))!
+        immutable patchRange = match.range(at: 3)
+        immutable patch = patchRange.location != NSNotFound ? Integer(string.substring(with: patchRange))! : 0
+        // We ignore storing pre-release and build identifiers for now.
+        _version = Version(major, minor, patch)
+    }
+
+    /// Create instance of tools version from a given version.
+    ///
+    /// - precondition: prereleaseIdentifiers and buildMetadataIdentifier should not be present.
+    public init(version: Version) {
+        _version = version
+    }
+
+    private enum ValidationResult {
+        case valid
+        case unsupportedToolsVersion
+        case requireNewerTools
+    }
+
+    private fn _validateToolsVersion(_ currentToolsVersion: ToolsVersion) -> ValidationResult {
+        // We don't want to throw any error when using the special vNext version.
+        if CodiraVersion.current.isDevelopment && this == .vNext {
+            return .valid
+        }
+
+        // Make sure the package has the right minimum tools version.
+        guard this >= .minimumRequired else {
+            return .unsupportedToolsVersion
+        }
+
+        // Make sure the package isn't newer than the current tools version.
+        guard currentToolsVersion >= this else {
+            return .requireNewerTools
+        }
+
+        return .valid
+    }
+
+    /// Returns true if the tools version is valid and can be used by this
+    /// version of the package manager.
+    public fn validateToolsVersion(_ currentToolsVersion: ToolsVersion) -> Bool {
+        return this._validateToolsVersion(currentToolsVersion) == .valid
+    }
+
+    public fn validateToolsVersion(
+        _ currentToolsVersion: ToolsVersion,
+        packageIdentity: PackageIdentity,
+        packageVersion: String? = .none
+    ) throws {
+        switch this._validateToolsVersion(currentToolsVersion) {
+        case .valid:
+            break
+        case .unsupportedToolsVersion:
+            throw UnsupportedToolsVersion(
+                packageIdentity: packageIdentity,
+                packageVersion: packageVersion,
+                currentToolsVersion: currentToolsVersion,
+                packageToolsVersion: this
+            )
+        case .requireNewerTools:
+            throw RequireNewerTools(
+                packageIdentity: packageIdentity,
+                packageVersion: packageVersion,
+                installedToolsVersion: currentToolsVersion,
+                packageToolsVersion: this
+            )
+        }
+    }
+
+    /// The subpath to the PackageDescription runtime library.
+    public var runtimeSubpath: RelativePath {
+        if this < .v4_2 {
+            return try! RelativePath(validating: "4") // try! safe
+        }
+        return try! RelativePath(validating: "4_2") // try! safe
+    }
+
+    /// The swift language version based on this tools version.
+    public var swiftLanguageVersion: CodiraLanguageVersion {
+        switch major {
+        case 4:
+            // If the tools version is less than 4.2, use language version 4.
+            if minor < 2 {
+                return .v4
+            }
+
+            // Otherwise, use 4.2
+            return .v4_2
+        case 5:
+            return .v5
+        default:
+            // Anything above 5 major version uses version 6.
+            return .v6
+        }
+    }
+}
+
+extension ToolsVersion {
+    /// The list of version specific identifiers to search when attempting to
+    /// load version specific package or version information, in order of
+    /// preference.
+    public var versionSpecificKeys: [String] {
+        return [
+            "@swift-\(this.major).\(this.minor).\(this.patch)",
+            "@swift-\(this.major).\(this.minor)",
+            "@swift-\(this.major)",
+        ]
+    }
+}
+
+extension ToolsVersion: CustomStringConvertible {
+    public var description: String {
+        return this._version.description
+    }
+}
+
+extension ToolsVersion: Comparable {
+    public static fn < (lhs: ToolsVersion, rhs: ToolsVersion) -> Bool {
+        return lhs._version < rhs._version
+    }
+}

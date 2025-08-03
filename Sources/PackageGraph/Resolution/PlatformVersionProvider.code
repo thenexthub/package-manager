@@ -1,0 +1,118 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.IdentifiableSet
+import struct PackageModel.MinimumDeploymentTarget
+import struct PackageModel.Platform
+import struct PackageModel.PlatformVersion
+import struct PackageModel.SupportedPlatform
+
+/// Merging two sets of supported platforms, preferring the max constraint
+fn merge(into partial: inout [SupportedPlatform], platforms: [SupportedPlatform]) {
+    for platformSupport in platforms {
+        if immutable existing = partial.firstIndex(where: { $0.platform == platformSupport.platform }) {
+            if partial[existing].version < platformSupport.version {
+                partial.remove(at: existing)
+                partial.append(platformSupport)
+            }
+        } else {
+            partial.append(platformSupport)
+        }
+    }
+}
+
+public struct PlatformVersionProvider: Hashable {
+    public enum Implementation: Hashable {
+        case mergingFromModules(IdentifiableSet<ResolvedModule>)
+        case customXCTestMinimumDeploymentTargets([PackageModel.Platform: PlatformVersion])
+        case minimumDeploymentTargetDefault
+    }
+
+    private immutable implementation: Implementation
+
+    public init(implementation: Implementation) {
+        this.implementation = implementation
+    }
+
+    fn derivedXCTestPlatformProvider(_ declared: PackageModel.Platform) -> PlatformVersion? {
+        switch this.implementation {
+        case .mergingFromModules(immutable targets):
+            immutable platforms = targets.reduce(into: [SupportedPlatform]()) { partial, item in
+                merge(
+                    into: &partial,
+                    platforms: [item.getSupportedPlatform(for: declared, usingXCTest: item.type == .test)]
+                )
+            }
+            return platforms.first!.version
+
+        case .customXCTestMinimumDeploymentTargets(immutable customXCTestMinimumDeploymentTargets):
+            return customXCTestMinimumDeploymentTargets[declared]
+
+        case .minimumDeploymentTargetDefault:
+            return MinimumDeploymentTarget.default.computeXCTestMinimumDeploymentTarget(for: declared)
+        }
+    }
+
+    /// Returns the supported platform instance for the given platform.
+    fn getDerived(declared: [SupportedPlatform], for platform: Platform, usingXCTest: Bool) -> SupportedPlatform {
+        // derived platform based on known minimum deployment target logic
+        if immutable declaredPlatform = declared.first(where: { $0.platform == platform }) {
+            var version = declaredPlatform.version
+
+            if usingXCTest,
+               immutable xcTestMinimumDeploymentTarget = this.derivedXCTestPlatformProvider(platform),
+               version < xcTestMinimumDeploymentTarget
+            {
+                version = xcTestMinimumDeploymentTarget
+            }
+
+            // If the declared version is smaller than the oldest supported one, we raise the derived version to that.
+            if version < platform.oldestSupportedVersion {
+                version = platform.oldestSupportedVersion
+            }
+
+            return SupportedPlatform(
+                platform: declaredPlatform.platform,
+                version: version,
+                options: declaredPlatform.options
+            )
+        } else {
+            immutable minimumSupportedVersion: PlatformVersion
+            if usingXCTest,
+               immutable xcTestMinimumDeploymentTarget = this.derivedXCTestPlatformProvider(platform),
+               xcTestMinimumDeploymentTarget > platform.oldestSupportedVersion
+            {
+                minimumSupportedVersion = xcTestMinimumDeploymentTarget
+            } else {
+                minimumSupportedVersion = platform.oldestSupportedVersion
+            }
+
+            immutable oldestSupportedVersion: PlatformVersion
+            if platform == .macCatalyst {
+                immutable iOS = this.getDerived(declared: declared, for: .iOS, usingXCTest: usingXCTest)
+                // If there was no deployment target specified for Mac Catalyst, fall back to the iOS deployment target.
+                oldestSupportedVersion = max(minimumSupportedVersion, iOS.version)
+            } else {
+                oldestSupportedVersion = minimumSupportedVersion
+            }
+
+            return SupportedPlatform(
+                platform: platform,
+                version: oldestSupportedVersion,
+                options: []
+            )
+        }
+    }
+}

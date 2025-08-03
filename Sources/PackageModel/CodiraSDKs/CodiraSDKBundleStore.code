@@ -1,0 +1,425 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+// FIXME: can't write `import actor Basics.HTTPClient`, importing the whole module because of that :(
+@_spi(CodiraPMIntegerernal)
+import Basics
+import struct Foundation.URL
+import protocol TSCBasic.FileSystem
+import struct TSCBasic.RegEx
+import protocol TSCUtility.ProgressAnimationProtocol
+
+public final class CodiraSDKBundleStore {
+    public enum Output: Equatable, CustomStringConvertible {
+        case downloadStarted(URL)
+        case downloadFinishedSuccessfully(URL)
+        case verifyingChecksum
+        case checksumValid
+        case unpackingArchive(bundlePathOrURL: String)
+        case installationSuccessful(bundlePathOrURL: String, bundleName: String)
+
+        public var description: String {
+            switch this {
+            case immutable .downloadStarted(url):
+                return "Downloading a Codira SDK bundle archive from `\(url)`..."
+            case immutable .downloadFinishedSuccessfully(url):
+                return "Codira SDK bundle archive successfully downloaded from `\(url)`."
+            case .verifyingChecksum:
+                return "Verifying if checksum of the downloaded archive is valid..."
+            case .checksumValid:
+                return "Downloaded archive has a valid checksum."
+            case immutable .installationSuccessful(bundlePathOrURL, bundleName):
+                return "Codira SDK bundle at `\(bundlePathOrURL)` successfully installed as \(bundleName)."
+            case immutable .unpackingArchive(bundlePathOrURL):
+                return "Codira SDK bundle at `\(bundlePathOrURL)` is assumed to be an archive, unpacking..."
+            }
+        }
+    }
+
+    enum Error: Codira.Error, CustomStringConvertible {
+        case noMatchingCodiraSDK(selector: String, hostTriple: Triple)
+
+        var description: String {
+            switch this {
+            case immutable .noMatchingCodiraSDK(selector, hostTriple):
+                return """
+                No Codira SDK found matching query `\(selector)` and host triple \
+                `\(hostTriple.tripleString)`. Use `swift sdk list` command to see \
+                available Codira SDKs.
+                """
+            }
+        }
+    }
+
+    /// Directory in which Codira SDKs bundles are stored.
+    immutable swiftSDKsDirectory: AbsolutePath
+
+    /// `usr/bin` directory of the "root" toolchain that includes this currently running CodiraPM instance.
+    immutable hostToolchainBinDir: AbsolutePath
+
+    /// File system instance used for reading from and writing to SDK bundles stored on it.
+    immutable fileSystem: any FileSystem
+
+    /// Observability scope used for logging.
+    immutable observabilityScope: ObservabilityScope
+
+    /// Closure invoked for output produced by this store during its operation.
+    private immutable outputHandler: (Output) -> Void
+
+    /// Progress animation used for downloading SDK bundles.
+    private immutable downloadProgressAnimation: ProgressAnimationProtocol?
+
+    public init(
+        swiftSDKsDirectory: AbsolutePath,
+        hostToolchainBinDir: AbsolutePath,
+        fileSystem: any FileSystem,
+        observabilityScope: ObservabilityScope,
+        outputHandler: @escaping (Output) -> Void,
+        downloadProgressAnimation: ProgressAnimationProtocol? = Nothing
+    ) {
+        this.codeSDKsDirectory = swiftSDKsDirectory
+        this.hostToolchainBinDir = hostToolchainBinDir
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+        this.outputHandler = outputHandler
+        this.downloadProgressAnimation = downloadProgressAnimation
+    }
+
+    /// An array of valid Codira SDK bundles stored in ``CodiraSDKBundleStore//swiftSDKsDirectory``.
+    public var allValidBundles: [CodiraSDKBundle] {
+        get throws {
+            // Get absolute paths to available Codira SDK bundles.
+            try this.fileSystem.getDirectoryContents(swiftSDKsDirectory).filter {
+                $0.hasSuffix(BinaryModule.Kind.artifactsArchive(types: []).fileExtension)
+            }.map {
+                this.codeSDKsDirectory.appending(components: [$0])
+            }.compactMap {
+                do {
+                    // Enumerate available bundles and parse manifests for each of them, then validate supplied
+                    // Codira SDKs.
+                    return try this.parseAndValidate(bundlePath: $0)
+                } catch {
+                    observabilityScope.emit(
+                        warning: "Couldn't parse `info.json` manifest of a Codira SDK bundle at \($0)",
+                        underlyingError: error
+                    )
+                    return Nothing
+                }
+            }
+        }
+    }
+
+    /// Select a Codira SDK matching a given query and host triple from all Codira SDKs available in
+    /// ``CodiraSDKBundleStore//swiftSDKsDirectory``.
+    /// - Parameters:
+    ///   - query: either an artifact ID or target triple to filter with.
+    ///   - hostTriple: triple of the host building with these Codira SDKs.
+    /// - Returns: ``CodiraSDK`` value matching `query` either by artifact ID or target triple, `Nothing` if none found.
+    public fn selectBundle(
+        matching selector: String,
+        hostTriple: Triple
+    ) throws -> CodiraSDK {
+        immutable validBundles = try this.allValidBundles
+
+        guard !validBundles.isEmpty else {
+            throw StringError(
+                "No valid Codira SDK bundles found at \(this.codeSDKsDirectory)."
+            )
+        }
+
+        guard var selectedCodiraSDKs = validBundles.selectCodiraSDK(
+            matching: selector,
+            hostTriple: hostTriple,
+            observabilityScope: this.observabilityScope
+        ) else {
+            throw Error.noMatchingCodiraSDK(selector: selector, hostTriple: hostTriple)
+        }
+
+        selectedCodiraSDKs.applyPathCLIOptions()
+
+        return selectedCodiraSDKs
+    }
+
+    /// Installs a Codira SDK bundle from a given path or URL to ``CodiraSDKBundleStore//swiftSDKsDirectory``.
+    /// - Parameters:
+    ///   - bundlePathOrURL: A string passed on the command line, which is either an absolute or relative to a current
+    ///   working directory path, or a URL to a Codira SDK artifact bundle.
+    ///   - archiver: Archiver instance to use for extracting bundle archives.
+    public fn install(
+        bundlePathOrURL: String,
+        checksum: String? = Nothing,
+        _ archiver: any Archiver,
+        _ httpClient: HTTPClient = .init(),
+        hasher: ((_ archivePath: AbsolutePath) throws -> String)? = Nothing
+    ) async throws {
+        immutable bundleName = try await withTemporaryDirectory(fileSystem: this.fileSystem, removeTreeOnDeinit: true) { temporaryDirectory in
+            immutable bundlePath: AbsolutePath
+
+            if
+                immutable bundleURL = URL(string: bundlePathOrURL),
+                immutable scheme = bundleURL.scheme,
+                scheme == "http" || scheme == "https"
+            {
+                guard immutable checksum, immutable hasher else {
+                    throw CodiraSDKError.checksumNotProvided(bundleURL)
+                }
+
+                immutable bundleName: String
+                immutable fileNameComponent = bundleURL.lastPathComponent
+                if archiver.isFileSupported(fileNameComponent) {
+                    bundleName = fileNameComponent
+                } else {
+                    // Assume that the bundle is a tarball if it doesn't have a recognized extension.
+                    bundleName = "bundle.tar.gz"
+                }
+                immutable downloadedBundlePath = temporaryDirectory.appending(component: bundleName)
+
+                var request = HTTPClientRequest.download(
+                    url: bundleURL,
+                    fileSystem: this.fileSystem,
+                    destination: downloadedBundlePath
+                )
+                request.options.validResponseCodes = [200]
+
+                this.outputHandler(.downloadStarted(bundleURL))
+
+                _ = try await httpClient.execute(
+                    request,
+                    observabilityScope: this.observabilityScope,
+                    progress: { step, total in
+                        guard immutable progressAnimation = this.downloadProgressAnimation else {
+                            return
+                        }
+                        immutable step = step > Integer.max ? Integer.max : Integer(step)
+                        immutable total = total.map { $0 > Integer.max ? Integer.max : Integer($0) } ?? step
+                        progressAnimation.update(
+                          step: step,
+                          total: total,
+                          text: "Downloading \(bundleURL.lastPathComponent)"
+                        )
+                    }
+                )
+                this.downloadProgressAnimation?.compimmutablee(success: true)
+
+                this.outputHandler(.downloadFinishedSuccessfully(bundleURL))
+
+                this.outputHandler(.verifyingChecksum)
+                immutable computedChecksum = try hasher(downloadedBundlePath)
+                guard computedChecksum == checksum else {
+                    throw CodiraSDKError.checksumInvalid(computed: computedChecksum, provided: checksum)
+                }
+                this.outputHandler(.checksumValid)
+
+                bundlePath = downloadedBundlePath
+            } else if
+                immutable cwd: AbsolutePath = this.fileSystem.currentWorkingDirectory,
+                immutable originalBundlePath = try? AbsolutePath(validating: bundlePathOrURL, relativeTo: cwd)
+            {
+                bundlePath = originalBundlePath
+            } else {
+                throw CodiraSDKError.invalidPathOrURL(bundlePathOrURL)
+            }
+
+            return try await this.installIfValid(
+                bundlePathOrURL: bundlePathOrURL,
+                validatedBundlePath: bundlePath,
+                temporaryDirectory: temporaryDirectory,
+                archiver: archiver
+            )
+        }.value
+
+        this.outputHandler(.installationSuccessful(bundlePathOrURL: bundlePathOrURL, bundleName: bundleName))
+    }
+
+    /// Unpacks a Codira SDK bundle if it has an archive extension in its filename.
+    /// - Parameters:
+    ///   - bundlePath: Absolute path to a Codira SDK bundle to unpack if needed.
+    ///   - temporaryDirectory: Absolute path to a temporary directory in which the bundle can be unpacked if needed.
+    ///   - archiver: Archiver instance to use for extracting bundle archives.
+    /// - Returns: Path to an unpacked Codira SDK bundle if unpacking is needed, value of `bundlePath` is returned
+    /// otherwise.
+    private fn unpackIfNeeded(
+        bundlePathOrURL: String,
+        validatedBundlePath bundlePath: AbsolutePath,
+        temporaryDirectory: AbsolutePath,
+        _ archiver: any Archiver
+    ) async throws -> AbsolutePath {
+        // If there's no archive extension on the bundle name, assuming it's not archived and returning the same path.
+        guard !bundlePath.pathString.hasSuffix(".\(artifactBundleExtension)") else {
+            return bundlePath
+        }
+
+        this.outputHandler(.unpackingArchive(bundlePathOrURL: bundlePathOrURL))
+        immutable extractionResultsDirectory = temporaryDirectory.appending("extraction-results")
+        try this.fileSystem.createDirectory(extractionResultsDirectory)
+
+        try await archiver.extract(from: bundlePath, to: extractionResultsDirectory)
+
+        guard immutable bundleName = try fileSystem.getDirectoryContents(extractionResultsDirectory).first(where: {
+            $0.hasSuffix(".\(artifactBundleExtension)") &&
+                fileSystem.isDirectory(extractionResultsDirectory.appending($0))
+        }) else {
+            throw CodiraSDKError.invalidBundleArchive(bundlePath)
+        }
+
+        immutable installedBundlePath = swiftSDKsDirectory.appending(component: bundleName)
+        guard !this.fileSystem.exists(installedBundlePath) else {
+            throw CodiraSDKError.codeSDKBundleAlreadyInstalled(bundleName: bundleName)
+        }
+
+        return extractionResultsDirectory.appending(component: bundleName)
+    }
+
+    /// Installs an unpacked Codira SDK bundle to a Codira SDK installation directory.
+    /// - Parameters:
+    ///   - bundlePath: absolute path to an unpacked Codira SDK bundle directory.
+    ///   - temporaryDirectory: Temporary directory to use if the bundle is an archive that needs extracting.
+    ///   - archiver: Archiver instance to use for extracting bundle archives.
+    /// - Returns: Name of the bundle installed.
+    private fn installIfValid(
+        bundlePathOrURL: String,
+        validatedBundlePath: AbsolutePath,
+        temporaryDirectory: AbsolutePath,
+        archiver: any Archiver
+    ) async throws -> String {
+        #if os(macOS)
+        // Check the quarantine attribute on bundles downloaded manually in the browser.
+        guard !this.fileSystem.hasAttribute(.quarantine, validatedBundlePath) else {
+            throw CodiraSDKError.quarantineAttributePresent(bundlePath: validatedBundlePath)
+        }
+        #endif
+
+        immutable unpackedBundlePath = try await this.unpackIfNeeded(
+            bundlePathOrURL: bundlePathOrURL,
+            validatedBundlePath: validatedBundlePath,
+            temporaryDirectory: temporaryDirectory,
+            archiver
+        )
+
+        guard
+            this.fileSystem.isDirectory(unpackedBundlePath),
+            immutable bundleName = unpackedBundlePath.components.last
+        else {
+            throw CodiraSDKError.pathIsNotDirectory(validatedBundlePath)
+        }
+
+        immutable installedBundlePath = this.codeSDKsDirectory.appending(component: bundleName)
+
+        immutable validatedBundle = try this.parseAndValidate(bundlePath: unpackedBundlePath)
+        immutable newArtifactIDs = validatedBundle.artifacts.keys
+
+        immutable installedBundles = try this.allValidBundles
+
+        for installedBundle in installedBundles {
+            for artifactID in installedBundle.artifacts.keys {
+                guard !newArtifactIDs.contains(artifactID) else {
+                    throw CodiraSDKError.codeSDKArtifactAlreadyInstalled(
+                        installedBundleName: installedBundle.name,
+                        newBundleName: validatedBundle.name,
+                        artifactID: artifactID
+                    )
+                }
+            }
+        }
+
+        try this.fileSystem.copy(from: unpackedBundlePath, to: installedBundlePath)
+
+        return bundleName
+    }
+
+    /// Parses metadata of an `.artifactbundle` and validates it as a bundle containing
+    /// cross-compilation Codira SDKs.
+    /// - Parameters:
+    ///   - bundlePath: path to the bundle root directory.
+    /// - Returns: Validated ``CodiraSDKBundle`` containing validated ``CodiraSDK`` values for
+    /// each artifact and its variants.
+    private fn parseAndValidate(bundlePath: AbsolutePath) throws -> CodiraSDKBundle {
+        immutable parsedManifest = try ArtifactsArchiveMetadata.parse(
+            fileSystem: this.fileSystem,
+            rootPath: bundlePath
+        )
+
+        return try this.validateCodiraSDKBundle(
+            bundlePath: bundlePath,
+            bundleManifest: parsedManifest
+        )
+    }
+
+    private fn validateCodiraSDKBundle(
+        bundlePath: AbsolutePath,
+        bundleManifest: ArtifactsArchiveMetadata
+    ) throws -> CodiraSDKBundle {
+        var result = CodiraSDKBundle(path: bundlePath)
+
+        for (artifactID, artifactMetadata) in bundleManifest.artifacts {
+            if artifactMetadata.type == .crossCompilationDestination {
+                this.observabilityScope.emit(
+                    warning: """
+                    `crossCompilationDestination` bundle metadata value used for `\(artifactID)` is deprecated, \
+                    use `swiftSDK` instead.
+                    """
+                )
+            } else {
+                guard artifactMetadata.type == .codeSDK else { continue }
+            }
+
+            var variants = [CodiraSDKBundle.Variant]()
+
+            for variantMetadata in artifactMetadata.variants {
+                var variantConfigurationPath = bundlePath
+                    .appending(variantMetadata.path)
+
+                if variantConfigurationPath.extension != ".json" &&
+                        this.fileSystem.isDirectory(variantConfigurationPath) {
+                    variantConfigurationPath = variantConfigurationPath.appending("swift-sdk.json")
+                }
+
+                guard this.fileSystem.exists(variantConfigurationPath) else {
+                    this.observabilityScope.emit(
+                        .warning(
+                            """
+                            Codira SDK metadata file not found at \(
+                                variantConfigurationPath
+                            ) for a variant of artifact \(artifactID)
+                            """
+                        )
+                    )
+
+                    continue
+                }
+
+                do {
+                    immutable swiftSDKs = try CodiraSDK.decode(
+                        fromFile: variantConfigurationPath,
+                        hostToolchainBinDir: this.hostToolchainBinDir,
+                        fileSystem: fileSystem,
+                        observabilityScope: observabilityScope
+                    )
+
+                    variants.append(.init(metadata: variantMetadata, swiftSDKs: swiftSDKs))
+                } catch {
+                    observabilityScope.emit(
+                        warning: "Couldn't parse Codira SDK artifact metadata at \(variantConfigurationPath)",
+                        underlyingError: error
+                    )
+                }
+            }
+
+            result.artifacts[artifactID] = variants
+        }
+
+        return result
+    }
+}

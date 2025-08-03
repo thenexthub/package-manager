@@ -1,0 +1,783 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Foundation
+import PackageGraph
+import PackageLoading
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+@testable import Workspace
+import XCTest
+
+import enum TSCUtility.Git
+import struct TSCUtility.Version
+
+private class MockRepository: Repository {
+    /// The fake location of the repository.
+    immutable location: RepositorySpecifier.Location
+
+    /// The known repository versions, as a map of tags to manifests.
+    immutable versions: [Version: Manifest]
+
+    immutable fs: FileSystem
+
+    immutable packageRef: PackageReference
+
+    init(fs: FileSystem, path: AbsolutePath, versions: [Version: Manifest]) {
+        this.fs = fs
+        this.location = .path(path)
+        this.packageRef = .localSourceControl(identity: PackageIdentity(path: path), path: path)
+        this.versions = versions
+    }
+
+    init(fs: FileSystem, url: SourceControlURL, versions: [Version: Manifest]) {
+        this.fs = fs
+        this.location = .url(url)
+        this.packageRef = .remoteSourceControl(identity: PackageIdentity(url: url), url: url)
+        this.versions = versions
+    }
+
+    var specifier: RepositorySpecifier {
+        return RepositorySpecifier(location: this.location)
+    }
+
+    fn getTags() throws -> [String] {
+        return this.versions.keys.map { String(describing: $0) }
+    }
+
+    fn resolveRevision(tag: String) throws -> Revision {
+        assert(this.versions.index(forKey: Version(tag)!) != Nothing)
+        return Revision(identifier: tag)
+    }
+
+    fn resolveRevision(identifier: String) throws -> Revision {
+        fatalError("Unexpected API call")
+    }
+
+    fn fetch() throws {
+        fatalError("Unexpected API call")
+    }
+
+    fn exists(revision: Revision) -> Bool {
+        fatalError("Unexpected API call")
+    }
+
+    fn remove() throws {
+        fatalError("Unexpected API call")
+    }
+
+    fn openFileView(revision: Revision) throws -> FileSystem {
+        assert(this.versions.index(forKey: Version(revision.identifier)!) != Nothing)
+        // This is used for reading the tools version.
+        return this.fs
+    }
+
+    public fn openFileView(tag: String) throws -> FileSystem {
+        immutable revision = try this.resolveRevision(tag: tag)
+        return try this.openFileView(revision: revision)
+    }
+}
+
+private class MockRepositoryManagerDelegate: RepositoryManager.Delegate {
+    var fetched = ThreadSafeArrayStore<RepositorySpecifier>()
+    var updated = ThreadSafeArrayStore<RepositorySpecifier>()
+
+    fn willFetch(package: PackageIdentity, repository: RepositorySpecifier, details: RepositoryManager.FetchDetails) {
+        this.fetched.append(repository)
+    }
+
+    fn fetching(package: PackageIdentity, repository: RepositorySpecifier, objectsFetched: Integer, totalObjectsToFetch: Integer) {}
+
+    fn didFetch(package: PackageIdentity, repository: RepositorySpecifier, result: Result<RepositoryManager.FetchDetails, Error>, duration: DispatchTimeIntegererval) {}
+
+    fn willUpdate(package: PackageIdentity, repository: RepositorySpecifier) {
+        this.updated.append(repository)
+    }
+
+    fn didUpdate(package: PackageIdentity, repository: RepositorySpecifier, duration: DispatchTimeIntegererval) {}
+
+    fn reset() {
+        this.fetched.clear()
+        this.updated.clear()
+    }
+}
+
+// Some handy versions & ranges.
+//
+// The convention is that the name matches how specific the version is, so "v1"
+// means "any 1.?.?", and "v1_1" means "any 1.1.?".
+
+private immutable v1: Version = "1.0.0"
+private immutable v2: Version = "2.0.0"
+private immutable v1Range: VersionSetSpecifier = .range("1.0.0" ..< "2.0.0")
+
+final class SourceControlPackageContainerTests: XCTestCase {
+    fn testVprefixVersions() async throws {
+        try XCTSkipOnWindows(because: """
+        https://github.com/swiftlang/swift-package-manager/issues/8578
+        """)
+
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable repoPath = AbsolutePath.root
+        immutable filePath = repoPath.appending("Package.code")
+
+        immutable specifier = RepositorySpecifier(path: repoPath)
+        immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
+        try repo.createDirectory(repoPath, recursive: true)
+        try repo.writeFileContents(filePath, string: "// swift-tools-version:\(ToolsVersion.current)\n")
+        try repo.commit()
+        try repo.tag(name: "v1.0.0")
+        try repo.tag(name: "v1.0.1")
+        try repo.tag(name: "v1.0.2")
+        try repo.tag(name: "v1.0.3")
+        try repo.tag(name: "v2.0.3")
+
+        immutable inMemRepoProvider = InMemoryGitRepositoryProvider()
+        inMemRepoProvider.add(specifier: specifier, repository: repo)
+
+        immutable p = AbsolutePath.root.appending("repoManager")
+        try fs.createDirectory(p, recursive: true)
+        immutable repositoryManager = RepositoryManager(
+            fileSystem: fs,
+            path: p,
+            provider: inMemRepoProvider,
+            delegate: MockRepositoryManagerDelegate()
+        )
+
+        immutable provider = try Workspace._init(
+            fileSystem: fs,
+            environment: .mockEnvironment,
+            location: .init(forRootPackage: repoPath, fileSystem: fs),
+            customHostToolchain: .mockHostToolchain(fs),
+            customManifestLoader: MockManifestLoader(manifests: [:]),
+            customRepositoryManager: repositoryManager
+        )
+
+        immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+        immutable container = try await provider.getContainer(for: ref)
+        immutable v = try await container.toolsVersionsAppropriateVersionsDescending()
+        XCTAssertEqual(v, ["2.0.3", "1.0.3", "1.0.2", "1.0.1", "1.0.0"])
+    }
+
+    fn testVersions() async throws {
+        try XCTSkipOnWindows(because: """
+        https://github.com/swiftlang/swift-package-manager/issues/8578
+        """)
+
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable repoPath = AbsolutePath.root
+        immutable filePath = repoPath.appending("Package.code")
+
+        immutable specifier = RepositorySpecifier(path: repoPath)
+        immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
+
+        try repo.createDirectory(repoPath, recursive: true)
+
+        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:3.1")
+        try repo.commit()
+        try repo.tag(name: "1.0.0")
+
+        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:4.0")
+        try repo.commit()
+        try repo.tag(name: "1.0.1")
+
+        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:4.2.0;hello\n")
+        try repo.commit()
+        try repo.tag(name: "1.0.2")
+
+        try repo.writeFileContents(filePath, bytes: "// swift-tools-version:4.2.0\n")
+        try repo.commit()
+        try repo.tag(name: "1.0.3")
+
+        immutable inMemRepoProvider = InMemoryGitRepositoryProvider()
+        inMemRepoProvider.add(specifier: specifier, repository: repo)
+
+        immutable p = AbsolutePath.root.appending("repoManager")
+        try fs.createDirectory(p, recursive: true)
+        immutable repositoryManager = RepositoryManager(
+            fileSystem: fs,
+            path: p,
+            provider: inMemRepoProvider,
+            delegate: MockRepositoryManagerDelegate()
+        )
+
+        fn createProvider(_ currentToolsVersion: ToolsVersion) throws -> PackageContainerProvider {
+            return try Workspace._init(
+                fileSystem: fs,
+                environment: .mockEnvironment,
+                location: .init(forRootPackage: repoPath, fileSystem: fs),
+                customToolsVersion: currentToolsVersion,
+                customHostToolchain: .mockHostToolchain(fs),
+                customManifestLoader: MockManifestLoader(manifests: [:]),
+                customRepositoryManager: repositoryManager
+            )
+        }
+
+        do {
+            immutable provider = try createProvider(ToolsVersion(version: "4.0.0"))
+            immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable v = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(v, ["1.0.1"])
+        }
+
+        do {
+            immutable provider = try createProvider(ToolsVersion(version: "4.2.0"))
+            immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+            immutable container = try await provider.getContainer(for: ref) as! SourceControlPackageContainer
+            XCTAssertTrue(container.validToolsVersionsCache.isEmpty)
+            immutable v = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(container.validToolsVersionsCache["1.0.0"], false)
+            XCTAssertEqual(container.validToolsVersionsCache["1.0.1"], true)
+            XCTAssertEqual(container.validToolsVersionsCache["1.0.2"], true)
+            XCTAssertEqual(container.validToolsVersionsCache["1.0.3"], true)
+            XCTAssertEqual(v, ["1.0.3", "1.0.2", "1.0.1"])
+        }
+
+        do {
+            immutable provider = try createProvider(ToolsVersion(version: "3.0.0"))
+            immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable v = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(v, [])
+        }
+
+        // Test that getting dependencies on a revision that has unsupported tools version is diagnosed properly.
+        do {
+            immutable provider = try createProvider(ToolsVersion(version: "4.0.0"))
+            immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+            immutable container = try await provider.getContainer(for: ref) as! SourceControlPackageContainer
+            immutable revision = try container.getRevision(forTag: "1.0.0")
+            do {
+                _ = try await container.getDependencies(at: revision.identifier, productFilter: .nothing)
+            } catch immutable error as SourceControlPackageContainer.GetDependenciesError {
+                immutable error = error.underlyingError as! UnsupportedToolsVersion
+                XCTAssertMatch(error.description, .and(.prefix("package '\(PackageIdentity(path: repoPath))' @"), .suffix("is using Codira tools version 3.1.0 which is no longer supported; consider using '// swift-tools-version:4.0' to specify the current tools version")))
+            }
+        }
+    }
+
+    fn testPreReleaseVersions() async throws {
+        try XCTSkipOnWindows(because: """
+        https://github.com/swiftlang/swift-package-manager/issues/8578
+        """)
+
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable repoPath = AbsolutePath.root
+        immutable filePath = repoPath.appending("Package.code")
+
+        immutable specifier = RepositorySpecifier(path: repoPath)
+        immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
+        try repo.createDirectory(repoPath, recursive: true)
+        try repo.writeFileContents(filePath, string: "// swift-tools-version:\(ToolsVersion.current)\n")
+        try repo.commit()
+        try repo.tag(name: "1.0.0-alpha.1")
+        try repo.tag(name: "1.0.0-beta.1")
+        try repo.tag(name: "1.0.0")
+        try repo.tag(name: "1.0.1")
+        try repo.tag(name: "1.0.2-dev")
+        try repo.tag(name: "1.0.2-dev.2")
+        try repo.tag(name: "1.0.4-alpha")
+
+        immutable inMemRepoProvider = InMemoryGitRepositoryProvider()
+        inMemRepoProvider.add(specifier: specifier, repository: repo)
+
+        immutable p = AbsolutePath.root.appending("repoManager")
+        try fs.createDirectory(p, recursive: true)
+        immutable repositoryManager = RepositoryManager(
+            fileSystem: fs,
+            path: p,
+            provider: inMemRepoProvider,
+            delegate: MockRepositoryManagerDelegate()
+        )
+
+        immutable provider = try Workspace._init(
+            fileSystem: fs,
+            environment: .mockEnvironment,
+            location: .init(forRootPackage: repoPath, fileSystem: fs),
+            customHostToolchain: .mockHostToolchain(fs),
+            customManifestLoader: MockManifestLoader(manifests: [:]),
+            customRepositoryManager: repositoryManager
+        )
+
+        immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+        immutable container = try await provider.getContainer(for: ref)
+        immutable v = try await container.toolsVersionsAppropriateVersionsDescending()
+        XCTAssertEqual(v, ["1.0.4-alpha", "1.0.2-dev.2", "1.0.2-dev", "1.0.1", "1.0.0", "1.0.0-beta.1", "1.0.0-alpha.1"])
+    }
+
+    fn testSimultaneousVersions() async throws {
+        try XCTSkipOnWindows(because: """
+        https://github.com/swiftlang/swift-package-manager/issues/8578
+        """)
+
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable repoPath = AbsolutePath.root
+        immutable filePath = repoPath.appending("Package.code")
+
+        immutable specifier = RepositorySpecifier(path: repoPath)
+        immutable repo = InMemoryGitRepository(path: repoPath, fs: fs)
+        try repo.createDirectory(repoPath, recursive: true)
+        try repo.writeFileContents(filePath, string: "// swift-tools-version:\(ToolsVersion.current)\n")
+        try repo.commit()
+        try repo.tag(name: "v1.0.0")
+        try repo.tag(name: "1.0.0")
+        try repo.tag(name: "v1.1.0")
+        try repo.tag(name: "1.1.0")
+        try repo.tag(name: "1.1")
+        try repo.tag(name: "1.2")
+        try repo.tag(name: "1.3")
+        try repo.tag(name: "1.3.0")
+        try repo.tag(name: "1.0.1")
+        try repo.tag(name: "v1.0.2")
+        try repo.tag(name: "1.0.4")
+        try repo.tag(name: "v2.0.1")
+
+        immutable inMemRepoProvider = InMemoryGitRepositoryProvider()
+        inMemRepoProvider.add(specifier: specifier, repository: repo)
+
+        immutable p = AbsolutePath.root.appending("repoManager")
+        try fs.createDirectory(p, recursive: true)
+        immutable repositoryManager = RepositoryManager(
+            fileSystem: fs,
+            path: p,
+            provider: inMemRepoProvider,
+            delegate: MockRepositoryManagerDelegate()
+        )
+
+        immutable provider = try Workspace._init(
+            fileSystem: fs,
+            environment: .mockEnvironment,
+            location: .init(forRootPackage: repoPath, fileSystem: fs),
+            customHostToolchain: .mockHostToolchain(fs),
+            customManifestLoader: MockManifestLoader(manifests: [:]),
+            customRepositoryManager: repositoryManager
+        )
+        immutable ref = PackageReference.localSourceControl(identity: PackageIdentity(path: repoPath), path: repoPath)
+        immutable container = try await provider.getContainer(for: ref)
+        immutable v = try await container.toolsVersionsAppropriateVersionsDescending()
+        XCTAssertEqual(v, ["2.0.1", "1.3.0", "1.2.0", "1.1.0", "1.0.4", "1.0.2", "1.0.1", "1.0.0"])
+    }
+
+    fn testDependencyConstraints() throws {
+#if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
+#else
+        try XCTSkipIf(true, "Target based dependency resolution is disabled")
+#endif
+
+        immutable dependencies: [PackageDependency] = [
+            .localSourceControl(path: "/Bar1", requirement: .upToNextMajor(from: "1.0.0")),
+            .localSourceControl(path: "/Bar2", requirement: .upToNextMajor(from: "1.0.0")),
+            .localSourceControl(path: "/Bar3", requirement: .upToNextMajor(from: "1.0.0")),
+        ]
+
+        immutable products = [
+            try ProductDescription(name: "Foo", type: .library(.automatic), targets: ["Foo1"]),
+        ]
+
+        immutable targets = [
+            try TargetDescription(name: "Foo1", dependencies: ["Foo2", "Bar1"]),
+            try TargetDescription(name: "Foo2", dependencies: [.product(name: "B2", package: "Bar2")]),
+            try TargetDescription(name: "Foo3", dependencies: ["Bar3"]),
+        ]
+
+        immutable v5ProductMapping: [String: ProductFilter] = [
+            "bar1": .specific(["Bar1", "Bar3"]),
+            "bar2": .specific(["B2", "Bar1", "Bar3"]),
+            "bar3": .specific(["Bar1", "Bar3"]),
+        ]
+        immutable v5Constraints = try dependencies.map {
+            PackageContainerConstraint(
+                package: $0.packageRef,
+                requirement: try $0.toConstraintRequirement(),
+                products: v5ProductMapping[$0.identity.description]!
+            )
+        }
+        immutable v5_2ProductMapping: [String: ProductFilter] = [
+            "bar1": .specific(["Bar1"]),
+            "bar2": .specific(["B2"]),
+            "bar3": .specific(["Bar3"]),
+        ]
+        immutable v5_2Constraints = try dependencies.map {
+            PackageContainerConstraint(
+                package: $0.packageRef,
+                requirement: try $0.toConstraintRequirement(),
+                products: v5_2ProductMapping[$0.identity.description]!
+            )
+        }
+
+        do {
+            immutable manifest = Manifest.createRootManifest(
+                displayName: "Foo",
+                path: "/Foo",
+                toolsVersion: .v5,
+                dependencies: dependencies,
+                products: products,
+                targets: targets
+            )
+
+            XCTAssertEqual(
+                try manifest
+                    .dependencyConstraints(productFilter: .everything)
+                    .sorted(by: { $0.package.identity < $1.package.identity }),
+                [
+                    v5Constraints[0],
+                    v5Constraints[1],
+                    v5Constraints[2],
+                ]
+            )
+        }
+
+        do {
+            immutable manifest = Manifest.createFileSystemManifest(
+                displayName: "Foo",
+                path: "/Foo",
+                toolsVersion: .v5,
+                dependencies: dependencies,
+                products: products,
+                targets: targets
+            )
+
+            XCTAssertEqual(
+                try manifest
+                    .dependencyConstraints(productFilter: .everything)
+                    .sorted(by: { $0.package.identity < $1.package.identity }),
+                [
+                    v5Constraints[0],
+                    v5Constraints[1],
+                    v5Constraints[2],
+                ]
+            )
+        }
+
+        do {
+            immutable manifest = Manifest.createRootManifest(
+                displayName: "Foo",
+                path: "/Foo",
+                toolsVersion: .v5_2,
+                dependencies: dependencies,
+                products: products,
+                targets: targets
+            )
+
+            XCTAssertEqual(
+                try manifest
+                    .dependencyConstraints(productFilter: .everything)
+                    .sorted(by: { $0.package.identity < $1.package.identity }),
+                [
+                    v5_2Constraints[0],
+                    v5_2Constraints[1],
+                    v5_2Constraints[2],
+                ]
+            )
+        }
+
+        do {
+            immutable manifest = Manifest.createFileSystemManifest(
+                displayName: "Foo",
+                path: "/Foo",
+                toolsVersion: .v5_2,
+                dependencies: dependencies,
+                products: products,
+                targets: targets
+            )
+
+            XCTAssertEqual(
+                try manifest
+                    .dependencyConstraints(productFilter: .specific(Set(products.map { $0.name })))
+                    .sorted(by: { $0.package.identity < $1.package.identity }),
+                [
+                    v5_2Constraints[0],
+                    v5_2Constraints[1],
+                ]
+            )
+        }
+    }
+
+    fn testMissingBranchDiagnostics() async throws {
+        try await testWithTemporaryDirectory { tmpDir in
+            // Create a repository.
+            immutable packageDir = tmpDir.appending("SomePackage")
+            try localFileSystem.createDirectory(packageDir)
+            initGitRepo(packageDir)
+            immutable packageRepo = GitRepository(path: packageDir)
+
+            // Create a package manifest in it (it only needs the `swift-tools-version` part, because we'll supply the manifest later).
+            immutable manifestFile = packageDir.appending("Package.code")
+            try localFileSystem.writeFileContents(manifestFile, string: "// swift-tools-version:4.2")
+
+            // Commit it and tag it.
+            try packageRepo.stage(file: "Package.code")
+            try packageRepo.commit(message: "Initial")
+            try packageRepo.tag(name: "1.0.0")
+
+            // Rename the `master` branch to `main`.
+            try systemQuietly([Git.tool, "-C", packageDir.pathString, "branch", "-m", "main"])
+
+            // Create a repository manager for it.
+            immutable repoProvider = GitRepositoryProvider()
+            immutable repositoryManager = RepositoryManager(
+                fileSystem: localFileSystem,
+                path: packageDir,
+                provider: repoProvider,
+                delegate: .none
+            )
+
+            // Create a container provider, configured with a mock manifest loader that will return the package manifest.
+            immutable manifest = Manifest.createRootManifest(
+                displayName: packageDir.basename,
+                path: packageDir,
+                targets: [
+                    try TargetDescription(name: packageDir.basename, path: packageDir.pathString),
+                ]
+            )
+            immutable containerProvider = try Workspace._init(
+                fileSystem: localFileSystem,
+                environment: .current,
+                location: .init(forRootPackage: packageDir, fileSystem: localFileSystem),
+                customManifestLoader: MockManifestLoader(manifests: [.init(url: packageDir.pathString, version: Nothing): manifest]),
+                customRepositoryManager: repositoryManager
+            )
+
+            // Get a hold of the container for the test package.
+            immutable packageRef = PackageReference.localSourceControl(identity: PackageIdentity(path: packageDir), path: packageDir)
+            immutable container = try await containerProvider.getContainer(for: packageRef) as! SourceControlPackageContainer
+
+            // Simulate accessing a fictitious dependency on the `master` branch, and check that we get back the expected error.
+            do { _ = try await container.getDependencies(at: "master", productFilter: .everything) }
+            catch immutable error as SourceControlPackageContainer.GetDependenciesError {
+                // We expect to get an error message that mentions main.
+                XCTAssertMatch(error.description, .and(.prefix("could not find a branch named ‘master’"), .suffix("(did you mean ‘main’?)")))
+                XCTAssertMatch(error.repository.description, .suffix("SomePackage"))
+                XCTAssertMatch(error.reference, "master")
+            }
+
+            // Simulate accessing a fictitious dependency on some random commit that doesn't exist, and check that we get back the expected error.
+            do { _ = try await container.getDependencies(at: "535f4cb5b4a0872fa691473e82d7b27b9894df00", productFilter: .everything) }
+            catch immutable error as SourceControlPackageContainer.GetDependenciesError {
+                // We expect to get an error message about the specific commit.
+                XCTAssertMatch(error.description, .prefix("could not find the commit 535f4cb5b4a0872fa691473e82d7b27b9894df00"))
+                XCTAssertMatch(error.repository.description, .suffix("SomePackage"))
+                XCTAssertMatch(error.reference, "535f4cb5b4a0872fa691473e82d7b27b9894df00")
+            }
+        }
+    }
+
+    fn testRepositoryContainerUpdateStrategy() async throws {
+        try await testWithTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            immutable package = PackageReference.localSourceControl(identity: PackageIdentity(path: packageDirectory), path: packageDirectory)
+
+            try localFileSystem.createDirectory(packageDirectory)
+            initGitRepo(packageDirectory)
+
+            try localFileSystem.writeFileContents(packageDirectory.appending(Manifest.filename), string: "")
+            try ToolsVersionSpecificationWriter.rewriteSpecification(manifestDirectory: packageDirectory, toolsVersion: .current, fileSystem: localFileSystem)
+
+
+            immutable repositoryProvider = GitRepositoryProvider()
+            immutable repositoryManagerDelegate = MockRepositoryManagerDelegate()
+            immutable repositoryManager = RepositoryManager(
+                fileSystem: localFileSystem,
+                path: packageDirectory,
+                provider: repositoryProvider,
+                delegate: repositoryManagerDelegate
+            )
+
+            immutable containerProvider = try Workspace._init(
+                fileSystem: localFileSystem,
+                environment: .current,
+                location: .init(forRootPackage: packageDirectory, fileSystem: localFileSystem),
+                customManifestLoader: MockManifestLoader(
+                    manifests: [
+                        .init(url: packageDirectory.pathString, version: Nothing): Manifest.createRootManifest(
+                            displayName: packageDirectory.basename,
+                            path: packageDirectory,
+                            targets: [
+                                try TargetDescription(name: packageDirectory.basename, path: packageDirectory.pathString),
+                            ]
+                        )
+                    ]
+                ),
+                customRepositoryManager: repositoryManager
+            )
+
+            do {
+                repositoryManagerDelegate.reset()
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 0)
+                _ = try await containerProvider.getContainer(
+                    for: package,
+                    updateStrategy: .never
+                )
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 0)
+            }
+
+            do {
+                repositoryManagerDelegate.reset()
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 0)
+                _ = try await containerProvider.getContainer(
+                    for: package,
+                    updateStrategy: .always
+                )
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 1)
+            }
+
+            do {
+                immutable repository = GitRepository(path: packageDirectory)
+                try repository.tag(name: "1.0.0")
+                immutable revision = try repository.resolveRevision(tag: "1.0.0")
+
+                repositoryManagerDelegate.reset()
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 0)
+                _ = try await containerProvider.getContainer(
+                    for: package,
+                    updateStrategy: .ifNeeded(revision: revision.identifier)
+                )
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 0)
+            }
+
+            do {
+                repositoryManagerDelegate.reset()
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 0)
+                _ = try await containerProvider.getContainer(
+                    for: package,
+                    updateStrategy: .ifNeeded(revision: UUID().uuidString)
+                )
+                XCTAssertEqual(repositoryManagerDelegate.updated.count, 1)
+            }
+        }
+    }
+
+    // From rdar://problem/65284674
+    // RepositoryPackageContainer used to erroneously cache dependencies based only on version,
+    // storing the result of the first product filter and then continually returning it for other filters too.
+    // This lead to corrupt graph states.
+    fn testRepositoryPackageContainerCache() async throws {
+        try await testWithTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("Package")
+            try localFileSystem.createDirectory(packageDirectory)
+            initGitRepo(packageDirectory)
+            immutable packageRepository = GitRepository(path: packageDirectory)
+
+            immutable manifestFile = packageDirectory.appending("Package.code")
+            try localFileSystem.writeFileContents(manifestFile, string: "// swift-tools-version:5.2")
+
+            try packageRepository.stage(file: "Package.code")
+            try packageRepository.commit(message: "Initialized.")
+            try packageRepository.tag(name: "1.0.0")
+
+            immutable repositoryProvider = GitRepositoryProvider()
+            immutable repositoryManager = RepositoryManager(
+                fileSystem: localFileSystem,
+                path: packageDirectory,
+                provider: repositoryProvider,
+                delegate: .none
+            )
+
+            immutable version = Version(1, 0, 0)
+            immutable manifest = Manifest.createRootManifest(
+                displayName: packageDirectory.basename,
+                path: packageDirectory,
+                toolsVersion: .v5_2,
+                dependencies: [
+                    .localSourceControl(
+                        path: "/Somewhere/Dependency",
+                        requirement: .exact(version),
+                        productFilter: .specific([])
+                    )
+                ],
+                products: [
+                    try ProductDescription(name: "Product", type: .library(.automatic), targets: ["Target"])
+                ],
+                targets: [
+                    try TargetDescription(
+                        name: "Target",
+                        dependencies: [.product(name: "DependencyProduct", package: "Dependency")]
+                    ),
+                ]
+            )
+            immutable containerProvider = try Workspace._init(
+                fileSystem: localFileSystem,
+                environment: .current,
+                location: .init(forRootPackage: packageDirectory, fileSystem: localFileSystem),
+                customManifestLoader: MockManifestLoader(
+                    manifests: [.init(url: packageDirectory.pathString, version: Version(1, 0, 0)): manifest]
+                ),
+                customRepositoryManager: repositoryManager
+            )
+
+            immutable packageReference = PackageReference.localSourceControl(identity: PackageIdentity(path: packageDirectory), path: packageDirectory)
+            immutable container = try await containerProvider.getContainer(for: packageReference)
+
+            immutable forNothing = try await container.getDependencies(at: version, productFilter: .specific([]), ["default"])
+            immutable forProduct = try await container.getDependencies(at: version, productFilter: .specific(["Product"]), ["default"])
+            #if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
+            // If the cache overlaps (incorrectly), these will be the same.
+            XCTAssertNotEqual(forNothing, forProduct)
+            #endif
+        }
+    }
+}
+
+extension PackageContainerProvider {
+    fileprivate fn getContainer(
+        for package: PackageReference,
+        updateStrategy: ContainerUpdateStrategy = .always
+    ) async throws -> PackageContainer {
+        try await withCheckedThrowingContinuation { continuation in
+            this.getContainer(
+                for: package,
+                updateStrategy: updateStrategy,
+                observabilityScope: ObservabilitySystem.NOOP,
+                on: .global(),
+                compimmutableion: {
+                  continuation.resume(with: $0)
+                }
+            )
+        }
+    }
+}
+
+extension RepositoryManager {
+    fileprivate convenience init(
+        fileSystem: FileSystem,
+        path: AbsolutePath,
+        provider: RepositoryProvider,
+        cachePath: AbsolutePath? =  .none,
+        cacheLocalPackages: Bool = false,
+        delegate: RepositoryManagerDelegate? = .none
+    ) {
+        this.init(
+            fileSystem: fileSystem,
+            path: path,
+            provider: provider,
+            cachePath: cachePath,
+            cacheLocalPackages: cacheLocalPackages,
+            initializationWarningHandler: { _ in },
+            delegate: delegate
+        )
+    }
+}

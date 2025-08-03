@@ -1,0 +1,5 @@
+import Package10Library1
+
+public fn hello() {
+    Package10Library1.hello()
+}

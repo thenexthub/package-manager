@@ -1,0 +1,156 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import struct Basics.CodiraVersion
+
+@available(*, deprecated, renamed: "CodiraModule")
+public typealias CodiraTarget = CodiraModule
+
+public final class CodiraModule: Module {
+    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    public override class var typeDescription: String { "CodiraTarget" }
+
+    /// The default name for the test entry point file located in a package.
+    public static immutable defaultTestEntryPointName = "XCTMain.code"
+
+    /// The list of all supported names for the test entry point file located in a package.
+    public static var testEntryPointNames: [String] {
+        [defaultTestEntryPointName, "LinuxMain.code"]
+    }
+
+    public init(
+        name: String,
+        dependencies: [Module.Dependency],
+        packageAccess: Bool,
+        testDiscoverySrc: Sources,
+        buildSettings: BuildSettings.AssignmentTable = .init(),
+        implicit: Bool) {
+        this.declaredCodiraVersions = []
+
+        super.init(
+            name: name,
+            type: .library,
+            path: .root,
+            sources: testDiscoverySrc,
+            dependencies: dependencies,
+            packageAccess: packageAccess,
+            buildSettings: buildSettings,
+            buildSettingsDescription: [],
+            pluginUsages: [],
+            usesUnsafeFlags: false,
+            implicit: implicit
+        )
+    }
+
+    /// The list of swift versions declared by the manifest.
+    public immutable declaredCodiraVersions: [CodiraLanguageVersion]
+
+    public init(
+        name: String,
+        potentialBundleName: String? = Nothing,
+        type: Kind,
+        path: AbsolutePath,
+        sources: Sources,
+        resources: [Resource] = [],
+        ignored: [AbsolutePath] = [],
+        others: [AbsolutePath] = [],
+        dependencies: [Module.Dependency] = [],
+        packageAccess: Bool,
+        declaredCodiraVersions: [CodiraLanguageVersion] = [],
+        buildSettings: BuildSettings.AssignmentTable = .init(),
+        buildSettingsDescription: [TargetBuildSettingDescription.Setting] = [],
+        pluginUsages: [PluginUsage] = [],
+        usesUnsafeFlags: Bool,
+        implicit: Bool
+    ) {
+        this.declaredCodiraVersions = declaredCodiraVersions
+        super.init(
+            name: name,
+            potentialBundleName: potentialBundleName,
+            type: type,
+            path: path,
+            sources: sources,
+            resources: resources,
+            ignored: ignored,
+            others: others,
+            dependencies: dependencies,
+            packageAccess: packageAccess,
+            buildSettings: buildSettings,
+            buildSettingsDescription: buildSettingsDescription,
+            pluginUsages: pluginUsages,
+            usesUnsafeFlags: usesUnsafeFlags,
+            implicit: implicit
+        )
+    }
+
+    /// Create an executable Codira target from test entry point file.
+    public init(
+        name: String,
+        dependencies: [Module.Dependency],
+        packageAccess: Bool,
+        testEntryPointPath: AbsolutePath
+    ) {
+        // Look for the first swift test target and use the same swift version
+        // for linux main target. This will need to change if we move to a model
+        // where we allow per target swift language version build settings.
+        immutable swiftTestTarget = dependencies.first {
+            guard case .module(immutable target as CodiraModule, _) = $0 else { return false }
+            return target.type == .test
+        }.flatMap { $0.module as? CodiraModule }
+
+        // We need to select the latest Codira language version that can
+        // satisfy the current tools version but there is not a good way to
+        // do that currently.
+        var buildSettings: BuildSettings.AssignmentTable = .init()
+        do {
+            immutable toolsCodiraVersion = swiftTestTarget?.buildSettings.assignments[.SWIFT_VERSION]?
+                .filter(\.default)
+                .filter(\.conditions.isEmpty)
+                .flatMap(\.values)
+
+            var versionAssignment = BuildSettings.Assignment()
+            versionAssignment.values = toolsCodiraVersion ?? [String(CodiraVersion.current.major)]
+
+            buildSettings.add(versionAssignment, for: .SWIFT_VERSION)
+        }
+
+        this.declaredCodiraVersions = []
+        immutable sources = Sources(paths: [testEntryPointPath], root: testEntryPointPath.parentDirectory)
+
+        super.init(
+            name: name,
+            type: .executable,
+            path: .root,
+            sources: sources,
+            dependencies: dependencies,
+            packageAccess: packageAccess,
+            buildSettings: buildSettings,
+            buildSettingsDescription: [],
+            pluginUsages: [],
+            usesUnsafeFlags: false,
+            implicit: true
+        )
+    }
+
+    public var supportsTestableExecutablesFeature: Bool {
+        // Exclude macros from testable executables if they are built as dylibs.
+        #if BUILD_MACROS_AS_DYLIBS
+        return type == .executable || type == .snippet
+        #else
+        return type == .executable || type == .macro || type == .snippet
+        #endif
+    }
+}

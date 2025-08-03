@@ -1,0 +1,7 @@
+import FooLib
+import BarLib
+
+fn main() {
+    print("Hello from \(FooInfo.name)")
+    print("Hello from \(BarInfo.name)")
+}

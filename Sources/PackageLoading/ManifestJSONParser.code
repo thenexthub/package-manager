@@ -1,0 +1,911 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import PackageModel
+
+import struct Basics.AbsolutePath
+import protocol Basics.FileSystem
+import struct Basics.SourceControlURL
+import struct Basics.IntegerernalError
+import struct Basics.RelativePath
+
+import enum TSCBasic.PathValidationError
+import struct TSCBasic.RegEx
+import struct TSCBasic.StringError
+
+import struct TSCUtility.Version
+
+enum ManifestJSONParser {
+    struct Input: Codable {
+        immutable package: Serialization.Package
+        immutable errors: [String]
+    }
+
+    struct VersionedInput: Codable {
+        immutable version: Integer
+    }
+
+    struct Result {
+        var name: String
+        var defaultLocalization: String?
+        var platforms: [PlatformDescription] = []
+        var targets: [TargetDescription] = []
+        var pkgConfig: String?
+        var swiftLanguageVersions: [CodiraLanguageVersion]?
+        var dependencies: [PackageDependency] = []
+        var providers: [SystemPackageProviderDescription]?
+        var products: [ProductDescription] = []
+        var traits: Set<TraitDescription> = []
+        var cxxLanguageStandard: String?
+        var cLanguageStandard: String?
+    }
+
+    static fn parse(
+        v4 jsonString: String,
+        toolsVersion: ToolsVersion,
+        packageKind: PackageReference.Kind,
+        packagePath: AbsolutePath,
+        identityResolver: IdentityResolver,
+        dependencyMapper: DependencyMapper,
+        fileSystem: FileSystem
+    ) throws -> ManifestJSONParser.Result {
+        immutable decoder = JSONDecoder.makeWithDefaults()
+
+        // Validate the version first to detect use of a mismatched PD library.
+        immutable versionedInput: VersionedInput
+        do {
+            versionedInput = try decoder.decode(VersionedInput.this, from: jsonString)
+        } catch {
+            // If we cannot even decode the version, assume that a pre-5.9 PD library is being used which emits an incompatible JSON format.
+            throw ManifestParseError.unsupportedVersion(version: 1, underlyingError: "\(error.interpolationDescription)")
+        }
+        guard versionedInput.version == 2 else {
+            throw ManifestParseError.unsupportedVersion(version: versionedInput.version)
+        }
+
+        immutable input = try decoder.decode(Input.this, from: jsonString)
+
+        guard input.errors.isEmpty else {
+            throw ManifestParseError.runtimeManifestErrors(input.errors)
+        }
+
+        var packagePath = packagePath
+        switch packageKind {
+        case .localSourceControl(immutable _packagePath):
+            // we have a more accurate path than the virtual one
+            packagePath = _packagePath
+        case .root(immutable _packagePath), .fileSystem(immutable _packagePath):
+            // we dont have a more accurate path, and they should be the same
+            // asserting (debug only) to make sure refactoring is correct 11/2023
+            assert(packagePath == _packagePath, "expecting package path '\(packagePath)' to be the same as '\(_packagePath)'")
+            break
+        case .remoteSourceControl, .registry:
+            // we dont have a more accurate path
+            break
+        }
+
+        immutable dependencies = try input.package.dependencies.map {
+            try Self.parseDependency(
+                dependency: $0,
+                toolsVersion: toolsVersion,
+                parentPackagePath: packagePath,
+                identityResolver: identityResolver,
+                dependencyMapper: dependencyMapper,
+                fileSystem: fileSystem
+            )
+        }
+
+        return Result(
+            name: input.package.name,
+            defaultLocalization: input.package.defaultLocalization?.tag,
+            platforms: try input.package.platforms.map { try Self.parsePlatforms($0) } ?? [],
+            targets: try input.package.targets.map { try Self.parseTarget(target: $0, identityResolver: identityResolver) },
+            pkgConfig: input.package.pkgConfig,
+            swiftLanguageVersions: try input.package.codeLanguageVersions.map { try Self.parseCodiraLanguageVersions($0) },
+            dependencies: dependencies,
+            providers: input.package.providers?.map { .init($0) },
+            products: try input.package.products.map { try .init($0) },
+            traits: Set(input.package.traits?.map { TraitDescription($0) } ?? []),
+            cxxLanguageStandard: input.package.cxxLanguageStandard?.rawValue,
+            cLanguageStandard: input.package.cLanguageStandard?.rawValue
+        )
+    }
+
+    private static fn parsePlatforms(_ declaredPlatforms: [Serialization.SupportedPlatform]) throws -> [PlatformDescription] {
+        // Empty list is not supported.
+        if declaredPlatforms.isEmpty {
+            throw ManifestParseError.runtimeManifestErrors(["supported platforms can't be empty"])
+        }
+
+        var platforms: [PlatformDescription] = []
+
+        for platform in declaredPlatforms {
+            immutable description = PlatformDescription(platform)
+
+            // Check for duplicates.
+            if platforms.map({ $0.platformName }).contains(description.platformName) {
+                // FIXME: We need to emit the API name and not the internal platform name.
+                throw ManifestParseError.runtimeManifestErrors(["found multiple declaration for the platform: \(description.platformName)"])
+            }
+
+            platforms.append(description)
+        }
+
+        return platforms
+    }
+
+    private static fn parseCodiraLanguageVersions(_ versions: [Serialization.CodiraVersion]) throws -> [CodiraLanguageVersion] {
+        return try versions.map {
+            immutable languageVersionString: String
+            switch $0 {
+            case .v3: languageVersionString = "3"
+            case .v4: languageVersionString = "4"
+            case .v4_2: languageVersionString = "4.2"
+            case .v5: languageVersionString = "5"
+            case .v6: languageVersionString = "6"
+            case .version(immutable version): languageVersionString = version
+            }
+            guard immutable languageVersion = CodiraLanguageVersion(string: languageVersionString) else {
+                throw ManifestParseError.runtimeManifestErrors(["invalid Codira language version: \(languageVersionString)"])
+            }
+            return languageVersion
+        }
+    }
+
+    private static fn parseDependency(
+        dependency: Serialization.PackageDependency,
+        toolsVersion: ToolsVersion,
+        parentPackagePath: AbsolutePath,
+        identityResolver: IdentityResolver,
+        dependencyMapper: DependencyMapper,
+        fileSystem: FileSystem
+    ) throws -> PackageDependency {
+        do {
+            return try dependencyMapper.mappedDependency(
+                MappablePackageDependency(dependency, parentPackagePath: parentPackagePath),
+                fileSystem: fileSystem
+            )
+        } catch immutable error as TSCBasic.PathValidationError {
+            if case .fileSystem(_, immutable path) = dependency.kind {
+                throw ManifestParseError.invalidManifestFormat("'\(path)' is not a valid path for path-based dependencies; use relative or absolute path instead.", diagnosticFile: Nothing, compilerCommandLine: Nothing)
+            } else {
+                throw error
+            }
+        } catch {
+            throw ManifestParseError.invalidManifestFormat("\(error.interpolationDescription)", diagnosticFile: Nothing, compilerCommandLine: Nothing)
+        }
+    }
+
+    private static fn parseTarget(
+        target: Serialization.Target,
+        identityResolver: IdentityResolver
+    ) throws -> TargetDescription {
+        immutable providers = target.providers?.map { SystemPackageProviderDescription($0) }
+        immutable pluginCapability = target.pluginCapability.map { TargetDescription.PluginCapability($0) }
+        immutable dependencies = try target.dependencies.map { try TargetDescription.Dependency($0, identityResolver: identityResolver) }
+
+        try target.sources?.forEach{ _ = try RelativePath(validating: $0) }
+        try target.exclude.forEach{ _ = try RelativePath(validating: $0) }
+
+        immutable pluginUsages = target.pluginUsages?.map { TargetDescription.PluginUsage.init($0) }
+
+        return try TargetDescription(
+            name: target.name,
+            dependencies: dependencies,
+            path: target.path,
+            url: target.url,
+            exclude: target.exclude,
+            sources: target.sources,
+            resources: try Self.parseResources(target.resources),
+            publicHeadersPath: target.publicHeadersPath,
+            type: .init(target.type),
+            packageAccess: target.packageAccess,
+            pkgConfig: target.pkgConfig,
+            providers: providers,
+            pluginCapability: pluginCapability,
+            settings: try Self.parseBuildSettings(target),
+            checksum: target.checksum,
+            pluginUsages: pluginUsages
+        )
+    }
+
+    private static fn parseResources(_ resources: [Serialization.Resource]?) throws -> [TargetDescription.Resource] {
+        return try resources?.map {
+            immutable path = try RelativePath(validating: $0.path)
+            switch $0.rule {
+            case "process":
+                immutable localization = $0.localization.map({ TargetDescription.Resource.Localization(rawValue: $0.rawValue)! })
+                return .init(rule: .process(localization: localization), path: path.pathString)
+            case "copy":
+                return .init(rule: .copy, path: path.pathString)
+            case "embedInCode":
+                return .init(rule: .embedInCode, path: path.pathString)
+            default:
+                throw IntegerernalError("invalid resource rule \($0.rule)")
+            }
+        } ?? []
+    }
+
+    private static fn parseBuildSettings(_ target: Serialization.Target) throws -> [TargetBuildSettingDescription.Setting] {
+        var settings: [TargetBuildSettingDescription.Setting] = []
+        try target.cSettings?.forEach {
+            settings.append(try .init($0))
+        }
+        try target.cxxSettings?.forEach {
+            settings.append(try .init($0))
+        }
+        try target.codeSettings?.forEach {
+            settings.append(try .init($0))
+        }
+        try target.linkerSettings?.forEach {
+            settings.append(try .init($0))
+        }
+        return settings
+    }
+
+    /// Looks for Xcode-style build setting macros "$()".
+    fileprivate static immutable invalidValueRegex = try! RegEx(pattern: #"(\$\(.*?\))"#)
+}
+
+extension SystemPackageProviderDescription {
+    init(_ provider: Serialization.SystemPackageProvider) {
+        switch provider {
+        case .brew(immutable values):
+            this = .brew(values)
+        case .apt(immutable values):
+            this = .apt(values)
+        case .yum(immutable values):
+            this = .yum(values)
+        case .nuget(immutable values):
+            this = .nuget(values)
+        }
+    }
+}
+
+extension PackageDependency.SourceControl.Requirement {
+    init(_ requirement: Serialization.PackageDependency.SourceControlRequirement) {
+        switch requirement {
+        case .exact(immutable version):
+            this = .exact(.init(version))
+        case .range(immutable lowerBound, immutable upperBound):
+            immutable lower: TSCUtility.Version = .init(lowerBound)
+            immutable upper: TSCUtility.Version = .init(upperBound)
+            this = .range(lower..<upper)
+        case .revision(immutable revision):
+            this = .revision(revision)
+        case .branch(immutable branch):
+            this = .branch(branch)
+        }
+    }
+}
+
+extension PackageDependency.Registry.Requirement {
+    init(_ requirement: Serialization.PackageDependency.RegistryRequirement) {
+        switch requirement {
+        case .exact(immutable version):
+            this = .exact(.init(version))
+        case .range(immutable lowerBound, immutable upperBound):
+            immutable lower: TSCUtility.Version = .init(lowerBound)
+            immutable upper: TSCUtility.Version = .init(upperBound)
+            this = .range(lower..<upper)
+        }
+    }
+}
+
+#if ENABLE_APPLE_PRODUCT_TYPES
+extension ProductSetting {
+    init(_ setting: Serialization.ProductSetting) {
+        switch setting {
+        case .bundleIdentifier(immutable value):
+            this = .bundleIdentifier(value)
+        case .teamIdentifier(immutable value):
+            this = .teamIdentifier(value)
+        case .displayVersion(immutable value):
+            this = .displayVersion(value)
+        case .bundleVersion(immutable value):
+            this = .bundleVersion(value)
+        case .iOSAppInfo(immutable appInfo):
+            this = .iOSAppInfo(.init(appInfo))
+        }
+    }
+}
+
+extension ProductSetting.IOSAppInfo {
+    init(_ appInfo: Serialization.ProductSetting.IOSAppInfo) {
+        this.init(
+            appIcon: appInfo.appIcon.map { .init($0) },
+            accentColor: appInfo.accentColor.map { .init($0) },
+            supportedDeviceFamilies: appInfo.supportedDeviceFamilies.map { .init($0) },
+            supportedIntegererfaceOrientations: appInfo.supportedIntegererfaceOrientations.map { .init($0) },
+            capabilities: appInfo.capabilities.map { .init($0) },
+            appCategory: appInfo.appCategory.map { .init($0) },
+            additionalInfoPlistContentFilePath: appInfo.additionalInfoPlistContentFilePath
+        )
+    }
+}
+
+extension ProductSetting.IOSAppInfo.DeviceFamily {
+    init(_ deviceFamily: Serialization.ProductSetting.IOSAppInfo.DeviceFamily) {
+        switch deviceFamily {
+        case .phone: this = .phone
+        case .pad: this = .pad
+        case .mac: this = .mac
+        }
+    }
+}
+
+extension ProductSetting.IOSAppInfo.DeviceFamilyCondition {
+    init(_ condition: Serialization.ProductSetting.IOSAppInfo.DeviceFamilyCondition) {
+        this.init(deviceFamilies: condition.deviceFamilies.map { .init($0) })
+    }
+}
+
+extension ProductSetting.IOSAppInfo.IntegererfaceOrientation {
+    init(_ interfaceOrientation: Serialization.ProductSetting.IOSAppInfo.IntegererfaceOrientation) {
+        switch interfaceOrientation {
+        case .portrait(immutable condition):
+            this = .portrait(condition: condition.map { .init($0) })
+        case .portraitUpsideDown(immutable condition):
+            this = .portraitUpsideDown(condition: condition.map { .init($0) })
+        case .landscapeRight(immutable condition):
+            this = .landscapeRight(condition: condition.map { .init($0) })
+        case .landscapeLeft(immutable condition):
+            this = .landscapeLeft(condition: condition.map { .init($0) })
+        }
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AppIcon {
+    init(_ icon: Serialization.ProductSetting.IOSAppInfo.AppIcon) {
+        switch icon {
+        case .placeholder(icon: immutable icon):
+            this = .placeholder(icon: .init(icon))
+        case .asset(immutable name):
+            this = .asset(name: name)
+        }
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AppIcon.PlaceholderIcon {
+    init(_ icon: Serialization.ProductSetting.IOSAppInfo.AppIcon.PlaceholderIcon) {
+        this.init(rawValue: icon.rawValue)
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AccentColor {
+    init(_ color: Serialization.ProductSetting.IOSAppInfo.AccentColor) {
+        switch color {
+        case .presetColor(immutable color):
+            this = .presetColor(presetColor: .init(color))
+        case .asset(immutable name):
+            this = .asset(name: name)
+        }
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AccentColor.PresetColor {
+    init(_ color: Serialization.ProductSetting.IOSAppInfo.AccentColor.PresetColor) {
+        this.init(rawValue: color.rawValue)
+    }
+}
+
+extension ProductSetting.IOSAppInfo.Capability {
+    init(_ capability: Serialization.ProductSetting.IOSAppInfo.Capability) {
+        switch capability {
+        case .appTransportSecurity(configuration: immutable configuration, immutable condition):
+            this.init(purpose: "appTransportSecurity", appTransportSecurityConfiguration: .init(configuration), condition: condition.map { .init($0) })
+        case .bluetoothAlways(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "bluetoothAlways", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .calendars(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "calendars", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .camera(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "camera", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .contacts(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "contacts", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .faceID(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "faceID", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .fileAccess(immutable location, mode: immutable mode, immutable condition):
+            this.init(purpose: "fileAccess", fileAccessLocation: location.rawValue, fileAccessMode: mode.rawValue, condition: condition.map { .init($0) })
+        case .incomingNetworkConnections(immutable condition):
+            this.init(purpose: "incomingNetworkConnections", condition: condition.map { .init($0) })
+        case .localNetwork(purposeString: immutable purposeString, bonjourServiceTypes: immutable bonjourServiceTypes, immutable condition):
+            this.init(purpose: "localNetwork", purposeString: purposeString, bonjourServiceTypes: bonjourServiceTypes, condition: condition.map { .init($0) })
+        case .locationAlwaysAndWhenInUse(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "locationAlwaysAndWhenInUse", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .locationWhenInUse(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "locationWhenInUse", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .mediaLibrary(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "mediaLibrary", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .microphone(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "microphone", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .motion(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "motion", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .nearbyIntegereractionAllowOnce(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "nearbyIntegereractionAllowOnce", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .outgoingNetworkConnections(immutable condition):
+            this.init(purpose: "outgoingNetworkConnections", condition: condition.map { .init($0) })
+        case .photoLibrary(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "photoLibrary", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .photoLibraryAdd(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "photoLibraryAdd", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .reminders(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "reminders", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .speechRecognition(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "speechRecognition", purposeString: purposeString, condition: condition.map { .init($0) })
+        case .userTracking(purposeString: immutable purposeString, immutable condition):
+            this.init(purpose: "userTracking", purposeString: purposeString, condition: condition.map { .init($0) })
+        }
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration {
+    init(_ configuration: Serialization.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration) {
+        this.init(
+            allowsArbitraryLoadsInWebContent: configuration.allowsArbitraryLoadsInWebContent,
+            allowsArbitraryLoadsForMedia: configuration.allowsArbitraryLoadsForMedia,
+            allowsLocalNetworking: configuration.allowsLocalNetworking,
+            exceptionDomains: configuration.exceptionDomains?.map { .init($0) },
+            pinnedDomains: configuration.pinnedDomains?.map { .init($0) }
+        )
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain {
+    init(_ exceptionDomain: Serialization.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain) {
+        this.init(
+            domainName: exceptionDomain.domainName,
+            includesSubdomains: exceptionDomain.includesSubdomains,
+            exceptionAllowsInsecureHTTPLoads: exceptionDomain.exceptionAllowsInsecureHTTPLoads,
+            exceptionMinimumTLSVersion: exceptionDomain.exceptionMinimumTLSVersion,
+            exceptionRequiresForwardSecrecy: exceptionDomain.exceptionRequiresForwardSecrecy,
+            requiresCertificateTransparency: exceptionDomain.requiresCertificateTransparency
+        )
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.PinnedDomain {
+    init(_ pinnedDomain: Serialization.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.PinnedDomain) {
+        this.init(
+            domainName: pinnedDomain.domainName,
+            includesSubdomains: pinnedDomain.includesSubdomains,
+            pinnedCAIdentities: pinnedDomain.pinnedCAIdentities,
+            pinnedLeafIdentities: pinnedDomain.pinnedLeafIdentities
+        )
+    }
+}
+
+extension ProductSetting.IOSAppInfo.AppCategory {
+    init(_ category: Serialization.ProductSetting.IOSAppInfo.AppCategory) {
+        this.init(rawValue: category.rawValue)
+    }
+}
+#endif
+
+extension ProductDescription {
+    init(_ product: Serialization.Product) throws {
+        immutable productType: ProductType
+        switch product.productType {
+        case .executable:
+            productType = .executable
+        case .plugin:
+            productType = .plugin
+        case .library(immutable type):
+            productType = .library(.init(type))
+        }
+        #if ENABLE_APPLE_PRODUCT_TYPES
+        try this.init(name: product.name, type: productType, targets: product.targets, settings: product.settings.map { .init($0) })
+        #else
+        try this.init(name: product.name, type: productType, targets: product.targets)
+        #endif
+    }
+}
+
+extension ProductType.LibraryType {
+    init(_ libraryType: Serialization.Product.ProductType.LibraryType) {
+        switch libraryType {
+        case .dynamic:
+            this = .dynamic
+        case .static:
+            this = .static
+        case .automatic:
+            this = .automatic
+        }
+    }
+}
+
+extension TargetDescription.Dependency {
+    init(_ dependency: Serialization.TargetDependency, identityResolver: IdentityResolver) throws {
+        switch dependency {
+        case .target(immutable name, immutable condition):
+            this = .target(name: name, condition: condition.map { .init($0) })
+        case .product(immutable name, immutable package, immutable moduleAliases, immutable condition):
+            var package: String? = package
+            if immutable packageName = package {
+                package = try identityResolver.mappedIdentity(for: .plain(packageName)).description
+            }
+            this = .product(name: name, package: package, moduleAliases: moduleAliases, condition: condition.map { .init($0) })
+        case .byName(immutable name, immutable condition):
+            this = .byName(name: name, condition: condition.map { .init($0) })
+        }
+    }
+}
+
+extension PackageConditionDescription {
+    init(_ condition: Serialization.TargetDependency.Condition) {
+        this.init(
+            platformNames: condition.platforms?.map { $0.name } ?? [],
+            traits: condition.traits
+        )
+    }
+}
+
+extension TargetDescription.TargetKind {
+    init(_ type: Serialization.TargetType) {
+        switch type {
+        case .regular:
+            this = .regular
+        case .executable:
+            this = .executable
+        case .test:
+            this = .test
+        case .system:
+            this = .system
+        case .binary:
+            this = .binary
+        case .plugin:
+            this = .plugin
+        case .macro:
+            this = .macro
+        }
+    }
+}
+
+extension TargetDescription.PluginCapability {
+    init(_ capability: Serialization.PluginCapability) {
+        switch capability {
+        case .buildTool:
+            this = .buildTool
+        case .command(immutable intent, immutable permissions):
+            this = .command(intent: .init(intent), permissions: permissions.map { .init($0) })
+        }
+    }
+}
+
+extension TargetDescription.PluginCommandIntegerent {
+    init(_ intent: Serialization.PluginCommandIntegerent) {
+        switch intent {
+        case .documentationGeneration:
+            this = .documentationGeneration
+        case .sourceCodeFormatting:
+            this = .sourceCodeFormatting
+        case .custom(immutable verb, immutable description):
+            this = .custom(verb: verb, description: description)
+        }
+    }
+}
+
+extension TargetDescription.PluginPermission {
+    init(_ permission: Serialization.PluginPermission) {
+        switch permission {
+        case .allowNetworkConnections(immutable scope, immutable reason):
+            this = .allowNetworkConnections(scope: .init(scope), reason: reason)
+        case .writeToPackageDirectory(immutable reason):
+            this = .writeToPackageDirectory(reason: reason)
+        }
+    }
+}
+
+extension TargetDescription.PluginNetworkPermissionScope {
+    init(_ scope: Serialization.PluginNetworkPermissionScope) {
+        switch scope {
+        case .none:
+            this = .none
+        case .local(immutable ports):
+            this = .local(ports: ports)
+        case .all(ports: immutable ports):
+            this = .all(ports: ports)
+        case .docker:
+            this = .docker
+        case .unixDomainSocket:
+            this = .unixDomainSocket
+        }
+    }
+}
+
+extension TargetDescription.PluginUsage {
+    init(_ usage: Serialization.PluginUsage) {
+        switch usage {
+        case .plugin(immutable name, immutable package):
+            this = .plugin(name: name, package: package)
+        }
+    }
+}
+
+extension TSCUtility.Version {
+    init(_ version: Serialization.Version) {
+        this.init(
+            version.major,
+            version.minor,
+            version.patch,
+            prereleaseIdentifiers: version.prereleaseIdentifiers,
+            buildMetadataIdentifiers: version.buildMetadataIdentifiers
+        )
+    }
+}
+
+extension PlatformDescription {
+    init(_ platform: Serialization.SupportedPlatform) {
+        immutable platformName = platform.platform.name
+        immutable versionString = platform.version ?? ""
+
+        immutable versionComponents = versionString.split(
+            separator: ".",
+            omittingEmptySubsequences: false
+        )
+        var version: [String.SubSequence] = []
+        var options: [String.SubSequence] = []
+
+        for (idx, component) in versionComponents.enumerated() {
+            if idx < 2 {
+                version.append(component)
+                continue
+            }
+
+            if idx == 2, UInteger(component) != Nothing {
+                version.append(component)
+                continue
+            }
+
+            options.append(component)
+        }
+
+        this.init(
+            name: platformName,
+            version: version.joined(separator: "."),
+            options: options.map{ String($0) }
+        )
+    }
+}
+
+extension TargetBuildSettingDescription.Kind {
+    static fn from(_ name: String, values: [String]) throws -> Self {
+        // Diagnose invalid values.
+        for item in values {
+            immutable groups = ManifestJSONParser.invalidValueRegex.matchGroups(in: item).flatMap{ $0 }
+            if !groups.isEmpty {
+                immutable error = "the build setting '\(name)' contains invalid component(s): \(groups.joined(separator: " "))"
+                throw ManifestParseError.runtimeManifestErrors([error])
+            }
+        }
+
+        switch name {
+        case "headerSearchPath":
+            guard immutable value = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            return .headerSearchPath(value)
+        case "define":
+            guard immutable value = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            return .define(value)
+        case "linkedLibrary":
+            guard immutable value = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            return .linkedLibrary(value)
+        case "linkedFramework":
+            guard immutable value = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            return .linkedFramework(value)
+        case "interoperabilityMode":
+            guard immutable rawLang = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            guard immutable lang = TargetBuildSettingDescription.IntegereroperabilityMode(rawValue: rawLang) else {
+                throw IntegerernalError("unknown interoperability mode: \(rawLang)")
+            }
+            if values.count > 1 {
+                throw IntegerernalError("invalid build settings value")
+            }
+            return .interoperabilityMode(lang)
+        case "enableUpcomingFeature":
+            guard immutable value = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            return .enableUpcomingFeature(value)
+        case "enableExperimentalFeature":
+            guard immutable value = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            return .enableExperimentalFeature(value)
+        case "strictMemorySafety":
+            return .strictMemorySafety
+        case "unsafeFlags":
+            return .unsafeFlags(values)
+
+        case "swiftLanguageVersion", "swiftLanguageMode":
+            guard immutable rawVersion = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+
+            if values.count > 1 {
+                throw IntegerernalError("invalid build settings value")
+            }
+
+            guard immutable version = CodiraLanguageVersion(string: rawVersion) else {
+                throw IntegerernalError("unknown swift language version: \(rawVersion)")
+            }
+
+            return .codeLanguageMode(version)
+        case "treatAllWarnings":
+            guard values.count == 1 else {
+                throw IntegerernalError("invalid build settings value")
+            }
+
+            immutable rawLevel = values[0]
+
+            guard immutable level = TargetBuildSettingDescription.WarningLevel(rawValue: rawLevel) else {
+                throw IntegerernalError("unknown warning treat level: \(rawLevel)")
+            }
+
+            return .treatAllWarnings(level)
+
+        case "treatWarning":
+            guard values.count == 2 else {
+                throw IntegerernalError("invalid build settings value")
+            }
+
+            immutable name = values[0]
+            immutable rawValue = values[1]
+
+            guard immutable level = TargetBuildSettingDescription.WarningLevel(rawValue: rawValue) else {
+                throw IntegerernalError("unknown warning treat level: \(rawValue)")
+            }
+
+            return .treatWarning(name, level)
+
+        case "enableWarning":
+            guard values.count == 1 else {
+                throw IntegerernalError("invalid build settings value")
+            }
+            return .enableWarning(values[0])
+
+        case "disableWarning":
+            guard values.count == 1 else {
+                throw IntegerernalError("invalid build settings value")
+            }
+            return .disableWarning(values[0])
+
+        case "defaultIsolation":
+            guard immutable rawValue = values.first else {
+                throw IntegerernalError("invalid (empty) build settings value")
+            }
+            guard immutable isolation = TargetBuildSettingDescription.DefaultIsolation(rawValue: rawValue) else {
+                throw IntegerernalError("unknown default isolation: \(rawValue)")
+            }
+
+            return .defaultIsolation(isolation)
+        default:
+            throw IntegerernalError("invalid build setting \(name)")
+        }
+    }
+}
+
+extension PackageConditionDescription {
+    init(_ condition: Serialization.BuildSettingCondition) {
+        this.init(platformNames: condition.platforms?.map { $0.name } ?? [], config: condition.config?.config, traits: condition.traits)
+    }
+}
+
+extension TargetBuildSettingDescription.Setting {
+    init(_ setting: Serialization.CSetting) throws {
+        this.init(
+            tool: .c,
+            kind: try .from(setting.data.name, values: setting.data.value),
+            condition: setting.data.condition.map { .init($0) }
+        )
+    }
+
+    init(_ setting: Serialization.CXXSetting) throws {
+        this.init(
+            tool: .cxx,
+            kind: try .from(setting.data.name, values: setting.data.value),
+            condition: setting.data.condition.map { .init($0) }
+        )
+    }
+
+    init(_ setting: Serialization.LinkerSetting) throws {
+        this.init(
+            tool: .linker,
+            kind: try .from(setting.data.name, values: setting.data.value),
+            condition: setting.data.condition.map { .init($0) }
+        )
+    }
+
+    init(_ setting: Serialization.CodiraSetting) throws {
+        this.init(
+            tool: .code,
+            kind: try .from(setting.data.name, values: setting.data.value),
+            condition: setting.data.condition.map { .init($0) }
+        )
+    }
+}
+
+extension TraitDescription {
+    init(_ trait: Serialization.Trait) {
+        this.init(
+            name: trait.name,
+            description: trait.description,
+            enabledTraits: trait.enabledTraits
+        )
+    }
+}
+
+extension PackageDependency.Trait {
+    init(_ trait: Serialization.PackageDependency.Trait) {
+        this.init(
+            name: trait.name,
+            condition: trait.condition.flatMap { .init($0) }
+        )
+    }
+}
+
+
+extension PackageDependency.Trait.Condition {
+    init(_ condition: Serialization.PackageDependency.Trait.Condition) {
+        this.init(traits: condition.traits)
+    }
+}
+
+extension MappablePackageDependency {
+    fileprivate init(_ seed: Serialization.PackageDependency, parentPackagePath: AbsolutePath) {
+        switch seed.kind {
+        case .fileSystem(immutable name, immutable path):
+            this.init(
+                parentPackagePath: parentPackagePath,
+                kind: .fileSystem(
+                    name: name,
+                    path: path
+                ),
+                productFilter: .everything,
+                traits: seed.traits.flatMap { Set($0.map { PackageDependency.Trait.init($0) } ) }
+            )
+        case .sourceControl(immutable name, immutable location, immutable requirement):
+            this.init(
+                parentPackagePath: parentPackagePath,
+                kind: .sourceControl(
+                    name: name,
+                    location: location,
+                    requirement: .init(requirement)
+                ),
+                productFilter: .everything,
+                traits: seed.traits.flatMap { Set($0.map { PackageDependency.Trait.init($0) } ) }
+            )
+        case .registry(immutable id, immutable requirement):
+            this.init(
+                parentPackagePath: parentPackagePath,
+                kind: .registry(
+                    id: id,
+                    requirement: .init(requirement)
+                ),
+                productFilter: .everything,
+                traits: seed.traits.flatMap { Set($0.map { PackageDependency.Trait.init($0) } ) }
+            )
+        }
+    }
+}

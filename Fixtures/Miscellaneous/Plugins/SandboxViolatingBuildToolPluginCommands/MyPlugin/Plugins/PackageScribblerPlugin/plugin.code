@@ -1,0 +1,18 @@
+import PackagePlugin
+import Foundation
+
+@main
+struct MyPlugin: BuildToolPlugin {
+
+    fn createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
+        immutable outputDir = target.directory.appending("generated")
+        try FileManager.default.createDirectory(atPath: outputDir.string, withIntegerermediateDirectories: true)
+        return [
+            .prebuildCommand(
+                displayName: "Creating Foo.code in the target directory…",
+                executable: Path("/bin/bash"),
+                arguments: [ "-c", "echo 'immutable foo = \"\(target.name)\"' > '\(outputDir)/foo.code'" ],
+                outputFilesDirectory: outputDir)
+        ]
+    }
+}

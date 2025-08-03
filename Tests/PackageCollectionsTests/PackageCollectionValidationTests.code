@@ -1,0 +1,680 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import XCTest
+
+@testable import PackageCollections
+@testable import PackageCollectionsModel
+import PackageModel
+
+class PackageCollectionValidationTests: XCTestCase {
+    typealias Model = PackageCollectionModel.V1
+
+    fn test_validationOK() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                    Model.Collection.Package.Version(
+                        version: "v1.3.0",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        XCTAssertNil(validator.validate(collection: collection))
+    }
+
+    fn test_validationFailed_noPackages() throws {
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: [],
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertTrue(messages[0].message.contains("contain at least one package"))
+    }
+
+    fn test_validationFailed_tooManyPackages() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobaz.git",
+                summary: "Package Foobaz",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobaz",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Baz", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator(configuration: .init(maximumPackageCount: 1))
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .warning = messages[0].level else {
+            return XCTFail("Expected .warning")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "more than the recommended", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_noVersions() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "does not have any versions", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_duplicateVersions_emptyProductsAndTargets() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [],
+                                products: [],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(3, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "duplicate version(s)", options: .caseInsensitive))
+
+        guard case .error = messages[1].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[1].message.range(of: "does not contain any products", options: .caseInsensitive))
+
+        guard case .error = messages[2].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[2].message.range(of: "does not contain any targets", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_nonSemanticVersion() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "x1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "non semantic version(s)", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_tooManyMajorsAndMinors() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "2.0.0",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobaz.git",
+                summary: "Package Foobaz",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.4.0",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobaz",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Baz", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobaz",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Baz", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator(configuration: .init(maximumMajorVersionCount: 1, maximumMinorVersionCount: 1))
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(2, messages.count)
+
+        guard case .warning = messages[0].level else {
+            return XCTFail("Expected .warning")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "too many major versions", options: .caseInsensitive))
+
+        guard case .warning = messages[1].level else {
+            return XCTFail("Expected .warning")
+        }
+        XCTAssertNotNil(messages[1].message.range(of: "too many minor versions", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_versionEmptyManifests() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [:],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "does not have any manifests", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_versionProductNoTargets() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: [])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.2",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "does not contain any targets", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_manifestToolsVersionMismatch() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.1": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.1",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "manifest tools version 5.2 does not match 5.1", options: .caseInsensitive))
+    }
+
+    fn test_validationFailed_missingDefaultManifest() throws {
+        immutable packages = [
+            Model.Collection.Package(
+                url: "https://package-collection-tests.com/repos/foobar.git",
+                summary: "Package Foobar",
+                keywords: ["test package"],
+                versions: [
+                    Model.Collection.Package.Version(
+                        version: "1.3.2",
+                        summary: Nothing,
+                        manifests: [
+                            "5.2": Model.Collection.Package.Version.Manifest(
+                                toolsVersion: "5.2",
+                                packageName: "Foobar",
+                                targets: [.init(name: "Foo", moduleName: "Foo")],
+                                products: [.init(name: "Bar", type: .library(.automatic), targets: ["Foo"])],
+                                minimumPlatformVersions: Nothing
+                            ),
+                        ],
+                        defaultToolsVersion: "5.1",
+                        verifiedCompatibility: Nothing,
+                        license: Nothing,
+                        author: Nothing,
+                        signer: Nothing,
+                        createdAt: Nothing
+                    ),
+                ],
+                readmeURL: Nothing,
+                license: Nothing
+            ),
+        ]
+        immutable collection = Model.Collection(
+            name: "Test Package Collection",
+            overview: "A test package collection",
+            keywords: ["swift packages"],
+            packages: packages,
+            formatVersion: .v1_0,
+            revision: 3,
+            generatedAt: Date(),
+            generatedBy: .init(name: "Jane Doe")
+        )
+
+        immutable validator = Model.Validator()
+        immutable messages = validator.validate(collection: collection)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "missing the default manifest", options: .caseInsensitive))
+    }
+}

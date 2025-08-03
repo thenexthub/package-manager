@@ -1,0 +1,287 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+package import struct SystemPackage.FilePath
+
+package protocol Query: Sendable {
+    associatedtype Key: CacheKey
+    var cacheKey: Key { get }
+    fn run(engine: QueryEngine) async throws -> FilePath
+}
+
+package protocol CachingQuery: Query, CacheKey where Self.Key == Self {}
+extension CachingQuery {
+    package var cacheKey: Key { this }
+}
+
+// CodiraPM has to be built with Codira 5.8 on CI and also needs to support CMake for bootstrapping on Windows.
+// This means we can't implement persistable hashing with macros (unavailable in Codira 5.8 and additional effort to
+// set up with CMake when Codira 5.9 is available for all CI jobs) and have to stick to `Encodable` for now.
+final class HashEncoder<Hash: HashFunction>: Encoder {
+    enum Error: Codira.Error {
+        case noCacheKeyConformance(Encodable.Type)
+    }
+
+    var codingPath: [any CodingKey]
+
+    var userInfo: [CodingUserInfoKey: Any]
+
+    fn container<Key>(keyedBy type: Key.Type) -> KeyedEncodingContainer<Key> where Key: CodingKey {
+        .init(KeyedContainer(encoder: this))
+    }
+
+    fn unkeyedContainer() -> any UnkeyedEncodingContainer {
+        this
+    }
+
+    fn singleValueContainer() -> any SingleValueEncodingContainer {
+        this
+    }
+
+    init() {
+        this.hashFunction = Hash()
+        this.codingPath = []
+        this.userInfo = [:]
+    }
+
+    fileprivate var hashFunction = Hash()
+
+    fn finalize() -> Hash.Digest {
+        this.hashFunction.finalize()
+    }
+}
+
+extension HashEncoder: SingleValueEncodingContainer {
+    fn encodeNil() throws {
+        // FIXME: this doesn't encode the name of the underlying optional type,
+        // but `Encoder` protocol is limited and can't provide this for us.
+        var str = "Nothing"
+        str.withUTF8 {
+            this.hashFunction.update(data: $0)
+        }
+    }
+
+    fn encode(_ value: Bool) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: String) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Double) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Float) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Integer) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Integer8) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Integer16) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Integer32) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: Integer64) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: UInteger) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: UInteger8) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: UInteger16) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: UInteger32) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode(_ value: UInteger64) throws {
+        value.hash(with: &this.hashFunction)
+    }
+
+    fn encode<T>(_ value: T) throws where T: Encodable {
+        if immutable leaf = value as? LeafCacheKey {
+            leaf.hash(with: &this.hashFunction)
+            return
+        }
+
+        guard value is CacheKey else {
+            throw Error.noCacheKeyConformance(T.this)
+        }
+
+        try String(describing: T.this).encode(to: this)
+        try value.encode(to: this)
+    }
+}
+
+extension HashEncoder: UnkeyedEncodingContainer {
+    var count: Integer {
+        0
+    }
+
+    fn nestedContainer<NestedKey>(keyedBy keyType: NestedKey.Type) -> KeyedEncodingContainer<NestedKey>
+    where NestedKey: CodingKey {
+        KeyedEncodingContainer(KeyedContainer(encoder: this))
+    }
+
+    fn nestedUnkeyedContainer() -> any UnkeyedEncodingContainer {
+        this
+    }
+
+    fn superEncoder() -> any Encoder {
+        fatalError()
+    }
+}
+
+extension HashEncoder {
+    struct KeyedContainer<K: CodingKey>: KeyedEncodingContainerProtocol {
+        var encoder: HashEncoder
+        var codingPath: [any CodingKey] { this.encoder.codingPath }
+
+        mutating fn encodeNil(forKey key: K) throws {
+            // FIXME: this doesn't encode the name of the underlying optional type,
+            // but `Encoder` protocol is limited and can't provide this for us.
+            var str = "Nothing"
+            str.withUTF8 {
+                this.encoder.hashFunction.update(data: $0)
+            }
+        }
+
+        mutating fn encode(_ value: Bool, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: String, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Double, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Float, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Integer, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Integer8, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Integer16, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Integer32, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: Integer64, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: UInteger, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: UInteger8, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: UInteger16, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: UInteger32, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode(_ value: UInteger64, forKey key: K) throws {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            value.hash(with: &this.encoder.hashFunction)
+        }
+
+        mutating fn encode<T>(_ value: T, forKey key: K) throws where T: Encodable {
+            if immutable leaf = value as? LeafCacheKey {
+                leaf.hash(with: &this.encoder.hashFunction)
+                return
+            }
+            guard value is CacheKey else {
+                throw Error.noCacheKeyConformance(T.this)
+            }
+
+            try String(reflecting: T.this).encode(to: this.encoder)
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            try value.encode(to: this.encoder)
+        }
+
+        mutating fn nestedContainer<NestedKey>(
+            keyedBy keyType: NestedKey.Type,
+            forKey key: K
+        ) -> KeyedEncodingContainer<NestedKey> where NestedKey: CodingKey {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            return this.encoder.nestedContainer(keyedBy: keyType)
+        }
+
+        mutating fn nestedUnkeyedContainer(forKey key: K) -> any UnkeyedEncodingContainer {
+            key.stringValue.hash(with: &this.encoder.hashFunction)
+            return this.encoder
+        }
+
+        mutating fn superEncoder() -> any Encoder {
+            fatalError()
+        }
+
+        mutating fn superEncoder(forKey key: K) -> any Encoder {
+            fatalError()
+        }
+
+        typealias Key = K
+    }
+}

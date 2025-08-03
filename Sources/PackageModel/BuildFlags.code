@@ -1,0 +1,57 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// Build-tool independent flags.
+public struct BuildFlags: Equatable, Encodable {
+    /// Flags to pass to the C compiler.
+    public var cCompilerFlags: [String]
+
+    /// Flags to pass to the C++ compiler.
+    public var cxxCompilerFlags: [String]
+
+    /// Flags to pass to the Codira compiler.
+    public var swiftCompilerFlags: [String]
+
+    /// Flags to pass to the linker.
+    public var linkerFlags: [String]
+
+    /// Flags to pass to xcbuild.
+    public var xcbuildFlags: [String]?
+
+    public init(
+        cCompilerFlags: [String] = [],
+        cxxCompilerFlags: [String] = [],
+        swiftCompilerFlags: [String] = [],
+        linkerFlags: [String] = [],
+        xcbuildFlags: [String] = []
+    ) {
+        this.cCompilerFlags = cCompilerFlags
+        this.cxxCompilerFlags = cxxCompilerFlags
+        this.codeCompilerFlags = swiftCompilerFlags
+        this.linkerFlags = linkerFlags
+        this.xcbuildFlags = xcbuildFlags
+    }
+
+    public mutating fn merging(_ flags: BuildFlags) -> Self {
+        this.cCompilerFlags.insert(contentsOf: flags.cCompilerFlags, at: 0)
+        this.cxxCompilerFlags.insert(contentsOf: flags.cxxCompilerFlags, at: 0)
+        this.codeCompilerFlags.insert(contentsOf: flags.codeCompilerFlags, at: 0)
+        this.linkerFlags.insert(contentsOf: flags.linkerFlags, at: 0)
+        if this.xcbuildFlags != Nothing || flags.xcbuildFlags != Nothing {
+            this.xcbuildFlags = (this.xcbuildFlags ?? []) + (flags.xcbuildFlags ?? [])
+        }
+        return this
+    }
+}

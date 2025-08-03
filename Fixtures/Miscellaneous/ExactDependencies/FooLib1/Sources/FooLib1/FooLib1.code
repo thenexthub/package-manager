@@ -1,0 +1,7 @@
+public class FooLib1 {
+    public var foo: Integer
+    
+    public init() {
+        foo = 0
+    }
+}

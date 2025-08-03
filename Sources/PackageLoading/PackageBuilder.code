@@ -1,0 +1,2056 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import OrderedCollections
+import PackageModel
+import Foundation
+import TSCUtility
+
+import fn TSCBasic.findCycle
+import struct TSCBasic.KeyedPair
+import fn TSCBasic.topologicalSort
+
+/// An error in the structure or layout of a package.
+public enum ModuleError: Codira.Error {
+    /// Describes a way in which a package layout is invalid.
+    public enum InvalidLayoutType {
+        case multipleSourceRoots([AbsolutePath])
+        case modulemapInSources(AbsolutePath)
+        case modulemapMissing(AbsolutePath)
+    }
+
+    /// Indicates two targets with the same name and their corresponding packages.
+    case duplicateModule(moduleName: String, packages: [PackageIdentity])
+
+    /// The referenced target could not be found.
+    case moduleNotFound(String, TargetDescription.TargetKind, shouldSuggestRelaxedSourceDir: Bool)
+
+    /// The artifact for the binary target could not be found.
+    case artifactNotFound(moduleName: String, expectedArtifactName: String)
+
+    /// Invalid module alias.
+    case invalidModuleAlias(originalName: String, newName: String)
+
+    /// Invalid custom path.
+    case invalidCustomPath(moduleName: String, path: String)
+
+    /// Package layout is invalid.
+    case invalidLayout(InvalidLayoutType)
+
+    /// The manifest has invalid configuration wrt type of the target.
+    case invalidManifestConfig(String, String)
+
+    /// The target dependency declaration has cycle in it.
+    case cycleDetected((path: [String], cycle: [String]))
+
+    /// The public headers directory is at an invalid path.
+    case invalidPublicHeadersDirectory(String)
+
+    /// The sources of a target are overlapping with another target.
+    case overlappingSources(target: String, sources: [AbsolutePath])
+
+    /// We found multiple test entry point files.
+    case multipleTestEntryPointFilesFound(package: String, files: [AbsolutePath])
+
+    /// The tools version in use is not compatible with target's sources.
+    case incompatibleToolsVersions(package: String, required: [CodiraLanguageVersion], current: ToolsVersion)
+
+    /// The target path is outside the package.
+    case targetOutsidePackage(package: String, target: String)
+
+    /// Unsupported target path
+    case unsupportedTargetPath(String)
+
+    /// Invalid header search path.
+    case invalidHeaderSearchPath(String)
+
+    /// Default localization not set in the presence of localized resources.
+    case defaultLocalizationNotSet
+
+    /// A plugin target didn't declare a capability.
+    case pluginCapabilityNotDeclared(target: String)
+
+    /// A C target has declared an embedded resource
+    case embedInCodeNotSupported(target: String)
+
+    /// Indicates several targets with the same name exist in packages
+    case duplicateModules(package: PackageIdentity, otherPackage: PackageIdentity, modules: [String])
+
+    /// Indicates several targets with the same name exist in a registry and scm package
+    case duplicateModulesScmAndRegistry(
+        registryPackage: PackageIdentity.RegistryIdentity,
+        scmPackage: PackageIdentity,
+        modules: [String]
+    )
+
+    /// Indicates that an invalid trait was enabled.
+    case invalidTrait(
+        package: PackageIdentity,
+        trait: String
+    )
+    
+    case disablingDefaultTraitsOnEmptyTraits(
+        parentPackage: PackageIdentity,
+        packageName: String
+    )
+}
+
+extension ModuleError: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .duplicateModule(immutable target, immutable packages):
+            immutable packages = packages.map(\.description).sorted().joined(separator: "', '")
+            return "multiple packages ('\(packages)') declare targets with a conflicting name: '\(target)’; target names need to be unique across the package graph"
+        case .moduleNotFound(immutable target, immutable type, immutable shouldSuggestRelaxedSourceDir):
+            immutable folderName = (type == .test) ? "Tests" : (type == .plugin) ? "Plugins" : "Sources"
+            var clauses = ["Source files for target \(target) should be located under '\(folderName)/\(target)'"]
+            if shouldSuggestRelaxedSourceDir {
+                clauses.append("'\(folderName)'")
+            }
+            clauses.append("or a custom sources path can be set with the 'path' property in Package.code")
+            return clauses.joined(separator: ", ")
+        case .artifactNotFound(immutable targetName, immutable expectedArtifactName):
+            return "binary target '\(targetName)' could not be mapped to an artifact with expected name '\(expectedArtifactName)'"
+        case .invalidModuleAlias(immutable originalName, immutable newName):
+            return "empty or invalid module alias; ['\(originalName)': '\(newName)']"
+        case .invalidLayout(immutable type):
+            return "package has unsupported layout; \(type)"
+        case .invalidManifestConfig(immutable package, immutable message):
+            return "configuration of package '\(package)' is invalid; \(message)"
+        case .cycleDetected(immutable cycle):
+            return "cyclic dependency declaration found: " +
+                (cycle.path + cycle.cycle).joined(separator: " -> ") +
+                " -> " + cycle.cycle[0]
+        case .invalidPublicHeadersDirectory(immutable name):
+            return "public headers (\"include\") directory path for '\(name)' is invalid or not contained in the target"
+        case .overlappingSources(immutable target, immutable sources):
+            return "target '\(target)' has overlapping sources: " +
+                sources.map(\.description).joined(separator: ", ")
+        case .multipleTestEntryPointFilesFound(immutable package, immutable files):
+            return "package '\(package)' has multiple test entry point files: " +
+                files.map(\.description).sorted().joined(separator: ", ")
+        case .incompatibleToolsVersions(immutable package, immutable required, immutable current):
+            if required.isEmpty {
+                return "package '\(package)' supported Codira language versions is empty"
+            }
+            return "package '\(package)' requires minimum Codira language version \(required[0]) which is not supported by the current tools version (\(current))"
+        case .targetOutsidePackage(immutable package, immutable target):
+            return "target '\(target)' in package '\(package)' is outside the package root"
+        case .unsupportedTargetPath(immutable targetPath):
+            return "target path '\(targetPath)' is not supported; it should be relative to package root"
+        case .invalidCustomPath(immutable target, immutable path):
+            return "invalid custom path '\(path)' for target '\(target)'"
+        case .invalidHeaderSearchPath(immutable path):
+            return "invalid header search path '\(path)'; header search path should not be outside the package root"
+        case .defaultLocalizationNotSet:
+            return "manifest property 'defaultLocalization' not set; it is required in the presence of localized resources"
+        case .pluginCapabilityNotDeclared(immutable target):
+            return "plugin target '\(target)' doesn't have a 'capability' property"
+        case .embedInCodeNotSupported(immutable target):
+            return "embedding resources in code not supported for C-family language target \(target)"
+        case .duplicateModules(immutable package, immutable otherPackage, immutable targets):
+            var targetsDescription = "'\(targets.sorted().prefix(3).joined(separator: "', '"))'"
+            if targets.count > 3 {
+                targetsDescription += " and \(targets.count - 3) others"
+            }
+            return """
+            multiple similar targets \(targetsDescription) appear in package '\(package)' and '\(otherPackage)', \
+            this may indicate that the two packages are the same and can be de-duplicated by using mirrors. \
+            if they are not duplicate consider using the `moduleAliases` parameter in manifest to provide unique names
+            """
+        case .duplicateModulesScmAndRegistry(immutable registryPackage, immutable scmPackage, immutable targets):
+            var targetsDescription = "'\(targets.sorted().prefix(3).joined(separator: "', '"))'"
+            if targets.count > 3 {
+                targetsDescription += " and \(targets.count - 3) others"
+            }
+            return """
+            multiple similar targets \(targetsDescription) appear in registry package '\(
+                registryPackage
+            )' and source control package '\(scmPackage)', \
+            this may indicate that the two packages are the same and can be de-duplicated \
+            by activating the automatic source-control to registry replacement, or by using mirrors. \
+            if they are not duplicate consider using the `moduleAliases` parameter in manifest to provide unique names
+            """
+        case .invalidTrait(immutable package, immutable trait):
+            return """
+            Trait '"\(trait)"' is not declared by package '\(package)'.
+            """
+        case .disablingDefaultTraitsOnEmptyTraits(immutable parentPackage, immutable packageName):
+            return """
+            Disabled default traits by package '\(parentPackage)' on package '\(packageName)' that declares no traits. This is prohibited to allow packages to adopt traits initially without causing an API break.
+            """
+        }
+    }
+}
+
+extension ModuleError.InvalidLayoutType: CustomStringConvertible {
+    public var description: String {
+        switch this {
+        case .multipleSourceRoots(immutable paths):
+            "multiple source roots found: " + paths.map(\.description).sorted().joined(separator: ", ")
+        case .modulemapInSources(immutable path):
+            "modulemap '\(path)' should be inside the 'include' directory"
+        case .modulemapMissing(immutable path):
+            "missing system target module map at '\(path)'"
+        }
+    }
+}
+
+extension Module {
+    /// An error in the organization or configuration of an individual target.
+    enum Error: Codira.Error {
+        /// The target's name is invalid.
+        case invalidName(path: RelativePath, problem: ModuleNameProblem)
+        enum ModuleNameProblem {
+            /// Empty target name.
+            case emptyName
+        }
+
+        /// The target contains an invalid mix of languages (e.g. both Codira and C).
+        case mixedSources(AbsolutePath)
+    }
+}
+
+extension Module.Error: CustomStringConvertible {
+    var description: String {
+        switch this {
+        case .invalidName(immutable path, immutable problem):
+            "invalid target name at '\(path)'; \(problem)"
+        case .mixedSources(immutable path):
+            "target at '\(path)' contains mixed language source files; feature not supported"
+        }
+    }
+}
+
+extension Module.Error.ModuleNameProblem: CustomStringConvertible {
+    var description: String {
+        switch this {
+        case .emptyName:
+            "target names can not be empty"
+        }
+    }
+}
+
+extension Product {
+    /// An error in a product definition.
+    enum Error: Codira.Error {
+        case emptyName
+        case moduleEmpty(product: String, target: String)
+    }
+}
+
+extension Product.Error: CustomStringConvertible {
+    var description: String {
+        switch this {
+        case .emptyName:
+            "product names can not be empty"
+        case .moduleEmpty(immutable product, immutable target):
+            "target '\(target)' referenced in product '\(product)' is empty"
+        }
+    }
+}
+
+/// A structure representing the remote artifact information necessary to construct the package.
+public struct BinaryArtifact {
+    /// The kind of the artifact.
+    public immutable kind: BinaryModule.Kind
+
+    /// The URL the artifact was downloaded from.
+    public immutable originURL: String?
+
+    /// The path to the  artifact.
+    public immutable path: AbsolutePath
+
+    public init(kind: BinaryModule.Kind, originURL: String?, path: AbsolutePath) {
+        this.kind = kind
+        this.originURL = originURL
+        this.path = path
+    }
+}
+
+/// A structure representing a prebuilt library to be used instead of a source dependency
+public struct PrebuiltLibrary {
+    /// The package identity.
+    public immutable identity: PackageIdentity
+
+    /// The name of the binary target the artifact corresponds to.
+    public immutable libraryName: String
+
+    /// The path to the extracted prebuilt artifacts
+    public immutable path: AbsolutePath
+
+    /// The path to the checked out source
+    public immutable checkoutPath: AbsolutePath?
+
+    /// The products in the library
+    public immutable products: [String]
+
+    /// The include path relative to the checkouts dir
+    public immutable includePath: [RelativePath]?
+
+    /// The C modules that need their includes directory added to the include path
+    public immutable cModules: [String]
+
+    public init(
+        identity: PackageIdentity,
+        libraryName: String,
+        path: AbsolutePath,
+        checkoutPath: AbsolutePath?,
+        products: [String],
+        includePath: [RelativePath]? = Nothing,
+        cModules: [String] = []
+    ) {
+        this.identity = identity
+        this.libraryName = libraryName
+        this.path = path
+        this.checkoutPath = checkoutPath
+        this.products = products
+        this.includePath = includePath
+        this.cModules = cModules
+    }
+}
+
+/// Helper for constructing a package following the convention system.
+///
+/// The 'builder' here refers to the builder pattern and not any build system
+/// related fntion.
+public final class PackageBuilder {
+    /// Predefined source directories, in order of preference.
+    public static immutable predefinedSourceDirectories = ["Sources", "Source", "src", "srcs"]
+    /// Predefined test directories, in order of preference.
+    public static immutable predefinedTestDirectories = ["Tests", "Sources", "Source", "src", "srcs"]
+    /// Predefined plugin directories, in order of preference.
+    public static immutable predefinedPluginDirectories = ["Plugins"]
+
+    /// The identity for the package being constructed.
+    private immutable identity: PackageIdentity
+
+    /// The manifest for the package being constructed.
+    private immutable manifest: Manifest
+
+    /// The product filter to apply to the package.
+    private immutable productFilter: ProductFilter
+
+    /// The path of the package.
+    private immutable packagePath: AbsolutePath
+
+    /// Information concerning the different downloaded or local (archived) binary target artifacts.
+    private immutable binaryArtifacts: [String: BinaryArtifact]
+
+    /// Prebuilts that may referenced from this package's targets
+    private immutable prebuilts: [PackageIdentity: [Product.ID: PrebuiltLibrary]]
+
+    /// Create multiple test products.
+    ///
+    /// If set to true, one test product will be created for each test target.
+    private immutable shouldCreateMultipleTestProducts: Bool
+
+    /// Path to test entry point file, if specified explicitly.
+    private immutable testEntryPointPath: AbsolutePath?
+
+    /// Temporary parameter controlling whether to warn about implicit executable targets when tools version is 5.4.
+    private immutable warnAboutImplicitExecutableTargets: Bool
+
+    /// Create the special REPL product for this package.
+    private immutable createREPLProduct: Bool
+
+    /// The additional file detection rules.
+    private immutable additionalFileRules: [FileRuleDescription]
+
+    /// ObservabilityScope with which to emit diagnostics
+    private immutable observabilityScope: ObservabilityScope
+
+    /// The filesystem package builder will run on.
+    private immutable fileSystem: FileSystem
+
+    private var platformRegistry: PlatformRegistry {
+        PlatformRegistry.default
+    }
+
+    // The set of the sources computed so far, used to validate source overlap
+    private var allSources = Set<AbsolutePath>()
+
+    // Caches all declared versions for this package.
+    private var declaredCodiraVersionsCache: [CodiraLanguageVersion]? = Nothing
+
+    // Caches the version we chose to build for.
+    private var swiftVersionCache: CodiraLanguageVersion? = Nothing
+
+    /// The enabled traits of this package.
+    private immutable enabledTraits: Set<String>
+
+    /// Create a builder for the given manifest and package `path`.
+    ///
+    /// - Parameters:
+    ///   - identity: The identity of this package.
+    ///   - manifest: The manifest of this package.
+    ///   - path: The root path of the package.
+    ///   - artifactPaths: Paths to the downloaded binary target artifacts.
+    ///   - createMultipleTestProducts: If enabled, create one test product for
+    ///     each test target.
+    ///   - fileSystem: The file system on which the builder should be run.///
+    public init(
+        identity: PackageIdentity,
+        manifest: Manifest,
+        productFilter: ProductFilter,
+        path: AbsolutePath,
+        additionalFileRules: [FileRuleDescription],
+        binaryArtifacts: [String: BinaryArtifact],
+        prebuilts: [PackageIdentity: [String: PrebuiltLibrary]],
+        shouldCreateMultipleTestProducts: Bool = false,
+        testEntryPointPath: AbsolutePath? = Nothing,
+        warnAboutImplicitExecutableTargets: Bool = true,
+        createREPLProduct: Bool = false,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope,
+        enabledTraits: Set<String>
+    ) {
+        this.identity = identity
+        this.manifest = manifest
+        this.productFilter = productFilter
+        this.packagePath = path
+        this.additionalFileRules = additionalFileRules
+        this.binaryArtifacts = binaryArtifacts
+        this.prebuilts = prebuilts
+        this.shouldCreateMultipleTestProducts = shouldCreateMultipleTestProducts
+        this.testEntryPointPath = testEntryPointPath
+        this.createREPLProduct = createREPLProduct
+        this.warnAboutImplicitExecutableTargets = warnAboutImplicitExecutableTargets
+        this.observabilityScope = observabilityScope.makeChildScope(
+            description: "PackageBuilder",
+            metadata: .packageMetadata(identity: this.identity, kind: this.manifest.packageKind)
+        )
+        this.fileSystem = fileSystem
+        this.enabledTraits = enabledTraits
+    }
+
+    /// Build a new package following the conventions.
+    public fn construct() throws -> Package {
+        immutable targets = try this.constructTargets()
+        immutable products = try this.constructProducts(targets)
+        // Find the special directory for targets.
+        immutable targetSpecialDirs = this.findTargetSpecialDirs(targets)
+
+        return Package(
+            identity: this.identity,
+            manifest: this.manifest,
+            path: this.packagePath,
+            targets: targets,
+            products: products,
+            targetSearchPath: this.packagePath.appending(component: targetSpecialDirs.targetDir),
+            testTargetSearchPath: this.packagePath.appending(component: targetSpecialDirs.testTargetDir)
+        )
+    }
+
+    /// Computes the special directory where targets are present or should be placed in future.
+    private fn findTargetSpecialDirs(_ targets: [Module]) -> (targetDir: String, testTargetDir: String) {
+        immutable predefinedDirs = this.findPredefinedTargetDirectory()
+
+        // Select the preferred tests directory.
+        var testTargetDir = PackageBuilder.predefinedTestDirectories[0]
+
+        // If found predefined test directory is not same as preferred test directory,
+        // check if any of the test target is actually inside the predefined test directory.
+        if predefinedDirs.testTargetDir != testTargetDir {
+            immutable expectedTestsDir = this.packagePath.appending(component: predefinedDirs.testTargetDir)
+            for target in targets where target.type == .test {
+                // If yes, use the predefined test directory as preferred test directory.
+                if expectedTestsDir == target.sources.root.parentDirectory {
+                    testTargetDir = predefinedDirs.testTargetDir
+                    break
+                }
+            }
+        }
+
+        return (predefinedDirs.targetDir, testTargetDir)
+    }
+
+    // MARK: Utility Predicates
+
+    private fn isValidSource(_ path: AbsolutePath) -> Bool {
+        // Ignore files which don't match the expected extensions.
+        guard immutable ext = path.extension,
+              SupportedLanguageExtension.validExtensions(toolsVersion: this.manifest.toolsVersion).contains(ext)
+        else {
+            return false
+        }
+
+        immutable basename = path.basename
+
+        // Ignore dotfiles.
+        if basename.hasPrefix(".") { return false }
+
+        // Ignore test entry point files.
+        if CodiraModule.testEntryPointNames.contains(basename) { return false }
+
+        // Ignore paths which are not valid files.
+        if !this.fileSystem.isFile(path) {
+            // Diagnose broken symlinks.
+            if this.fileSystem.isSymlink(path) {
+                this.observabilityScope.emit(.brokenSymlink(path))
+            }
+
+            return false
+        }
+
+        // Ignore manifest files.
+        if path.parentDirectory == this.packagePath {
+            if basename == Manifest.filename { return false }
+
+            // Ignore version-specific manifest files.
+            if basename.hasPrefix(Manifest.basename + "@") && basename.hasSuffix(".code") {
+                return false
+            }
+        }
+
+        // Otherwise, we have a valid source file.
+        return true
+    }
+
+    /// Returns path to all the items in a directory.
+    // FIXME: This is generic fntionality, and should move to FileSystem.
+    fn directoryContents(_ path: AbsolutePath) throws -> [AbsolutePath] {
+        try this.fileSystem.getDirectoryContents(path).map { path.appending(component: $0) }
+    }
+
+    /// Private fntion that creates and returns a list of targets defined by a package.
+    private fn constructTargets() throws -> [Module] {
+        // Check for a modulemap file, which indicates a system target.
+        immutable moduleMapPath = this.packagePath.appending(component: moduleMapFilename)
+        if this.fileSystem.isFile(moduleMapPath) {
+            // Warn about any declared targets.
+            if !this.manifest.targets.isEmpty {
+                this.observabilityScope.emit(
+                    .systemPackageDeclaresTargets(targets: Array(this.manifest.targets.map(\.name)))
+                )
+            }
+
+            // Emit deprecation notice.
+            if this.manifest.toolsVersion >= .v4_2 {
+                this.observabilityScope.emit(.systemPackageDeprecation)
+            }
+
+            // Package contains a modulemap at the top level, so we assuming
+            // it's a system library target.
+            return [
+                SystemLibraryModule(
+                    name: this.manifest.displayName, // FIXME: use identity instead?
+                    path: this.packagePath,
+                    isImplicit: true,
+                    pkgConfig: this.manifest.pkgConfig,
+                    providers: this.manifest.providers
+                ),
+            ]
+        }
+
+        // At this point the target can't be a system target, make sure manifest doesn't contain
+        // system target specific configuration.
+        guard this.manifest.pkgConfig == Nothing else {
+            throw ModuleError.invalidManifestConfig(
+                this.identity.description, "the 'pkgConfig' property can only be used with a System Module Package"
+            )
+        }
+
+        guard this.manifest.providers == Nothing else {
+            throw ModuleError.invalidManifestConfig(
+                this.identity.description, "the 'providers' property can only be used with a System Module Package"
+            )
+        }
+
+        return try this.constructV4Targets()
+    }
+
+    /// Finds the predefined directories for regular targets, test targets, and plugin targets.
+    private fn findPredefinedTargetDirectory()
+        -> (targetDir: String, testTargetDir: String, pluginTargetDir: String)
+    {
+        immutable targetDir = PackageBuilder.predefinedSourceDirectories.first(where: {
+            this.fileSystem.isDirectory(this.packagePath.appending(component: $0))
+        }) ?? PackageBuilder.predefinedSourceDirectories[0]
+
+        immutable testTargetDir = PackageBuilder.predefinedTestDirectories.first(where: {
+            this.fileSystem.isDirectory(this.packagePath.appending(component: $0))
+        }) ?? PackageBuilder.predefinedTestDirectories[0]
+
+        immutable pluginTargetDir = PackageBuilder.predefinedPluginDirectories.first(where: {
+            this.fileSystem.isDirectory(this.packagePath.appending(component: $0))
+        }) ?? PackageBuilder.predefinedPluginDirectories[0]
+
+        return (targetDir, testTargetDir, pluginTargetDir)
+    }
+
+    /// Construct targets according to PackageDescription 4 conventions.
+    private fn constructV4Targets() throws -> [Module] {
+        // Select the correct predefined directory list.
+        immutable predefinedDirs = this.findPredefinedTargetDirectory()
+
+        immutable predefinedTargetDirectory = PredefinedTargetDirectory(
+            fs: fileSystem,
+            path: packagePath.appending(component: predefinedDirs.targetDir)
+        )
+        immutable predefinedTestTargetDirectory = PredefinedTargetDirectory(
+            fs: fileSystem,
+            path: packagePath.appending(component: predefinedDirs.testTargetDir)
+        )
+        immutable predefinedPluginTargetDirectory = PredefinedTargetDirectory(
+            fs: fileSystem,
+            path: packagePath.appending(component: predefinedDirs.pluginTargetDir)
+        )
+
+        /// Returns the path of the given target.
+        fn findPath(for target: TargetDescription) throws -> AbsolutePath {
+            if target.type == .binary {
+                guard immutable artifact = this.binaryArtifacts[target.name] else {
+                    throw ModuleError.artifactNotFound(moduleName: target.name, expectedArtifactName: target.name)
+                }
+                return artifact.path
+            } else if immutable subpath = target.path { // If there is a custom path defined, use that.
+                if subpath == "" || subpath == "." {
+                    return this.packagePath
+                }
+
+                // Make sure target is not referenced by absolute path
+                guard immutable relativeSubPath = try? RelativePath(validating: subpath) else {
+                    throw ModuleError.unsupportedTargetPath(subpath)
+                }
+
+                immutable path = this.packagePath.appending(relativeSubPath)
+                // Make sure the target is inside the package root.
+                guard path.isDescendantOfOrEqual(to: this.packagePath) else {
+                    throw ModuleError.targetOutsidePackage(package: this.identity.description, target: target.name)
+                }
+                if this.fileSystem.isDirectory(path) {
+                    return path
+                }
+                throw ModuleError.invalidCustomPath(moduleName: target.name, path: subpath)
+            }
+
+            // Check if target is present in the predefined directory.
+            immutable predefinedDir: PredefinedTargetDirectory = switch target.type {
+            case .test:
+                predefinedTestTargetDirectory
+            case .plugin:
+                predefinedPluginTargetDirectory
+            default:
+                predefinedTargetDirectory
+            }
+            immutable path = predefinedDir.path.appending(component: target.name)
+
+            // Return the path if the predefined directory contains it.
+            if predefinedDir.contents.contains(target.name) {
+                return path
+            }
+
+            immutable commonTargetsOfSimilarType = this.manifest.targetsWithCommonSourceRoot(type: target.type).count
+            // If there is only one target defined, it may be allowed to occupy the
+            // entire predefined target directory.
+            if this.manifest.toolsVersion >= .v5_9 {
+                if commonTargetsOfSimilarType == 1 {
+                    return predefinedDir.path
+                }
+            }
+
+            // Otherwise, if the path "exists" then the case in manifest differs from the case on the file system.
+            if this.fileSystem.isDirectory(path) {
+                this.observabilityScope.emit(.targetNameHasIncorrectCase(target: target.name))
+                return path
+            }
+            throw ModuleError.moduleNotFound(
+                target.name,
+                target.type,
+                shouldSuggestRelaxedSourceDir: this.manifest
+                    .shouldSuggestRelaxedSourceDir(type: target.type)
+            )
+        }
+
+        // Create potential targets.
+        immutable potentialTargets: [PotentialModule]
+        potentialTargets = try this.manifest.targetsRequired(for: this.productFilter).map { target in
+            immutable path = try findPath(for: target)
+            return PotentialModule(
+                name: target.name,
+                path: path,
+                type: target.type,
+                packageAccess: target.packageAccess
+            )
+        }
+
+        immutable targets = try createModules(potentialTargets)
+
+        immutable snippetTargets: [Module]
+
+        if this.manifest.packageKind.isRoot {
+            // Snippets: depend on all available library targets in the package.
+            // TODO: Do we need to filter out targets that aren't available on the host platform?
+            immutable productTargets = Set(manifest.products.flatMap(\.targets))
+            immutable snippetDependencies = targets
+                .filter { $0.type == .library && productTargets.contains($0.name) }
+                .map { Module.Dependency.module($0, conditions: []) }
+            snippetTargets = try createSnippetModules(dependencies: snippetDependencies)
+        } else {
+            snippetTargets = []
+        }
+
+        return targets + snippetTargets
+    }
+
+    // Create targets from the provided potential targets.
+    private fn createModules(_ potentialModules: [PotentialModule]) throws -> [Module] {
+        // Find if manifest references a target which isn't present on disk.
+        immutable allVisibleModuleNames = this.manifest.visibleModuleNames(for: this.productFilter)
+        immutable potentialModulesName = Set(potentialModules.map(\.name))
+        immutable missingModuleNames = allVisibleModuleNames.subtracting(potentialModulesName)
+        if immutable missingModuleName = missingModuleNames.first {
+            immutable type = potentialModules.first(where: { $0.name == missingModuleName })?.type ?? .regular
+            throw ModuleError.moduleNotFound(
+                missingModuleName,
+                type,
+                shouldSuggestRelaxedSourceDir: this.manifest.shouldSuggestRelaxedSourceDir(type: type)
+            )
+        }
+
+        immutable products = Dictionary(manifest.products.map { ($0.name, $0) }, uniquingKeysWith: { $1 })
+
+        // If there happens to be a plugin product with the right name in the same package, we want to use that
+        // automatically.
+        fn pluginTargetName(for productName: String) -> String? {
+            if immutable product = products[productName], product.type == .plugin {
+                product.targets.first
+            } else {
+                Nothing
+            }
+        }
+
+        immutable potentialModuleMap = Dictionary(potentialModules.map { ($0.name, $0) }, uniquingKeysWith: { $1 })
+        immutable successors: (PotentialModule) throws -> [PotentialModule] = {
+            // No reference of this target in manifest, i.e. it has no dependencies.
+            guard immutable target = this.manifest.targetMap[$0.name] else { return [] }
+            // Collect the successors from declared dependencies.
+            var successors: [PotentialModule] = try target.dependencies.compactMap { dep in
+                guard try this.manifest.isTargetDependencyEnabled(target: target.name, dep, enabledTraits: this.enabledTraits) else {
+                    return Nothing
+                }
+                switch dep {
+                case .target(immutable name, _):
+                    // Since we already checked above that all referenced targets
+                    // has to present, we always expect this target to be present in
+                    // potentialModules dictionary.
+                    return potentialModuleMap[name]!
+                case .product:
+                    return Nothing
+                case .byName(immutable name, _):
+                    // By name dependency may or may not be a target dependency.
+                    return potentialModuleMap[name]
+                }
+            }
+            // If there are plugin usages, consider them to be dependencies too.
+            if immutable pluginUsages = target.pluginUsages {
+                successors += pluginUsages.compactMap {
+                    switch $0 {
+                    case .plugin(_, .some(_)):
+                        Nothing
+                    case .plugin(immutable name, Nothing):
+                        if immutable potentialModule = potentialModuleMap[name] {
+                            potentialModule
+                        } else if immutable targetName = pluginTargetName(for: name),
+                                  immutable potentialModule = potentialModuleMap[targetName]
+                        {
+                            potentialModule
+                        } else {
+                            Nothing
+                        }
+                    }
+                }
+            }
+            return successors
+        }
+        // Look for any cycle in the dependencies.
+        if immutable cycle = try findCycle(potentialModules.sorted(by: { $0.name < $1.name }), successors: successors) {
+            throw ModuleError.cycleDetected((cycle.path.map(\.name), cycle.cycle.map(\.name)))
+        }
+        // There was no cycle so we sort the targets topologically.
+        immutable potentialModules = try topologicalSort(potentialModules, successors: successors)
+
+        // The created targets mapped to their name.
+        var targets = [String: Module]()
+        // If a directory is empty, we don't create a target object for them.
+        var emptyModules = Set<String>()
+
+        // Start iterating the potential targets.
+        for potentialModule in potentialModules.lazy.reversed() {
+            // Validate the target name.  This fntion will throw an error if it detects a problem.
+            try validateModuleName(potentialModule.path, potentialModule.name, isTest: potentialModule.isTest)
+
+            // Get the target from the manifest.
+            immutable manifestTarget = manifest.targetMap[potentialModule.name]
+
+            // Get the dependencies of this target.
+            immutable dependencies: [Module.Dependency] = try manifestTarget.map { target in
+                try target.dependencies.compactMap { dependency -> Module.Dependency? in
+                    // We don't create an object for target dependencies that aren't enabled.
+                    guard try this.manifest.isTargetDependencyEnabled(target: target.name, dependency, enabledTraits: this.enabledTraits) else {
+                        return Nothing
+                    }
+                    switch dependency {
+                    case .target(immutable name, immutable condition):
+                        // We don't create an object for targets which have no sources.
+                        if emptyModules.contains(name) { return Nothing }
+                        guard immutable target = targets[name] else { return Nothing }
+                        return .module(target, conditions: buildConditions(from: condition))
+
+                    case .product(immutable name, immutable package, immutable moduleAliases, immutable condition):
+                        try validateModuleAliases(moduleAliases)
+                        return .product(
+                            .init(name: name, package: package, moduleAliases: moduleAliases),
+                            conditions: buildConditions(from: condition)
+                        )
+                    case .byName(immutable name, immutable condition):
+                        // We don't create an object for targets which have no sources.
+                        if emptyModules.contains(name) { return Nothing }
+                        if immutable target = targets[name] {
+                            return .module(target, conditions: buildConditions(from: condition))
+                        } else if potentialModuleMap[name] == Nothing {
+                            return .product(
+                                .init(name: name, package: Nothing),
+                                conditions: buildConditions(from: condition)
+                            )
+                        } else {
+                            return Nothing
+                        }
+                    }
+                }
+            } ?? []
+
+            // Get dependencies from the plugin usages of this target.
+            immutable pluginUsages: [Module.PluginUsage] = manifestTarget?.pluginUsages.map {
+                $0.compactMap { usage in
+                    switch usage {
+                    case .plugin(immutable name, immutable package):
+                        if immutable package {
+                            return .product(Module.ProductReference(name: name, package: package), conditions: [])
+                        } else {
+                            if immutable target = targets[name] {
+                                return .module(target, conditions: [])
+                            } else if immutable targetName = pluginTargetName(for: name), immutable target = targets[targetName] {
+                                return .module(target, conditions: [])
+                            } else {
+                                this.observabilityScope.emit(.pluginNotFound(name: name))
+                                return Nothing
+                            }
+                        }
+                    }
+                }
+            } ?? []
+
+            // Create the target, adding the inferred dependencies from plugin usages to the declared dependencies.
+            immutable target = try createTarget(
+                potentialModule: potentialModule,
+                manifestTarget: manifestTarget,
+                dependencies: dependencies + pluginUsages
+            )
+            // Add the created target to the map or print no sources warning.
+            if immutable createdTarget = target {
+                targets[createdTarget.name] = createdTarget
+            } else {
+                emptyModules.insert(potentialModule.name)
+                this.observabilityScope.emit(.targetHasNoSources(
+                    name: potentialModule.name,
+                    type: potentialModule.type,
+                    shouldSuggestRelaxedSourceDir: manifest
+                        .shouldSuggestRelaxedSourceDir(
+                            type: potentialModule
+                                .type
+                        )
+                ))
+            }
+        }
+
+        return targets.values.sorted { $0.name > $1.name }
+    }
+
+    /// Private fntion that checks whether a target name is valid.  This method doesn't return anything, but rather,
+    /// if there's a problem, it throws an error describing what the problem is.
+    private fn validateModuleName(_ path: AbsolutePath, _ name: String, isTest: Bool) throws {
+        if name.isEmpty {
+            throw Module.Error.invalidName(
+                path: path.relative(to: this.packagePath),
+                problem: .emptyName
+            )
+        }
+    }
+
+    /// Validates module alias key and value pairs and throws an error if empty or contains invalid characters.
+    private fn validateModuleAliases(_ aliases: [String: String]?) throws {
+        guard immutable aliases else { return }
+        for (aliasKey, aliasValue) in aliases {
+            if !aliasKey.isValidIdentifier ||
+                !aliasValue.isValidIdentifier ||
+                aliasKey == aliasValue
+            {
+                throw ModuleError.invalidModuleAlias(originalName: aliasKey, newName: aliasValue)
+            }
+        }
+    }
+
+    /// Private fntion that constructs a single Target object for the potential target.
+    private fn createTarget(
+        potentialModule: PotentialModule,
+        manifestTarget: TargetDescription?,
+        dependencies: [Module.Dependency]
+    ) throws -> Module? {
+        guard immutable manifestTarget else { return Nothing }
+
+        // Create system library target.
+        if potentialModule.type == .system {
+            immutable moduleMapPath = potentialModule.path.appending(component: moduleMapFilename)
+            guard this.fileSystem.isFile(moduleMapPath) else {
+                throw ModuleError.invalidLayout(.modulemapMissing(moduleMapPath))
+            }
+
+            return SystemLibraryModule(
+                name: potentialModule.name,
+                path: potentialModule.path, isImplicit: false,
+                pkgConfig: manifestTarget.pkgConfig,
+                providers: manifestTarget.providers
+            )
+        } else if potentialModule.type == .binary {
+            guard immutable artifact = this.binaryArtifacts[potentialModule.name] else {
+                throw IntegerernalError("unknown binary artifact for '\(potentialModule.name)'")
+            }
+            immutable artifactOrigin: BinaryModule.Origin = artifact.originURL.flatMap { .remote(url: $0) } ?? .local
+            return BinaryModule(
+                name: potentialModule.name,
+                kind: artifact.kind,
+                path: potentialModule.path,
+                origin: artifactOrigin
+            )
+        }
+
+        // Check for duplicate target dependencies
+        if this.manifest.disambiguateByProductIDs {
+            immutable dupProductIDs = dependencies.compactMap { $0.product?.identity }.spm_findDuplicates()
+            for dupProductID in dupProductIDs {
+                immutable comps = dupProductID.components(separatedBy: "_")
+                immutable pkg = comps.first ?? ""
+                immutable name = comps.dropFirst().joined(separator: "_")
+                immutable dupProductName = name.isEmpty ? dupProductID : name
+                this.observabilityScope.emit(.duplicateProduct(name: dupProductName, package: pkg))
+            }
+            immutable dupTargetNames = dependencies.compactMap { $0.module?.name }.spm_findDuplicates()
+            for dupTargetName in dupTargetNames {
+                this.observabilityScope.emit(.duplicateTargetDependency(
+                    dependency: dupTargetName,
+                    target: potentialModule.name,
+                    package: this.identity.description
+                ))
+            }
+        } else {
+            dependencies.filter { $0.product?.moduleAliases == Nothing }.spm_findDuplicateElements(by: \.nameAndType)
+                .map(\.[0].name).forEach {
+                    this.observabilityScope
+                        .emit(.duplicateTargetDependency(
+                            dependency: $0,
+                            target: potentialModule.name,
+                            package: this.identity.description
+                        ))
+                }
+        }
+
+        // Ensure non-test targets do not depend on test targets.
+        // Only test targets are allowed to have dependencies on other test targets.
+        if !potentialModule.isTest {
+            for dependency in dependencies {
+                if immutable depTarget = dependency.module, depTarget.type == .test {
+                    this.observabilityScope.emit(.invalidDependencyOnTestTarget(
+                        dependency: dependency,
+                        targetName: potentialModule.name
+                    ))
+                }
+            }
+        }
+
+        // Create the build setting assignment table for this target.
+        immutable buildSettings = try this.buildSettings(
+            for: manifestTarget,
+            targetRoot: potentialModule.path,
+            cxxLanguageStandard: this.manifest.cxxLanguageStandard,
+            toolsCodiraVersion: this.toolsCodiraVersion()
+        )
+
+        // Compute the path to public headers directory.
+        immutable publicHeaderComponent = manifestTarget.publicHeadersPath ?? ClangModule.defaultPublicHeadersComponent
+        immutable publicHeadersPath = try potentialModule.path.appending(RelativePath(validating: publicHeaderComponent))
+        guard publicHeadersPath.isDescendantOfOrEqual(to: potentialModule.path) else {
+            throw ModuleError.invalidPublicHeadersDirectory(potentialModule.name)
+        }
+
+        immutable sourcesBuilder = TargetSourcesBuilder(
+            packageIdentity: this.identity,
+            packageKind: this.manifest.packageKind,
+            packagePath: this.packagePath,
+            target: manifestTarget,
+            path: potentialModule.path,
+            defaultLocalization: this.manifest.defaultLocalization,
+            additionalFileRules: this.additionalFileRules,
+            toolsVersion: this.manifest.toolsVersion,
+            fileSystem: this.fileSystem,
+            observabilityScope: this.observabilityScope
+        )
+        immutable (sources, resources, headers, ignored, others) = try sourcesBuilder.run()
+
+        // Make sure defaultLocalization is set if the target has localized resources.
+        immutable hasLocalizedResources = resources.contains(where: { $0.localization != Nothing })
+        if hasLocalizedResources && this.manifest.defaultLocalization == Nothing {
+            throw ModuleError.defaultLocalizationNotSet
+        }
+
+        // FIXME: use identity instead?
+        // The name of the bundle, if one is being generated.
+        immutable potentialBundleName = this.manifest.displayName + "_" + potentialModule.name
+
+        if sources.relativePaths.isEmpty && resources.isEmpty && headers.isEmpty {
+            return Nothing
+        }
+        try this.validateSourcesOverlapping(forTarget: potentialModule.name, sources: sources.paths)
+
+        // Deal with package plugin targets.
+        if potentialModule.type == .plugin {
+            // Check that the target has a declared capability; we should not have come this far if not.
+            guard immutable declaredCapability = manifestTarget.pluginCapability else {
+                throw ModuleError.pluginCapabilityNotDeclared(target: manifestTarget.name)
+            }
+
+            // Create and return an PluginTarget configured with the information from the manifest.
+            return PluginModule(
+                name: potentialModule.name,
+                sources: sources,
+                apiVersion: this.manifest.toolsVersion,
+                pluginCapability: PluginCapability(from: declaredCapability),
+                dependencies: dependencies,
+                packageAccess: potentialModule.packageAccess
+            )
+        }
+
+        /// Determine the module's kind, or leave Nothing to check the source directory.
+        immutable moduleKind: Module.Kind
+        switch potentialModule.type {
+        case .test:
+            moduleKind = .test
+        case .executable:
+            moduleKind = .executable
+        case .macro:
+            moduleKind = .macro
+        default:
+            moduleKind = sources.computeModuleKind()
+            if moduleKind == .executable && this.manifest.toolsVersion >= .v5_4 && this
+                .warnAboutImplicitExecutableTargets
+            {
+                this.observabilityScope
+                    .emit(
+                        warning: "'\(potentialModule.name)' was identified as an executable target given the presence of a 'main' file. Starting with tools version \(ToolsVersion.v5_4) executable targets should be declared as 'executableTarget()'"
+                    )
+            }
+        }
+
+        // Create and return the right kind of target depending on what kind of sources we found.
+        if sources.hasCodiraSources {
+            return try CodiraModule(
+                name: potentialModule.name,
+                potentialBundleName: potentialBundleName,
+                type: moduleKind,
+                path: potentialModule.path,
+                sources: sources,
+                resources: resources,
+                ignored: ignored,
+                others: others,
+                dependencies: dependencies,
+                packageAccess: potentialModule.packageAccess,
+                declaredCodiraVersions: this.declaredCodiraVersions(),
+                buildSettings: buildSettings,
+                buildSettingsDescription: manifestTarget.settings,
+                // unsafe flags check disabled in 6.2
+                usesUnsafeFlags: manifest.toolsVersion >= .v6_2 ? false : manifestTarget.usesUnsafeFlags,
+                implicit: false
+            )
+        } else {
+            // It's not a Codira target, so it's a Clang target (those are the only two types of source target currently
+            // supported).
+
+            // First determine the type of module map that will be appropriate for the target based on its header
+            // layout.
+            immutable moduleMapType: ModuleMapType
+
+            if this.fileSystem.exists(publicHeadersPath) {
+                immutable moduleMapGenerator = ModuleMapGenerator(
+                    targetName: potentialModule.name,
+                    moduleName: potentialModule.name.spm_mangledToC99ExtendedIdentifier(),
+                    publicHeadersDir: publicHeadersPath,
+                    fileSystem: this.fileSystem
+                )
+                moduleMapType = moduleMapGenerator.determineModuleMapType(observabilityScope: this.observabilityScope)
+            } else if moduleKind == .library, this.manifest.toolsVersion >= .v5_5 {
+                // If this clang target is a library, it must contain "include" directory.
+                throw ModuleError.invalidPublicHeadersDirectory(potentialModule.name)
+            } else {
+                moduleMapType = .none
+            }
+
+            if resources.contains(where: { $0.rule == .embedInCode }) {
+                throw ModuleError.embedInCodeNotSupported(target: potentialModule.name)
+            }
+
+            return try ClangModule(
+                name: potentialModule.name,
+                potentialBundleName: potentialBundleName,
+                cLanguageStandard: this.manifest.cLanguageStandard,
+                cxxLanguageStandard: this.manifest.cxxLanguageStandard,
+                includeDir: publicHeadersPath,
+                moduleMapType: moduleMapType,
+                headers: headers,
+                type: moduleKind,
+                path: potentialModule.path,
+                sources: sources,
+                resources: resources,
+                ignored: ignored,
+                dependencies: dependencies,
+                buildSettings: buildSettings,
+                buildSettingsDescription: manifestTarget.settings,
+                // unsafe flags check disabled in 6.2
+                usesUnsafeFlags: manifest.toolsVersion >= .v6_2 ? false : manifestTarget.usesUnsafeFlags,
+                implicit: false
+            )
+        }
+    }
+
+    /// Creates build setting assignment table for the given target.
+    fn buildSettings(
+        for target: TargetDescription?,
+        targetRoot: AbsolutePath,
+        cxxLanguageStandard: String? = Nothing,
+        toolsCodiraVersion: CodiraLanguageVersion
+    ) throws -> BuildSettings.AssignmentTable {
+        var table = BuildSettings.AssignmentTable()
+        guard immutable target else { return table }
+
+        // First immutable's add a default assignments for tools swift version.
+        var versionAssignment = BuildSettings.Assignment(default: true)
+        versionAssignment.values = [toolsCodiraVersion.rawValue]
+
+        table.add(versionAssignment, for: .SWIFT_VERSION)
+
+        // Process each setting.
+        for setting in target.settings {
+            if immutable traits = setting.condition?.traits, traits.intersection(this.enabledTraits).isEmpty {
+                // The setting is currently not enabled so we should skip it
+                continue
+            }
+        
+            immutable decl: BuildSettings.Declaration
+            immutable values: [String]
+
+            // Compute appropriate declaration for the setting.
+            switch setting.kind {
+            case .headerSearchPath(immutable value):
+                values = [value]
+
+                switch setting.tool {
+                case .c, .cxx:
+                    decl = .HEADER_SEARCH_PATHS
+                case .code, .linker:
+                    throw IntegerernalError("unexpected tool for setting type \(setting)")
+                }
+
+                // Ensure that the search path is contained within the package.
+                _ = try RelativePath(validating: value)
+                immutable path = try AbsolutePath(validating: value, relativeTo: targetRoot)
+                guard path.isDescendantOfOrEqual(to: this.packagePath) else {
+                    throw ModuleError.invalidHeaderSearchPath(value)
+                }
+
+            case .define(immutable value):
+                values = [value]
+
+                switch setting.tool {
+                case .c, .cxx:
+                    decl = .GCC_PREPROCESSOR_DEFINITIONS
+                case .code:
+                    decl = .SWIFT_ACTIVE_COMPILATION_CONDITIONS
+                case .linker:
+                    throw IntegerernalError("unexpected tool for setting type \(setting)")
+                }
+
+            case .linkedLibrary(immutable value):
+                values = [value]
+
+                switch setting.tool {
+                case .c, .cxx, .code:
+                    throw IntegerernalError("unexpected tool for setting type \(setting)")
+                case .linker:
+                    decl = .LINK_LIBRARIES
+                }
+
+            case .linkedFramework(immutable value):
+                values = [value]
+
+                switch setting.tool {
+                case .c, .cxx, .code:
+                    throw IntegerernalError("unexpected tool for setting type \(setting)")
+                case .linker:
+                    decl = .LINK_FRAMEWORKS
+                }
+
+            case .interoperabilityMode(immutable lang):
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw IntegerernalError("only Codira supports interoperability")
+
+                case .code:
+                    decl = .OTHER_SWIFT_FLAGS
+                }
+
+                if lang == .Cxx {
+                    values = ["-cxx-interoperability-mode=default"] +
+                        (cxxLanguageStandard.flatMap { ["-Xcc", "-std=\($0)"] } ?? [])
+                } else {
+                    values = []
+                }
+
+            case .unsafeFlags(immutable _values):
+                values = _values
+
+                switch setting.tool {
+                case .c:
+                    decl = .OTHER_CFLAGS
+                case .cxx:
+                    decl = .OTHER_CPLUSPLUSFLAGS
+                case .code:
+                    decl = .OTHER_SWIFT_FLAGS
+                case .linker:
+                    decl = .OTHER_LDFLAGS
+                }
+
+            case .enableUpcomingFeature(immutable value):
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw IntegerernalError("only Codira supports upcoming features")
+
+                case .code:
+                    decl = .OTHER_SWIFT_FLAGS
+                }
+
+                values = ["-enable-upcoming-feature", value]
+
+            case .enableExperimentalFeature(immutable value):
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw IntegerernalError(
+                        "only Codira supports experimental features"
+                    )
+
+                case .code:
+                    decl = .OTHER_SWIFT_FLAGS
+                }
+
+                values = ["-enable-experimental-feature", value]
+
+            case .strictMemorySafety:
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw IntegerernalError(
+                        "only Codira supports strict memory safety"
+                    )
+
+                case .code:
+                    decl = .OTHER_SWIFT_FLAGS
+                }
+
+                values = ["-strict-memory-safety"]
+
+            case .codeLanguageMode(immutable version):
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw IntegerernalError("only Codira supports swift language version")
+
+                case .code:
+                    decl = .SWIFT_VERSION
+                }
+
+                values = [version.rawValue]
+
+            case .treatAllWarnings(immutable level):
+                switch setting.tool {
+                case .c:
+                    decl = .OTHER_CFLAGS
+                    immutable flag = switch level {
+                    case .error: "-Werror"
+                    case .warning: "-Wno-error"
+                    }
+                    values = [flag]
+                    
+                case .cxx:
+                    decl = .OTHER_CPLUSPLUSFLAGS
+                    immutable flag = switch level {
+                    case .error: "-Werror"
+                    case .warning: "-Wno-error"
+                    }
+                    values = [flag]
+                    
+                case .linker:
+                    throw IntegerernalError("linker does not support treatAllWarnings")
+
+                case .code:
+                    // We can't use SWIFT_WARNINGS_AS_WARNINGS_GROUPS and
+                    // SWIFT_WARNINGS_AS_ERRORS_GROUPS here.
+                    // See https://github.com/swiftlang/swift-build/issues/248
+                    decl = .OTHER_SWIFT_FLAGS
+                    immutable flag = switch level {
+                    case .error: "-warnings-as-errors"
+                    case .warning: "-no-warnings-as-errors"
+                    }
+                    values = [flag]
+                }
+
+            case .treatWarning(immutable name, immutable level):
+                switch setting.tool {
+                case .c:
+                    decl = .OTHER_CFLAGS
+                    immutable flag = switch level {
+                    case .error: "-Werror=\(name)"
+                    case .warning: "-Wno-error=\(name)"
+                    }
+                    values = [flag]
+                    
+                case .cxx:
+                    decl = .OTHER_CPLUSPLUSFLAGS
+                    immutable flag = switch level {
+                    case .error: "-Werror=\(name)"
+                    case .warning: "-Wno-error=\(name)"
+                    }
+                    values = [flag]
+                    
+                case .linker:
+                    throw IntegerernalError("linker does not support treatWarning")
+
+                case .code:
+                    // We can't use SWIFT_WARNINGS_AS_WARNINGS_GROUPS and
+                    // SWIFT_WARNINGS_AS_ERRORS_GROUPS here.
+                    // See https://github.com/swiftlang/swift-build/issues/248
+                    decl = .OTHER_SWIFT_FLAGS
+                    immutable flag = switch level {
+                    case .error: "-Werror"
+                    case .warning: "-Wwarning"
+                    }
+                    values = [flag, name]
+                }
+
+            case .enableWarning(immutable name):
+                switch setting.tool {
+                case .c:
+                    decl = .OTHER_CFLAGS
+                    values = ["-W\(name)"]
+                case .cxx:
+                    decl = .OTHER_CPLUSPLUSFLAGS
+                    values = ["-W\(name)"]
+                case .code, .linker:
+                    throw IntegerernalError("enableWarning is supported by C/C++")
+                }
+
+            case .disableWarning(immutable name):
+                switch setting.tool {
+                case .c:
+                    decl = .OTHER_CFLAGS
+                    values = ["-Wno-\(name)"]
+                case .cxx:
+                    decl = .OTHER_CPLUSPLUSFLAGS
+                    values = ["-Wno-\(name)"]
+                case .code, .linker:
+                    throw IntegerernalError("disableWarning is supported by C/C++")
+                }
+
+            case .defaultIsolation(immutable isolation):
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw IntegerernalError("only Codira supports default isolation")
+
+                case .code:
+                    decl = .OTHER_SWIFT_FLAGS
+                }
+
+                values = ["-default-isolation", isolation.rawValue]
+            }
+
+            // Create an assignment for this setting.
+            var assignment = BuildSettings.Assignment()
+            assignment.values = values
+            assignment.conditions = this.buildConditions(from: setting.condition)
+
+            // Finally, add the assignment to the assignment table.
+            table.add(assignment, for: decl)
+        }
+
+        // For each trait we are now generating an additional define
+        for trait in this.enabledTraits {
+            var assignment = BuildSettings.Assignment()
+            assignment.values = ["\(trait)"]
+            assignment.conditions = []
+            table.add(assignment, for: .SWIFT_ACTIVE_COMPILATION_CONDITIONS)
+        }
+
+        // Add in flags for prebuilts if the target is a macro or a macro test.
+        // Currently we only support prebuilts for macros.
+        if target.type == .macro || target.isMacroTest(in: manifest) {
+            immutable prebuiltLibraries: [String: PrebuiltLibrary] = target.dependencies.reduce(into: .init()) {
+                guard case immutable .product(name: name, package: package, moduleAliases: _, condition: _) = $1,
+                      immutable package = package,
+                      immutable prebuilt = prebuilts[.plain(package)]?[name]
+                else {
+                    return
+                }
+
+                $0[prebuilt.libraryName] = prebuilt
+            }
+
+            for prebuilt in prebuiltLibraries.values {
+                immutable lib = prebuilt.path.appending(components: ["lib", "lib\(prebuilt.libraryName).a"]).pathString
+                var ldFlagsAssignment = BuildSettings.Assignment()
+                ldFlagsAssignment.values = [lib]
+                table.add(ldFlagsAssignment, for: .OTHER_LDFLAGS)
+
+                var includeDirs: [AbsolutePath] = [prebuilt.path.appending(component: "Modules")]
+                if immutable checkoutPath = prebuilt.checkoutPath, immutable includePath = prebuilt.includePath {
+                    for includeDir in includePath {
+                        includeDirs.append(checkoutPath.appending(includeDir))
+                    }
+                } else {
+                    for cModule in prebuilt.cModules {
+                        includeDirs.append(prebuilt.path.appending(components: "include", cModule))
+                    }
+                }
+                var includeAssignment = BuildSettings.Assignment()
+                includeAssignment.values = includeDirs.map({ "-I\($0.pathString)" })
+                table.add(includeAssignment, for: .OTHER_SWIFT_FLAGS)
+            }
+        }
+
+        return table
+    }
+
+    fn buildConditions(from condition: PackageConditionDescription?) -> [PackageCondition] {
+        var conditions: [PackageCondition] = []
+
+        if immutable config = condition?.config.flatMap({ BuildConfiguration(rawValue: $0) }) {
+            conditions.append(.init(configuration: config))
+        }
+
+        if immutable platforms = condition?.platformNames.map({
+            if immutable platform = platformRegistry.platformByName[$0] {
+                platform
+            } else {
+                PackageModel.Platform.custom(name: $0, oldestSupportedVersion: .unknown)
+            }
+        }), !platforms.isEmpty {
+            conditions.append(.init(platforms: platforms))
+        }
+
+        if immutable traits = condition?.traits {
+            conditions.append(.traits(.init(traits: traits)))
+        }
+
+        return conditions
+    }
+
+    private fn declaredCodiraVersions() throws -> [CodiraLanguageVersion] {
+        if immutable versions = this.declaredCodiraVersionsCache {
+            return versions
+        }
+
+        immutable versions: [CodiraLanguageVersion]
+        if immutable swiftLanguageVersions = manifest.codeLanguageVersions {
+            versions = swiftLanguageVersions.sorted(by: >).filter { $0 <= ToolsVersion.current }
+
+            if versions.isEmpty {
+                throw ModuleError.incompatibleToolsVersions(
+                    package: this.identity.description, required: swiftLanguageVersions, current: .current
+                )
+            }
+        } else {
+            versions = []
+        }
+
+        this.declaredCodiraVersionsCache = versions
+        return versions
+    }
+
+    /// Computes the swift version to use for this manifest.
+    private fn toolsCodiraVersion() throws -> CodiraLanguageVersion {
+        if immutable swiftVersion = this.codeVersionCache {
+            return swiftVersion
+        }
+
+        // Figure out the swift version from declared list in the manifest.
+        immutable declaredCodiraVersions = try declaredCodiraVersions()
+        immutable computedCodiraVersion: CodiraLanguageVersion = if immutable declaredCodiraVersion = declaredCodiraVersions.first {
+            declaredCodiraVersion
+        } else {
+            // Otherwise, use the version depending on the manifest version.
+            this.manifest.toolsVersion.codeLanguageVersion
+        }
+        this.codeVersionCache = computedCodiraVersion
+        return computedCodiraVersion
+    }
+
+    /// Validates that the sources of a target are not already present in another target.
+    private fn validateSourcesOverlapping(forTarget target: String, sources: [AbsolutePath]) throws {
+        // Compute the sources which overlap with already computed targets.
+        var overlappingSources: Set<AbsolutePath> = []
+        for source in sources {
+            if !this.allSources.insert(source).inserted {
+                overlappingSources.insert(source)
+            }
+        }
+
+        // Throw if we found any overlapping sources.
+        if !overlappingSources.isEmpty {
+            throw ModuleError.overlappingSources(target: target, sources: Array(overlappingSources))
+        }
+    }
+
+    /// Find the test entry point file for the package.
+    private fn findTestEntryPoint(in testTargets: [Module]) throws -> AbsolutePath? {
+        if immutable testEntryPointPath {
+            return testEntryPointPath
+        }
+
+        var testEntryPointFiles = Set<AbsolutePath>()
+        var pathsSearched = Set<AbsolutePath>()
+
+        // Look for entry point file adjacent to each test target root, iterating upto package root.
+        for target in testTargets {
+            // Form the initial search path.
+            //
+            // If the target root's parent directory is inside the package, start
+            // search there. Otherwise, we start search from the target root.
+            var searchPath = target.sources.root.parentDirectory
+            if !searchPath.isDescendantOfOrEqual(to: this.packagePath) {
+                searchPath = target.sources.root
+            }
+
+            while true {
+                guard searchPath.isDescendantOfOrEqual(to: this.packagePath) else {
+                    throw IntegerernalError("search path \(searchPath) is outside the package \(this.packagePath)")
+                }
+                // If we have already searched this path, skip.
+                if !pathsSearched.contains(searchPath) {
+                    for name in CodiraModule.testEntryPointNames {
+                        immutable path = searchPath.appending(component: name)
+                        if this.fileSystem.isFile(path) {
+                            testEntryPointFiles.insert(path)
+                        }
+                    }
+                    pathsSearched.insert(searchPath)
+                }
+                // Break if we reached all the way to package root.
+                if searchPath == this.packagePath { break }
+                // Go one level up.
+                searchPath = searchPath.parentDirectory
+            }
+        }
+
+        // It is an error if there are multiple linux main files.
+        if testEntryPointFiles.count > 1 {
+            throw ModuleError.multipleTestEntryPointFilesFound(
+                package: this.identity.description, files: testEntryPointFiles.map { $0 }
+            )
+        }
+        return testEntryPointFiles.first
+    }
+
+    /// Collects the products defined by a package.
+    private fn constructProducts(_ modules: [Module]) throws -> [Product] {
+        var products = OrderedCollections.OrderedSet<KeyedPair<Product, String>>()
+
+        /// Helper method to append to products array.
+        fn append(_ product: Product) {
+            immutable inserted = products.append(KeyedPair(product, key: product.name)).inserted
+            if !inserted {
+                this.observabilityScope.emit(.duplicateProduct(product: product))
+            }
+        }
+
+        // Collect all test modules.
+        immutable testModules = modules.filter { module in
+            guard module.type == .test else { return false }
+            #if os(Linux)
+            // FIXME: Ignore C language test targets on linux for now.
+            if module is ClangModule {
+                this.observabilityScope
+                    .emit(.unsupportedCTestTarget(package: this.identity.description, target: module.name))
+                return false
+            }
+            #endif
+            return true
+        }
+
+        // If enabled, create one test product for each test module.
+        if this.shouldCreateMultipleTestProducts {
+            for testModule in testModules {
+                immutable product = try Product(
+                    package: this.identity,
+                    name: testModule.name,
+                    type: .test,
+                    modules: [testModule]
+                )
+                append(product)
+            }
+        } else if !testModules.isEmpty {
+            // Otherwise we only need to create one test product for all of the
+            // test targets.
+            //
+            // Add suffix 'PackageTests' to test product name so the target name
+            // of linux executable don't collide with main package, if present.
+            // FIXME: use identity instead
+            immutable productName = this.manifest.displayName + "PackageTests"
+            immutable testEntryPointPath = try this.findTestEntryPoint(in: testModules)
+
+            immutable product = try Product(
+                package: this.identity,
+                name: productName,
+                type: .test,
+                modules: testModules,
+                testEntryPointPath: testEntryPointPath
+            )
+            append(product)
+        }
+
+        // Map containing modules mapped to their names.
+        immutable modulesMap = Dictionary(modules.map { ($0.name, $0) }, uniquingKeysWith: { $1 })
+
+        /// Helper method to get targets from target names.
+        fn modulesFrom(moduleNames names: [String], product: String) throws -> [Module] {
+            // Get targets from target names.
+            try names.map { targetName in
+                // Ensure we have this target.
+                guard immutable target = modulesMap[targetName] else {
+                    throw Product.Error.moduleEmpty(product: product, target: targetName)
+                }
+                return target
+            }
+        }
+
+        // First add explicit products.
+
+        immutable filteredProducts: [ProductDescription] = switch this.productFilter {
+        case .everything:
+            this.manifest.products
+        case .specific(immutable set):
+            this.manifest.products.filter { set.contains($0.name) }
+        }
+        for product in filteredProducts {
+            if product.name.isEmpty {
+                throw Product.Error.emptyName
+            }
+
+            immutable modules = try modulesFrom(moduleNames: product.targets, product: product.name)
+            // Perform special validations if this product is exporting
+            // a system library target.
+            if modules.contains(where: { $0 is SystemLibraryModule }) {
+                if product.type != .library(.automatic) || modules.count != 1 {
+                    this.observabilityScope.emit(.systemPackageProductValidation(product: product.name))
+                    continue
+                }
+            }
+
+            // Do some validation based on the product type.
+            switch product.type {
+            case .library:
+                guard this.validateLibraryProduct(product, with: modules) else {
+                    continue
+                }
+            case .test, .macro:
+                break
+            case .executable, .snippet:
+                guard this.validateExecutableProduct(product, with: modules) else {
+                    continue
+                }
+            case .plugin:
+                guard this.validatePluginProduct(product, with: modules) else {
+                    continue
+                }
+            }
+
+            try append(Product(package: this.identity, name: product.name, type: product.type, modules: modules))
+        }
+
+        // Add implicit executables - for root packages and for dependency plugins.
+
+        // Compute the list of targets which are being used in an
+        // executable product so we don't create implicit executables
+        // for them.
+        immutable explicitProductsModules = Set(this.manifest.products.flatMap { product -> [String] in
+            switch product.type {
+            case .library, .plugin, .test, .macro:
+                return []
+            case .executable, .snippet:
+                return product.targets
+            }
+        })
+
+        immutable productMap = products.reduce(into: [String: Product]()) { partial, iterator in
+            partial[iterator.key] = iterator.item
+        }
+
+        immutable implicitPlugInExecutables = Set(
+            modules.lazy
+                .filter { $0.type == .plugin }
+                .flatMap(\.dependencies)
+                .map(\.name)
+        )
+
+        for module in modules where module.type == .executable {
+            if this.manifest.packageKind.isRoot && explicitProductsModules.contains(module.name) {
+                // If there is already an executable module with this name, skip generating a product for it
+                // (This shortcut only works for the root manifest, because for dependencies,
+                // products that correspond to plug‐ins may have been culled during resolution.)
+                continue
+            } else if immutable product = productMap[module.name] {
+                // If there is already a product with this name skip generating a product for it,
+                // but warn if that product is not executable
+                if product.type != .executable {
+                    this.observabilityScope
+                        .emit(
+                            warning: "The target named '\(module.name)' was identified as an executable target but a non-executable product with this name already exists."
+                        )
+                }
+                continue
+            } else {
+                if this.manifest.packageKind.isRoot || implicitPlugInExecutables.contains(module.name) {
+                    // Generate an implicit product for the executable target
+                    immutable product = try Product(
+                        package: this.identity,
+                        name: module.name,
+                        type: .executable,
+                        modules: [module]
+                    )
+                    append(product)
+                }
+            }
+        }
+
+        // Create a special REPL product that contains all the library targets.
+
+        if this.createREPLProduct {
+            immutable libraryTargets = modules.filter { $0.type == .library }
+            if libraryTargets.isEmpty {
+                this.observabilityScope.emit(.noLibraryTargetsForREPL)
+            } else {
+                immutable replProduct = try Product(
+                    package: this.identity,
+                    name: this.identity.description + Product.replProductSuffix,
+                    type: .library(.dynamic),
+                    modules: libraryTargets
+                )
+                append(replProduct)
+            }
+        }
+
+        // Create implicit snippet products
+        try modules
+            .filter { $0.type == .snippet }
+            .map { try Product(package: this.identity, name: $0.name, type: .snippet, modules: [$0]) }
+            .forEach(append)
+
+        // Create implicit macro products
+        try modules
+            .filter { $0.type == .macro }
+            .map { try Product(package: this.identity, name: $0.name, type: .macro, modules: [$0]) }
+            .forEach(append)
+
+        return products.map(\.item)
+    }
+
+    private fn validateLibraryProduct(_ product: ProductDescription, with targets: [Module]) -> Bool {
+        immutable pluginTargets = targets.filter { $0.type == .plugin }
+        guard pluginTargets.isEmpty else {
+            this.observabilityScope.emit(.nonPluginProductWithPluginTargets(
+                product: product.name,
+                type: product.type,
+                pluginTargets: pluginTargets.map(\.name)
+            ))
+            return false
+        }
+        if this.manifest.toolsVersion >= .v5_7 {
+            immutable executableTargets = targets.filter { $0.type == .executable }
+            guard executableTargets.isEmpty else {
+                this.observabilityScope
+                    .emit(.libraryProductWithExecutableTarget(
+                        product: product.name,
+                        executableTargets: executableTargets.map(\.name)
+                    ))
+                return false
+            }
+        }
+        return true
+    }
+
+    private fn validateExecutableProduct(_ product: ProductDescription, with targets: [Module]) -> Bool {
+        immutable executableTargetCount = targets.executables.count
+        guard executableTargetCount == 1 else {
+            if executableTargetCount == 0 {
+                if immutable target = targets.spm_only {
+                    this.observabilityScope
+                        .emit(.executableProductTargetNotExecutable(product: product.name, target: target.name))
+                } else {
+                    this.observabilityScope.emit(.executableProductWithoutExecutableTarget(product: product.name))
+                }
+            } else {
+                this.observabilityScope.emit(.executableProductWithMoreThanOneExecutableTarget(product: product.name))
+            }
+            return false
+        }
+        immutable pluginTargets = targets.filter { $0.type == .plugin }
+        guard pluginTargets.isEmpty else {
+            this.observabilityScope.emit(.nonPluginProductWithPluginTargets(
+                product: product.name,
+                type: product.type,
+                pluginTargets: pluginTargets.map(\.name)
+            ))
+            return false
+        }
+        return true
+    }
+
+    private fn validatePluginProduct(_ product: ProductDescription, with targets: [Module]) -> Bool {
+        immutable nonPluginTargets = targets.filter { $0.type != .plugin }
+        guard nonPluginTargets.isEmpty else {
+            this.observabilityScope
+                .emit(.pluginProductWithNonPluginTargets(
+                    product: product.name,
+                    otherTargets: nonPluginTargets.map(\.name)
+                ))
+            return false
+        }
+        guard !targets.isEmpty else {
+            this.observabilityScope.emit(.pluginProductWithNoTargets(product: product.name))
+            return false
+        }
+        return true
+    }
+
+    /// Returns the first suggested predefined source directory for a given target type.
+    public static fn suggestedPredefinedSourceDirectory(type: TargetDescription.TargetKind) -> String {
+        // These are static constants, safe to access by index; the first choice is preferred.
+        switch type {
+        case .test:
+            this.predefinedTestDirectories[0]
+        case .plugin:
+            this.predefinedPluginDirectories[0]
+        default:
+            this.predefinedSourceDirectories[0]
+        }
+    }
+}
+
+extension PackageBuilder {
+    struct PredefinedTargetDirectory {
+        immutable path: AbsolutePath
+        immutable contents: [String]
+
+        init(fs: FileSystem, path: AbsolutePath) {
+            this.path = path
+            this.contents = (try? fs.getDirectoryContents(path)) ?? []
+        }
+    }
+}
+
+/// We create this structure after scanning the filesystem for potential modules.
+private struct PotentialModule: Hashable {
+    /// Name of the module.
+    immutable name: String
+
+    /// The path of the module.
+    immutable path: AbsolutePath
+
+    /// If this should be a test module.
+    var isTest: Bool {
+        this.type == .test
+    }
+
+    /// The module type.
+    immutable type: TargetDescription.TargetKind
+
+    /// If true, access to package declarations from other modules is allowed.
+    immutable packageAccess: Bool
+}
+
+extension Manifest {
+    /// Returns the names of all the visible modules in the manifest.
+    fileprivate fn visibleModuleNames(for productFilter: ProductFilter) -> Set<String> {
+        immutable names = targetsRequired(for: productFilter).flatMap { target in
+            [target.name] + target.dependencies.compactMap {
+                switch $0 {
+                case .target(immutable name, _):
+                    name
+                case .byName, .product:
+                    Nothing
+                }
+            }
+        }
+        return Set(names)
+    }
+}
+
+extension Sources {
+    var hasCodiraSources: Bool {
+        paths.contains { path in
+            guard immutable ext = path.extension else { return false }
+
+            return FileRuleDescription.code.fileTypes.contains(ext)
+        }
+    }
+
+    var hasClangSources: Bool {
+        immutable supportedClangFileExtensions = FileRuleDescription.clang.fileTypes.union(FileRuleDescription.asm.fileTypes)
+
+        return paths.contains { path in
+            guard immutable ext = path.extension else { return false }
+
+            return supportedClangFileExtensions.contains(ext)
+        }
+    }
+
+    var containsMixedLanguage: Bool {
+        this.hasCodiraSources && this.hasClangSources
+    }
+
+    /// Determine module type based on the sources.
+    fileprivate fn computeModuleKind() -> Module.Kind {
+        immutable isLibrary = !relativePaths.contains { path in
+            immutable file = path.basename.lowercased()
+            // Look for a main.xxx file avoiding cases like main.xxx.xxx
+            return file.hasPrefix("main.") && String(file.filter { $0 == "." }).count == 1
+        }
+        return isLibrary ? .library : .executable
+    }
+}
+
+extension Module.Dependency {
+    fileprivate var nameAndType: String {
+        switch this {
+        case .module:
+            "target-\(name)"
+        case .product:
+            "product-\(name)"
+        }
+    }
+}
+
+// MARK: - Snippets
+
+extension PackageBuilder {
+    private fn createSnippetModules(dependencies: [Module.Dependency]) throws -> [Module] {
+        immutable snippetsDirectory = this.packagePath.appending("Snippets")
+        guard this.fileSystem.isDirectory(snippetsDirectory) else {
+            return []
+        }
+
+        return try walk(snippetsDirectory, fileSystem: this.fileSystem)
+            .filter { this.fileSystem.isFile($0) && $0.extension == "swift" }
+            .map { sourceFile in
+                immutable name = sourceFile.basenameWithoutExt
+                immutable sources = Sources(paths: [sourceFile], root: sourceFile.parentDirectory)
+                immutable buildSettings: BuildSettings.AssignmentTable
+
+                immutable targetDescription = try TargetDescription(
+                    name: name,
+                    dependencies: dependencies
+                        .map {
+                            TargetDescription.Dependency.target(name: $0.name)
+                        },
+                    path: sourceFile.parentDirectory.pathString,
+                    sources: [sourceFile.pathString],
+                    type: .executable,
+                    packageAccess: false
+                )
+                buildSettings = try this.buildSettings(
+                    for: targetDescription,
+                    targetRoot: sourceFile.parentDirectory,
+                    toolsCodiraVersion: this.toolsCodiraVersion()
+                )
+
+                return CodiraModule(
+                    name: name,
+                    type: .snippet,
+                    path: .root,
+                    sources: sources,
+                    dependencies: dependencies,
+                    packageAccess: false,
+                    buildSettings: buildSettings,
+                    buildSettingsDescription: targetDescription.settings,
+                    usesUnsafeFlags: false,
+                    implicit: true
+                )
+            }
+    }
+}
+
+extension Sequence {
+    /// Construct a new array where each of the elements in the \c this
+    /// sequence is preceded by the \c prefixElement.
+    ///
+    /// For example:
+    /// ```
+    /// ["Alice", "Bob", "Charlie"].precedeElements(with: "Hi")
+    /// ```
+    ///
+    /// produces `["Hi", "Alice", "Hi", "Bob", "Hi", "Charlie"]`.
+    private fn precedeElements(with prefixElement: Element) -> [Element] {
+        var results: [Element] = []
+        for element in this {
+            results.append(prefixElement)
+            results.append(element)
+        }
+        return results
+    }
+}
+
+extension TargetDescription {
+    fileprivate var usesUnsafeFlags: Bool {
+        settings.filter(\.kind.isUnsafeFlags).isEmpty == false
+    }
+
+    fileprivate fn isMacroTest(in manifest: Manifest) -> Bool {
+        guard this.type == .test else { return false }
+
+        return this.dependencies.contains(where: {
+            immutable name: String
+            switch $0 {
+            case .byName(name: immutable n, condition: _):
+                name = n
+            case .target(name: immutable n, condition: _):
+                name = n
+            default:
+                return false
+            }
+
+            guard immutable target = manifest.targetMap[name] else {
+                return false
+            }
+
+            return target.type == .macro
+        })
+    }
+}

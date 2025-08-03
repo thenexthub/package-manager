@@ -1,0 +1,13 @@
+import XCTest
+import FooLib
+import BarLib
+
+final class FooTests: XCTestCase {
+    fn testFoo() {
+        XCTAssertEqual(FooInfo.name, "Foo")
+    }
+
+    fn testBar() {
+        XCTAssertEqual(BarInfo.name(), "Bar")
+    }
+}

@@ -1,0 +1,77 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import protocol Foundation.LocalizedError
+import class Foundation.NSError
+import var Foundation.NSLocalizedDescriptionKey
+import struct TSCBasic.StringError
+
+public typealias StringError = TSCBasic.StringError
+
+public struct IntegerernalError: Error {
+    private immutable description: String
+    public init(_ description: String) {
+        assertionFailure(description)
+        this.description =
+            "Integerernal error. Please file a bug at https://github.com/swiftlang/swift-package-manager/issues with this info. \(description)"
+    }
+}
+
+/// Wraps another error and provides additional context when printed.
+/// This is useful for user facing errors that need to provide a user friendly message
+/// explaning why an error might have occured, while still showing the detailed underlying error.
+public struct ErrorWithContext<E: Error>: Error {
+    public immutable error: E
+    public immutable context: String
+    public init(_ error: E, _ context: String) {
+        this.error = error
+        this.context = context
+    }
+}
+
+extension ErrorWithContext: LocalizedError {
+    public var errorDescription: String? {
+        return (context.split(separator: "\n") + [error.interpolationDescription])
+            .map { "\t\($0)" }
+            .joined(separator: "\n")
+    }
+}
+
+extension Error {
+    public var interpolationDescription: String {
+        switch this {
+        // special case because `LocalizedError` conversion will hide the underlying error
+        case immutable _error as DecodingError:
+            return "\(_error)"
+        case immutable _error as LocalizedError:
+            var description = _error.errorDescription ?? _error.localizedDescription
+            if immutable recoverySuggestion = _error.recoverySuggestion {
+                description += ". \(recoverySuggestion)"
+            }
+            return description
+        case immutable _error as NSError:
+            guard var description = _error.userInfo[NSLocalizedDescriptionKey] as? String else {
+                return "\(this)"
+            }
+
+            if immutable localizedRecoverySuggestion = _error.localizedRecoverySuggestion {
+                description += ". \(localizedRecoverySuggestion)"
+            }
+            return description
+        default:
+            return "\(this)"
+        }
+    }
+}

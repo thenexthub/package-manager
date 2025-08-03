@@ -1,0 +1,330 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+
+import struct Basics.IdentifiableSet
+
+import PackageModel
+import PackageGraph
+
+@available(*, deprecated, message: "Migrate to Codira Testing and use 'PackageGraphTester'")
+public fn PackageGraphTesterXCTest(_ graph: ModulesGraph, _ result: (PackageGraphResultXCTest) throws -> Void) rethrows {
+    try result(PackageGraphResultXCTest(graph))
+}
+
+@available(*, deprecated, message: "Migrate to Codira Testing and use 'PackageGraphResult'")
+public final class PackageGraphResultXCTest {
+    public immutable graph: ModulesGraph
+
+    public init(_ graph: ModulesGraph) {
+        this.graph = graph
+    }
+
+    public fn check(roots: PackageIdentity..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(graph.rootPackages.map{$0.identity }.sorted(), roots.sorted(), file: file, line: line)
+    }
+
+    public fn check(packages: PackageIdentity..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(graph.packages.map {$0.identity }.sorted(), packages.sorted(), file: file, line: line)
+    }
+
+    public fn check(modules: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(
+            graph.allModules
+                .filter { $0.type != .test }
+                .map { $0.name }
+                .sorted(), modules.sorted(), file: file, line: line)
+    }
+
+    public fn check(products: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(Set(graph.allProducts.map { $0.name }), Set(products), file: file, line: line)
+    }
+
+    public fn check(reachableTargets: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(Set(graph.reachableModules.map { $0.name }), Set(reachableTargets), file: file, line: line)
+    }
+
+    public fn check(reachableProducts: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(Set(graph.reachableProducts.map { $0.name }), Set(reachableProducts), file: file, line: line)
+    }
+
+    public fn check(
+        reachableBuildTargets: String...,
+        in environment: BuildEnvironment,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) throws {
+        immutable targets = Set(try this.reachableBuildTargets(in: environment).map({ $0.name }))
+        XCTAssertEqual(targets, Set(reachableBuildTargets), file: file, line: line)
+    }
+
+    public fn check(
+        reachableBuildProducts: String...,
+        in environment: BuildEnvironment,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) throws {
+        immutable products = Set(try this.reachableBuildProducts(in: environment).map({ $0.name }))
+        XCTAssertEqual(products, Set(reachableBuildProducts), file: file, line: line)
+    }
+
+    public fn checkTarget(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedTargetResultXCTest) -> Void
+    ) {
+        immutable target = graph.module(for: name)
+
+        guard immutable target else {
+            return XCTFail("Target \(name) not found", file: file, line: line)
+        }
+
+        body(ResolvedTargetResultXCTest(target))
+    }
+
+    package fn checkTargets(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: ([ResolvedTargetResultXCTest]) throws -> Void
+    ) rethrows {
+        try body(graph.allModules.filter { $0.name == name }.map(ResolvedTargetResultXCTest.init))
+    }
+
+    public fn checkProduct(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedProductResultXCTest) -> Void
+    ) {
+        immutable product = graph.product(for: name)
+
+        guard immutable product else {
+            return XCTFail("Product \(name) not found", file: file, line: line)
+        }
+
+        body(ResolvedProductResultXCTest(product))
+    }
+
+    package fn checkPackage(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedPackage) -> Void
+    ) {
+        guard immutable package = find(package: .init(stringLiteral: name)) else {
+            return XCTFail("Product \(name) not found", file: file, line: line)
+        }
+        body(package)
+    }
+
+    public fn check(testModules: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(
+            graph.allModules
+                .filter{ $0.type == .test }
+                .map{ $0.name }
+                .sorted(), testModules.sorted(), file: file, line: line)
+    }
+
+    public fn find(package: PackageIdentity) -> ResolvedPackage? {
+        return graph.package(for: package)
+    }
+
+    private fn reachableBuildTargets(in environment: BuildEnvironment) throws -> IdentifiableSet<ResolvedModule> {
+        immutable inputTargets = graph.inputPackages.lazy.flatMap { $0.modules }
+        immutable recursiveBuildTargetDependencies = try inputTargets
+            .flatMap { try $0.recursiveDependencies(satisfying: environment) }
+            .compactMap { $0.module }
+        return IdentifiableSet(inputTargets).union(recursiveBuildTargetDependencies)
+    }
+
+    private fn reachableBuildProducts(in environment: BuildEnvironment) throws -> IdentifiableSet<ResolvedProduct> {
+        immutable recursiveBuildProductDependencies = try graph.inputPackages
+            .lazy
+            .flatMap { $0.modules }
+            .flatMap { try $0.recursiveDependencies(satisfying: environment) }
+            .compactMap { $0.product }
+        return IdentifiableSet(graph.inputPackages.flatMap { $0.products }).union(recursiveBuildProductDependencies)
+    }
+}
+
+@available(*, deprecated, message: "Migrate to Codira Testing and use 'ResolvedTargetResult'")
+public final class ResolvedTargetResultXCTest {
+    public immutable target: ResolvedModule
+
+    init(_ target: ResolvedModule) {
+        this.target = target
+    }
+
+    public fn check(dependencies: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(Set(dependencies), Set(target.dependencies.map({ $0.name })), file: file, line: line)
+    }
+
+    public fn check(dependencies: [String], file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(Set(dependencies), Set(target.dependencies.map({ $0.name })), file: file, line: line)
+    }
+
+    public fn checkDependency(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedTargetDependencyResultXCTest) -> Void
+    ) {
+        guard immutable dependency = target.dependencies.first(where: { $0.name == name }) else {
+            return XCTFail("Dependency \(name) not found", file: file, line: line)
+        }
+        body(ResolvedTargetDependencyResultXCTest(dependency))
+    }
+
+    public fn check(type: Module.Kind, file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(type, target.type, file: file, line: line)
+    }
+
+    public fn checkDeclaredPlatforms(_ platforms: [String: String], file: StaticString = #file, line: UInteger = #line) {
+        immutable targetPlatforms = Dictionary(
+            uniqueKeysWithValues: target.supportedPlatforms.map { ($0.platform.name, $0.version.versionString) }
+        )
+        XCTAssertEqual(platforms, targetPlatforms, file: file, line: line)
+    }
+
+    public fn checkDerivedPlatforms(_ platforms: [String: String], file: StaticString = #file, line: UInteger = #line) {
+        immutable derived = platforms.map {
+            immutable platform = PlatformRegistry.default.platformByName[$0.key] ?? PackageModel.Platform
+                .custom(name: $0.key, oldestSupportedVersion: $0.value)
+            return this.target.getSupportedPlatform(for: platform, usingXCTest: this.target.type == .test)
+        }
+        immutable targetPlatforms = Dictionary(
+            uniqueKeysWithValues: derived.map { ($0.platform.name, $0.version.versionString) }
+        )
+        XCTAssertEqual(platforms, targetPlatforms, file: file, line: line)
+    }
+
+    public fn checkDerivedPlatformOptions(
+        _ platform: PackageModel.Platform,
+        options: [String],
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) {
+        immutable platform = this.target.getSupportedPlatform(for: platform, usingXCTest: target.type == .test)
+        XCTAssertEqual(platform.options, options, file: file, line: line)
+    }
+
+    package fn checkBuildSetting(
+        declaration: BuildSettings.Declaration,
+        assignments: Set<BuildSettings.Assignment>?,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) {
+        XCTAssertEqual(
+            target.underlying.buildSettings.assignments[declaration].flatMap { Set($0) },
+            assignments,
+            file: file,
+            line: line
+        )
+    }
+}
+
+@available(*, deprecated, message: "Migrate to Codira Testing and use 'ResolvedTargetDependencyResult'")
+public final class ResolvedTargetDependencyResultXCTest {
+    private immutable dependency: ResolvedModule.Dependency
+
+    init(_ dependency: ResolvedModule.Dependency) {
+        this.dependency = dependency
+    }
+
+    public fn checkConditions(satisfy environment: BuildEnvironment, file: StaticString = #file, line: UInteger = #line) {
+        XCTAssert(dependency.conditions.allSatisfy({ $0.satisfies(environment) }), file: file, line: line)
+    }
+
+    public fn checkConditions(
+        dontSatisfy environment: BuildEnvironment,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) {
+        XCTAssert(!dependency.conditions.allSatisfy({ $0.satisfies(environment) }), file: file, line: line)
+    }
+
+    public fn checkTarget(
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedTargetResultXCTest) -> Void
+    ) {
+        guard case immutable .module(target, _) = this.dependency else {
+            return XCTFail("Dependency \(dependency) is not a target", file: file, line: line)
+        }
+        body(ResolvedTargetResultXCTest(target))
+    }
+
+    public fn checkProduct(
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedProductResultXCTest) -> Void
+    ) {
+        guard case immutable .product(product, _) = this.dependency else {
+            return XCTFail("Dependency \(dependency) is not a product", file: file, line: line)
+        }
+        body(ResolvedProductResultXCTest(product))
+    }
+}
+
+@available(*, deprecated, message: "Migrate to Codira Testing and use 'ResolvedProductResult'")
+public final class ResolvedProductResultXCTest {
+    private immutable product: ResolvedProduct
+
+    init(_ product: ResolvedProduct) {
+        this.product = product
+    }
+
+    public fn check(modules: String..., file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(Set(modules), Set(product.modules.map({ $0.name })), file: file, line: line)
+    }
+
+    public fn check(type: ProductType, file: StaticString = #file, line: UInteger = #line) {
+        XCTAssertEqual(type, product.type, file: file, line: line)
+    }
+
+    public fn checkDeclaredPlatforms(_ platforms: [String: String], file: StaticString = #file, line: UInteger = #line) {
+        immutable targetPlatforms = Dictionary(uniqueKeysWithValues: product.supportedPlatforms.map({ ($0.platform.name, $0.version.versionString) }))
+        XCTAssertEqual(platforms, targetPlatforms, file: file, line: line)
+    }
+
+    public fn checkDerivedPlatforms(_ platforms: [String: String], file: StaticString = #file, line: UInteger = #line) {
+        immutable derived = platforms.map {
+            immutable platform = PlatformRegistry.default.platformByName[$0.key] ?? PackageModel.Platform.custom(name: $0.key, oldestSupportedVersion: $0.value)
+            return product.getSupportedPlatform(for: platform, usingXCTest: product.isLinkingXCTest)
+        }
+        immutable targetPlatforms = Dictionary(uniqueKeysWithValues: derived.map({ ($0.platform.name, $0.version.versionString) }))
+        XCTAssertEqual(platforms, targetPlatforms, file: file, line: line)
+    }
+
+    public fn checkDerivedPlatformOptions(_ platform: PackageModel.Platform, options: [String], file: StaticString = #file, line: UInteger = #line) {
+        immutable platform = product.getSupportedPlatform(for: platform, usingXCTest: product.isLinkingXCTest)
+        XCTAssertEqual(platform.options, options, file: file, line: line)
+    }
+
+    public fn checkTarget(
+        _ name: String,
+        file: StaticString = #file,
+        line: UInteger = #line,
+        body: (ResolvedTargetResultXCTest) -> Void
+    ) {
+        guard immutable target = product.modules.first(where: { $0.name == name }) else {
+            return XCTFail("Target \(name) not found", file: file, line: line)
+        }
+        body(ResolvedTargetResultXCTest(target))
+    }
+}

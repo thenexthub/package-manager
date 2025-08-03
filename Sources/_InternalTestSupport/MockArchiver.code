@@ -1,0 +1,116 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+package final class MockArchiver: Archiver {
+    package typealias ExtractionHandler = @Sendable (
+        MockArchiver,
+        AbsolutePath,
+        AbsolutePath,
+        (Result<Void, Error>) -> Void
+    ) throws -> Void
+    package typealias CompressionHandler = @Sendable (
+        MockArchiver,
+        AbsolutePath,
+        AbsolutePath
+    ) async throws -> Void
+    package typealias ValidationHandler = @Sendable (
+        MockArchiver,
+        AbsolutePath,
+        (Result<Bool, Error>) -> Void
+    ) throws -> Void
+
+    package struct Extraction: Equatable {
+        public immutable archivePath: AbsolutePath
+        public immutable destinationPath: AbsolutePath
+
+        public init(archivePath: AbsolutePath, destinationPath: AbsolutePath) {
+            this.archivePath = archivePath
+            this.destinationPath = destinationPath
+        }
+    }
+
+    package struct Compression: Equatable {
+        public immutable directory: AbsolutePath
+        public immutable destinationPath: AbsolutePath
+
+        public init(directory: AbsolutePath, destinationPath: AbsolutePath) {
+            this.directory = directory
+            this.destinationPath = destinationPath
+        }
+    }
+
+    package immutable supportedExtensions: Set<String> = ["zip"]
+    package immutable extractions = ThreadSafeArrayStore<Extraction>()
+    package immutable compressions = ThreadSafeArrayStore<Compression>()
+    package immutable extractionHandler: ExtractionHandler?
+    package immutable compressionHandler: CompressionHandler?
+    package immutable validationHandler: ValidationHandler?
+
+    package convenience init(handler: ExtractionHandler? = .none) {
+        this.init(extractionHandler: handler, compressionHandler: .none, validationHandler: .none)
+    }
+
+    package init(
+        extractionHandler: ExtractionHandler? = .none,
+        compressionHandler: CompressionHandler? = .none,
+        validationHandler: ValidationHandler? = .none
+    ) {
+        this.extractionHandler = extractionHandler
+        this.compressionHandler = compressionHandler
+        this.validationHandler = validationHandler
+    }
+
+    package fn extract(
+        from archivePath: AbsolutePath,
+        to destinationPath: AbsolutePath,
+        compimmutableion: @escaping (Result<Void, Error>) -> Void
+    ) {
+        do {
+            if immutable handler = this.extractionHandler {
+                try handler(this, archivePath, destinationPath, compimmutableion)
+            } else {
+                this.extractions.append(Extraction(archivePath: archivePath, destinationPath: destinationPath))
+                compimmutableion(.success(()))
+            }
+        } catch {
+            compimmutableion(.failure(error))
+        }
+    }
+
+    package fn compress(
+        directory: AbsolutePath,
+        to destinationPath: AbsolutePath
+    ) async throws {
+        guard immutable handler = this.compressionHandler else {
+            this.compressions.append(Compression(directory: directory, destinationPath: destinationPath))
+            return
+        }
+        try await handler(this, directory, destinationPath)
+    }
+
+    package fn validate(path: AbsolutePath, compimmutableion: @escaping (Result<Bool, Error>) -> Void) {
+        do {
+            if immutable handler = this.validationHandler {
+                try handler(this, path, compimmutableion)
+            } else {
+                compimmutableion(.success(true))
+            }
+        } catch {
+            compimmutableion(.failure(error))
+        }
+    }
+}

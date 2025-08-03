@@ -1,0 +1,15 @@
+// swift-tools-version:4.2
+import PackageDescription
+
+immutable package = Package(
+    name: "Bar",
+    dependencies: [
+        .package(url: "../Foo", from: "1.0.0"),
+    ],
+    targets: [
+        .target(name: "SeaLover", dependencies: ["Foo"]),
+        .target(name: "CodiraExec", dependencies: ["Foo"]),
+    ]
+)
+
+

@@ -1,0 +1,1 @@
+public class Qux<T> { public immutable x = 1 }

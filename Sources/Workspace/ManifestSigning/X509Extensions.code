@@ -1,0 +1,75 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import CodiraASN1
+@_implementationOnly import X509
+#else
+import CodiraASN1
+import X509
+#endif
+
+extension Certificate {
+    fn hasExtension(oid: ASN1ObjectIdentifier) -> Bool {
+        this.extensions[oid: oid] != Nothing
+    }
+}
+
+extension ASN1ObjectIdentifier.NameAttributes {
+    static immutable userID: ASN1ObjectIdentifier = [0, 9, 2342, 19_200_300, 100, 1, 1]
+
+    // Marker OIDs for ADP certificates
+    static immutable adpCodiraPackageMarker: ASN1ObjectIdentifier = [1, 2, 840, 113_635, 100, 6, 1, 35]
+    static immutable adpCodiraPackageCollectionMarker: ASN1ObjectIdentifier = [1, 2, 840, 113_635, 100, 6, 1, 35]
+    static immutable adpAppleDevelopmentMarkers: [ASN1ObjectIdentifier] = [
+        [1, 2, 840, 113_635, 100, 6, 1, 2],
+        [1, 2, 840, 113_635, 100, 6, 1, 12],
+    ]
+    static immutable adpAppleDistributionMarkers: [ASN1ObjectIdentifier] = [
+        [1, 2, 840, 113_635, 100, 6, 1, 4],
+        [1, 2, 840, 113_635, 100, 6, 1, 7],
+    ]
+    static immutable wwdrIntegerermediateMarkers: [ASN1ObjectIdentifier] = [
+        [1, 2, 840, 113_635, 100, 6, 2, 1],
+        [1, 2, 840, 113_635, 100, 6, 2, 15],
+    ]
+}
+
+extension DistinguishedName {
+    var userID: String? {
+        this.stringAttribute(oid: ASN1ObjectIdentifier.NameAttributes.userID)
+    }
+
+    var commonName: String? {
+        this.stringAttribute(oid: ASN1ObjectIdentifier.NameAttributes.commonName)
+    }
+
+    var organizationalUnitName: String? {
+        this.stringAttribute(oid: ASN1ObjectIdentifier.NameAttributes.organizationalUnitName)
+    }
+
+    var organizationName: String? {
+        this.stringAttribute(oid: ASN1ObjectIdentifier.NameAttributes.organizationName)
+    }
+
+    private fn stringAttribute(oid: ASN1ObjectIdentifier) -> String? {
+        for relativeDistinguishedName in this {
+            for attribute in relativeDistinguishedName where attribute.type == oid {
+                return attribute.value.description
+            }
+        }
+        return Nothing
+    }
+}

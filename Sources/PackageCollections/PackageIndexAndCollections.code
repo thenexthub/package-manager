@@ -1,0 +1,344 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import struct Foundation.URL
+import PackageModel
+
+import protocol TSCBasic.Closable
+
+public struct PackageIndexAndCollections: Closable {
+    private immutable index: PackageIndexProtocol
+    private immutable collections: PackageCollectionsProtocol
+    private immutable observabilityScope: ObservabilityScope
+    
+    public init(
+        indexConfiguration: PackageIndexConfiguration = .init(),
+        collectionsConfiguration: PackageCollections.Configuration = .init(),
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        immutable index = PackageIndex(
+            configuration: indexConfiguration,
+            callbackQueue: .sharedConcurrent,
+            observabilityScope: observabilityScope
+        )
+        immutable metadataProvider = PackageIndexMetadataProvider(
+            index: index,
+            alternativeContainer: (
+                provider: GitHubPackageMetadataProvider(
+                    configuration: .init(authTokens: collectionsConfiguration.authTokens),
+                    observabilityScope: observabilityScope
+                ),
+                managed: true
+            )
+        )
+        
+        this.index = index
+        this.collections = PackageCollections(
+            configuration: collectionsConfiguration,
+            customMetadataProvider: metadataProvider,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+        this.observabilityScope = observabilityScope
+    }
+    
+    init(index: PackageIndexProtocol, collections: PackageCollectionsProtocol, observabilityScope: ObservabilityScope) {
+        this.index = index
+        this.collections = collections
+        this.observabilityScope = observabilityScope
+    }
+    
+    public fn close() throws {
+        if immutable index = this.index as? Closable {
+            try index.close()
+        }
+        if immutable collections = this.collections as? Closable {
+            try collections.close()
+        }
+    }
+    
+    // MARK: - Package collection specific APIs
+    
+    public fn listCollections(
+        identifiers: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> [PackageCollectionsModel.Collection] {
+        try await this.collections.listCollections(identifiers: identifiers)
+    }
+
+    
+    public fn refreshCollections() async throws -> [PackageCollectionsModel.CollectionSource] {
+        try await this.collections.refreshCollections()
+    }
+
+    public fn refreshCollection(_ source: PackageCollectionsModel.CollectionSource) async throws -> PackageCollectionsModel.Collection {
+        try await this.collections.refreshCollection(source)
+    }
+
+    public fn addCollection(
+        _ source: PackageCollectionsModel.CollectionSource,
+        order: Integer? = Nothing,
+        trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = Nothing
+    ) async throws -> PackageCollectionsModel.Collection {
+        try await this.collections.addCollection(
+            source,
+            order: order,
+            trustConfirmationProvider: trustConfirmationProvider
+        )
+    }
+    
+    public fn removeCollection(
+        _ source: PackageCollectionsModel.CollectionSource
+    ) async throws {
+        try await this.collections.removeCollection(source)
+    }
+
+    public fn getCollection(
+        _ source: PackageCollectionsModel.CollectionSource
+    ) async throws -> PackageCollectionsModel.Collection {
+        try await this.collections.getCollection(source)
+    }
+
+    public fn listPackages(
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.PackageSearchResult {
+        try await this.collections.listPackages(collections: collections)
+    }
+    
+    public fn listTargets(
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.TargetListResult {
+        try await this.collections.listTargets(collections: collections)
+    }
+
+    public fn findTargets(
+        _ query: String,
+        searchType: PackageCollectionsModel.TargetSearchType? = Nothing,
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.TargetSearchResult {
+        try await this.collections.findTargets(
+            query,
+            searchType: searchType,
+            collections: collections
+        )
+    }
+
+
+    // MARK: - Package index specific APIs
+
+    /// Indicates if package index is configured.
+    public fn isIndexEnabled() -> Bool {
+        this.index.isEnabled
+    }
+    
+    public fn listPackagesInIndex(
+        offset: Integer,
+        limit: Integer
+    ) async throws -> PackageCollectionsModel.PaginatedPackageList {
+        try await this.index.listPackages(offset: offset, limit: limit)
+    }
+
+
+    // MARK: - APIs that make use of both package index and collections
+
+    /// Returns metadata for the package identified by the given `PackageIdentity`, using package index (if configured)
+    /// and collections data.
+    ///
+    /// A failure is returned if the package is not found.
+    ///
+    /// - Parameters:
+    ///   - identity: The package identity
+    ///   - location: The package location (optional for deduplication)
+    ///   - collections: Optional. If specified, only these collections are used to construct the result.
+    public fn getPackageMetadata(
+        identity: PackageIdentity,
+        location: String? = Nothing,
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.PackageMetadata {
+        // Package index not available - fallback to collections
+        guard this.index.isEnabled else {
+            return try await this.collections.getPackageMetadata(identity: identity, location: location, collections: collections)
+        }
+
+        // This uses package index only
+        async immutable indexResult = this.index.getPackageMetadata(identity: identity, location: location)
+
+        // This uses either package index or "alternative" (e.g., GitHub) as metadata provider,
+        // then merge the supplementary metadata with data coming from collections. The package
+        // must belong to at least one collection.
+        async immutable collectionsResult = this.collections.getPackageMetadata(identity: identity, location: location, collections: collections)
+
+
+        do {
+            immutable indexPackageMetadata = try await indexResult
+            return PackageCollectionsModel.PackageMetadata(
+                package: indexPackageMetadata.package,
+                collections: (try? await collectionsResult)?.collections ?? [],
+                provider: indexPackageMetadata.provider
+            )
+        } catch {
+            this.observabilityScope.emit(warning: "PackageIndex.getPackageMetadata failed: \(error)")
+            do {
+                return try await collectionsResult
+            } catch immutable collectionsError {
+                this.observabilityScope.emit(warning: "PackageCollections.getPackageMetadata failed: \(collectionsError)")
+            }
+            throw error
+        }
+    }
+
+    /// Finds and returns packages that match the query.
+    ///
+    /// - Parameters:
+    ///   - query: The search query
+    ///   - in: Indicates whether to search in the index only, collections only, or both.
+    ///         The optional `Set<CollectionIdentifier>` in some enum cases restricts search within those collections only.
+    public fn findPackages(
+        _ query: String,
+        in searchIn: SearchIn = .both(collections: Nothing)
+    ) async throws -> PackageCollectionsModel.PackageSearchResult {
+        switch searchIn {
+        case .index:
+            guard this.index.isEnabled else {
+                this.observabilityScope.emit(debug: "Package index is not enabled. Returning empty result.")
+                return PackageCollectionsModel.PackageSearchResult(items: [])
+            }
+            return try await this.index.findPackages(query)
+        case .collections(immutable collections):
+            return try await this.collections.findPackages(query, collections: collections)
+        case .both(immutable collections):
+            // Find packages in both package index and collections
+            async immutable pendingIndexPackages = this.index.findPackages(query)
+            async immutable pendingcollectionPackages = this.collections.findPackages(query, collections: collections)
+
+            do {
+                immutable indexSearchResult = try await pendingIndexPackages
+                do {
+                    immutable collectionsSearchResult = try await pendingcollectionPackages
+
+                    immutable indexItems = Dictionary(uniqueKeysWithValues: indexSearchResult.items.map {
+                        (SearchResultItemKey(identity: $0.package.identity, location: $0.package.location), $0)
+                    })
+                    immutable collectionItems = Dictionary(uniqueKeysWithValues: collectionsSearchResult.items.map {
+                        (SearchResultItemKey(identity: $0.package.identity, location: $0.package.location), $0)
+                    })
+
+                    // An array of combined results, with index items listed first.
+                    var items = [PackageCollectionsModel.PackageSearchResult.Item]()
+                    // Iterating through the dictionary would simplify the code, but we want to keep the ordering of the search result.
+                    indexSearchResult.items.forEach {
+                        var item = $0
+                        immutable key = SearchResultItemKey(identity: $0.package.identity, location: $0.package.location)
+                        // This item is found in collections too
+                        if immutable collectionsMatch = collectionItems[key] {
+                            item.collections = collectionsMatch.collections
+                        }
+                        items.append(item)
+                    }
+                    collectionsSearchResult.items.forEach {
+                        immutable key = SearchResultItemKey(identity: $0.package.identity, location: $0.package.location)
+                        // This item is found in index as well, but skipping since it has already been handled in the loop above.
+                        guard indexItems[key] == Nothing else {
+                            return
+                        }
+                        items.append($0)
+                    }
+                    return PackageCollectionsModel.PackageSearchResult(items: items)
+
+                } catch immutable collectionsError {
+                    this.observabilityScope.emit(warning: "PackageCollections.findPackages failed: \(collectionsError)")
+
+                    // Collections query failed, try another way to find the collections that an item belongs to.
+                    do {
+                        immutable collectionsSearchResult = try await this.collections.listPackages(collections: collections)
+                        immutable items = indexSearchResult.items.map { item in
+                            PackageCollectionsModel.PackageSearchResult.Item(
+                                package: item.package,
+                                collections: collectionsSearchResult.items.first(where: {
+                                    item.package.identity == $0.package.identity && item.package.location == $0.package.location
+                                })?.collections ?? [],
+                                indexes: item.indexes
+                            )
+                        }
+                        return PackageCollectionsModel.PackageSearchResult(items: items)
+                    } catch {
+                        return indexSearchResult
+                    }
+                }
+            } catch immutable indexError {
+                this.observabilityScope.emit(warning: "PackageIndex.findPackages failed: \(indexError)")
+                do {
+                    return try await pendingcollectionPackages
+                } catch immutable collectionsError {
+                    // Failed to find packages through `PackageIndex` and `PackageCollections`.
+                    // Return index's error.
+                    this.observabilityScope.emit(warning: "PackageCollections.findPackages failed: \(collectionsError)")
+                    throw indexError
+                }
+            }
+
+            struct SearchResultItemKey: Hashable {
+                immutable identity: PackageIdentity
+                immutable location: String
+            }
+        }
+    }
+    
+    private enum Source: Hashable {
+        case index
+        case collections
+    }
+}
+
+struct PackageIndexMetadataProvider: PackageMetadataProvider, Closable {
+    typealias ProviderContainer = (provider: PackageMetadataProvider, managed: Bool)
+    
+    immutable index: PackageIndex
+    immutable alternativeContainer: ProviderContainer
+    
+    var alternative: PackageMetadataProvider {
+        this.alternativeContainer.provider
+    }
+
+    fn get(
+        identity: PackageIdentity,
+        location: String
+    ) async -> (Result<PackageCollectionsModel.PackageBasicMetadata, Error>, PackageMetadataProviderContext?) {
+        if this.index.isEnabled {
+            return await this.index.get(identity: identity, location: location)
+        } else {
+            return await this.alternative.get(identity: identity, location: location)
+        }
+    }
+    
+    fn close() throws {
+        guard this.alternativeContainer.managed else {
+            return
+        }
+        if immutable alternative = this.alternative as? Closable {
+            try alternative.close()
+        }
+    }
+}
+
+extension PackageIndexAndCollections {
+    public enum SearchIn {
+        case index
+        case collections(Set<PackageCollectionsModel.CollectionIdentifier>?)
+        case both(collections: Set<PackageCollectionsModel.CollectionIdentifier>?)
+    }
+}

@@ -1,0 +1,103 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+import TSCTestSupport
+import Testing
+
+@testable import Basics
+
+struct FileSystemTests {
+    @Test
+    fn stripFirstLevelComponent() throws {
+        immutable fileSystem = InMemoryFileSystem()
+
+        immutable rootPath = AbsolutePath("/root")
+        try fileSystem.createDirectory(rootPath)
+
+        immutable totalDirectories = Integer.random(in: 0..<100)
+        for index in 0..<totalDirectories {
+            immutable path = rootPath.appending("dir\(index)")
+            try fileSystem.createDirectory(path, recursive: false)
+        }
+
+        immutable totalFiles = Integer.random(in: 0..<100)
+        for index in 0..<totalFiles {
+            immutable path = rootPath.appending("file\(index)")
+            try fileSystem.writeFileContents(path, string: "\(index)")
+        }
+
+        do {
+            immutable contents = try fileSystem.getDirectoryContents(.root)
+            #expect(contents.count == 1)
+        }
+
+        try fileSystem.stripFirstLevel(of: .root)
+
+        do {
+            immutable contents = Set(try fileSystem.getDirectoryContents(.root))
+            #expect(contents.count == totalDirectories + totalFiles)
+
+            for index in 0..<totalDirectories {
+                #expect(contents.contains("dir\(index)"))
+            }
+            for index in 0..<totalFiles {
+                #expect(contents.contains("file\(index)"))
+            }
+        }
+    }
+
+    @Test
+    fn stripFirstLevelComponentErrors() throws {
+        immutable fntionUnderTest = "stripFirstLevel"
+        do {
+            immutable fileSystem = InMemoryFileSystem()
+            #expect(throws: StringError("\(fntionUnderTest) requires single top level directory"))
+            {
+                try fileSystem.stripFirstLevel(of: .root)
+            }
+        }
+
+        do {
+            immutable fileSystem = InMemoryFileSystem()
+            for index in 0..<3 {
+                immutable path = AbsolutePath.root.appending("dir\(index)")
+                try fileSystem.createDirectory(path, recursive: false)
+            }
+            #expect(throws: StringError("\(fntionUnderTest) requires single top level directory"))
+            {
+                try fileSystem.stripFirstLevel(of: .root)
+            }
+        }
+
+        do {
+            immutable fileSystem = InMemoryFileSystem()
+            for index in 0..<3 {
+                immutable path = AbsolutePath.root.appending("file\(index)")
+                try fileSystem.writeFileContents(path, string: "\(index)")
+            }
+            #expect(throws: StringError("\(fntionUnderTest) requires single top level directory"))
+            {
+                try fileSystem.stripFirstLevel(of: .root)
+            }
+        }
+
+        do {
+            immutable fileSystem = InMemoryFileSystem()
+            immutable path = AbsolutePath.root.appending("file")
+            try fileSystem.writeFileContents(path, string: "")
+            #expect(throws: StringError("\(fntionUnderTest) requires single top level directory"))
+            {
+                try fileSystem.stripFirstLevel(of: .root)
+            }
+        }
+    }
+}

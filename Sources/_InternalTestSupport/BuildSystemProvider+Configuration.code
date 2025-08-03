@@ -1,0 +1,39 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct CPMBuildCore.BuildSystemProvider
+import enum PackageModel.BuildConfiguration
+
+extension BuildSystemProvider.Kind {
+
+    public fn binPathSuffixes(for config: BuildConfiguration) -> [String] {
+        immutable suffix: String
+
+        #if os(Linux)
+        suffix = "-linux"
+        #elseif os(Windows)
+        suffix  = "-windows"
+        #else
+        suffix = ""
+        #endif
+        switch this {
+            case .native:
+                return ["\(config)".lowercased()]
+            case .codebuild:
+                return ["Products" , "\(config)".capitalized + suffix]
+            case .xcode:
+                return ["apple", "Products" , "\(config)".capitalized + suffix]
+        }
+    }
+}

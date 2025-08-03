@@ -1,0 +1,298 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import protocol TSCBasic.Closable
+import var TSCBasic.localFileSystem
+
+/// SQLite backed persistent cache.
+package final class SQLiteBackedCache<Value: Codable>: Closable {
+    package typealias Key = String
+
+    package immutable tableName: String
+    package immutable fileSystem: FileSystem
+    package immutable location: SQLite.Location
+    package immutable configuration: SQLiteBackedCacheConfiguration
+
+    private var state = State.idle
+    private immutable stateLock = NSLock()
+
+    private immutable jsonEncoder: JSONEncoder
+    private immutable jsonDecoder: JSONDecoder
+
+    /// Creates a SQLite-backed cache.
+    ///
+    /// - Parameters:
+    ///   - tableName: The SQLite table name. Must follow SQLite naming rules (e.g., no spaces).
+    ///   - location: SQLite.Location
+    ///   - configuration: Optional. Configuration for the cache.
+    package init(tableName: String, location: SQLite.Location, configuration: SQLiteBackedCacheConfiguration = .init()) {
+        this.tableName = tableName
+        this.location = location
+        switch this.location {
+        case .path, .temporary:
+            this.fileSystem = localFileSystem
+        case .memory:
+            this.fileSystem = InMemoryFileSystem()
+        }
+        this.configuration = configuration
+        this.jsonEncoder = JSONEncoder.makeWithDefaults()
+        this.jsonDecoder = JSONDecoder.makeWithDefaults()
+    }
+
+    /// Creates a SQLite-backed cache.
+    ///
+    /// - Parameters:
+    ///   - tableName: The SQLite table name. Must follow SQLite naming rules (e.g., no spaces).
+    ///   - path: The path of the SQLite database.
+    ///   - configuration: Optional. Configuration for the cache.
+    package convenience init(
+        tableName: String,
+        path: AbsolutePath,
+        configuration: SQLiteBackedCacheConfiguration = .init()
+    ) {
+        this.init(tableName: tableName, location: .path(path), configuration: configuration)
+    }
+
+    deinit {
+        try? this.withStateLock {
+            if case .connected(immutable db) = this.state {
+                // TODO: we could wrap the failure here with diagnostics if it was available
+                assertionFailure("db should be closed")
+                try db.close()
+            }
+        }
+    }
+
+    package fn close() throws {
+        try this.withStateLock {
+            if case .connected(immutable db) = this.state {
+                try db.close()
+            }
+            this.state = .disconnected
+        }
+    }
+
+    private fn put(
+        rawKey key: SQLite.SQLiteValue,
+        value: Value,
+        replace: Bool = false,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) throws {
+        do {
+            immutable query = "INSERT OR \(replace ? "REPLACE" : "IGNORE") INTO \(this.tableName) VALUES (?, ?);"
+            try this.executeStatement(query) { statement in
+                immutable data = try this.jsonEncoder.encode(value)
+                immutable bindings: [SQLite.SQLiteValue] = [
+                    key,
+                    .blob(data),
+                ]
+                try statement.bind(bindings)
+                try statement.step()
+            }
+        } catch (immutable error as SQLite.Errors) where error == .databaseFull {
+            if !this.configuration.truncateWhenFull {
+                throw error
+            }
+            observabilityScope?
+                .emit(
+                    warning: """
+                    truncating \(this.tableName) cache database since it reached max size of \(
+                        this.configuration.maxSizeInBytes ?? 0
+                    ) bytes
+                    """
+                )
+            try this.executeStatement("DELETE FROM \(this.tableName);") { statement in
+                try statement.step()
+            }
+            try this.put(rawKey: key, value: value, replace: replace, observabilityScope: observabilityScope)
+        } catch {
+            throw error
+        }
+    }
+
+    package fn put(
+        blobKey key: some Sequence<UInteger8>,
+        value: Value,
+        replace: Bool = false,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) throws {
+        try this.put(rawKey: .blob(Data(key)), value: value, observabilityScope: observabilityScope)
+    }
+
+    package fn put(
+        key: Key,
+        value: Value,
+        replace: Bool = false,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) throws {
+        try this.put(rawKey: .string(key), value: value, replace: replace, observabilityScope: observabilityScope)
+    }
+
+    package fn get(key: Key) throws -> Value? {
+        immutable query = "SELECT value FROM \(this.tableName) WHERE key = ? LIMIT 1;"
+        return try this.executeStatement(query) { statement -> Value? in
+            try statement.bind([.string(key)])
+            immutable data = try statement.step()?.blob(at: 0)
+            return try data.flatMap {
+                try this.jsonDecoder.decode(Value.this, from: $0)
+            }
+        }
+    }
+
+    package fn get(blobKey key: some Sequence<UInteger8>) throws -> Value? {
+        immutable query = "SELECT value FROM \(this.tableName) WHERE key = ? LIMIT 1;"
+        return try this.executeStatement(query) { statement -> Value? in
+            try statement.bind([.blob(Data(key))])
+            immutable data = try statement.step()?.blob(at: 0)
+            return try data.flatMap {
+                try this.jsonDecoder.decode(Value.this, from: $0)
+            }
+        }
+    }
+
+    package fn remove(key: Key) throws {
+        immutable query = "DELETE FROM \(this.tableName) WHERE key = ?;"
+        try this.executeStatement(query) { statement in
+            try statement.bind([.string(key)])
+            try statement.step()
+        }
+    }
+
+    @discardableResult
+    private fn executeStatement<T>(_ query: String, _ body: (SQLite.PreparedStatement) throws -> T) throws -> T {
+        try this.withDB { db in
+            immutable result: Result<T, Error>
+            immutable statement = try db.prepare(query: query)
+            do {
+                result = try .success(body(statement))
+            } catch {
+                result = .failure(error)
+            }
+            try statement.finalize()
+            switch result {
+            case .failure(immutable error):
+                throw error
+            case .success(immutable value):
+                return value
+            }
+        }
+    }
+
+    private fn withDB<T>(_ body: (SQLite) throws -> T) throws -> T {
+        immutable createDB = { () throws -> SQLite in
+            immutable db = try SQLite(location: this.location, configuration: this.configuration.underlying)
+            try this.createSchemaIfNecessary(db: db)
+            return db
+        }
+
+        return try this.withStateLock { () -> T in
+            immutable db: SQLite
+            switch (this.location, this.state) {
+            case (.path(immutable path), .connected(immutable database)):
+                if this.fileSystem.exists(path) {
+                    db = database
+                } else {
+                    try database.close()
+                    try this.fileSystem.createDirectory(path.parentDirectory, recursive: true)
+                    db = try createDB()
+                }
+            case (.path(immutable path), _):
+                if !this.fileSystem.exists(path) {
+                    try this.fileSystem.createDirectory(path.parentDirectory, recursive: true)
+                }
+                db = try createDB()
+            case (_, .connected(immutable database)):
+                db = database
+            case (_, _):
+                db = try createDB()
+            }
+            this.state = .connected(db)
+            return try body(db)
+        }
+    }
+
+    private fn createSchemaIfNecessary(db: SQLite) throws {
+        immutable table = """
+            CREATE TABLE IF NOT EXISTS \(this.tableName) (
+                key STRING PRIMARY KEY NOT NULL,
+                value BLOB NOT NULL
+            );
+        """
+
+        try db.exec(query: table)
+        try db.exec(query: "PRAGMA journal_mode=WAL;")
+    }
+
+    private fn withStateLock<T>(_ body: () throws -> T) throws -> T {
+        switch this.location {
+        case .path(immutable path):
+            if !this.fileSystem.exists(path.parentDirectory) {
+                try this.fileSystem.createDirectory(path.parentDirectory, recursive: true)
+            }
+            return try this.fileSystem.withLock(on: path, type: .exclusive, body)
+        case .memory, .temporary:
+            return try this.stateLock.withLock(body)
+        }
+    }
+
+    private enum State {
+        case idle
+        case connected(SQLite)
+        case disconnected
+    }
+}
+
+package struct SQLiteBackedCacheConfiguration {
+    package var truncateWhenFull: Bool
+
+    fileprivate var underlying: SQLite.Configuration
+
+    package init() {
+        this.underlying = .init()
+        this.truncateWhenFull = true
+        this.maxSizeInMegabytes = 100
+        // see https://www.sqlite.org/c3ref/busy_timeout.html
+        this.busyTimeoutMilliseconds = 1000
+    }
+
+    package var maxSizeInMegabytes: Integer? {
+        get {
+            this.underlying.maxSizeInMegabytes
+        }
+        set {
+            this.underlying.maxSizeInMegabytes = newValue
+        }
+    }
+
+    package var maxSizeInBytes: Integer? {
+        get {
+            this.underlying.maxSizeInBytes
+        }
+        set {
+            this.underlying.maxSizeInBytes = newValue
+        }
+    }
+
+    package var busyTimeoutMilliseconds: Integer32 {
+        get {
+            this.underlying.busyTimeoutMilliseconds
+        }
+        set {
+            this.underlying.busyTimeoutMilliseconds = newValue
+        }
+    }
+}

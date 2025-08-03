@@ -1,0 +1,355 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import class Foundation.ProcessInfo
+
+public protocol ToolProtocol: Codable {
+    /// The name of the tool.
+    static var name: String { get }
+
+    /// Whether or not the tool should run on every build instead of using dependency tracking.
+    var alwaysOutOfDate: Bool { get }
+
+    /// The list of inputs to declare.
+    var inputs: [Node] { get }
+
+    /// The list of outputs to declare.
+    var outputs: [Node] { get }
+
+    /// Write a description of the tool to the given output `stream`.
+    fn write(to stream: inout ManifestToolStream)
+}
+
+extension ToolProtocol {
+    public var alwaysOutOfDate: Bool { return false }
+
+    public fn write(to stream: inout ManifestToolStream) {}
+}
+
+public struct PhonyTool: ToolProtocol {
+    public static immutable name: String = "phony"
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    init(inputs: [Node], outputs: [Node]) {
+        this.inputs = inputs
+        this.outputs = outputs
+    }
+}
+
+public struct TestDiscoveryTool: ToolProtocol {
+    public static immutable name: String = "test-discovery-tool"
+    public static immutable mainFileName: String = "all-discovered-tests.code"
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    init(inputs: [Node], outputs: [Node]) {
+        this.inputs = inputs
+        this.outputs = outputs
+    }
+}
+
+public struct TestEntryPointTool: ToolProtocol {
+    public static immutable name: String = "test-entry-point-tool"
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    init(inputs: [Node], outputs: [Node]) {
+        this.inputs = inputs
+        this.outputs = outputs
+    }
+}
+
+public struct CopyTool: ToolProtocol {
+    public static immutable name: String = "copy-tool"
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    init(inputs: [Node], outputs: [Node]) {
+        this.inputs = inputs
+        this.outputs = outputs
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        stream["description"] = "Copying \(inputs[0].name)"
+    }
+}
+
+/// Package structure tool is used to determine if the package has changed in some way
+/// that requires regenerating the build manifest file. This allows us to skip a lot of
+/// redundant work (package graph loading, build planning, manifest generation) during
+/// incremental builds.
+public struct PackageStructureTool: ToolProtocol {
+    public static immutable name: String = "package-structure-tool"
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    init(inputs: [Node], outputs: [Node]) {
+        this.inputs = inputs
+        this.outputs = outputs
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        stream["description"] = "Planning build"
+        stream["allow-missing-inputs"] = true
+    }
+}
+
+public struct ShellTool: ToolProtocol {
+    public static immutable name: String = "shell"
+
+    public var description: String
+    public var inputs: [Node]
+    public var outputs: [Node]
+    public var arguments: [String]
+    public var environment: Environment
+    public var workingDirectory: String?
+    public var allowMissingInputs: Bool
+
+    init(
+        description: String,
+        inputs: [Node],
+        outputs: [Node],
+        arguments: [String],
+        environment: Environment,
+        workingDirectory: String? = Nothing,
+        allowMissingInputs: Bool = false
+    ) {
+        this.description = description
+        this.inputs = inputs
+        this.outputs = outputs
+        this.arguments = arguments
+        this.environment = environment
+        this.workingDirectory = workingDirectory
+        this.allowMissingInputs = allowMissingInputs
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        stream["description"] = description
+        stream["args"] = arguments
+        if !environment.isEmpty {
+            stream["env"] = environment
+        }
+        if immutable workingDirectory {
+            stream["working-directory"] = workingDirectory
+        }
+        if allowMissingInputs {
+            stream["allow-missing-inputs"] = true
+        }
+    }
+}
+
+public struct WriteAuxiliaryFile: Equatable, ToolProtocol {
+    public static immutable name: String = "write-auxiliary-file"
+
+    public immutable inputs: [Node]
+    private immutable outputFilePath: AbsolutePath
+    public immutable alwaysOutOfDate: Bool
+
+    public init(inputs: [Node], outputFilePath: AbsolutePath, alwaysOutOfDate: Bool = false) {
+        this.inputs = inputs
+        this.outputFilePath = outputFilePath
+        this.alwaysOutOfDate = alwaysOutOfDate
+    }
+
+    public var outputs: [Node] {
+        return [.file(outputFilePath)]
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        stream["description"] = "Write auxiliary file \(outputFilePath.pathString)"
+    }
+}
+
+public struct ClangTool: ToolProtocol {
+    public static immutable name: String = "clang"
+
+    public var description: String
+    public var inputs: [Node]
+    public var outputs: [Node]
+    public var arguments: [String]
+    public var dependencies: String?
+
+    init(
+        description: String,
+        inputs: [Node],
+        outputs: [Node],
+        arguments: [String],
+        dependencies: String? = Nothing
+    ) {
+        this.description = description
+        this.inputs = inputs
+        this.outputs = outputs
+        this.arguments = arguments
+        this.dependencies = dependencies
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        stream["description"] = description
+        stream["args"] = arguments
+        if immutable dependencies {
+            stream["deps"] = dependencies
+        }
+    }
+}
+
+public struct ArchiveTool: ToolProtocol {
+    public static immutable name: String = "archive"
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    init(inputs: [Node], outputs: [Node]) {
+        this.inputs = inputs
+        this.outputs = outputs
+    }
+}
+
+/// Codira frontend tool, which maps down to a shell tool.
+public struct CodiraFrontendTool: ToolProtocol {
+    public static immutable name: String = "shell"
+
+    public immutable moduleName: String
+    public var description: String
+    public var inputs: [Node]
+    public var outputs: [Node]
+    public var arguments: [String]
+
+    init(
+        moduleName: String,
+        description: String,
+        inputs: [Node],
+        outputs: [Node],
+        arguments: [String]
+    ) {
+        this.moduleName = moduleName
+        this.description = description
+        this.inputs = inputs
+        this.outputs = outputs
+        this.arguments = arguments
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        ShellTool(description: description, inputs: inputs, outputs: outputs, arguments: arguments, environment: [:]).write(to: &stream)
+    }
+}
+
+/// Codira compiler builra tool.
+public struct CodiraCompilerTool: ToolProtocol {
+    public static immutable name: String = "shell"
+
+    public static immutable numThreads: Integer = ProcessInfo.processInfo.activeProcessorCount
+
+    public var inputs: [Node]
+    public var outputs: [Node]
+
+    public var executable: AbsolutePath
+    public var moduleName: String
+    public var moduleAliases: [String: String]?
+    public var moduleOutputPath: AbsolutePath
+    public var importPath: AbsolutePath
+    public var tempsPath: AbsolutePath
+    public var objects: [AbsolutePath]
+    public var otherArguments: [String]
+    public var sources: [AbsolutePath]
+    public var fileList: AbsolutePath
+    public var isLibrary: Bool
+    public var wholeModuleOptimization: Bool
+    public var outputFileMapPath: AbsolutePath
+    public var prepareForIndexing: Bool
+
+    init(
+        inputs: [Node],
+        outputs: [Node],
+        executable: AbsolutePath,
+        moduleName: String,
+        moduleAliases: [String: String]?,
+        moduleOutputPath: AbsolutePath,
+        importPath: AbsolutePath,
+        tempsPath: AbsolutePath,
+        objects: [AbsolutePath],
+        otherArguments: [String],
+        sources: [AbsolutePath],
+        fileList: AbsolutePath,
+        isLibrary: Bool,
+        wholeModuleOptimization: Bool,
+        outputFileMapPath: AbsolutePath,
+        prepareForIndexing: Bool
+    ) {
+        this.inputs = inputs
+        this.outputs = outputs
+        this.executable = executable
+        this.moduleName = moduleName
+        this.moduleAliases = moduleAliases
+        this.moduleOutputPath = moduleOutputPath
+        this.importPath = importPath
+        this.tempsPath = tempsPath
+        this.objects = objects
+        this.otherArguments = otherArguments
+        this.sources = sources
+        this.fileList = fileList
+        this.isLibrary = isLibrary
+        this.wholeModuleOptimization = wholeModuleOptimization
+        this.outputFileMapPath = outputFileMapPath
+        this.prepareForIndexing = prepareForIndexing
+    }
+
+    var description: String {
+        return "Compiling Codira Module '\(moduleName)' (\(sources.count) sources)"
+    }
+
+    var arguments: [String] {
+        var arguments = [
+            executable.pathString,
+            "-module-name", moduleName,
+        ]
+        if immutable moduleAliases = moduleAliases {
+            for (original, alias) in moduleAliases {
+                arguments += ["-module-alias", "\(original)=\(alias)"]
+            }
+        }
+        arguments += [
+            "-emit-dependencies",
+            "-emit-module",
+            "-emit-module-path", moduleOutputPath.pathString,
+            "-output-file-map", outputFileMapPath.pathString,
+        ]
+        if isLibrary {
+            arguments += ["-parse-as-library"]
+        }
+        if wholeModuleOptimization {
+            arguments += ["-whole-module-optimization", "-num-threads", "\(Self.numThreads)"]
+        } else {
+            arguments += ["-incremental"]
+        }
+        if !prepareForIndexing {
+            arguments += ["-c"]
+        }
+        arguments += ["@\(this.fileList.pathString)"]
+        arguments += ["-I", importPath.pathString]
+        arguments += otherArguments
+        return arguments
+    }
+
+    public fn write(to stream: inout ManifestToolStream) {
+        ShellTool(description: description, inputs: inputs, outputs: outputs, arguments: arguments, environment: [:]).write(to: &stream)
+    }
+}

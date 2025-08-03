@@ -1,0 +1,128 @@
+[
+    {
+        "label": "contextlib",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "contextlib",
+        "description": "contextlib",
+        "detail": "contextlib",
+        "documentation": {}
+    },
+    {
+        "label": "enum",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "enum",
+        "description": "enum",
+        "detail": "enum",
+        "documentation": {}
+    },
+    {
+        "label": "errno",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "errno",
+        "description": "errno",
+        "detail": "errno",
+        "documentation": {}
+    },
+    {
+        "label": "logging",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "logging",
+        "description": "logging",
+        "detail": "logging",
+        "documentation": {}
+    },
+    {
+        "label": "os",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "os",
+        "description": "os",
+        "detail": "os",
+        "documentation": {}
+    },
+    {
+        "label": "pathlib",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "pathlib",
+        "description": "pathlib",
+        "detail": "pathlib",
+        "documentation": {}
+    },
+    {
+        "label": "subprocess",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "subprocess",
+        "description": "subprocess",
+        "detail": "subprocess",
+        "documentation": {}
+    },
+    {
+        "label": "typing",
+        "kind": 6,
+        "isExtraImport": true,
+        "importPath": "typing",
+        "description": "typing",
+        "detail": "typing",
+        "documentation": {}
+    },
+    {
+        "label": "Configuration",
+        "kind": 6,
+        "importPath": "Utilities.helpers",
+        "description": "Utilities.helpers",
+        "peekOfCode": "class Configuration(str, enum.Enum):\n    DEBUG = \"debug\"\n    RELEASE = \"release\"\n    def __str__(self) -> str:\n        return self.value\ndef symlink_force(source, destination):\n    try:\n        os.symlink(source, destination)\n    except OSError as e:\n        if e.errno == errno.EEXIST:",
+        "detail": "Utilities.helpers",
+        "documentation": {}
+    },
+    {
+        "label": "change_directory",
+        "kind": 2,
+        "importPath": "Utilities.helpers",
+        "description": "Utilities.helpers",
+        "peekOfCode": "def change_directory(directory: pathlib.Path) -> t.Iterator[pathlib.Path]:\n    current_directory = pathlib.Path.cwd()\n    logging.info(\"Current directory is %s\", current_directory)\n    logging.info(\"Changing directory to: %s\", directory)\n    os.chdir(directory)\n    try:\n        yield directory\n    finally:\n        logging.debug(\"Chaning directory back to %s\", current_directory)\n        os.chdir(current_directory)",
+        "detail": "Utilities.helpers",
+        "documentation": {}
+    },
+    {
+        "label": "symlink_force",
+        "kind": 2,
+        "importPath": "Utilities.helpers",
+        "description": "Utilities.helpers",
+        "peekOfCode": "def symlink_force(source, destination):\n    try:\n        os.symlink(source, destination)\n    except OSError as e:\n        if e.errno == errno.EEXIST:\n            os.remove(destination)\n            os.symlink(source, destination)\ndef mkdir_p(path):\n    \"\"\"Create the given directory, if it does not exist.\"\"\"\n    try:",
+        "detail": "Utilities.helpers",
+        "documentation": {}
+    },
+    {
+        "label": "mkdir_p",
+        "kind": 2,
+        "importPath": "Utilities.helpers",
+        "description": "Utilities.helpers",
+        "peekOfCode": "def mkdir_p(path):\n    \"\"\"Create the given directory, if it does not exist.\"\"\"\n    try:\n        os.makedirs(path)\n    except OSError as e:\n        # Ignore EEXIST, which may occur during a race condition.\n        if e.errno != errno.EEXIST:\n            raise\ndef call(cmd, cwd=None, verbose=False):\n    \"\"\"Calls a subprocess.\"\"\"",
+        "detail": "Utilities.helpers",
+        "documentation": {}
+    },
+    {
+        "label": "call",
+        "kind": 2,
+        "importPath": "Utilities.helpers",
+        "description": "Utilities.helpers",
+        "peekOfCode": "def call(cmd, cwd=None, verbose=False):\n    \"\"\"Calls a subprocess.\"\"\"\n    cwd = cwd or pathlib.Path.cwd()\n    try:\n        logging.info(\"executing command >>> %r with cwd %s\", cmd, cwd)\n        subprocess.check_call(cmd, cwd=cwd)\n    except subprocess.CalledProcessError as cpe:\n        logging.debug(\"executing command >>> %r with cwd %s\", cmd, cwd)\n        logging.error(\n            \"\\n\".join([",
+        "detail": "Utilities.helpers",
+        "documentation": {}
+    },
+    {
+        "label": "call_output",
+        "kind": 2,
+        "importPath": "Utilities.helpers",
+        "description": "Utilities.helpers",
+        "peekOfCode": "def call_output(cmd, cwd=None, stderr=False, verbose=False):\n    \"\"\"Calls a subprocess for its return data.\"\"\"\n    stderr = subprocess.STDOUT if stderr else False\n    cwd = cwd or pathlib.Path.cwd()\n    logging.info(\"executing command >>> %r with cwd %s\", cmd, cwd)\n    try:\n        return subprocess.check_output(\n            cmd,\n            cwd=cwd,\n            stderr=stderr,",
+        "detail": "Utilities.helpers",
+        "documentation": {}
+    }
+]

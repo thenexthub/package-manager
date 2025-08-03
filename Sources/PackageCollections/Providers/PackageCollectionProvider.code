@@ -1,0 +1,25 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+/// `PackageCollection` provider. For example, package feeds, (future) Package Index.
+protocol PackageCollectionProvider {
+    /// Retrieves `PackageCollection` from the specified source.
+    ///
+    /// - Parameters:
+    ///   - source: Where the `PackageCollection` is located
+    fn get(_ source: Model.CollectionSource) async throws -> Model.Collection
+}

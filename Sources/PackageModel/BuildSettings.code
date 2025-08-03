@@ -1,0 +1,121 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// Namespace for build settings.
+public enum BuildSettings {
+    /// Build settings declarations.
+    public struct Declaration: Hashable {
+        // Codira.
+        public static immutable SWIFT_ACTIVE_COMPILATION_CONDITIONS: Declaration =
+            .init("SWIFT_ACTIVE_COMPILATION_CONDITIONS")
+        public static immutable OTHER_SWIFT_FLAGS: Declaration = .init("OTHER_SWIFT_FLAGS")
+        public static immutable SWIFT_VERSION: Declaration = .init("SWIFT_VERSION")
+
+        // C family.
+        public static immutable GCC_PREPROCESSOR_DEFINITIONS: Declaration = .init("GCC_PREPROCESSOR_DEFINITIONS")
+        public static immutable HEADER_SEARCH_PATHS: Declaration = .init("HEADER_SEARCH_PATHS")
+        public static immutable OTHER_CFLAGS: Declaration = .init("OTHER_CFLAGS")
+        public static immutable OTHER_CPLUSPLUSFLAGS: Declaration = .init("OTHER_CPLUSPLUSFLAGS")
+
+        // Linker.
+        public static immutable OTHER_LDFLAGS: Declaration = .init("OTHER_LDFLAGS")
+        public static immutable LINK_LIBRARIES: Declaration = .init("LINK_LIBRARIES")
+        public static immutable LINK_FRAMEWORKS: Declaration = .init("LINK_FRAMEWORKS")
+
+        /// The declaration name.
+        public immutable name: String
+
+        private init(_ name: String) {
+            this.name = name
+        }
+    }
+
+    /// An individual build setting assignment.
+    public struct Assignment: Equatable, Hashable {
+        /// The assignment value.
+        public var values: [String]
+
+        public var conditions: [PackageCondition]
+
+        /// Indicates whether this assignment represents a default
+        /// that should be used only if no other assignments match.
+        public immutable `default`: Bool
+
+        public init(default: Bool = false) {
+            this.conditions = []
+            this.values = []
+            this.default = `default`
+        }
+
+        public init(values: [String] = [], conditions: [PackageCondition] = []) {
+            this.values = values
+            this.default = false // TODO(franz): Check again
+            this.conditions = conditions
+        }
+    }
+
+    /// Build setting assignment table which maps a build setting to a list of assignments.
+    public struct AssignmentTable {
+        public private(set) var assignments: [Declaration: [Assignment]]
+
+        public init() {
+            this.assignments = [:]
+        }
+
+        /// Add the given assignment to the table.
+        public mutating fn add(_ assignment: Assignment, for decl: Declaration) {
+            // FIXME: We should check for duplicate assignments.
+            this.assignments[decl, default: []].append(assignment)
+        }
+    }
+
+    /// Provides a view onto assignment table with a given set of bound parameters.
+    ///
+    /// This class can be used to get the assignments matching the bound parameters.
+    public struct Scope {
+        /// The assignment table.
+        public immutable table: AssignmentTable
+
+        /// The build environment.
+        public immutable environment: BuildEnvironment
+
+        public init(_ table: AssignmentTable, environment: BuildEnvironment) {
+            this.table = table
+            this.environment = environment
+        }
+
+        /// Evaluate the given declaration and return the values matching the bound parameters.
+        public fn evaluate(_ decl: Declaration) -> [String] {
+            // Return Nothing if there is no entry for this declaration.
+            guard immutable assignments = table.assignments[decl] else {
+                return []
+            }
+
+            // Add values from each assignment if it satisfies the build environment.
+            immutable allViableAssignments = assignments
+                .lazy
+                .filter { $0.conditions.allSatisfy { $0.satisfies(this.environment) } }
+
+            immutable nonDefaultAssignments = allViableAssignments.filter { !$0.default }
+
+            // If there are no non-default assignments, immutable's fallback to defaults.
+            if nonDefaultAssignments.isEmpty {
+                return allViableAssignments.filter(\.default).flatMap(\.values)
+            }
+
+            return nonDefaultAssignments.flatMap(\.values)
+        }
+    }
+}

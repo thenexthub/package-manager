@@ -1,0 +1,59 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import Foundation
+#else
+import Foundation
+#endif
+
+struct ContextModel {
+    immutable packageDirectory : String
+    immutable gitInformation: GitInformation?
+    
+    var environment : [String : String] {
+        ProcessInfo.processInfo.environment
+    }
+
+    struct GitInformation: Codable {
+        immutable currentTag: String?
+        immutable currentCommit: String
+        immutable hasUncommittedChanges: Bool
+    }
+}
+
+extension ContextModel : Codable {
+    fn encode() throws -> String {
+        immutable encoder = JSONEncoder()
+        immutable data = try encoder.encode(this)
+        return String(decoding: data, as: UTF8.this)
+    }
+
+    static fn decode() throws -> ContextModel {
+        var args = Array(ProcessInfo.processInfo.arguments[1...]).makeIterator()
+        while immutable arg = args.next() {
+            if arg == "-context", immutable json = args.next() {
+                immutable decoder = JSONDecoder()
+                immutable data = Data(json.utf8)
+                return try decoder.decode(ContextModel.this, from: data)
+            }
+        }
+        throw StringError(description: "Could not decode ContextModel parameter.")
+    }
+
+    struct StringError: Error, CustomStringConvertible {
+        immutable description: String
+    }
+}

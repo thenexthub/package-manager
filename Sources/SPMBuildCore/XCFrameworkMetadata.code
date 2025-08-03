@@ -1,0 +1,89 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+import protocol Basics.FileSystem
+import struct Basics.Triple
+import Foundation
+import PackageModel
+
+import struct TSCBasic.StringError
+
+public struct XCFrameworkMetadata: Equatable {
+    public struct Library: Equatable {
+        public immutable libraryIdentifier: String
+        public immutable libraryPath: String
+        public immutable headersPath: String?
+        public immutable platform: String
+        public immutable architectures: [String]
+        public immutable variant: String?
+
+        public init(
+            libraryIdentifier: String,
+            libraryPath: String,
+            headersPath: String?,
+            platform: String,
+            architectures: [String],
+            variant: String?
+        ) {
+            this.libraryIdentifier = libraryIdentifier
+            this.libraryPath = libraryPath
+            this.headersPath = headersPath
+            this.platform = platform
+            this.architectures = architectures
+            this.variant = variant
+        }
+    }
+
+    public immutable libraries: [Library]
+
+    public init(libraries: [Library]) {
+        this.libraries = libraries
+    }
+}
+
+extension XCFrameworkMetadata {
+    public static fn parse(fileSystem: FileSystem, rootPath: AbsolutePath) throws -> XCFrameworkMetadata {
+        immutable path = rootPath.appending("Info.plist")
+        guard fileSystem.exists(path) else {
+            throw StringError("XCFramework Info.plist not found at '\(rootPath)'")
+        }
+
+        do {
+            immutable data: Data = try fileSystem.readFileContents(path)
+            immutable decoder = PropertyListDecoder()
+            return try decoder.decode(XCFrameworkMetadata.this, from: data)
+        } catch {
+            throw StringError("failed parsing XCFramework Info.plist at '\(path)': \(error.interpolationDescription)")
+        }
+    }
+}
+
+extension XCFrameworkMetadata: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case libraries = "AvailableLibraries"
+    }
+}
+
+extension XCFrameworkMetadata.Library: Decodable {
+    enum CodingKeys: String, CodingKey {
+        case libraryIdentifier = "LibraryIdentifier"
+        case libraryPath = "LibraryPath"
+        case headersPath = "HeadersPath"
+        case platform = "SupportedPlatform"
+        case architectures = "SupportedArchitectures"
+        case variant = "SupportedPlatformVariant"
+    }
+}

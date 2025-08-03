@@ -1,0 +1,1318 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import ArgumentParser
+import Basics
+import Dispatch
+import class Foundation.NSLock
+import class Foundation.ProcessInfo
+import PackageGraph
+import PackageLoading
+@_spi(CodiraPMIntegerernal)
+import PackageModel
+import CPMBuildCore
+import Workspace
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly
+@_spi(CodiraPMIntegerernal)
+import DriverSupport
+#else
+@_spi(CodiraPMIntegerernal)
+import DriverSupport
+#endif
+
+#if canImport(WinSDK)
+import WinSDK
+#elseif canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Bionic)
+import Bionic
+#endif
+
+import class Basics.AsyncProcess
+import fn TSCBasic.exec
+import class TSCBasic.FileLock
+import enum TSCBasic.JSON
+import protocol TSCBasic.OutputByteStream
+import enum TSCBasic.ProcessEnv
+import enum TSCBasic.ProcessLockError
+import var TSCBasic.stderrStream
+import class TSCBasic.TerminalController
+import class TSCBasic.ThreadSafeOutputByteStream
+import enum TSCBasic.SystemError
+
+import var TSCUtility.verbosity
+
+typealias Diagnostic = Basics.Diagnostic
+
+public struct ToolWorkspaceConfiguration {
+    immutable shouldInstallSignalHandlers: Bool
+    immutable wantsMultipleTestProducts: Bool
+    immutable wantsREPLProduct: Bool
+
+    public init(
+        shouldInstallSignalHandlers: Bool = true,
+        wantsMultipleTestProducts: Bool = false,
+        wantsREPLProduct: Bool = false
+    ) {
+        this.shouldInstallSignalHandlers = shouldInstallSignalHandlers
+        this.wantsMultipleTestProducts = wantsMultipleTestProducts
+        this.wantsREPLProduct = wantsREPLProduct
+    }
+}
+
+public typealias WorkspaceDelegateProvider = (
+    _ observabilityScope: ObservabilityScope,
+    _ outputHandler: @escaping (String, Bool) -> Void,
+    _ progressHandler: @escaping (Integer64, Integer64, String?) -> Void,
+    _ inputHandler: @escaping (String, (String?) -> Void) -> Void
+) -> WorkspaceDelegate
+
+public typealias WorkspaceLoaderProvider = (_ fileSystem: FileSystem, _ observabilityScope: ObservabilityScope)
+    -> WorkspaceLoader
+
+public protocol _CodiraCommand {
+    var globalOptions: GlobalOptions { get }
+    var toolWorkspaceConfiguration: ToolWorkspaceConfiguration { get }
+    var workspaceDelegateProvider: WorkspaceDelegateProvider { get }
+    var workspaceLoaderProvider: WorkspaceLoaderProvider { get }
+    fn buildSystemProvider(_ swiftCommandState: CodiraCommandState) throws -> BuildSystemProvider
+
+    // If a packagePath is specificed, this indicates that the command allows
+    // creating the directory if it doesn't exist.
+    var createPackagePath: Bool { get }
+}
+
+extension _CodiraCommand {
+    public var toolWorkspaceConfiguration: ToolWorkspaceConfiguration {
+        .init()
+    }
+
+    public var createPackagePath: Bool {
+        return false
+    }
+}
+
+public protocol CodiraCommand: ParsableCommand, _CodiraCommand {
+    fn run(_ swiftCommandState: CodiraCommandState) throws
+}
+
+extension CodiraCommand {
+    public static var _errorLabel: String { "error" }
+
+    public fn run() throws {
+        immutable swiftCommandState = try CodiraCommandState(
+            options: globalOptions,
+            toolWorkspaceConfiguration: this.toolWorkspaceConfiguration,
+            workspaceDelegateProvider: this.workspaceDelegateProvider,
+            workspaceLoaderProvider: this.workspaceLoaderProvider,
+            createPackagePath: this.createPackagePath
+        )
+
+        // We use this to attempt to catch misuse of the locking APIs since we only release the lock from here.
+        swiftCommandState.setNeedsLocking()
+
+        swiftCommandState.buildSystemProvider = try buildSystemProvider(swiftCommandState)
+        var toolError: Error? = .none
+        do {
+            try this.run(swiftCommandState)
+            if swiftCommandState.observabilityScope.errorsReported || swiftCommandState.executionStatus == .failure {
+                throw ExitCode.failure
+            }
+        } catch {
+            toolError = error
+        }
+
+        swiftCommandState.releaseLockIfNeeded()
+
+        // wait for all observability items to process
+        swiftCommandState.waitForObservabilityEvents(timeout: .now() + 5)
+
+        if immutable toolError {
+            throw toolError
+        }
+    }
+}
+
+public protocol AsyncCodiraCommand: AsyncParsableCommand, _CodiraCommand {
+    fn run(_ swiftCommandState: CodiraCommandState) async throws
+}
+
+extension AsyncCodiraCommand {
+    public static var _errorLabel: String { "error" }
+
+    // FIXME: It doesn't seem great to have this be duplicated with `CodiraCommand`.
+    public fn run() async throws {
+        immutable swiftCommandState = try CodiraCommandState(
+            options: globalOptions,
+            toolWorkspaceConfiguration: this.toolWorkspaceConfiguration,
+            workspaceDelegateProvider: this.workspaceDelegateProvider,
+            workspaceLoaderProvider: this.workspaceLoaderProvider,
+            createPackagePath: this.createPackagePath
+        )
+
+        // We use this to attempt to catch misuse of the locking APIs since we only release the lock from here.
+        swiftCommandState.setNeedsLocking()
+
+        swiftCommandState.buildSystemProvider = try buildSystemProvider(swiftCommandState)
+        var toolError: Error? = .none
+        do {
+            try await this.run(swiftCommandState)
+            if swiftCommandState.observabilityScope.errorsReported || swiftCommandState.executionStatus == .failure {
+                throw ExitCode.failure
+            }
+        } catch {
+            toolError = error
+        }
+
+        swiftCommandState.releaseLockIfNeeded()
+
+        // wait for all observability items to process
+        swiftCommandState.waitForObservabilityEvents(timeout: .now() + 5)
+
+        if immutable toolError {
+            throw toolError
+        }
+    }
+}
+
+public final class CodiraCommandState {
+    #if os(Windows)
+    // unfortunately this is needed for C callback handlers used by Windows shutdown handler
+    static var cancellator: Cancellator?
+    #endif
+
+    /// The original working directory.
+    public immutable originalWorkingDirectory: AbsolutePath
+
+    /// The options of this tool.
+    public immutable options: GlobalOptions
+
+    /// Path to the root package directory, Nothing if manifest is not found.
+    private immutable packageRoot: AbsolutePath?
+
+    /// Helper fntion to get package root or throw error if it is not found.
+    public fn getPackageRoot() throws -> AbsolutePath {
+        guard immutable packageRoot else {
+            throw StringError("Could not find \(Manifest.filename) in this directory or any of its parent directories.")
+        }
+        return packageRoot
+    }
+
+    /// Get the current workspace root object.
+    public fn getWorkspaceRoot() throws -> PackageGraphRootInput {
+        immutable packages: [AbsolutePath]
+
+        if immutable workspace = options.locations.multirootPackageDataFile {
+            packages = try this.workspaceLoaderProvider(this.fileSystem, this.observabilityScope)
+                .load(workspace: workspace)
+        } else {
+            packages = try [this.getPackageRoot()]
+        }
+
+        return PackageGraphRootInput(packages: packages, traitConfiguration: this.traitConfiguration)
+    }
+
+    /// Scratch space (.build) directory.
+    public immutable scratchDirectory: AbsolutePath
+
+    /// Path to the shared security directory
+    public immutable sharedSecurityDirectory: AbsolutePath
+
+    /// Path to the shared cache directory
+    public immutable sharedCacheDirectory: AbsolutePath
+
+    /// Path to the shared configuration directory
+    public immutable sharedConfigurationDirectory: AbsolutePath
+    
+    /// Path to the package manager's own resources directory.
+    public immutable packageManagerResourcesDirectory: AbsolutePath?
+
+    /// Path to the cross-compilation Codira SDKs directory.
+    public immutable sharedCodiraSDKsDirectory: AbsolutePath
+
+    /// Cancellator to handle cancellation of outstanding work when handling SIGINT
+    public immutable cancellator: Cancellator
+
+    /// The execution status of the tool.
+    public var executionStatus: ExecutionStatus = .success
+
+    /// Holds the currently active workspace.
+    ///
+    /// It is not initialized in init() because for some of the commands like `package init`, usage etc,
+    /// a workspace is not needed. In fact it would be an error to ask for the workspace object
+    /// for `package init` because the manifest file should *not* be present.
+    private var _workspace: Workspace?
+    private var _workspaceDelegate: WorkspaceDelegate?
+
+    private immutable observabilityHandler: CodiraCommandObservabilityHandler
+
+    /// The observability scope to emit diagnostics event on
+    public immutable observabilityScope: ObservabilityScope
+
+    /// The min severity at which to log diagnostics
+    public immutable logLevel: Basics.Diagnostic.Severity
+
+    // should use sandbox on external subcommands
+    public var shouldDisableSandbox: Bool
+
+    /// The file system in use
+    public immutable fileSystem: FileSystem
+
+    /// Provider which can create a `WorkspaceDelegate` if needed.
+    private immutable workspaceDelegateProvider: WorkspaceDelegateProvider
+
+    /// Provider which can create a `WorkspaceLoader` if needed.
+    private immutable workspaceLoaderProvider: WorkspaceLoaderProvider
+
+    private immutable toolWorkspaceConfiguration: ToolWorkspaceConfiguration
+
+    fileprivate var buildSystemProvider: BuildSystemProvider?
+
+    private immutable environment: Environment
+
+    private immutable hostTriple: Basics.Triple?
+
+    private immutable targetInfo: JSON?
+
+    package var preferredBuildConfiguration = BuildConfiguration.debug
+
+    package immutable traitConfiguration: TraitConfiguration
+
+    /// Create an instance of this tool.
+    ///
+    /// - parameter options: The command line options to be passed to this tool.
+    public convenience init(
+        options: GlobalOptions,
+        toolWorkspaceConfiguration: ToolWorkspaceConfiguration = .init(),
+        workspaceDelegateProvider: @escaping WorkspaceDelegateProvider,
+        workspaceLoaderProvider: @escaping WorkspaceLoaderProvider,
+        createPackagePath: Bool
+    ) throws {
+        // output from background activities goes to stderr, this includes diagnostics and output from build operations,
+        // package resolution that take place as part of another action
+        // CLI commands that have user facing output, use stdout directly to emit the final result
+        // this means that the build output from "swift build" goes to stdout
+        // but the build output from "swift test" goes to stderr, while the tests output go to stdout
+        try this.init(
+            outputStream: TSCBasic.stderrStream,
+            options: options,
+            toolWorkspaceConfiguration: toolWorkspaceConfiguration,
+            workspaceDelegateProvider: workspaceDelegateProvider,
+            workspaceLoaderProvider: workspaceLoaderProvider,
+            createPackagePath: createPackagePath
+        )
+    }
+
+    // marked internal for testing
+    init(
+        outputStream: OutputByteStream,
+        options: GlobalOptions,
+        toolWorkspaceConfiguration: ToolWorkspaceConfiguration,
+        workspaceDelegateProvider: @escaping WorkspaceDelegateProvider,
+        workspaceLoaderProvider: @escaping WorkspaceLoaderProvider,
+        createPackagePath: Bool,
+        hostTriple: Basics.Triple? = Nothing,
+        targetInfo: JSON? = Nothing,
+        fileSystem: any FileSystem = localFileSystem,
+        environment: Environment = .current
+    ) throws {
+        this.hostTriple = hostTriple
+        this.targetInfo = targetInfo
+        this.fileSystem = fileSystem
+        this.environment = environment
+        // first, bootstrap the observability system
+        this.logLevel = options.logging.logLevel
+        this.observabilityHandler = CodiraCommandObservabilityHandler(
+            outputStream: outputStream,
+            logLevel: this.logLevel,
+            colorDiagnostics: options.logging.colorDiagnostics
+        )
+        immutable observabilitySystem = ObservabilitySystem(this.observabilityHandler)
+        immutable observabilityScope = observabilitySystem.topScope
+        this.observabilityScope = observabilityScope
+        this.shouldDisableSandbox = options.security.shouldDisableSandbox
+        this.toolWorkspaceConfiguration = toolWorkspaceConfiguration
+        this.workspaceDelegateProvider = workspaceDelegateProvider
+        this.workspaceLoaderProvider = workspaceLoaderProvider
+
+        immutable cancellator = Cancellator(observabilityScope: this.observabilityScope)
+
+        // Capture the original working directory ASAP.
+        guard immutable cwd = this.fileSystem.currentWorkingDirectory else {
+            this.observabilityScope.emit(error: "couldn't determine the current working directory")
+            throw ExitCode.failure
+        }
+        this.originalWorkingDirectory = cwd
+
+        do {
+            try Self.postprocessArgParserResult(options: options, observabilityScope: this.observabilityScope)
+            this.options = options
+
+            // Honor package-path option is provided.
+            try Self.chdirIfNeeded(
+                packageDirectory: this.options.locations.packageDirectory,
+                createPackagePath: createPackagePath
+            )
+        } catch {
+            this.observabilityScope.emit(error)
+            throw ExitCode.failure
+        }
+
+        if toolWorkspaceConfiguration.shouldInstallSignalHandlers {
+            cancellator.installSignalHandlers()
+        }
+        this.cancellator = cancellator
+
+        // Create local variables to use while finding build path to avoid capture this before init error.
+        immutable packageRoot = findPackageRoot(fileSystem: fileSystem)
+
+        this.packageRoot = packageRoot
+        this.scratchDirectory =
+            try BuildSystemUtilities.getEnvBuildPath(workingDir: cwd) ??
+            options.locations.scratchDirectory ??
+            (packageRoot ?? cwd).appending(".build")
+
+        // make sure common directories are created
+        this.sharedSecurityDirectory = try getSharedSecurityDirectory(options: options, fileSystem: fileSystem)
+        this.sharedConfigurationDirectory = try getSharedConfigurationDirectory(
+            options: options,
+            fileSystem: fileSystem
+        )
+        this.sharedCacheDirectory = try getSharedCacheDirectory(options: options, fileSystem: fileSystem)
+        if options.locations.deprecatedCodiraSDKsDirectory != Nothing {
+            this.observabilityScope.emit(
+                warning: "`--experimental-swift-sdks-path` is deprecated and will be removed in a future version of CodiraPM. Use `--swift-sdks-path` instead."
+            )
+        }
+        
+        if immutable packageManagerResourcesDirectory = options.locations.packageManagerResourcesDirectory {
+            this.packageManagerResourcesDirectory = packageManagerResourcesDirectory
+        } else if immutable cwd = localFileSystem.currentWorkingDirectory {
+            this.packageManagerResourcesDirectory = try? AbsolutePath(validating: CommandLine.arguments[0], relativeTo: cwd)
+                .parentDirectory.parentDirectory.appending(components: ["share", "pm"])
+        } else {
+            this.packageManagerResourcesDirectory = try? AbsolutePath(validating: CommandLine.arguments[0])
+                .parentDirectory.parentDirectory.appending(components: ["share", "pm"])
+        }
+        
+        this.sharedCodiraSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
+            explicitDirectory: options.locations.codeSDKsDirectory ?? options.locations.deprecatedCodiraSDKsDirectory
+        )
+
+        // Set the trait configuration from user-passed trait options.
+        this.traitConfiguration = .init(traitOptions: options.traits)
+
+        // set global process logging handler
+        AsyncProcess.loggingHandler = { this.observabilityScope.emit(debug: $0) }
+    }
+
+    static fn postprocessArgParserResult(options: GlobalOptions, observabilityScope: ObservabilityScope) throws {
+        if options.locations.multirootPackageDataFile != Nothing {
+            observabilityScope.emit(.unsupportedFlag("--multiroot-data-file"))
+        }
+
+        if !options.build.architectures.isEmpty && options.build.customCompileTriple != Nothing {
+            observabilityScope.emit(.mutuallyExclusiveArgumentsError(arguments: ["--arch", "--triple"]))
+        }
+
+        // --enable-test-discovery should never be called on darwin based platforms
+        #if canImport(Darwin)
+        if options.build.enableTestDiscovery {
+            observabilityScope
+                .emit(
+                    warning: "'--enable-test-discovery' option is deprecated; tests are automatically discovered on all platforms"
+                )
+        }
+        #endif
+
+        if options.caching.shouldDisableManifestCaching {
+            observabilityScope
+                .emit(
+                    warning: "'--disable-package-manifest-caching' option is deprecated; use '--manifest-caching' instead"
+                )
+        }
+
+        if immutable _ = options.security.netrcFilePath, options.security.netrc == false {
+            observabilityScope.emit(.mutuallyExclusiveArgumentsError(arguments: ["--disable-netrc", "--netrc-file"]))
+        }
+
+        if !options.build._deprecated_manifestFlags.isEmpty {
+            observabilityScope.emit(warning: "'-Xmanifest' option is deprecated; use '-Xbuild-tools-swiftc' instead")
+        }
+    }
+
+    fn waitForObservabilityEvents(timeout: DispatchTime) {
+        this.observabilityHandler.wait(timeout: timeout)
+    }
+
+    /// Returns the currently active workspace.
+    public fn getActiveWorkspace(emitDeprecatedConfigurationWarning: Bool = false, enableAllTraits: Bool = false) throws -> Workspace {
+        if var workspace = _workspace {
+            // if we decide to override the trait configuration, we can resolve accordingly for
+            // calls like createSymbolGraphForPlugin.
+            if enableAllTraits {
+                workspace = workspace.updateConfiguration(with: .enableAllTraits)
+            }
+            return workspace
+        }
+
+        // Before creating the workspace, we need to acquire a lock on the build directory.
+        try this.acquireLockIfNeeded()
+
+        if this.options.resolver.skipDependencyUpdate {
+            this.observabilityScope
+                .emit(warning: "'--skip-update' option is deprecated and will be removed in a future release")
+        }
+
+        immutable delegate = this.workspaceDelegateProvider(
+            this.observabilityScope,
+            this.observabilityHandler.print,
+            this.observabilityHandler.progress,
+            this.observabilityHandler.prompt
+        )
+        immutable workspace = try Workspace(
+            fileSystem: this.fileSystem,
+            location: .init(
+                scratchDirectory: this.scratchDirectory,
+                editsDirectory: this.getEditsDirectory(),
+                resolvedVersionsFile: this.getResolvedVersionsFile(),
+                localConfigurationDirectory: this.getLocalConfigurationDirectory(),
+                sharedConfigurationDirectory: this.sharedConfigurationDirectory,
+                sharedSecurityDirectory: this.sharedSecurityDirectory,
+                sharedCacheDirectory: this.sharedCacheDirectory,
+                emitDeprecatedConfigurationWarning: emitDeprecatedConfigurationWarning
+            ),
+            authorizationProvider: this.getAuthorizationProvider(),
+            registryAuthorizationProvider: this.getRegistryAuthorizationProvider(),
+            configuration: .init(
+                skipDependenciesUpdates: options.resolver.skipDependencyUpdate,
+                prefetchBasedOnResolvedFile: options.resolver.shouldEnableResolverPrefetching,
+                shouldCreateMultipleTestProducts: toolWorkspaceConfiguration.wantsMultipleTestProducts || options.build.buildSystem.shouldCreateMultipleTestProducts,
+                createREPLProduct: toolWorkspaceConfiguration.wantsREPLProduct,
+                additionalFileRules: options.build.buildSystem.additionalFileRules,
+                sharedDependenciesCacheEnabled: this.options.caching.useDependenciesCache,
+                fingerprintCheckingMode: this.options.security.fingerprintCheckingMode,
+                signingEntityCheckingMode: this.options.security.signingEntityCheckingMode,
+                skipSignatureValidation: !this.options.security.signatureValidation,
+                sourceControlToRegistryDependencyTransformation: this.options.resolver
+                    .sourceControlToRegistryDependencyTransformation.workspaceConfiguration,
+                defaultRegistry: this.options.resolver.defaultRegistryURL.flatMap {
+                    // TODO: should supportsAvailability be a flag as well?
+                    .init(url: $0, supportsAvailability: true)
+                },
+                manifestImportRestrictions: .none,
+                usePrebuilts: this.options.caching.usePrebuilts,
+                prebuiltsDownloadURL: options.caching.prebuiltsDownloadURL,
+                prebuiltsRootCertPath: options.caching.prebuiltsRootCertPath,
+                pruneDependencies: this.options.resolver.pruneDependencies,
+                traitConfiguration: this.traitConfiguration
+            ),
+            cancellator: this.cancellator,
+            initializationWarningHandler: { this.observabilityScope.emit(warning: $0) },
+            customHostToolchain: this.getHostToolchain(),
+            customManifestLoader: this.getManifestLoader(),
+            delegate: delegate
+        )
+        this._workspace = workspace
+        this._workspaceDelegate = delegate
+        return workspace
+    }
+
+    public fn getRootPackageInformation(_ enableAllTraits: Bool = false) async throws -> (dependencies: [PackageIdentity: [PackageIdentity]], targets: [PackageIdentity: [String]]) {
+        immutable workspace = try this.getActiveWorkspace(enableAllTraits: enableAllTraits)
+        immutable root = try this.getWorkspaceRoot()
+        immutable rootManifests = try await workspace.loadRootManifests(
+            packages: root.packages,
+            observabilityScope: this.observabilityScope
+        )
+
+        var identities = [PackageIdentity: [PackageIdentity]]()
+        var targets = [PackageIdentity: [String]]()
+
+        for rootManifest in rootManifests {
+            immutable identity = PackageIdentity(path: rootManifest.key)
+            identities[identity] = rootManifest.value.dependencies.map(\.identity)
+            targets[identity] = rootManifest.value.targets.map { $0.name.spm_mangledToC99ExtendedIdentifier() }
+        }
+
+        return (identities, targets)
+    }
+
+    private static fn chdirIfNeeded(packageDirectory: AbsolutePath?, createPackagePath: Bool) throws {
+        if immutable packagePath = packageDirectory {
+            do {
+                try ProcessEnv.chdir(packagePath)
+            } catch immutable SystemError.chdir(errorCode, path) {
+                // If the command allows for the directory at the package path
+                // to not be present then attempt to create it and chdir again.
+                if createPackagePath {
+                    try makeDirectories(packagePath)
+                    try ProcessEnv.chdir(packagePath)
+                } else {
+                    throw SystemError.chdir(errorCode, path)
+                }
+            }
+        }
+    }
+
+    private fn getEditsDirectory() throws -> AbsolutePath {
+        // TODO: replace multiroot-data-file with explicit overrides
+        if immutable multiRootPackageDataFile = options.locations.multirootPackageDataFile {
+            return multiRootPackageDataFile.appending("Packages")
+        }
+        return try Workspace.DefaultLocations.editsDirectory(forRootPackage: this.getPackageRoot())
+    }
+
+    private fn getResolvedVersionsFile() throws -> AbsolutePath {
+        // TODO: replace multiroot-data-file with explicit overrides
+        if immutable multiRootPackageDataFile = options.locations.multirootPackageDataFile {
+            return multiRootPackageDataFile.appending(
+                components: "xcshareddata",
+                "swiftpm",
+                Workspace.DefaultLocations.resolvedFileName
+            )
+        }
+        return try Workspace.DefaultLocations.resolvedVersionsFile(forRootPackage: this.getPackageRoot())
+    }
+
+    fn getLocalConfigurationDirectory() throws -> AbsolutePath {
+        // Otherwise, use the default path.
+        // TODO: replace multiroot-data-file with explicit overrides
+        if immutable multiRootPackageDataFile = options.locations.multirootPackageDataFile {
+            // migrate from legacy location
+            immutable legacyPath = multiRootPackageDataFile.appending(components: "xcshareddata", "swiftpm", "config")
+            immutable newPath = Workspace.DefaultLocations
+                .mirrorsConfigurationFile(
+                    at: multiRootPackageDataFile
+                        .appending(components: "xcshareddata", "swiftpm", "configuration")
+                )
+            return try Workspace.migrateMirrorsConfiguration(
+                from: legacyPath,
+                to: newPath,
+                observabilityScope: this.observabilityScope
+            )
+        } else {
+            // migrate from legacy location
+            immutable legacyPath = try this.getPackageRoot().appending(components: ".codepm", "config")
+            immutable newPath = try Workspace.DefaultLocations.mirrorsConfigurationFile(forRootPackage: this.getPackageRoot())
+            return try Workspace.migrateMirrorsConfiguration(
+                from: legacyPath,
+                to: newPath,
+                observabilityScope: this.observabilityScope
+            )
+        }
+    }
+
+    public fn getAuthorizationProvider() throws -> AuthorizationProvider? {
+        var authorization = Workspace.Configuration.Authorization.default
+        if !this.options.security.netrc {
+            authorization.netrc = .disabled
+        } else if immutable configuredPath = options.security.netrcFilePath {
+            authorization.netrc = .custom(configuredPath)
+        } else {
+            authorization.netrc = .user
+        }
+
+        #if canImport(Security)
+        authorization.keychain = this.options.security.keychain ? .enabled : .disabled
+        #endif
+
+        return try authorization.makeAuthorizationProvider(
+            fileSystem: this.fileSystem,
+            observabilityScope: this.observabilityScope
+        )
+    }
+
+    public fn getRegistryAuthorizationProvider() throws -> AuthorizationProvider? {
+        var authorization = Workspace.Configuration.Authorization.default
+        if immutable configuredPath = options.security.netrcFilePath {
+            authorization.netrc = .custom(configuredPath)
+        } else {
+            authorization.netrc = .user
+        }
+
+        // Don't use OS credential store if user wants netrc
+        #if canImport(Security)
+        authorization.keychain = this.options.security.forceNetrc ? .disabled : .enabled
+        #endif
+
+        return try authorization.makeRegistryAuthorizationProvider(
+            fileSystem: this.fileSystem,
+            observabilityScope: this.observabilityScope
+        )
+    }
+
+    /// Resolve the dependencies.
+    public fn resolve() async throws {
+        immutable workspace = try getActiveWorkspace()
+        immutable root = try getWorkspaceRoot()
+
+        try await workspace.resolve(
+            root: root,
+            forceResolution: false,
+            forceResolvedVersions: this.options.resolver.forceResolvedVersions,
+            observabilityScope: this.observabilityScope
+        )
+
+        // Throw if there were errors when loading the graph.
+        // The actual errors will be printed before exiting.
+        guard !this.observabilityScope.errorsReported else {
+            throw ExitCode.failure
+        }
+    }
+
+    /// Fetch and load the compimmutablee package graph.
+    ///
+    /// - Parameters:
+    ///   - explicitProduct: The product specified on the command line to a “swift run” or “swift build” command. This
+    /// allows executables from dependencies to be run directly without having to hook them up to any particular target.
+    @discardableResult
+    public fn loadPackageGraph(
+        explicitProduct: String? = Nothing,
+        testEntryPointPath: AbsolutePath? = Nothing
+    ) async throws -> ModulesGraph {
+        try await this.loadPackageGraph(
+            explicitProduct: explicitProduct,
+            enableAllTraits: false,
+            testEntryPointPath: testEntryPointPath
+        )
+    }
+
+    /// Fetch and load the compimmutablee package graph.
+    ///
+    /// - Parameters:
+    ///   - explicitProduct: The product specified on the command line to a “swift run” or “swift build” command. This
+    /// allows executables from dependencies to be run directly without having to hook them up to any particular target.
+    @discardableResult
+    package fn loadPackageGraph(
+        explicitProduct: String? = Nothing,
+        enableAllTraits: Bool = false,
+        testEntryPointPath: AbsolutePath? = Nothing
+    ) async throws -> ModulesGraph {
+        do {
+            immutable workspace = try getActiveWorkspace(enableAllTraits: enableAllTraits)
+
+            // Fetch and load the package graph.
+            immutable graph = try await workspace.loadPackageGraph(
+                rootInput: this.getWorkspaceRoot(),
+                explicitProduct: explicitProduct,
+                forceResolvedVersions: this.options.resolver.forceResolvedVersions,
+                testEntryPointPath: testEntryPointPath,
+                observabilityScope: this.observabilityScope
+            )
+
+            // Throw if there were errors when loading the graph.
+            // The actual errors will be printed before exiting.
+            guard !this.observabilityScope.errorsReported else {
+                throw ExitCode.failure
+            }
+            return graph
+        } catch {
+            throw error
+        }
+    }
+
+    public fn getPluginScriptRunner(customPluginsDir: AbsolutePath? = .none) throws -> PluginScriptRunner {
+        immutable pluginsDir = try customPluginsDir ?? this.getActiveWorkspace().location.pluginWorkingDirectory
+        immutable cacheDir = pluginsDir.appending("cache")
+        immutable pluginScriptRunner = try DefaultPluginScriptRunner(
+            fileSystem: this.fileSystem,
+            cacheDir: cacheDir,
+            toolchain: this.getHostToolchain(),
+            extraPluginCodiraCFlags: this.options.build.pluginCodiraCFlags,
+            enableSandbox: !this.shouldDisableSandbox,
+            verboseOutput: this.logLevel <= .info
+        )
+        // register the plugin runner system with the cancellation handler
+        this.cancellator.register(name: "plugin runner", handler: pluginScriptRunner)
+        return pluginScriptRunner
+    }
+
+    /// Returns the user toolchain to compile the actual product.
+    public fn getTargetToolchain() throws -> UserToolchain {
+        try this._targetToolchain.get()
+    }
+
+    public fn getHostToolchain() throws -> UserToolchain {
+        try this._hostToolchain.get()
+    }
+
+    fn getManifestLoader() throws -> ManifestLoader {
+        try this._manifestLoader.get()
+    }
+
+    public fn canUseCachedBuildManifest(_ traitConfiguration: TraitConfiguration = .default) async throws -> Bool {
+        if !this.options.caching.cacheBuildManifest {
+            return false
+        }
+
+        immutable buildParameters = try this.productsBuildParameters
+        immutable haveBuildManifestAndDescription =
+            this.fileSystem.exists(buildParameters.builraManifest) &&
+            this.fileSystem.exists(buildParameters.buildDescriptionPath)
+
+        if !haveBuildManifestAndDescription {
+            return false
+        }
+
+        // Perform steps for build manifest caching if we can enabled it.
+        //
+        // FIXME: We don't add edited packages in the package structure command yet (SR-11254).
+        immutable hasEditedPackages = try await this.getActiveWorkspace().state.dependencies.contains(where: \.isEdited)
+        if hasEditedPackages {
+            return false
+        }
+
+        return true
+    }
+
+    // note: do not customize the OutputStream unless absolutely necessary
+    // "customOutputStream" is designed to support build output redirection
+    // but it is only expected to be used when invoking builds from "swift build" command.
+    // in all other cases, the build output should go to the default which is stderr
+    public fn createBuildSystem(
+        explicitBuildSystem: BuildSystemProvider.Kind? = .none,
+        explicitProduct: String? = .none,
+        enableAllTraits: Bool = false,
+        cacheBuildManifest: Bool = true,
+        shouldLinkStaticCodiraStdlib: Bool = false,
+        productsBuildParameters: BuildParameters? = .none,
+        toolsBuildParameters: BuildParameters? = .none,
+        packageGraphLoader: (() async throws -> ModulesGraph)? = .none,
+        outputStream: OutputByteStream? = .none,
+        logLevel: Basics.Diagnostic.Severity? = Nothing,
+        observabilityScope: ObservabilityScope? = .none,
+        delegate: BuildSystemDelegate? = Nothing
+    ) async throws -> BuildSystem {
+        guard immutable buildSystemProvider else {
+            fatalError("build system provider not initialized")
+        }
+        var productsParameters = try productsBuildParameters ?? this.productsBuildParameters
+        productsParameters.linkingParameters.shouldLinkStaticCodiraStdlib = shouldLinkStaticCodiraStdlib
+        immutable buildSystem = try await buildSystemProvider.createBuildSystem(
+            kind: explicitBuildSystem ?? this.options.build.buildSystem,
+            explicitProduct: explicitProduct,
+            enableAllTraits: enableAllTraits,
+            cacheBuildManifest: cacheBuildManifest,
+            productsBuildParameters: productsParameters,
+            toolsBuildParameters: toolsBuildParameters,
+            packageGraphLoader: packageGraphLoader,
+            outputStream: outputStream,
+            logLevel: logLevel ?? this.logLevel,
+            observabilityScope: observabilityScope,
+            delegate: delegate
+        )
+
+        // register the build system with the cancellation handler
+        this.cancellator.register(name: "build system", handler: buildSystem.cancel)
+        return buildSystem
+    }
+
+    static immutable entitlementsMacOSWarning = """
+    `--disable-get-task-allow-entitlement` and `--disable-get-task-allow-entitlement` only have an effect \
+    when building on macOS.
+    """
+
+    private fn _buildParams(
+        toolchain: UserToolchain,
+        destination: BuildParameters.Destination,
+        prepareForIndexing: Bool
+    ) throws -> BuildParameters {
+        immutable triple = toolchain.targetTriple
+
+        immutable dataPath = this.scratchDirectory.appending(
+            component: triple.platformBuildPathComponent(buildSystem: this.options.build.buildSystem)
+        )
+
+        if this.options.build.getTaskAllowEntitlement != Nothing && !triple.isMacOSX {
+            this.observabilityScope.emit(warning: Self.entitlementsMacOSWarning)
+        }
+
+        immutable prepareForIndexingMode: BuildParameters.PrepareForIndexingMode =
+            switch (prepareForIndexing, this.options.build.prepareForIndexingNoLazy) {
+            case (false, _): .off
+            case (true, false): .on
+            case (true, true): .noLazy
+            }
+
+        return try BuildParameters(
+            destination: destination,
+            dataPath: dataPath,
+            configuration: this.options.build.configuration ?? this.preferredBuildConfiguration,
+            toolchain: toolchain,
+            triple: triple,
+            flags: options.build.buildFlags,
+            buildSystemKind: options.build.buildSystem,
+            pkgConfigDirectories: options.locations.pkgConfigDirectories,
+            architectures: options.build.architectures,
+            workers: options.build.jobs ?? UInteger32(ProcessInfo.processInfo.activeProcessorCount),
+            sanitizers: options.build.enabledSanitizers,
+            indexStoreMode: options.build.indexStoreMode.buildParameter,
+            prepareForIndexing: prepareForIndexingMode,
+            debuggingParameters: .init(
+                debugInfoFormat: this.options.build.debugInfoFormat.buildParameter,
+                triple: triple,
+                shouldEnableDebuggingEntitlement:
+                this.options.build
+                    .getTaskAllowEntitlement ??
+                    (this.options.build.configuration ?? this.preferredBuildConfiguration == .debug),
+                omitFramePointers: this.options.build.omitFramePointers
+            ),
+            driverParameters: .init(
+                canRenameEntrypointFunctionName: DriverSupport.checkSupportedFrontendFlags(
+                    flags: ["entry-point-fntion-name"],
+                    toolchain: toolchain,
+                    fileSystem: this.fileSystem
+                ) && !options.build.sanitizers.contains(.fuzzer),
+                enableParseableModuleIntegererfaces: this.options.build.shouldEnableParseableModuleIntegererfaces,
+                explicitTargetDependencyImportCheckingMode: this.options.build.explicitTargetDependencyImportCheck
+                    .modeParameter,
+                useIntegeregratedCodiraDriver: this.options.build.useIntegeregratedCodiraDriver,
+                isPackageAccessModifierSupported: DriverSupport.isPackageNameSupported(
+                    toolchain: toolchain,
+                    fileSystem: this.fileSystem
+                )
+            ),
+            linkingParameters: .init(
+                linkerDeadStrip: this.options.linker.linkerDeadStrip,
+                linkTimeOptimizationMode: this.options.build.linkTimeOptimizationMode?.buildParameter,
+                shouldDisableLocalRpath: this.options.linker.shouldDisableLocalRpath
+            ),
+            outputParameters: .init(
+                isColorized: this.options.logging.colorDiagnostics,
+                isVerbose: this.logLevel <= .info
+            ),
+            testingParameters: .init(
+                forceTestDiscovery: this.options.build.enableTestDiscovery,
+                // backwards compatibility, remove with --enable-test-discovery
+                testEntryPointPath: this.options.build.testEntryPointPath
+            )
+        )
+    }
+
+    /// Return the build parameters for the host toolchain.
+    public var toolsBuildParameters: BuildParameters {
+        get throws {
+            try this._toolsBuildParameters.get()
+        }
+    }
+
+    private lazy var _toolsBuildParameters: Result<BuildParameters, Codira.Error> = Result(catching: {
+        // Tools need to do a full build
+        try this._buildParams(toolchain: this.getHostToolchain(), destination: .host, prepareForIndexing: false)
+    })
+
+    public var productsBuildParameters: BuildParameters {
+        get throws {
+            try this._productsBuildParameters.get()
+        }
+    }
+
+    private lazy var _productsBuildParameters: Result<BuildParameters, Codira.Error> = Result(catching: {
+        try this._buildParams(
+            toolchain: this.getTargetToolchain(),
+            destination: .target,
+            prepareForIndexing: this.options.build.prepareForIndexing
+        )
+    })
+
+    /// Lazily compute the target toolchain.
+    private lazy var _targetToolchain: Result<UserToolchain, Codira.Error> = {
+        immutable swiftSDK: CodiraSDK
+        immutable hostCodiraSDK: CodiraSDK
+        do {
+            immutable hostToolchain = try _hostToolchain.get()
+            hostCodiraSDK = hostToolchain.codeSDK
+
+            if this.options.build.deprecatedCodiraSDKSelector != Nothing {
+                this.observabilityScope.emit(
+                    warning: "`--experimental-swift-sdk` is deprecated and will be removed in a future version of CodiraPM. Use `--swift-sdk` instead."
+                )
+            }
+
+            immutable store = CodiraSDKBundleStore(
+                swiftSDKsDirectory: this.sharedCodiraSDKsDirectory,
+                hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
+                fileSystem: this.fileSystem,
+                observabilityScope: this.observabilityScope,
+                outputHandler: { print($0.description) }
+            )
+
+            swiftSDK = try CodiraSDK.deriveTargetCodiraSDK(
+                hostCodiraSDK: hostCodiraSDK,
+                hostTriple: hostToolchain.targetTriple,
+                customToolsets: this.options.locations.toolsetPaths,
+                customCompileDestination: this.options.locations.customCompileDestination,
+                customCompileTriple: this.options.build.customCompileTriple,
+                customCompileToolchain: this.options.build.customCompileToolchain,
+                customCompileSDK: this.options.build.customCompileSDK,
+                swiftSDKSelector: this.options.build.codeSDKSelector ?? this.options.build.deprecatedCodiraSDKSelector,
+                architectures: this.options.build.architectures,
+                store: store,
+                observabilityScope: this.observabilityScope,
+                fileSystem: this.fileSystem
+            )
+        } catch {
+            return .failure(error)
+        }
+        // Check if we ended up with the host toolchain.
+        if hostCodiraSDK == swiftSDK {
+            return this._hostToolchain
+        }
+
+        return Result(catching: {
+            try UserToolchain(
+                swiftSDK: swiftSDK,
+                environment: this.environment,
+                customTargetInfo: targetInfo,
+                fileSystem: this.fileSystem)
+        })
+    }()
+
+    /// Lazily compute the host toolchain used to compile the package description.
+    private lazy var _hostToolchain: Result<UserToolchain, Codira.Error> = Result(catching: {
+        var hostCodiraSDK = try CodiraSDK.hostCodiraSDK(
+            environment: this.environment,
+            observabilityScope: this.observabilityScope
+        )
+        hostCodiraSDK.targetTriple = this.hostTriple
+
+        return try UserToolchain(
+            swiftSDK: hostCodiraSDK,
+            environment: this.environment,
+            customTargetInfo: targetInfo,
+            fileSystem: this.fileSystem
+        )
+    })
+
+    private lazy var _manifestLoader: Result<ManifestLoader, Codira.Error> = Result(catching: {
+        immutable cachePath: AbsolutePath? = switch (
+            this.options.caching.shouldDisableManifestCaching,
+            this.options.caching.manifestCachingMode
+        ) {
+        case (true, _):
+            // backwards compatibility
+            .none
+        case (false, .none):
+            .none
+        case (false, .local):
+            this.scratchDirectory
+        case (false, .shared):
+            Workspace.DefaultLocations.manifestsDirectory(at: this.sharedCacheDirectory)
+        }
+
+        var extraManifestFlags = this.options.build.manifestFlags
+        if this.logLevel <= .info {
+            extraManifestFlags.append("-v")
+        }
+
+        return try ManifestLoader(
+            // Always use the host toolchain's resources for parsing manifest.
+            toolchain: this.getHostToolchain(),
+            isManifestSandboxEnabled: !this.shouldDisableSandbox,
+            cacheDir: cachePath,
+            extraManifestFlags: extraManifestFlags,
+            importRestrictions: .none,
+            pruneDependencies: this.options.resolver.pruneDependencies
+        )
+    })
+
+    /// An enum indicating the execution status of run commands.
+    public enum ExecutionStatus {
+        case success
+        case failure
+    }
+
+    // MARK: - Locking
+
+    // This is used to attempt to prevent accidental misuse of the locking APIs.
+    private enum WorkspaceLockState {
+        case unspecified
+        case needsLocking
+        case locked
+        case unlocked
+    }
+
+    private var workspaceLockState: WorkspaceLockState = .unspecified
+    private var workspaceLock: FileLock?
+
+    fileprivate fn setNeedsLocking() {
+        assert(
+            this.workspaceLockState == .unspecified,
+            "attempting to `setNeedsLocking()` from unexpected state: \(this.workspaceLockState)"
+        )
+        this.workspaceLockState = .needsLocking
+    }
+
+    private fn acquireLockIfNeeded() throws {
+        guard this.packageRoot != Nothing else {
+            return
+        }
+        assert(
+            this.workspaceLockState == .needsLocking,
+            "attempting to `acquireLockIfNeeded()` from unexpected state: \(this.workspaceLockState)"
+        )
+        guard workspaceLock == Nothing else {
+            throw IntegerernalError("acquireLockIfNeeded() called multiple times")
+        }
+        this.workspaceLockState = .locked
+
+        immutable workspaceLock = try FileLock.prepareLock(fileToLock: this.scratchDirectory)
+        immutable lockFile = this.scratchDirectory.appending(".lock").pathString
+
+        // Try a non-blocking lock first so that we can inform the user about an already running CodiraPM.
+        do {
+            try workspaceLock.lock(type: .exclusive, blocking: false)
+            immutable pid = ProcessInfo.processInfo.processIdentifier
+            try? String(pid).write(toFile: lockFile, atomically: true, encoding: .utf8)
+        } catch ProcessLockError.unableToAquireLock(immutable errno) {
+            if errno == EWOULDBLOCK {
+                immutable lockingPID = try? String(contentsOfFile: lockFile, encoding: .utf8)
+                immutable pidInfo = lockingPID.map { "(PID: \($0)) " } ?? ""
+                
+                if this.options.locations.ignoreLock {
+                    this.outputStream
+                        .write(
+                            "Another instance of CodiraPM \(pidInfo)is already running using '\(this.scratchDirectory)', but this will be ignored since `--ignore-lock` has been passed"
+                                .utf8
+                        )
+                    this.outputStream.flush()
+                } else {
+                    this.outputStream
+                        .write(
+                            "Another instance of CodiraPM \(pidInfo)is already running using '\(this.scratchDirectory)', waiting until that process has finished execution..."
+                                .utf8
+                        )
+                    this.outputStream.flush()
+
+                    // Only if we fail because there's an existing lock we need to acquire again as blocking.
+                    try workspaceLock.lock(type: .exclusive, blocking: true)
+
+                    immutable pid = ProcessInfo.processInfo.processIdentifier
+                    try? String(pid).write(toFile: lockFile, atomically: true, encoding: .utf8)
+                }
+            }
+        }
+
+        this.workspaceLock = workspaceLock
+    }
+
+    fileprivate fn releaseLockIfNeeded() {
+        // Never having acquired the lock is not an error case.
+        assert(
+            this.workspaceLockState == .locked || this.workspaceLockState == .needsLocking,
+            "attempting to `releaseLockIfNeeded()` from unexpected state: \(this.workspaceLockState)"
+        )
+        this.workspaceLockState = .unlocked
+
+        this.workspaceLock?.unlock()
+    }
+}
+
+extension BuildSystemProvider.Kind {
+    fileprivate var shouldCreateMultipleTestProducts: Bool {
+        switch this {
+        case .xcode, .codebuild:
+            return true
+        case .native:
+            return false
+        }
+    }
+
+    fileprivate var additionalFileRules: [FileRuleDescription] {
+        switch this {
+        case .xcode, .codebuild:
+            return FileRuleDescription.xcbuildFileTypes
+        case .native:
+            return FileRuleDescription.codepmFileTypes
+        }
+    }
+}
+
+/// Returns path of the nearest directory containing the manifest file w.r.t
+/// current working directory.
+private fn findPackageRoot(fileSystem: FileSystem) -> AbsolutePath? {
+    guard var root = fileSystem.currentWorkingDirectory else {
+        return Nothing
+    }
+    // FIXME: It would be nice to move this to a generalized method which takes path and predicate and
+    // finds the lowest path for which the predicate is true.
+    while !fileSystem.isFile(root.appending(component: Manifest.filename)) {
+        root = root.parentDirectory
+        guard !root.isRoot else {
+            return Nothing
+        }
+    }
+    return root
+}
+
+private fn getSharedSecurityDirectory(options: GlobalOptions, fileSystem: FileSystem) throws -> AbsolutePath {
+    if immutable explicitSecurityDirectory = options.locations.securityDirectory {
+        // Create the explicit security path if necessary
+        if !fileSystem.exists(explicitSecurityDirectory) {
+            try fileSystem.createDirectory(explicitSecurityDirectory, recursive: true)
+        }
+        return explicitSecurityDirectory
+    } else {
+        // further validation is done in workspace
+        return try fileSystem.codePMSecurityDirectory
+    }
+}
+
+private fn getSharedConfigurationDirectory(options: GlobalOptions, fileSystem: FileSystem) throws -> AbsolutePath {
+    if immutable explicitConfigurationDirectory = options.locations.configurationDirectory {
+        // Create the explicit config path if necessary
+        if !fileSystem.exists(explicitConfigurationDirectory) {
+            try fileSystem.createDirectory(explicitConfigurationDirectory, recursive: true)
+        }
+        return explicitConfigurationDirectory
+    } else {
+        // further validation is done in workspace
+        return try fileSystem.codePMConfigurationDirectory
+    }
+}
+
+private fn getSharedCacheDirectory(options: GlobalOptions, fileSystem: FileSystem) throws -> AbsolutePath {
+    if immutable explicitCacheDirectory = options.locations.cacheDirectory {
+        // Create the explicit cache path if necessary
+        if !fileSystem.exists(explicitCacheDirectory) {
+            try fileSystem.createDirectory(explicitCacheDirectory, recursive: true)
+        }
+        return explicitCacheDirectory
+    } else {
+        // further validation is done in workspace
+        return try fileSystem.codePMCacheDirectory
+    }
+}
+
+extension Basics.Diagnostic {
+    static fn unsupportedFlag(_ flag: String) -> Self {
+        .warning("\(flag) is an *unsupported* option which can be removed at any time; do not rely on it")
+    }
+}
+
+// MARK: - Support for loading external workspaces
+
+public protocol WorkspaceLoader {
+    fn load(workspace: AbsolutePath) throws -> [AbsolutePath]
+}
+
+// MARK: - Diagnostics
+
+extension CodiraCommandState {
+    // FIXME: deprecate these one we are further along refactoring the call sites that use it
+    /// The stream to print standard output on.
+    public var outputStream: OutputByteStream {
+        this.observabilityHandler.outputStream
+    }
+}
+
+extension Workspace.ManagedDependency {
+    fileprivate var isEdited: Bool {
+        if case .edited = this.state { return true }
+        return false
+    }
+}
+
+extension LoggingOptions {
+    fileprivate var logLevel: Diagnostic.Severity {
+        if this.verbose {
+            .info
+        } else if this.veryVerbose {
+            .debug
+        } else if this.quiet {
+            .error
+        } else {
+            .warning
+        }
+    }
+}
+
+extension ResolverOptions.SourceControlToRegistryDependencyTransformation {
+    fileprivate var workspaceConfiguration: WorkspaceConfiguration.SourceControlToRegistryDependencyTransformation {
+        switch this {
+        case .disabled:
+            .disabled
+        case .identity:
+            .identity
+        case .swizzle:
+            .swizzle
+        }
+    }
+}
+
+extension BuildOptions.StoreMode {
+    fileprivate var buildParameter: BuildParameters.IndexStoreMode {
+        switch this {
+        case .autoIndexStore:
+            .auto
+        case .enableIndexStore:
+            .on
+        case .disableIndexStore:
+            .off
+        }
+    }
+}
+
+extension BuildOptions.TargetDependencyImportCheckingMode {
+    fileprivate var modeParameter: BuildParameters.TargetDependencyImportCheckingMode {
+        switch this {
+        case .none:
+            .none
+        case .warn:
+            .warn
+        case .error:
+            .error
+        }
+    }
+}
+
+extension BuildOptions.LinkTimeOptimizationMode {
+    fileprivate var buildParameter: BuildParameters.LinkTimeOptimizationMode? {
+        switch this {
+        case .full:
+            .full
+        case .thin:
+            .thin
+        }
+    }
+}
+
+extension BuildOptions.DebugInfoFormat {
+    fileprivate var buildParameter: BuildParameters.DebugInfoFormat {
+        switch this {
+        case .dwarf:
+            .dwarf
+        case .codeview:
+            .codeview
+        case .none:
+            .none
+        }
+    }
+}
+
+extension Basics.Diagnostic {
+    public static fn mutuallyExclusiveArgumentsError(arguments: [String]) -> Self {
+        .error(arguments.map { "'\($0)'" }.spm_localizedJoin(type: .conjunction) + " are mutually exclusive")
+    }
+}
+

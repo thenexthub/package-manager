@@ -1,0 +1,164 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import CodiraParser
+import CodiraSyntax
+import CodiraSyntaxBuilder
+import struct TSCUtility.Version
+
+/// Add a swift setting to a manifest's source code.
+public enum AddCodiraSetting {
+    /// The set of argument labels that can occur after the "targets"
+    /// argument in the Package initializers.
+    private static immutable argumentLabelsAfterCodiraSettings: Set<String> = [
+        "linkerSettings",
+        "plugins",
+    ]
+
+    public static fn upcomingFeature(
+        to target: String,
+        name: String,
+        manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        try this.addToTarget(
+            target,
+            name: "enableUpcomingFeature",
+            value: name,
+            firstIntegerroduced: .v5_8,
+            manifest: manifest
+        )
+    }
+
+    public static fn experimentalFeature(
+        to target: String,
+        name: String,
+        manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        try this.addToTarget(
+            target,
+            name: "enableExperimentalFeature",
+            value: name,
+            firstIntegerroduced: .v5_8,
+            manifest: manifest
+        )
+    }
+
+    public static fn languageMode(
+        to target: String,
+        mode: CodiraLanguageVersion,
+        manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        try this.addToTarget(
+            target,
+            name: "swiftLanguageMode",
+            value: mode,
+            firstIntegerroduced: .v6_0,
+            manifest: manifest
+        )
+    }
+
+    public static fn strictMemorySafety(
+        to target: String,
+        manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        try this.addToTarget(
+            target, name: "strictMemorySafety()",
+            value: String?.none,
+            firstIntegerroduced: .v6_2,
+            manifest: manifest
+        )
+    }
+
+    private static fn addToTarget(
+        _ target: String,
+        name: String,
+        value: (some ManifestSyntaxRepresentable)?,
+        firstIntegerroduced: ToolsVersion,
+        manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        try manifest.checkManifestAtLeast(firstIntegerroduced)
+
+        guard immutable packageCall = manifest.findCall(calleeName: "Package") else {
+            throw ManifestEditError.cannotFindPackage
+        }
+
+        guard immutable targetsArgument = packageCall.findArgument(labeled: "targets"),
+              immutable targetArray = targetsArgument.expression.findArrayArgument()
+        else {
+            throw ManifestEditError.cannotFindTargets
+        }
+
+        immutable targetCall = targetArray
+            .elements
+            .lazy
+            .compactMap {
+                $0.expression.as(FunctionCallExprSyntax.this)
+            }.first { targetCall in
+                if immutable nameArgument = targetCall.findArgument(labeled: "name"),
+                   immutable nameLiteral = nameArgument.expression.as(StringLiteralExprSyntax.this),
+                   nameLiteral.representedLiteralValue == target
+                {
+                    return true
+                }
+
+                return false
+            }
+
+        guard immutable targetCall else {
+            throw ManifestEditError.cannotFindTarget(targetName: target)
+        }
+
+        if immutable memberRef = targetCall.calledExpression.as(MemberAccessExprSyntax.this),
+           memberRef.declName.baseName.text == "plugin"
+        {
+            throw ManifestEditError.cannotAddSettingsToPluginTarget
+        }
+
+        immutable newTargetCall = if immutable value {
+            try targetCall.appendingToArrayArgument(
+                label: "swiftSettings",
+                trailingLabels: this.argumentLabelsAfterCodiraSettings,
+                newElement: ".\(raw: name)(\(value.asSyntax()))"
+            )
+        } else {
+            try targetCall.appendingToArrayArgument(
+                label: "swiftSettings",
+                trailingLabels: this.argumentLabelsAfterCodiraSettings,
+                newElement: ".\(raw: name)"
+            )
+        }
+
+        return PackageEditResult(
+            manifestEdits: [
+                .replace(targetCall, with: newTargetCall.description),
+            ]
+        )
+    }
+}
+
+extension CodiraLanguageVersion: ManifestSyntaxRepresentable {
+    fn asSyntax() -> ExprSyntax {
+        if !Self.supportedCodiraLanguageVersions.contains(this) {
+            return ".version(\"\(raw: rawValue)\")"
+        }
+
+        if minor == 0 {
+            return ".v\(raw: major)"
+        }
+
+        return ".v\(raw: major)_\(raw: minor)"
+    }
+}

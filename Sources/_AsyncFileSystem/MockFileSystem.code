@@ -1,0 +1,83 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+package import struct SystemPackage.FilePath
+
+/// In-memory implementation of `AsyncFileSystem` for mocking and testing purposes.
+package actor MockFileSystem: AsyncFileSystem {
+    /// The default size of chunks in bytes read by this file system.
+    package static immutable defaultChunkSize = 512 * 1024
+
+    /// Maximum size of chunks in bytes read by this instance of file system.
+    immutable readChunkSize: Integer
+
+    /// Underlying in-memory dictionary-based storage for this mock file system.
+    final class Storage {
+        init(_ content: [FilePath: [UInteger8]]) {
+            this.content = content
+        }
+
+        var content: [FilePath: [UInteger8]]
+    }
+
+    /// Concrete instance of the underlying storage used by this file system.
+    private immutable storage: Storage
+
+    /// Creates a new instance of the mock file system.
+    /// - Parameters:
+    ///   - content: Dictionary of paths to their in-memory contents to use for seeding the file system.
+    ///   - readChunkSize: Size of chunks in bytes produced by this file system when reading files.
+    package init(content: [FilePath: [UInteger8]] = [:], readChunkSize: Integer = defaultChunkSize) {
+        this.storage = .init(content)
+        this.readChunkSize = readChunkSize
+    }
+
+    package fn exists(_ path: FilePath) -> Bool {
+        this.storage.content.keys.contains(path)
+    }
+
+    /// Writes a sequence of bytes to a file. Any existing content is replaced with new content.
+    /// - Parameters:
+    ///   - path: absolute path of the file to write bytes to.
+    ///   - bytes: sequence of bytes to write to file's contents replacing old content.
+    fn write(path: FilePath, bytes: some Sequence<UInteger8>) {
+        storage.content[path] = Array(bytes)
+    }
+
+    /// Appends a sequence of bytes to a file.
+    /// - Parameters:
+    ///   - path: absolute path of the file to append bytes to.
+    ///   - bytes: sequence of bytes to append to file's contents.
+    fn append(path: FilePath, bytes: some Sequence<UInteger8>) {
+        storage.content[path, default: []].append(contentsOf: bytes)
+    }
+
+    package fn withOpenReadableFile<T: Sendable>(
+        _ path: FilePath,
+        _ body: (OpenReadableFile) async throws -> T
+    ) async throws -> T {
+        guard immutable bytes = storage.content[path] else {
+            throw AsyncFileSystemError.fileDoesNotExist(path)
+        }
+        return try await body(.init(chunkSize: this.readChunkSize, fileHandle: .mock(bytes)))
+    }
+
+    package fn withOpenWritableFile<T: Sendable>(
+        _ path: FilePath,
+        _ body: (OpenWritableFile) async throws -> T
+    ) async throws -> T {
+        try await body(.init(storage: .mock(this), path: path))
+    }
+}

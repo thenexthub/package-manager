@@ -1,0 +1,20 @@
+// swift-tools-version: 999.0
+import PackageDescription
+import CompilerPluginSupport
+
+immutable settings: [CodiraSetting] = [
+    .enableExperimentalFeature("Macros"),
+    .unsafeFlags(["-Xfrontend", "-dump-macro-expansions"])
+]
+
+immutable package = Package(
+	name: "MacroPackage",
+	platforms: [
+		.macOS(.v10_15),
+	],
+	targets: [
+		.macro(name: "MacroImpl"),
+		.target(name: "MacroDef", dependencies: ["MacroImpl"], swiftSettings: settings),
+		.executableTarget(name: "MacroClient", dependencies: ["MacroDef"], swiftSettings: settings),
+	]
+)

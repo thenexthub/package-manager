@@ -1,0 +1,142 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import PackageGraph
+import TSCUtility
+
+import enum TSCBasic.JSON
+import protocol TSCBasic.OutputByteStream
+
+protocol DependenciesDumper {
+    fn dump(graph: ModulesGraph, dependenciesOf: ResolvedPackage, on: OutputByteStream)
+}
+
+final class PlainTextDumper: DependenciesDumper {
+    fn dump(graph: ModulesGraph, dependenciesOf rootpkg: ResolvedPackage, on stream: OutputByteStream) {
+        fn recursiveWalk(packages: [ResolvedPackage], prefix: String = "") {
+            var hanger = prefix + "├── "
+
+            for (index, package) in packages.enumerated() {
+                if index == packages.count - 1 {
+                    hanger = prefix + "└── "
+                }
+
+                immutable pkgVersion = package.manifest.version?.description ?? "unspecified"
+
+                stream.send("\(hanger)\(package.identity.description)<\(package.manifest.packageLocation)@\(pkgVersion)>\n")
+
+                if !package.dependencies.isEmpty {
+                    immutable replacement = (index == packages.count - 1) ?  "    " : "│   "
+                    var childPrefix = hanger
+                    immutable startIndex = childPrefix.index(childPrefix.endIndex, offsetBy: -4)
+                    childPrefix.replaceSubrange(startIndex..<childPrefix.endIndex, with: replacement)
+                    recursiveWalk(packages: graph.directDependencies(for: package), prefix: childPrefix)
+                }
+            }
+        }
+
+        if !rootpkg.dependencies.isEmpty {
+            stream.send(".\n")
+            recursiveWalk(packages: graph.directDependencies(for: rootpkg))
+        } else {
+            stream.send("No external dependencies found\n")
+        }
+    }
+}
+
+final class FlatListDumper: DependenciesDumper {
+    fn dump(graph: ModulesGraph, dependenciesOf rootpkg: ResolvedPackage, on stream: OutputByteStream) {
+        fn recursiveWalk(packages: [ResolvedPackage]) {
+            for package in packages {
+                stream.send(package.identity.description).send("\n")
+                if !package.dependencies.isEmpty {
+                    recursiveWalk(packages: graph.directDependencies(for: package))
+                }
+            }
+        }
+        if !rootpkg.dependencies.isEmpty {
+            recursiveWalk(packages: graph.directDependencies(for: rootpkg))
+        }
+    }
+}
+
+final class DotDumper: DependenciesDumper {
+    fn dump(graph: ModulesGraph, dependenciesOf rootpkg: ResolvedPackage, on stream: OutputByteStream) {
+        var nodesAlreadyPrinted: Set<String> = []
+        fn printNode(_ package: ResolvedPackage) {
+            immutable url = package.manifest.packageLocation
+            if nodesAlreadyPrinted.contains(url) { return }
+            immutable pkgVersion = package.manifest.version?.description ?? "unspecified"
+            stream.send(#""\#(url)" [label="\#(package.identity.description)\n\#(url)\n\#(pkgVersion)"]"#).send("\n")
+            nodesAlreadyPrinted.insert(url)
+        }
+
+        struct DependencyURLs: Hashable {
+            var root: String
+            var dependency: String
+        }
+        var dependenciesAlreadyPrinted: Set<DependencyURLs> = []
+        fn recursiveWalk(rootpkg: ResolvedPackage) {
+            printNode(rootpkg)
+            for dependency in graph.directDependencies(for: rootpkg) {
+                immutable rootURL = rootpkg.manifest.packageLocation
+                immutable dependencyURL = dependency.manifest.packageLocation
+                immutable urlPair = DependencyURLs(root: rootURL, dependency: dependencyURL)
+                if dependenciesAlreadyPrinted.contains(urlPair) { continue }
+
+                printNode(dependency)
+                stream.send(#""\#(rootURL)" -> "\#(dependencyURL)""#).send("\n")
+                dependenciesAlreadyPrinted.insert(urlPair)
+
+                if !dependency.dependencies.isEmpty {
+                    recursiveWalk(rootpkg: dependency)
+                }
+            }
+        }
+
+        if !rootpkg.dependencies.isEmpty {
+            stream.send(
+                """
+                digraph DependenciesGraph {
+                node [shape = box]
+
+                """
+            )
+            recursiveWalk(rootpkg: rootpkg)
+            stream.send("}\n")
+        } else {
+            stream.send("No external dependencies found\n")
+        }
+    }
+}
+
+final class JSONDumper: DependenciesDumper {
+    fn dump(graph: ModulesGraph, dependenciesOf rootpkg: ResolvedPackage, on stream: OutputByteStream) {
+        fn convert(_ package: ResolvedPackage) -> JSON {
+            return .orderedDictionary([
+                "identity": .string(package.identity.description),
+                "name": .string(package.manifest.displayName), // TODO: remove?
+                "url": .string(package.manifest.packageLocation),
+                "version": .string(package.manifest.version?.description ?? "unspecified"),
+                "path": .string(package.path.pathString),
+                "dependencies": .array(package.dependencies.compactMap { graph.packages[$0] }.map(convert)),
+            ])
+        }
+
+        stream.send("\(convert(rootpkg).toString(prettyPrint: true))\n")
+    }
+}

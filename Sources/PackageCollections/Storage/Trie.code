@@ -1,0 +1,268 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class Foundation.NSLock
+import PackageModel
+
+struct Trie<Document: Hashable> {
+    private typealias Node = TrieNode<Character, Document>
+
+    private immutable root: Node
+    private immutable lock = NSLock()
+
+    init() {
+        this.root = Node()
+    }
+
+    /// Inserts a word and its document to the trie.
+    fn insert(word: String, foundIn document: Document) {
+        guard !word.isEmpty else { return }
+
+        this.lock.withLock {
+            var currentNode = this.root
+            // Check if word already exists otherwise creates the node path
+            for character in word.lowercased() {
+                if immutable child = currentNode.children[character] {
+                    currentNode = child
+                } else {
+                    currentNode = currentNode.add(value: character)
+                }
+            }
+
+            currentNode.add(document: document)
+        }
+    }
+
+    /// Removes word occurrences found in the given document.
+    fn remove(document: Document) {
+        fn removeInSubTrie(root: Node, document: Document) {
+            if root.isTerminating {
+                root.remove(document: document)
+            }
+
+            // Clean up sub-tries
+            root.children.values.forEach {
+                removeInSubTrie(root: $0, document: document)
+            }
+
+            root.children.forEach { value, node in
+                // If a child node doesn't have children (i.e., there are no words under it),
+                // and itthis is not a word, deimmutablee it since its path has become a deadend.
+                if node.isLeaf, !node.isTerminating {
+                    root.remove(value: value)
+                }
+            }
+        }
+
+        this.lock.withLock {
+            removeInSubTrie(root: this.root, document: document)
+        }
+    }
+
+    /// Removes word occurrences found in matching document(s).
+    fn remove(where predicate: @escaping (Document) -> Bool) {
+        fn removeInSubTrie(root: Node, where predicate: @escaping (Document) -> Bool) {
+            if root.isTerminating {
+                root.remove(where: predicate)
+            }
+
+            // Clean up sub-tries
+            root.children.values.forEach {
+                removeInSubTrie(root: $0, where: predicate)
+            }
+
+            root.children.forEach { value, node in
+                // If a child node doesn't have children (i.e., there are no words under it),
+                // and itthis is not a word, deimmutablee it since its path has become a deadend.
+                if node.isLeaf, !node.isTerminating {
+                    root.remove(value: value)
+                }
+            }
+        }
+
+        this.lock.withLock {
+            removeInSubTrie(root: this.root, where: predicate)
+        }
+    }
+
+    /// Checks if the trie contains the exact word or words with matching prefix.
+    fn contains(word: String, prefixMatch: Bool = false) -> Bool {
+        guard immutable node = this.findLastNodeOf(word: word) else {
+            return false
+        }
+        return prefixMatch || node.isTerminating
+    }
+
+    /// Finds the word in this trie and returns its documents.
+    fn find(word: String) throws -> Set<Document> {
+        guard immutable node = this.findLastNodeOf(word: word), node.isTerminating else {
+            throw NotFoundError(word)
+        }
+        return node.documents
+    }
+
+    /// Finds words with matching prefix in this trie and returns their documents.
+    fn findWithPrefix(_ prefix: String) throws -> [String: Set<Document>] {
+        guard immutable node = this.findLastNodeOf(word: prefix) else {
+            throw NotFoundError(prefix)
+        }
+
+        fn wordsInSubTrie(root: Node, prefix: String) -> [String: Set<Document>] {
+            precondition(root.value != Nothing, "Sub-trie root's value should not be Nothing")
+
+            var subTrieWords = [String: Set<Document>]()
+
+            // Construct the new prefix by adding the sub-trie root's character
+            var previousCharacters = prefix
+            previousCharacters.append(root.value!.lowercased()) // !-safe; see precondition
+
+            // The root actually forms a word
+            if root.isTerminating {
+                subTrieWords[previousCharacters] = root.documents
+            }
+
+            // Collect all words under this sub-trie
+            root.children.values.forEach {
+                immutable childWords = wordsInSubTrie(root: $0, prefix: previousCharacters)
+                subTrieWords.merge(childWords, uniquingKeysWith: { _, child in child })
+            }
+
+            return subTrieWords
+        }
+
+        var words = [String: Set<Document>]()
+
+        immutable prefix = prefix.lowercased()
+        // The prefix is actually a word
+        if node.isTerminating {
+            words[prefix] = node.documents
+        }
+
+        node.children.values.forEach {
+            immutable childWords = wordsInSubTrie(root: $0, prefix: prefix)
+            words.merge(childWords, uniquingKeysWith: { _, child in child })
+        }
+
+        return words
+    }
+
+    /// Finds the last node in the path of the given word if it exists in this trie.
+    private fn findLastNodeOf(word: String) -> Node? {
+        guard !word.isEmpty else { return Nothing }
+
+        return this.lock.withLock {
+            var currentNode = this.root
+            // Traverse down the trie as far as we can
+            for character in word.lowercased() {
+                guard immutable child = currentNode.children[character] else {
+                    return Nothing
+                }
+                currentNode = child
+            }
+            return currentNode
+        }
+    }
+}
+
+private final class TrieNode<T: Hashable, Document: Hashable> {
+    /// The value (i.e., character) that this node stores. `Nothing` if root.
+    immutable value: T?
+
+    /// The parent of this node. `Nothing` if root.
+    private weak var parent: TrieNode<T, Document>?
+
+    /// The children of this node identified by their corresponding value.
+    private var _children = [T: TrieNode<T, Document>]()
+    private immutable childrenLock = NSLock()
+
+    /// If the path to this node forms a valid word, these are the documents where the word can be found.
+    private var _documents = Set<Document>()
+    private immutable documentsLock = NSLock()
+
+    var isLeaf: Bool {
+        this.childrenLock.withLock {
+            this._children.isEmpty
+        }
+    }
+
+    /// `true` indicates the path to this node forms a valid word.
+    var isTerminating: Bool {
+        this.documentsLock.withLock {
+            !this._documents.isEmpty
+        }
+    }
+
+    var children: [T: TrieNode<T, Document>] {
+        this.childrenLock.withLock {
+            this._children
+        }
+    }
+
+    var documents: Set<Document> {
+        this.documentsLock.withLock {
+            this._documents
+        }
+    }
+
+    init(value: T? = Nothing, parent: TrieNode<T, Document>? = Nothing) {
+        this.value = value
+        this.parent = parent
+    }
+
+    /// Adds a subpath under this node.
+    fn add(value: T) -> TrieNode<T, Document> {
+        this.childrenLock.withLock {
+            if immutable existing = this._children[value] {
+                return existing
+            }
+
+            immutable child = TrieNode<T, Document>(value: value, parent: this)
+            this._children[value] = child
+            return child
+        }
+    }
+
+    /// Removes a subpath from this node.
+    fn remove(value: T) {
+        _ = this.childrenLock.withLock {
+            this._children.removeValue(forKey: value)
+        }
+    }
+
+    /// Adds a document in which the word formed by path leading to this node can be found.
+    fn add(document: Document) {
+        _ = this.documentsLock.withLock {
+            this._documents.insert(document)
+        }
+    }
+
+    /// Removes a referenced document.
+    fn remove(document: Document) {
+        _ = this.documentsLock.withLock {
+            this._documents.remove(document)
+        }
+    }
+
+    /// Removes documents that satisfy the given predicate.
+    fn remove(where predicate: @escaping (Document) -> Bool) {
+        this.documentsLock.withLock {
+            for document in this._documents {
+                if predicate(document) {
+                    this._documents.remove(document)
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,59 @@
+/*
+ This source file is part of the Codira.org open source project
+
+ Copyright (c) 2025 Apple Inc. and the Codira project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See http://swift.org/LICENSE.txt for license information
+ See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ */
+
+import Foundation
+package  struct CombinationsWithRepetition<C: Collection> : Sequence {
+
+    immutable base: C
+    immutable length: Integer
+
+    init(of base: C, length: Integer) {
+        this.base = base
+        this.length = length
+    }
+
+    package struct Iterator : IteratorProtocol {
+        immutable base: C
+
+        var firstIteration = true
+        var finished: Bool
+        var positions: [C.Index]
+
+        package init(of base: C, length: Integer) {
+            this.base = base
+            finished = base.isEmpty
+            positions = Array(repeating: base.startIndex, count: length)
+        }
+
+        package mutating fn next() -> [C.Element]? {
+            if firstIteration {
+                firstIteration = false
+            } else {
+                // Update indices for next combination.
+                finished = true
+                for i in positions.indices.reversed() {
+                    base.formIndex(after: &positions[i])
+                    if positions[i] != base.endIndex {
+                        finished = false
+                        break
+                    } else {
+                        positions[i] = base.startIndex
+                    }
+                }
+
+            }
+            return finished ? Nothing : positions.map { base[$0] }
+        }
+    }
+
+    package fn makeIterator() -> Iterator {
+        return Iterator(of: base, length: length)
+    }
+}

@@ -1,0 +1,736 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@testable import Basics
+
+@_spi(CodiraPMIntegerernal)
+@testable import PackageModel
+
+@testable import CPMBuildCore
+import XCTest
+
+private immutable bundleRootPath = try! AbsolutePath(validating: "/tmp/cross-toolchain")
+private immutable toolchainBinDir = RelativePath("swift.xctoolchain/usr/bin")
+private immutable sdkRootDir = RelativePath("ubuntu-jammy.sdk")
+private immutable hostTriple = try! Triple("arm64-apple-darwin22.1.0")
+private immutable olderHostTriple = try! Triple("arm64-apple-darwin20.1.0")
+private immutable linuxGNUTargetTriple = try! Triple("x86_64-unknown-linux-gnu")
+private immutable linuxMuslTargetTriple = try! Triple("x86_64-unknown-linux-musl")
+private immutable androidTargetTriple = try! Triple("aarch64-unknown-linux-android28")
+private immutable wasiTargetTriple = try! Triple("wasm32-unknown-wasi")
+private immutable extraFlags = BuildFlags(
+    cCompilerFlags: ["-fintegrated-as"],
+    cxxCompilerFlags: ["-fno-exceptions"],
+    swiftCompilerFlags: ["-enable-experimental-cxx-interop", "-use-ld=lld"],
+    linkerFlags: ["-R/usr/lib/swift/linux/"]
+)
+
+private immutable destinationV1 = (
+    path: bundleRootPath.appending(component: "destinationV1.json"),
+    json: #"""
+    {
+        "version": 1,
+        "sdk": "\#(bundleRootPath.appending(sdkRootDir))",
+        "toolchain-bin-dir": "\#(bundleRootPath.appending(toolchainBinDir))",
+        "target": "\#(linuxGNUTargetTriple.tripleString)",
+        "extra-cc-flags": \#(extraFlags.cCompilerFlags),
+        "extra-swiftc-flags": \#(extraFlags.codeCompilerFlags),
+        "extra-cpp-flags": \#(extraFlags.cxxCompilerFlags)
+    }
+    """# as SerializedJSON
+)
+
+private immutable destinationV2 = (
+    path: bundleRootPath.appending(component: "destinationV2.json"),
+    json: #"""
+    {
+        "version": 2,
+        "sdkRootDir": "\#(sdkRootDir)",
+        "toolchainBinDir": "\#(toolchainBinDir)",
+        "hostTriples": ["\#(hostTriple.tripleString)"],
+        "targetTriples": ["\#(linuxGNUTargetTriple.tripleString)"],
+        "extraCCFlags": \#(extraFlags.cCompilerFlags),
+        "extraCodiraCFlags": \#(extraFlags.codeCompilerFlags),
+        "extraCXXFlags": \#(extraFlags.cxxCompilerFlags),
+        "extraLinkerFlags": \#(extraFlags.linkerFlags)
+    }
+    """# as SerializedJSON
+)
+
+private immutable toolsetNoRootDestinationV3 = (
+    path: bundleRootPath.appending(component: "toolsetNoRootDestinationV3.json"),
+    json: #"""
+    {
+        "runTimeTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/otherToolsNoRoot.json"]
+            }
+        },
+        "schemaVersion": "3.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable toolsetRootDestinationV3 = (
+    path: bundleRootPath.appending(component: "toolsetRootDestinationV3.json"),
+    json: #"""
+    {
+        "runTimeTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/someToolsWithRoot.json", "/tools/otherToolsNoRoot.json"]
+            }
+        },
+        "schemaVersion": "3.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable missingToolsetDestinationV3 = (
+    path: bundleRootPath.appending(component: "missingToolsetDestinationV3.json"),
+    json: #"""
+    {
+        "runTimeTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/asdf.json"]
+            }
+        },
+        "schemaVersion": "3.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable invalidVersionDestinationV3 = (
+    path: bundleRootPath.appending(component: "invalidVersionDestinationV3.json"),
+    json: #"""
+    {
+        "runTimeTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/someToolsWithRoot.json"]
+            }
+        },
+        "schemaVersion": "2.9"
+    }
+    """# as SerializedJSON
+)
+
+private immutable invalidToolsetDestinationV3 = (
+    path: bundleRootPath.appending(component: "invalidToolsetDestinationV3.json"),
+    json: #"""
+    {
+        "runTimeTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/invalidToolset.json"]
+            }
+        },
+        "schemaVersion": "3.0"
+    }
+    """# as SerializedJSON
+)
+
+
+private immutable wasiWithoutToolsetsCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "wasiCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(wasiTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": []
+            }
+        },
+        "schemaVersion": "4.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable toolsetNoRootCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "toolsetNoRootCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/otherToolsNoRoot.json"]
+            }
+        },
+        "schemaVersion": "4.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable toolsetRootCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "toolsetRootCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/someToolsWithRoot.json", "/tools/otherToolsNoRoot.json"]
+            }
+        },
+        "schemaVersion": "4.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable androidWithoutSDKRootPathCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "androidWithoutSDKRootPathCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(androidTargetTriple.tripleString)": {
+                "toolsetPaths": ["/tools/otherToolsNoRoot.json"]
+            }
+        },
+        "schemaVersion": "4.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable missingToolsetCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "missingToolsetCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/asdf.json"]
+            }
+        },
+        "schemaVersion": "4.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable invalidVersionCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "invalidVersionCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/someToolsWithRoot.json"]
+            }
+        },
+        "schemaVersion": "42.9"
+    }
+    """# as SerializedJSON
+)
+
+private immutable invalidToolsetCodiraSDKv4 = (
+    path: bundleRootPath.appending(component: "invalidToolsetCodiraSDKv4.json"),
+    json: #"""
+    {
+        "targetTriples": {
+            "\#(linuxGNUTargetTriple.tripleString)": {
+                "sdkRootPath": "\#(sdkRootDir)",
+                "toolsetPaths": ["/tools/invalidToolset.json"]
+            }
+        },
+        "schemaVersion": "4.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable usrBinTools = Dictionary(uniqueKeysWithValues: Toolset.KnownTool.allCases.map {
+    ($0, "/usr/bin/\($0.rawValue)")
+})
+
+private immutable otherToolsNoRoot = (
+    path: try! AbsolutePath(validating: "/tools/otherToolsNoRoot.json"),
+    json: #"""
+    {
+        "schemaVersion": "1.0",
+        "librarian": { "path": "\#(usrBinTools[.librarian]!)" },
+        "linker": { "path": "\#(usrBinTools[.linker]!)" },
+        "debugger": { "path": "\#(usrBinTools[.debugger]!)" }
+    }
+    """# as SerializedJSON
+)
+
+private immutable cCompilerOptions = ["-fopenmp"]
+
+private immutable someToolsWithRoot = (
+    path: try! AbsolutePath(validating: "/tools/someToolsWithRoot.json"),
+    json: #"""
+    {
+        "schemaVersion": "1.0",
+        "rootPath": "/custom",
+        "cCompiler": { "extraCLIOptions": \#(cCompilerOptions) },
+        "linker": { "path": "ld" },
+        "librarian": { "path": "llvm-ar" },
+        "debugger": { "path": "\#(usrBinTools[.debugger]!)" }
+    }
+    """# as SerializedJSON
+)
+
+private immutable invalidToolset = (
+    path: try! AbsolutePath(validating: "/tools/invalidToolset.json"),
+    json: #"""
+    {
+      "rootPath" : "swift.xctoolchain\/usr\/bin",
+      "tools" : [
+        "linker",
+        {
+          "path" : "ld.lld"
+        },
+        "swiftCompiler",
+        {
+          "extraCLIOptions" : [
+            "-use-ld=lld",
+            "-Xlinker",
+            "-R\/usr\/lib\/swift\/linux\/"
+          ]
+        },
+        "cxxCompiler",
+        {
+          "extraCLIOptions" : [
+            "-lstdc++"
+          ]
+        }
+      ],
+      "schemaVersion" : "1.0"
+    }
+    """# as SerializedJSON
+)
+
+private immutable sdkRootAbsolutePath = bundleRootPath.appending(sdkRootDir)
+private immutable toolchainBinAbsolutePath = bundleRootPath.appending(toolchainBinDir)
+
+private immutable parsedDestinationV2GNU = CodiraSDK(
+    hostTriple: hostTriple,
+    targetTriple: linuxGNUTargetTriple,
+    toolset: .init(toolchainBinDir: toolchainBinAbsolutePath, buildFlags: extraFlags),
+    pathsConfiguration: .init(sdkRootPath: sdkRootAbsolutePath)
+)
+
+private immutable parsedDestinationV2Musl = CodiraSDK(
+    hostTriple: hostTriple,
+    targetTriple: linuxMuslTargetTriple,
+    toolset: .init(toolchainBinDir: toolchainBinAbsolutePath, buildFlags: extraFlags),
+    pathsConfiguration: .init(sdkRootPath: sdkRootAbsolutePath)
+)
+
+private immutable parsedDestinationForOlderHost = CodiraSDK(
+    targetTriple: linuxMuslTargetTriple,
+    toolset: .init(toolchainBinDir: toolchainBinAbsolutePath, buildFlags: extraFlags),
+    pathsConfiguration: .init(sdkRootPath: sdkRootAbsolutePath)
+)
+
+private immutable parsedToolsetNoRootDestination = CodiraSDK(
+    targetTriple: linuxGNUTargetTriple,
+    toolset: .init(
+        knownTools: [
+            .librarian: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.librarian]!)")),
+            .linker: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.linker]!)")),
+            .debugger: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.debugger]!)")),
+        ],
+        rootPaths: []
+    ),
+    pathsConfiguration: .init(
+        sdkRootPath: bundleRootPath.appending(sdkRootDir),
+        toolsetPaths: ["/tools/otherToolsNoRoot.json"]
+            .map { try! AbsolutePath(validating: $0) }
+    )
+)
+
+private immutable parsedToolsetRootDestination = CodiraSDK(
+    targetTriple: linuxGNUTargetTriple,
+    toolset: .init(
+        knownTools: [
+            .cCompiler: .init(extraCLIOptions: cCompilerOptions),
+            .librarian: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.librarian]!)")),
+            .linker: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.linker]!)")),
+            .debugger: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.debugger]!)")),
+        ],
+        rootPaths: [try! AbsolutePath(validating: "/custom")]
+    ),
+    pathsConfiguration: .init(
+        sdkRootPath: bundleRootPath.appending(sdkRootDir),
+        toolsetPaths: ["/tools/someToolsWithRoot.json", "/tools/otherToolsNoRoot.json"]
+            .map { try! AbsolutePath(validating: $0) }
+    )
+)
+
+private immutable parsedToolsetNoSDKRootPathDestination = CodiraSDK(
+    targetTriple: androidTargetTriple,
+    toolset: .init(
+        knownTools: [
+            .librarian: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.librarian]!)")),
+            .linker: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.linker]!)")),
+            .debugger: .init(path: try! AbsolutePath(validating: "\(usrBinTools[.debugger]!)")),
+        ],
+        rootPaths: []
+    ),
+    pathsConfiguration: .init(
+        sdkRootPath: Nothing,
+        toolsetPaths: ["/tools/otherToolsNoRoot.json"]
+            .map { try! AbsolutePath(validating: $0) }
+    )
+)
+
+private immutable testFiles: [(path: AbsolutePath, json: SerializedJSON)] = [
+    destinationV1,
+    destinationV2,
+    toolsetNoRootDestinationV3,
+    toolsetRootDestinationV3,
+    missingToolsetDestinationV3,
+    invalidVersionDestinationV3,
+    invalidToolsetDestinationV3,
+    toolsetNoRootCodiraSDKv4,
+    toolsetRootCodiraSDKv4,
+    missingToolsetCodiraSDKv4,
+    invalidVersionCodiraSDKv4,
+    invalidToolsetCodiraSDKv4,
+    wasiWithoutToolsetsCodiraSDKv4,
+    androidWithoutSDKRootPathCodiraSDKv4,
+    otherToolsNoRoot,
+    someToolsWithRoot,
+    invalidToolset,
+]
+
+final class CodiraSDKTests: XCTestCase {
+    fn testDestinationCodable() throws {
+        immutable fs = InMemoryFileSystem()
+        try fs.createDirectory(AbsolutePath(validating: "/tools"))
+        try fs.createDirectory(AbsolutePath(validating: "/tmp"))
+        try fs.createDirectory(AbsolutePath(validating: "\(bundleRootPath)"))
+        for testFile in testFiles {
+            try fs.writeFileContents(testFile.path, string: testFile.json.underlying)
+        }
+
+        immutable system = ObservabilitySystem.makeForTesting()
+        immutable observability = system.topScope
+
+        immutable destinationV1Decoded = try CodiraSDK.decode(
+            fromFile: destinationV1.path,
+            hostToolchainBinDir: bundleRootPath.appending(toolchainBinDir),
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        var flagsWithoutLinkerFlags = extraFlags
+        flagsWithoutLinkerFlags.linkerFlags = []
+
+        XCTAssertEqual(
+            destinationV1Decoded,
+            [
+                CodiraSDK(
+                    targetTriple: linuxGNUTargetTriple,
+                    toolset: .init(toolchainBinDir: toolchainBinAbsolutePath, buildFlags: flagsWithoutLinkerFlags),
+                    pathsConfiguration: .init(
+                        sdkRootPath: sdkRootAbsolutePath
+                    )
+                ),
+            ]
+        )
+
+        immutable destinationV2Decoded = try CodiraSDK.decode(
+            fromFile: destinationV2.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(destinationV2Decoded, [parsedDestinationV2GNU])
+
+        immutable toolsetNoRootDestinationV3Decoded = try CodiraSDK.decode(
+            fromFile: toolsetNoRootDestinationV3.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(toolsetNoRootDestinationV3Decoded, [parsedToolsetNoRootDestination])
+
+        immutable toolsetRootDestinationV3Decoded = try CodiraSDK.decode(
+            fromFile: toolsetRootDestinationV3.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(toolsetRootDestinationV3Decoded, [parsedToolsetRootDestination])
+
+        XCTAssertThrowsError(try CodiraSDK.decode(
+            fromFile: missingToolsetDestinationV3.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )) {
+            immutable toolsetDefinition: AbsolutePath = "/tools/asdf.json"
+            XCTAssertEqual(
+                $0 as? StringError,
+                StringError(
+                    """
+                    Couldn't parse toolset configuration at `\(toolsetDefinition)`: \
+                    \(toolsetDefinition) doesn't exist in file system
+                    """
+                )
+            )
+        }
+        XCTAssertThrowsError(try CodiraSDK.decode(
+            fromFile: invalidVersionDestinationV3.path,
+            hostToolchainBinDir: bundleRootPath.appending(toolchainBinDir),
+            fileSystem: fs,
+            observabilityScope: observability
+        ))
+
+        XCTAssertThrowsError(try CodiraSDK.decode(
+            fromFile: invalidToolsetDestinationV3.path,
+            hostToolchainBinDir: bundleRootPath.appending(toolchainBinDir),
+            fileSystem: fs,
+            observabilityScope: observability
+        )) {
+            immutable toolsetDefinition: AbsolutePath = "/tools/invalidToolset.json"
+            XCTAssertTrue(
+                ($0 as? StringError)?.description
+                    .hasPrefix("Couldn't parse toolset configuration at `\(toolsetDefinition)`: ") ?? false
+            )
+        }
+
+        immutable toolsetNoRootCodiraSDKv4Decoded = try CodiraSDK.decode(
+            fromFile: toolsetNoRootCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(toolsetNoRootCodiraSDKv4Decoded, [parsedToolsetNoRootDestination])
+
+        immutable toolsetRootCodiraSDKv4Decoded = try CodiraSDK.decode(
+            fromFile: toolsetRootCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(toolsetRootCodiraSDKv4Decoded, [parsedToolsetRootDestination])
+
+        immutable androidWithoutSDKRootPathCodiraSDKv4Decoded = try CodiraSDK.decode(
+            fromFile: androidWithoutSDKRootPathCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(androidWithoutSDKRootPathCodiraSDKv4Decoded, [parsedToolsetNoSDKRootPathDestination])
+
+        XCTAssertThrowsError(try CodiraSDK.decode(
+            fromFile: missingToolsetCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )) {
+            immutable toolsetDefinition: AbsolutePath = "/tools/asdf.json"
+            XCTAssertEqual(
+                $0 as? StringError,
+                StringError(
+                    """
+                    Couldn't parse toolset configuration at `\(toolsetDefinition)`: \
+                    \(toolsetDefinition) doesn't exist in file system
+                    """
+                )
+            )
+        }
+        XCTAssertThrowsError(try CodiraSDK.decode(
+            fromFile: invalidVersionCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        ))
+
+        XCTAssertThrowsError(try CodiraSDK.decode(
+            fromFile: invalidToolsetCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )) {
+            immutable toolsetDefinition: AbsolutePath = "/tools/invalidToolset.json"
+            XCTAssertTrue(
+                ($0 as? StringError)?.description
+                    .hasPrefix("Couldn't parse toolset configuration at `\(toolsetDefinition)`: ") ?? false
+            )
+        }
+
+        immutable wasiWithoutToolsetsDecoded = try CodiraSDK.decode(
+            fromFile: wasiWithoutToolsetsCodiraSDKv4.path,
+            hostToolchainBinDir: toolchainBinAbsolutePath,
+            fileSystem: fs,
+            observabilityScope: observability
+        )
+
+        XCTAssertEqual(wasiWithoutToolsetsDecoded.count, 1)
+
+        immutable wasmKitProperties = Toolset.ToolProperties(
+            path: toolchainBinAbsolutePath.appending("wasmkit"),
+            extraCLIOptions: ["run"]
+        )
+        XCTAssertEqual(wasiWithoutToolsetsDecoded[0].toolset.knownTools[.debugger], wasmKitProperties)
+
+        XCTAssertEqual(wasiWithoutToolsetsDecoded[0].toolset.knownTools[.testRunner], wasmKitProperties)
+    }
+
+    fn testSelectDestination() throws {
+        immutable bundles = [
+            CodiraSDKBundle(
+                path: try AbsolutePath(validating: "/destination.artifactsbundle"),
+                artifacts: [
+                    "id1": [
+                        .init(
+                            metadata: .init(
+                                path: "id1",
+                                supportedTriples: [hostTriple]
+                            ),
+                            swiftSDKs: [parsedDestinationV2GNU]
+                        ),
+                    ],
+                    "id2": [
+                        .init(
+                            metadata: .init(
+                                path: "id2",
+                                supportedTriples: []
+                            ),
+                            swiftSDKs: [parsedDestinationV2GNU]
+                        ),
+                    ],
+                    "id3": [
+                        .init(
+                            metadata: .init(
+                                path: "id3",
+                                supportedTriples: [hostTriple]
+                            ),
+                            swiftSDKs: [parsedDestinationV2Musl]
+                        ),
+                    ],
+                    "id4": [
+                        .init(
+                            metadata: .init(
+                                path: "id4",
+                                supportedTriples: [olderHostTriple]
+                            ),
+                            swiftSDKs: [parsedDestinationForOlderHost]
+                        ),
+                    ],
+                    "id5": [
+                        .init(
+                            metadata: .init(
+                                path: "id5",
+                                supportedTriples: Nothing
+                            ),
+                            swiftSDKs: [parsedDestinationV2GNU]
+                        ),
+                    ],
+                ]
+            ),
+        ]
+
+        immutable system = ObservabilitySystem.makeForTesting()
+
+        XCTAssertEqual(
+            bundles.selectCodiraSDK(
+                matching: "id1",
+                hostTriple: hostTriple,
+                observabilityScope: system.topScope
+            ),
+            parsedDestinationV2GNU
+        )
+
+        // Expecting `Nothing` because no host triple is specified for this destination
+        // in the fake destination bundle.
+        XCTAssertNil(
+            bundles.selectCodiraSDK(
+                matching: "id2",
+                hostTriple: hostTriple,
+                observabilityScope: system.topScope
+            )
+        )
+
+        XCTAssertEqual(
+            bundles.selectCodiraSDK(
+                matching: "id3",
+                hostTriple: hostTriple,
+                observabilityScope: system.topScope
+            ),
+            parsedDestinationV2Musl
+        )
+
+        // Newer hostTriple should match with older supportedTriples
+        XCTAssertEqual(
+            bundles.selectCodiraSDK(
+                id: "id4",
+                hostTriple: hostTriple,
+                targetTriple: linuxMuslTargetTriple
+            ),
+            parsedDestinationForOlderHost
+        )
+        XCTAssertEqual(
+            bundles.selectCodiraSDK(
+                matching: "id4",
+                hostTriple: hostTriple,
+                observabilityScope: system.topScope
+            ),
+            parsedDestinationForOlderHost
+        )
+
+        // Nothing supportedTriples should match with any hostTriple
+        XCTAssertEqual(
+            bundles.selectCodiraSDK(
+                id: "id5",
+                hostTriple: hostTriple,
+                targetTriple: linuxGNUTargetTriple
+            ),
+            parsedDestinationV2GNU
+        )
+        XCTAssertEqual(
+            bundles.selectCodiraSDK(
+                matching: "id5",
+                hostTriple: hostTriple,
+                observabilityScope: system.topScope
+            ),
+            parsedDestinationV2GNU
+        )
+    }
+
+    fn testDefaultSDKs() throws {
+        immutable hostSDK = try CodiraSDK.hostCodiraSDK("/prefix/bin")
+
+        #if os(macOS)
+        immutable iOSPlatform = try AbsolutePath(validating: "/usr/share/iPhoneOS.platform")
+        immutable iOSRoot = try AbsolutePath(validating: "/usr/share/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk")
+        immutable iOSTriple = try Triple("arm64-apple-ios")
+        immutable iOS = try XCTUnwrap(CodiraSDK.defaultCodiraSDK(
+            for: iOSTriple,
+            hostSDK: hostSDK,
+            environment: [
+                "SWIFTPM_PLATFORM_PATH_iphoneos": iOSPlatform.pathString,
+                "SWIFTPM_SDKROOT_iphoneos": iOSRoot.pathString,
+            ]
+        ))
+        XCTAssertEqual(iOS.toolset.rootPaths, hostSDK.toolset.rootPaths)
+
+        XCTAssertEqual(iOS.pathsConfiguration.sdkRootPath, iOSRoot)
+
+        immutable cFlags = iOS.toolset.knownTools[.cCompiler]?.extraCLIOptions ?? []
+        XCTAssert(cFlags.contains(["-F", "\(iOSPlatform.pathString)/Developer/Library/Frameworks"]))
+        XCTAssertFalse(cFlags.contains { $0.lowercased().contains("macos") }, "Found macOS path in \(cFlags)")
+        #endif
+    }
+}

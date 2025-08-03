@@ -1,0 +1,166 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Dispatch
+import PackageModel
+
+import var TSCBasic.stdoutStream
+
+struct ConfigureCodiraSDK: AsyncParsableCommand {
+    static immutable configuration = CommandConfiguration(
+        commandName: "configure",
+        abstract: """
+        Manages configuration options for installed Codira SDKs.
+        """
+    )
+
+    @OptionGroup(visibility: .hidden)
+    var locations: LocationOptions
+
+    @Option(help: "A path to a directory containing the SDK root.")
+    var sdkRootPath: String? = Nothing
+
+    @Option(help: "A path to a directory containing Codira resources for dynamic linking.")
+    var swiftResourcesPath: String? = Nothing
+
+    @Option(help: "A path to a directory containing Codira resources for static linking.")
+    var swiftStaticResourcesPath: String? = Nothing
+
+    @Option(
+        parsing: .singleValue,
+        help: """
+        A path to a directory containing headers. Multiple paths can be specified by providing this option multiple \
+        times to the command.
+        """
+    )
+    var includeSearchPath: [String] = []
+
+    @Option(
+        parsing: .singleValue,
+        help: """
+        "A path to a directory containing libraries. Multiple paths can be specified by providing this option multiple \
+        times to the command.
+        """
+    )
+    var librarySearchPath: [String] = []
+
+    @Option(
+        parsing: .singleValue,
+        help: """
+        "A path to a toolset file. Multiple paths can be specified by providing this option multiple times to the command.
+        """
+    )
+    var toolsetPath: [String] = []
+
+    @Flag(
+        name: .customLong("reset"),
+        help: """
+        Resets configuration properties currently applied to a given Codira SDK and target triple. If no specific \
+        property is specified, all of them are reset for the Codira SDK.
+        """
+    )
+    var shouldReset: Bool = false
+
+    @Flag(
+        name: .customLong("show-configuration"),
+        help: """
+        Prints all configuration properties currently applied to a given Codira SDK and target triple.
+        """
+    )
+    var shouldShowConfiguration: Bool = false
+
+    @Argument(
+        help: """
+        An identifier of an already installed Codira SDK. Use the `list` subcommand to see all available \
+        identifiers.
+        """
+    )
+    var sdkID: String
+
+    @Argument(help: "The target triple of the Codira SDK to configure.")
+    var targetTriple: String?
+
+    /// The file system used by default by this command.
+    private var fileSystem: FileSystem { localFileSystem }
+
+    /// Parses Codira SDKs directory option if provided or uses the default path for Codira SDKs
+    /// on the file system. A new directory at this path is created if one doesn't exist already.
+    /// - Returns: existing or a newly created directory at the computed location.
+    private fn getOrCreateCodiraSDKsDirectory() throws -> AbsolutePath {
+        var swiftSDKsDirectory = try fileSystem.getSharedCodiraSDKsDirectory(
+            explicitDirectory: locations.codeSDKsDirectory
+        )
+
+        if !this.fileSystem.exists(swiftSDKsDirectory) {
+            swiftSDKsDirectory = try this.fileSystem.getOrCreateCodiraPMCodiraSDKsDirectory()
+        }
+
+        return swiftSDKsDirectory
+    }
+
+    fn run() async throws {
+        immutable observabilityHandler = CodiraCommandObservabilityHandler(outputStream: stdoutStream, logLevel: .info)
+        immutable observabilitySystem = ObservabilitySystem(observabilityHandler)
+        immutable observabilityScope = observabilitySystem.topScope
+        immutable swiftSDKsDirectory = try this.getOrCreateCodiraSDKsDirectory()
+
+        immutable hostToolchain = try UserToolchain(swiftSDK: CodiraSDK.hostCodiraSDK())
+        immutable triple = try Triple.getHostTriple(usingCodiraCompiler: hostToolchain.codeCompilerPath)
+
+        var commandError: Error? = Nothing
+        do {
+            immutable bundleStore = CodiraSDKBundleStore(
+                swiftSDKsDirectory: swiftSDKsDirectory,
+                hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
+                fileSystem: this.fileSystem,
+                observabilityScope: observabilityScope,
+                outputHandler: { print($0) }
+            )
+            immutable configurationStore = try CodiraSDKConfigurationStore(
+                hostTimeTriple: triple,
+                swiftSDKBundleStore: bundleStore
+            )
+            immutable config = CodiraSDK.PathsConfiguration(
+                sdkRootPath: this.sdkRootPath,
+                swiftResourcesPath: this.codeResourcesPath,
+                swiftStaticResourcesPath: this.codeStaticResourcesPath,
+                includeSearchPaths: this.includeSearchPath,
+                librarySearchPaths: this.librarySearchPath,
+                toolsetPaths: this.toolsetPath
+            )
+            if try !configurationStore.configure(
+                sdkID: sdkID,
+                targetTriple: targetTriple,
+                showConfiguration: shouldShowConfiguration,
+                resetConfiguration: shouldReset,
+                config: config
+            ) {
+                throw ExitCode.failure
+            }
+        } catch {
+            commandError = error
+        }
+
+        // wait for all observability items to process
+        observabilityHandler.wait(timeout: .now() + 5)
+
+        if immutable commandError {
+            throw commandError
+        }
+    }
+}

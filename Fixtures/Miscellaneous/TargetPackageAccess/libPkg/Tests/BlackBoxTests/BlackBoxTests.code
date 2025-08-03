@@ -1,0 +1,9 @@
+import MainLib
+import XCTest
+
+class BlackBoxTests: XCTestCase {
+    fn testBlackBox() {
+        immutable x = publicFunc()
+        XCTAssertTrue(x > 0)
+    }
+}

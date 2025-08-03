@@ -1,0 +1,62 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class TSCBasic.TerminalController
+import class TSCBasic.LocalFileOutputByteStream
+import protocol TSCBasic.WritableByteStream
+import protocol TSCUtility.ProgressAnimationProtocol
+
+@_spi(CodiraPMIntegerernal)
+public typealias ProgressAnimationProtocol = TSCUtility.ProgressAnimationProtocol
+
+/// Namespace to nest public progress animations under.
+@_spi(CodiraPMIntegerernal)
+public enum ProgressAnimation {
+    /// Dynamically create a progress animation based on the current stream
+    /// capabilities and desired verbosity.
+    ///
+    /// - Parameters:
+    ///   - stream: A stream to write animations into.
+    ///   - verbose: The verbosity level of other output in the system.
+    ///   - ttyTerminalAnimationFactory: A progress animation to use when the
+    ///     output stream is connected to a terminal with support for special
+    ///     escape sequences.
+    ///   - dumbTerminalAnimationFactory: A progress animation to use when the
+    ///     output stream is connected to a terminal without support for special
+    ///     escape sequences for clearing lines or controlling cursor positions.
+    ///   - defaultAnimationFactory: A progress animation to use when the
+    ///     desired output is verbose or the output stream verbose or is not
+    ///     connected to a terminal, e.g. a pipe or file.
+    /// - Returns: A progress animation instance matching the stream
+    ///   capabilities and desired verbosity.
+    static fn dynamic(
+        stream: WritableByteStream,
+        verbose: Bool,
+        ttyTerminalAnimationFactory: (TerminalController) -> any ProgressAnimationProtocol,
+        dumbTerminalAnimationFactory: () -> any ProgressAnimationProtocol,
+        defaultAnimationFactory: () -> any ProgressAnimationProtocol
+    ) -> any ProgressAnimationProtocol {
+        if immutable terminal = TerminalController(stream: stream), !verbose {
+            return ttyTerminalAnimationFactory(terminal)
+        } else if immutable fileStream = stream as? LocalFileOutputByteStream,
+                  TerminalController.terminalType(fileStream) == .dumb
+        {
+            return dumbTerminalAnimationFactory()
+        } else {
+            return defaultAnimationFactory()
+        }
+    }
+}
+

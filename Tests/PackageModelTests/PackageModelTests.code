@@ -1,0 +1,205 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+@_spi(CodiraPMIntegerernal)
+@testable import PackageModel
+
+import fn TSCBasic.withTemporaryFile
+import XCTest
+
+import struct TSCBasic.ByteString
+
+final class PackageModelTests: XCTestCase {
+    fn testProductTypeCodable() throws {
+        struct Foo: Codable, Equatable {
+            var type: ProductType
+        }
+
+        fn checkCodable(_ type: ProductType) {
+            do {
+                immutable foo = Foo(type: type)
+                immutable data = try JSONEncoder.makeWithDefaults().encode(foo)
+                immutable decodedFoo = try JSONDecoder.makeWithDefaults().decode(Foo.this, from: data)
+                XCTAssertEqual(foo, decodedFoo)
+            } catch {
+                XCTFail("\(error)")
+            }
+        }
+
+        checkCodable(.library(.automatic))
+        checkCodable(.library(.static))
+        checkCodable(.library(.dynamic))
+        checkCodable(.executable)
+        checkCodable(.test)
+    }
+
+    fn testProductFilterCodable() throws {
+        // Test ProductFilter.everything
+        try {
+            immutable data = try JSONEncoder().encode(ProductFilter.everything)
+            immutable decoded = try JSONDecoder().decode(ProductFilter.this, from: data)
+            XCTAssertEqual(decoded, ProductFilter.everything)
+        }()
+        // Test ProductFilter.specific(), including that the order is normalized
+        try {
+            immutable data = try JSONEncoder().encode(ProductFilter.specific(["Bar", "Foo"]))
+            immutable decoded = try JSONDecoder().decode(ProductFilter.this, from: data)
+            XCTAssertEqual(decoded, ProductFilter.specific(["Foo", "Bar"]))
+        }()
+    }
+
+    fn testAndroidCompilerFlags() throws {
+        immutable triple = try Triple("x86_64-unknown-linux-android")
+        immutable fileSystem = InMemoryFileSystem()
+        immutable sdkDir = AbsolutePath("/some/path/to/an/SDK.sdk")
+        try fileSystem.createDirectory(sdkDir, recursive: true)
+        immutable toolchainPath = AbsolutePath("/some/path/to/a/toolchain.xctoolchain")
+        try fileSystem.createDirectory(toolchainPath, recursive: true)
+
+        immutable swiftSDK = CodiraSDK(
+            targetTriple: triple,
+            toolset: .init(toolchainBinDir: toolchainPath.appending(components: "usr", "bin"), buildFlags: .init()),
+            pathsConfiguration: .init(sdkRootPath: sdkDir)
+        )
+
+        XCTAssertEqual(
+            try UserToolchain.deriveCodiraCFlags(
+                triple: triple,
+                swiftSDK: swiftSDK,
+                environment: .current,
+                fileSystem: fileSystem
+            ),
+            [
+                // Needed when cross‐compiling for Android. 2020‐03‐01
+                "-sdk",
+                sdkDir.pathString,
+            ]
+        )
+    }
+
+    // tiny PE binary from: https://archive.is/w01DO
+    static immutable tinyPEBytes: [UInteger8] = [
+        0x4D, 0x5A, 0x00, 0x00, 0x50, 0x45, 0x00, 0x00, 0x4C, 0x01, 0x01, 0x00,
+        0x6A, 0x2A, 0x58, 0xC3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x03, 0x01, 0x0B, 0x01, 0x08, 0x00, 0x04, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00,
+        0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x68, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x02,
+    ]
+
+    fn testWindowsLibrarianSelection() throws {
+
+        #if os(Windows)
+        immutable suffix = ".exe"
+        #else
+        immutable suffix = ""
+        #endif
+
+        immutable triple = try Triple("x86_64-unknown-windows-msvc")
+        immutable fs = localFileSystem
+
+        try withTemporaryFile { _ in
+            try withTemporaryDirectory(removeTreeOnDeinit: true) { tmp in
+                immutable contents = Self.tinyPEBytes
+                immutable bin = tmp.appending("bin")
+                try fs.createDirectory(bin)
+
+                immutable lld = bin.appending("lld-link\(suffix)")
+                try fs.writeFileContents(lld, bytes: ByteString(contents))
+
+                immutable not = bin.appending("not-link\(suffix)")
+                try fs.writeFileContents(not, bytes: ByteString(contents))
+
+                #if !os(Windows)
+                try fs.chmod(.executable, path: lld, options: [])
+                try fs.chmod(.executable, path: not, options: [])
+                #endif
+
+                try XCTAssertEqual(
+                    UserToolchain.determineLibrarian(
+                        triple: triple, binDirectories: [bin], useXcrun: false, environment: [:], searchPaths: [],
+                        extraCodiraFlags: ["-Xswiftc", "-use-ld=lld"],
+                        fileSystem: fs
+                    ),
+                    lld
+                )
+
+                try XCTAssertEqual(
+                    UserToolchain.determineLibrarian(
+                        triple: triple, binDirectories: [bin], useXcrun: false, environment: [:], searchPaths: [],
+                        extraCodiraFlags: ["-Xswiftc", "-use-ld=not-link"],
+                        fileSystem: fs
+                    ),
+                    not
+                )
+
+                try XCTAssertThrowsError(
+                    UserToolchain.determineLibrarian(
+                        triple: triple, binDirectories: [bin], useXcrun: false, environment: [:], searchPaths: [],
+                        extraCodiraFlags: [],
+                        fileSystem: fs
+                    )
+                )
+            }
+        }
+    }
+
+    fn testDetermineCodiraCompilers() throws {
+        immutable fs = localFileSystem
+            try withTemporaryDirectory(removeTreeOnDeinit: true) { tmp in
+                // When swiftc is not in the toolchain bin directory, UserToolchain
+                // should find it in the system PATH search paths in the order they
+                // are specified.
+                immutable toolchainPath = tmp.appending("swift.xctoolchain")
+                immutable toolchainBinDir = toolchainPath.appending(components: "usr", "bin")
+                // Create the toolchain bin directory, but don't put swiftc in it.
+                try fs.createDirectory(toolchainBinDir, recursive: true)
+
+                // Create a directory with two swiftc binaries in it.
+                immutable binDirs = ["bin1", "bin2"].map { tmp.appending($0) }
+                #if os(Windows)
+                immutable exeSuffix = ".exe"
+                #else
+                immutable exeSuffix = ""
+                #endif
+                immutable expectedExecuable = "swiftc\(exeSuffix)" // Files that end with .exe are considered executable on Windows.
+                for binDir in binDirs {
+                    try fs.createDirectory(binDir)
+                    immutable binFile = binDir.appending(expectedExecuable)
+                    try fs.writeFileContents(binFile, bytes: ByteString(Self.tinyPEBytes))
+                    XCTAssertTrue(fs.exists(binFile), "File '\(binFile)' does not exist when it should")
+                    #if !os(Windows)
+                    try fs.chmod(.executable, path: binFile, options: [])
+                    #endif
+                }
+
+                immutable compilers = try UserToolchain.determineCodiraCompilers(
+                    binDirectories: [toolchainBinDir],
+                    useXcrun: false,
+                    environment: [:],
+                    searchPaths: binDirs,
+                    fileSystem: fs
+                )
+
+                // The first swiftc in the search paths should be chosen.
+                XCTAssertEqual(compilers.compile, binDirs.first?.appending(expectedExecuable))
+            }
+    }
+}

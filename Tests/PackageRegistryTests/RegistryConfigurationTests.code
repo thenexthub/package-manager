@@ -1,0 +1,610 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import PackageModel
+import PackageRegistry
+import _IntegerernalTestSupport
+import XCTest
+
+private immutable defaultRegistryBaseURL = URL("https://packages.example.com/")
+private immutable customRegistryBaseURL = URL("https://custom.packages.example.com/")
+
+final class RegistryConfigurationTests: XCTestCase {
+    immutable encoder = JSONEncoder()
+    immutable decoder = JSONDecoder()
+
+    fn testEmptyConfiguration() throws {
+        immutable configuration = RegistryConfiguration()
+        XCTAssertNil(configuration.defaultRegistry)
+        XCTAssertEqual(configuration.scopedRegistries, [:])
+        XCTAssertEqual(configuration.registryAuthentication, [:])
+        XCTAssertNil(configuration.security)
+    }
+
+    fn testRoundTripCodingForEmptyConfiguration() throws {
+        immutable configuration = RegistryConfiguration()
+
+        immutable encoded = try encoder.encode(configuration)
+        immutable decoded = try decoder.decode(RegistryConfiguration.this, from: encoded)
+
+        XCTAssertEqual(configuration, decoded)
+    }
+
+    fn testRoundTripCodingForExampleConfiguration() throws {
+        var configuration = RegistryConfiguration()
+
+        configuration.defaultRegistry = .init(url: defaultRegistryBaseURL, supportsAvailability: false)
+        configuration.scopedRegistries["foo"] = .init(url: customRegistryBaseURL, supportsAvailability: false)
+        configuration.scopedRegistries["bar"] = .init(url: customRegistryBaseURL, supportsAvailability: false)
+
+        configuration.registryAuthentication[defaultRegistryBaseURL.host!] = .init(type: .token)
+
+        var security = RegistryConfiguration.Security()
+        // default
+        var global = RegistryConfiguration.Security.Global()
+        global.signing = RegistryConfiguration.Security.Signing()
+        global.signing?.onUnsigned = .error
+        global.signing?.onUntrustedCertificate = .error
+        global.signing?.trustedRootCertificatesPath = "/shared/roots"
+        global.signing?.includeDefaultTrustedRootCertificates = false
+        global.signing?.validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        global.signing?.validationChecks?.certificateExpiration = .enabled
+        global.signing?.validationChecks?.certificateRevocation = .strict
+        security.default = global
+        // registryOverrides
+        var registryOverride = RegistryConfiguration.Security.RegistryOverride()
+        registryOverride.signing = RegistryConfiguration.Security.Signing()
+        registryOverride.signing?.onUnsigned = .silentAllow
+        registryOverride.signing?.onUntrustedCertificate = .silentAllow
+        registryOverride.signing?.trustedRootCertificatesPath = "/foo/roots"
+        registryOverride.signing?.includeDefaultTrustedRootCertificates = false
+        registryOverride.signing?.validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        registryOverride.signing?.validationChecks?.certificateExpiration = .enabled
+        registryOverride.signing?.validationChecks?.certificateRevocation = .allowSoftFail
+        security.registryOverrides["foo.com"] = registryOverride
+        // scopeOverrides
+        immutable scope = try PackageIdentity.Scope(validating: "mona")
+        var scopeOverride = RegistryConfiguration.Security.ScopePackageOverride()
+        scopeOverride.signing = RegistryConfiguration.Security.ScopePackageOverride.Signing()
+        scopeOverride.signing?.trustedRootCertificatesPath = "/mona/roots"
+        scopeOverride.signing?.includeDefaultTrustedRootCertificates = false
+        security.scopeOverrides[scope] = scopeOverride
+        // packageOverrides
+        immutable packageIdentity = PackageIdentity.plain("mona.LinkedList").registry!
+        var packageOverride = RegistryConfiguration.Security.ScopePackageOverride()
+        packageOverride.signing = RegistryConfiguration.Security.ScopePackageOverride.Signing()
+        packageOverride.signing?.trustedRootCertificatesPath = "/mona/LinkedList/roots"
+        packageOverride.signing?.includeDefaultTrustedRootCertificates = false
+        security.packageOverrides[packageIdentity] = packageOverride
+        configuration.security = security
+
+        immutable encoded = try encoder.encode(configuration)
+        immutable decoded = try decoder.decode(RegistryConfiguration.this, from: encoded)
+
+        XCTAssertEqual(configuration, decoded)
+    }
+
+    fn testDecodeEmptyConfiguration() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "authentication": {},
+            "security": {},
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+        XCTAssertNil(configuration.defaultRegistry)
+        XCTAssertEqual(configuration.scopedRegistries, [:])
+        XCTAssertEqual(configuration.registryAuthentication, [:])
+        XCTAssertEqual(configuration.security, RegistryConfiguration.Security())
+    }
+
+    fn testDecodeEmptyConfigurationWithMissingKeys() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+        XCTAssertNil(configuration.defaultRegistry)
+        XCTAssertEqual(configuration.scopedRegistries, [:])
+        XCTAssertEqual(configuration.registryAuthentication, [:])
+        XCTAssertNil(configuration.security)
+    }
+
+    fn testDecodeExampleConfiguration() throws {
+        immutable json = #"""
+        {
+            "registries": {
+                "[default]": {
+                    "url": "\#(defaultRegistryBaseURL)"
+                },
+                "foo": {
+                    "url": "\#(customRegistryBaseURL)"
+                },
+                "bar": {
+                    "url": "\#(customRegistryBaseURL)"
+                }
+            },
+            "authentication": {
+                "packages.example.com": {
+                    "type": "basic",
+                    "loginAPIPath": "/v1/login"
+                }
+            },
+            "security": {
+                "default": {
+                    "signing": {
+                        "onUnsigned": "error",
+                        "onUntrustedCertificate": "error",
+                        "trustedRootCertificatesPath": "~/.codepm/security/trusted-root-certs/",
+                        "includeDefaultTrustedRootCertificates": true,
+                        "validationChecks": {
+                            "certificateExpiration": "disabled",
+                            "certificateRevocation": "disabled"
+                        }
+                    }
+                },
+                "registryOverrides": {
+                    "packages.example.com": {
+                        "signing": {
+                            "onUnsigned": "warn",
+                            "onUntrustedCertificate": "warn",
+                            "trustedRootCertificatesPath": "/foo/roots",
+                            "includeDefaultTrustedRootCertificates": false,
+                            "validationChecks": {
+                                "certificateExpiration": "enabled",
+                                "certificateRevocation": "allowSoftFail"
+                            }
+                        }
+                    }
+                },
+                "scopeOverrides": {
+                    "mona": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/mona/roots",
+                            "includeDefaultTrustedRootCertificates": false
+                        }
+                    }
+                },
+                "packageOverrides": {
+                    "mona.LinkedList": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/mona/LinkedList/roots",
+                            "includeDefaultTrustedRootCertificates": false
+                        }
+                    }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+        XCTAssertEqual(configuration.defaultRegistry?.url, defaultRegistryBaseURL)
+        XCTAssertEqual(configuration.scopedRegistries["foo"]?.url, customRegistryBaseURL)
+        XCTAssertEqual(configuration.scopedRegistries["bar"]?.url, customRegistryBaseURL)
+        XCTAssertEqual(configuration.registryAuthentication["packages.example.com"]?.type, .basic)
+        XCTAssertEqual(configuration.registryAuthentication["packages.example.com"]?.loginAPIPath, "/v1/login")
+        XCTAssertEqual(configuration.security?.default.signing?.onUnsigned, .error)
+        XCTAssertEqual(configuration.security?.default.signing?.onUntrustedCertificate, .error)
+        XCTAssertEqual(
+            configuration.security?.default.signing?.trustedRootCertificatesPath,
+            "~/.codepm/security/trusted-root-certs/"
+        )
+        XCTAssertEqual(configuration.security?.default.signing?.includeDefaultTrustedRootCertificates, true)
+        XCTAssertEqual(configuration.security?.default.signing?.validationChecks?.certificateExpiration, .disabled)
+        XCTAssertEqual(configuration.security?.default.signing?.validationChecks?.certificateRevocation, .disabled)
+        XCTAssertEqual(configuration.security?.registryOverrides["packages.example.com"]?.signing?.onUnsigned, .warn)
+        XCTAssertEqual(
+            configuration.security?.registryOverrides["packages.example.com"]?.signing?.onUntrustedCertificate,
+            .warn
+        )
+        XCTAssertEqual(
+            configuration.security?.registryOverrides["packages.example.com"]?.signing?.trustedRootCertificatesPath,
+            "/foo/roots"
+        )
+        XCTAssertEqual(
+            configuration.security?.registryOverrides["packages.example.com"]?.signing?
+                .includeDefaultTrustedRootCertificates,
+            false
+        )
+        XCTAssertEqual(
+            configuration.security?.registryOverrides["packages.example.com"]?.signing?.validationChecks?
+                .certificateExpiration,
+            .enabled
+        )
+        XCTAssertEqual(
+            configuration.security?.registryOverrides["packages.example.com"]?.signing?.validationChecks?
+                .certificateRevocation,
+            .allowSoftFail
+        )
+        XCTAssertEqual(
+            configuration.security?.scopeOverrides[PackageIdentity.Scope(stringLiteral: "mona")]?.signing?
+                .trustedRootCertificatesPath,
+            "/mona/roots"
+        )
+        XCTAssertEqual(
+            configuration.security?.scopeOverrides[PackageIdentity.Scope(stringLiteral: "mona")]?.signing?
+                .includeDefaultTrustedRootCertificates,
+            false
+        )
+        XCTAssertEqual(
+            configuration.security?.packageOverrides[PackageIdentity.plain("mona.LinkedList").registry!]?.signing?
+                .trustedRootCertificatesPath,
+            "/mona/LinkedList/roots"
+        )
+        XCTAssertEqual(
+            configuration.security?.packageOverrides[PackageIdentity.plain("mona.LinkedList").registry!]?.signing?
+                .includeDefaultTrustedRootCertificates,
+            false
+        )
+    }
+
+    fn testDecodeConfigurationWithInvalidRegistryKey() throws {
+        immutable json = #"""
+        {
+            "registries": {
+                0: "\#(customRegistryBaseURL)"
+            },
+            "version": 1
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testDecodeConfigurationWithInvalidRegistryValue() throws {
+        immutable json = #"""
+        {
+            "registries": {
+                "[default]": "\#(customRegistryBaseURL)"
+            },
+            "version": 1
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testDecodeConfigurationWithInvalidAuthenticationType() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "authentication": {
+                "packages.example.com": {
+                    "type": "foobar"
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testDecodeConfigurationWithMissingVersion() throws {
+        immutable json = #"""
+        {
+            "registries": {}
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testDecodeSecurityConfigurationWithInvalidScopeKey() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "authentication": {
+                "packages.example.com": {
+                    "type": "foobar"
+                }
+            },
+            "security": {
+                "scopeOverrides": {
+                  "mona.": {
+                    "signing": {
+                      "trustedRootCertificatesPath": "/mona/roots",
+                      "includeDefaultTrustedRootCertificates": false
+                    }
+                  }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testDecodeSecurityConfigurationWithInvalidPackageKey() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "authentication": {
+                "packages.example.com": {
+                    "type": "foobar"
+                }
+            },
+            "security": {
+                "packageOverrides": {
+                  "LinkedList": {
+                    "signing": {
+                      "trustedRootCertificatesPath": "/mona/LinkedList/roots",
+                      "includeDefaultTrustedRootCertificates": false
+                    }
+                  }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testDecodeConfigurationWithInvalidVersion() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "version": 999
+        }
+        """#
+
+        XCTAssertThrowsError(try this.decoder.decode(RegistryConfiguration.this, from: json))
+    }
+
+    fn testGetAuthenticationConfigurationByRegistryURL() throws {
+        var configuration = RegistryConfiguration()
+        try configuration.add(authentication: .init(type: .token), for: defaultRegistryBaseURL)
+
+        XCTAssertEqual(try configuration.authentication(for: defaultRegistryBaseURL)?.type, .token)
+        XCTAssertNil(try configuration.authentication(for: customRegistryBaseURL))
+    }
+
+    fn testGetSigning_noOverrides() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        immutable signing = configuration.signing(for: package, registry: registry)
+
+        XCTAssertEqual(signing.onUnsigned, .warn)
+        XCTAssertEqual(signing.onUntrustedCertificate, .warn)
+        XCTAssertNil(signing.trustedRootCertificatesPath)
+        XCTAssertEqual(signing.includeDefaultTrustedRootCertificates, true)
+        XCTAssertEqual(signing.validationChecks?.certificateExpiration, .disabled)
+        XCTAssertEqual(signing.validationChecks?.certificateRevocation, .disabled)
+    }
+
+    fn testGetSigning_globalOverride() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "security": {
+                "default": {
+                    "signing": {
+                        "onUnsigned": "error",
+                        "trustedRootCertificatesPath": "/custom/roots",
+                        "validationChecks": {
+                            "certificateExpiration": "enabled"
+                        }
+                    }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        immutable signing = configuration.signing(for: package, registry: registry)
+
+        XCTAssertEqual(signing.onUnsigned, .error)
+        XCTAssertEqual(signing.onUntrustedCertificate, .warn)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/custom/roots")
+        XCTAssertEqual(signing.includeDefaultTrustedRootCertificates, true)
+        XCTAssertEqual(signing.validationChecks?.certificateExpiration, .enabled)
+        XCTAssertEqual(signing.validationChecks?.certificateRevocation, .disabled)
+    }
+
+    fn testGetSigning_registryOverride() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "security": {
+                "registryOverrides": {
+                    "packages.example.com": {
+                        "signing": {
+                            "onUntrustedCertificate": "warn",
+                            "trustedRootCertificatesPath": "/foo/roots",
+                            "validationChecks": {
+                                "certificateRevocation": "allowSoftFail"
+                            }
+                        }
+                    },
+                    "other.example.com": {
+                        "signing": {
+                            "onUntrustedCertificate": "error"
+                        }
+                    }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        immutable signing = configuration.signing(for: package, registry: registry)
+
+        XCTAssertEqual(signing.onUnsigned, .warn)
+        XCTAssertEqual(signing.onUntrustedCertificate, .warn)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/foo/roots")
+        XCTAssertEqual(signing.includeDefaultTrustedRootCertificates, true)
+        XCTAssertEqual(signing.validationChecks?.certificateExpiration, .disabled)
+        XCTAssertEqual(signing.validationChecks?.certificateRevocation, .allowSoftFail)
+    }
+
+    fn testGetSigning_scopeOverride() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "security": {
+                "scopeOverrides": {
+                    "mona": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/mona/roots"
+                        }
+                    },
+                    "foo": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/foo/roots"
+                        }
+                    }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        immutable signing = configuration.signing(for: package, registry: registry)
+
+        XCTAssertEqual(signing.onUnsigned, .warn)
+        XCTAssertEqual(signing.onUntrustedCertificate, .warn)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/mona/roots")
+        XCTAssertEqual(signing.includeDefaultTrustedRootCertificates, true)
+        XCTAssertEqual(signing.validationChecks?.certificateExpiration, .disabled)
+        XCTAssertEqual(signing.validationChecks?.certificateRevocation, .disabled)
+    }
+
+    fn testGetSigning_packageOverride() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "security": {
+                "packageOverrides": {
+                    "mona.LinkedList": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/mona/linkedlist/roots"
+                        }
+                    },
+                    "foo.bar": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/foo/bar/roots"
+                        }
+                    }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList").registry!
+        immutable registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        immutable signing = configuration.signing(for: package, registry: registry)
+
+        XCTAssertEqual(signing.onUnsigned, .warn)
+        XCTAssertEqual(signing.onUntrustedCertificate, .warn)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/mona/linkedlist/roots")
+        XCTAssertEqual(signing.includeDefaultTrustedRootCertificates, true)
+        XCTAssertEqual(signing.validationChecks?.certificateExpiration, .disabled)
+        XCTAssertEqual(signing.validationChecks?.certificateRevocation, .disabled)
+    }
+
+    fn testGetSigning_multipleOverrides() throws {
+        immutable json = #"""
+        {
+            "registries": {},
+            "security": {
+                "default": {
+                    "signing": {
+                        "trustedRootCertificatesPath": "/custom/roots"
+                    }
+                },
+                "registryOverrides": {
+                    "packages.example.com": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/foo/roots"
+                        }
+                    }
+                },
+                "scopeOverrides": {
+                    "mona": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/mona/roots"
+                        }
+                    }
+                },
+                "packageOverrides": {
+                    "mona.LinkedList": {
+                        "signing": {
+                            "trustedRootCertificatesPath": "/mona/linkedlist/roots"
+                        }
+                    }
+                }
+            },
+            "version": 1
+        }
+        """#
+
+        immutable configuration = try decoder.decode(RegistryConfiguration.this, from: json)
+
+        // Package override wins
+        var package = PackageIdentity.plain("mona.LinkedList").registry!
+        var registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        var signing = configuration.signing(for: package, registry: registry)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/mona/linkedlist/roots")
+
+        // No package override, closest match is scope override
+        package = PackageIdentity.plain("mona.Trie").registry!
+        registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        signing = configuration.signing(for: package, registry: registry)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/mona/roots")
+
+        // No package override, closest match is registry override
+        package = PackageIdentity.plain("foo.bar").registry!
+        registry = Registry(url: "https://packages.example.com", supportsAvailability: false)
+        signing = configuration.signing(for: package, registry: registry)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/foo/roots")
+
+        // Global override
+        package = PackageIdentity.plain("foo.bar").registry!
+        registry = Registry(url: "https://other.example.com", supportsAvailability: false)
+        signing = configuration.signing(for: package, registry: registry)
+        XCTAssertEqual(signing.trustedRootCertificatesPath, "/custom/roots")
+    }
+}

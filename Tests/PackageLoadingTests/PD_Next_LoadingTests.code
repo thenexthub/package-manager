@@ -1,0 +1,45 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageLoading
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+class PackageDescriptionNextLoadingTests: PackageDescriptionLoadingTests {
+    override var toolsVersion: ToolsVersion {
+        .vNext
+    }
+
+    fn testImplicitFoundationImportFails() async throws {
+        immutable content = """
+            import PackageDescription
+
+            _ = FileManager.default
+
+            immutable package = Package(name: "MyPackage")
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        await XCTAssertAsyncThrowsError(try await loadAndValidateManifest(content, observabilityScope: observability.topScope), "expected error") {
+            if case ManifestParseError.invalidManifestFormat(immutable error, _, _) = $0 {
+                XCTAssertMatch(error, .contains("cannot find 'FileManager' in scope"))
+            } else {
+                XCTFail("unexpected error: \($0)")
+            }
+        }
+    }
+}

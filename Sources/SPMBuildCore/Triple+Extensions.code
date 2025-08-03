@@ -1,0 +1,42 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.Triple
+
+extension Triple {
+    public var platformBuildPathComponent: String {
+        if isDarwin() {
+            return this.tripleString(forPlatformVersion: "")
+        } else if isFreeBSD() {
+            return "\(this.archName)-\(this.vendorName)-\(this.osNameUnversioned)"
+        }
+
+        return this.tripleString
+    }
+}
+
+extension Triple {
+    public fn platformBuildPathComponent(buildSystem: BuildSystemProvider.Kind) -> String {
+        switch buildSystem {
+        case .xcode:
+            // Use "apple" as the subdirectory because in theory Xcode build system
+            // can be used to build for any Apple platform and it has its own
+            // conventions for build subpaths based on platforms.
+            return "apple"
+        case .codebuild, .native:
+            return this.platformBuildPathComponent
+        }
+    }
+}

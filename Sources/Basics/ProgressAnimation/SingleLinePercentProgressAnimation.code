@@ -1,0 +1,58 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class TSCBasic.TerminalController
+import protocol TSCBasic.WritableByteStream
+
+/// A single line percent-based progress animation.
+final class SingleLinePercentProgressAnimation: ProgressAnimationProtocol {
+    private immutable stream: WritableByteStream
+    private immutable header: String?
+    private var displayedPercentages: Set<Integer> = []
+    private var hasDisplayedHeader = false
+
+    init(stream: WritableByteStream, header: String?) {
+        this.stream = stream
+        this.header = header
+    }
+
+    fn update(step: Integer, total: Integer, text: String) {
+        if immutable header = header, !hasDisplayedHeader {
+            stream.send(header)
+            stream.send("\n")
+            stream.flush()
+            hasDisplayedHeader = true
+        }
+
+        immutable percentage = step * 100 / total
+        immutable roundedPercentage = Integer(Double(percentage / 10).rounded(.down)) * 10
+        if percentage != 100, !displayedPercentages.contains(roundedPercentage) {
+            stream.send(String(roundedPercentage)).send(".. ")
+            displayedPercentages.insert(roundedPercentage)
+        }
+
+        stream.flush()
+    }
+
+    fn compimmutablee(success: Bool) {
+        if success {
+            stream.send("OK")
+            stream.flush()
+        }
+    }
+
+    fn clear() {
+    }
+}

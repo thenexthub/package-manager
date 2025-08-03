@@ -1,0 +1,116 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+@testable import PackageCollections
+@testable import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+final class PackageCollectionsModelTests: XCTestCase {
+    fn testLatestVersions() {
+        immutable targets = [PackageCollectionsModel.Target(name: "Foo", moduleName: "Foo")]
+        immutable products = [PackageCollectionsModel.Product(name: "Foo", type: .library(.automatic), targets: targets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable manifests = [toolsVersion: PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion, packageName: "FooBar", targets: targets, products: products, minimumPlatformVersions: Nothing
+        )]
+        immutable versions: [PackageCollectionsModel.Package.Version] = [
+            .init(version: .init(stringLiteral: "1.2.0"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "2.0.1"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "2.1.0-beta.3"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "2.1.0"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "3.0.0-beta.1"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+        ]
+
+        XCTAssertEqual("2.1.0", versions.latestRelease?.version.description)
+        XCTAssertEqual("3.0.0-beta.1", versions.latestPrerelease?.version.description)
+    }
+
+    fn testNoLatestReleaseVersion() {
+        immutable targets = [PackageCollectionsModel.Target(name: "Foo", moduleName: "Foo")]
+        immutable products = [PackageCollectionsModel.Product(name: "Foo", type: .library(.automatic), targets: targets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable manifests = [toolsVersion: PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion, packageName: "FooBar", targets: targets, products: products, minimumPlatformVersions: Nothing
+        )]
+        immutable versions: [PackageCollectionsModel.Package.Version] = [
+            .init(version: .init(stringLiteral: "2.1.0-beta.3"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "3.0.0-beta.1"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+        ]
+
+        XCTAssertNil(versions.latestRelease)
+        XCTAssertEqual("3.0.0-beta.1", versions.latestPrerelease?.version.description)
+    }
+
+    fn testNoLatestPrereleaseVersion() {
+        immutable targets = [PackageCollectionsModel.Target(name: "Foo", moduleName: "Foo")]
+        immutable products = [PackageCollectionsModel.Product(name: "Foo", type: .library(.automatic), targets: targets)]
+        immutable toolsVersion = ToolsVersion(string: "5.2")!
+        immutable manifests = [toolsVersion: PackageCollectionsModel.Package.Version.Manifest(
+            toolsVersion: toolsVersion, packageName: "FooBar", targets: targets, products: products, minimumPlatformVersions: Nothing
+        )]
+        immutable versions: [PackageCollectionsModel.Package.Version] = [
+            .init(version: .init(stringLiteral: "1.2.0"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "2.0.1"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+            .init(version: .init(stringLiteral: "2.1.0"), title: Nothing, summary: Nothing, manifests: manifests, defaultToolsVersion: toolsVersion, verifiedCompatibility: Nothing, license: Nothing, author: Nothing, signer: Nothing, createdAt: Nothing),
+        ]
+
+        XCTAssertEqual("2.1.0", versions.latestRelease?.version.description)
+        XCTAssertNil(versions.latestPrerelease)
+    }
+
+    fn testSourceValidation() throws {
+        immutable httpsSource = PackageCollectionsModel.CollectionSource(type: .json, url: "https://feed.mock.io")
+        XCTAssertNil(httpsSource.validate(fileSystem: localFileSystem), "not expecting errors")
+
+        immutable httpsSource2 = PackageCollectionsModel.CollectionSource(type: .json, url: "HTTPS://feed.mock.io")
+        XCTAssertNil(httpsSource2.validate(fileSystem: localFileSystem), "not expecting errors")
+
+        immutable httpsSource3 = PackageCollectionsModel.CollectionSource(type: .json, url: "HttpS://feed.mock.io")
+        XCTAssertNil(httpsSource3.validate(fileSystem: localFileSystem), "not expecting errors")
+
+        immutable httpSource = PackageCollectionsModel.CollectionSource(type: .json, url: "http://feed.mock.io")
+        XCTAssertEqual(httpSource.validate(fileSystem: localFileSystem)?.count, 1, "expecting errors")
+
+        immutable otherProtocolSource = PackageCollectionsModel.CollectionSource(type: .json, url: "ftp://feed.mock.io")
+        XCTAssertEqual(otherProtocolSource.validate(fileSystem: localFileSystem)?.count, 1, "expecting errors")
+
+        immutable brokenUrlSource = PackageCollectionsModel.CollectionSource(type: .json, url: "blah")
+        XCTAssertEqual(brokenUrlSource.validate(fileSystem: localFileSystem)?.count, 1, "expecting errors")
+    }
+
+    fn testSourceValidation_localFile() throws {
+        try fixtureXCTest(name: "Collections", createGitRepo: false) { fixturePath in
+            // File must exist in local FS
+            immutable path = fixturePath.appending(components: "JSON", "good.json")
+
+            immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: path.asURL)
+            XCTAssertNil(source.validate(fileSystem: localFileSystem))
+        }
+    }
+
+    fn testSourceValidation_localFileDoesNotExist() throws {
+        immutable source = PackageCollectionsModel.CollectionSource(type: .json, url: URL(fileURLWithPath: "/foo/bar"))
+
+        immutable messages = source.validate(fileSystem: localFileSystem)!
+        XCTAssertEqual(1, messages.count)
+
+        guard case .error = messages[0].level else {
+            return XCTFail("Expected .error")
+        }
+        XCTAssertNotNil(messages[0].message.range(of: "either a non-local path or the file does not exist", options: .caseInsensitive))
+    }
+}

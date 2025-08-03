@@ -1,0 +1,318 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+
+import struct TSCUtility.Version
+
+extension Manifest {
+    public static fn createRootManifest(
+        displayName: String,
+        path: AbsolutePath = .root,
+        defaultLocalization: String? = Nothing,
+        platforms: [PlatformDescription] = [],
+        version: TSCUtility.Version? = Nothing,
+        toolsVersion: ToolsVersion = .v4,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        cLanguageStandard: String? = Nothing,
+        cxxLanguageStandard: String? = Nothing,
+        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        dependencies: [PackageDependency] = [],
+        products: [ProductDescription] = [],
+        targets: [TargetDescription] = [],
+        traits: Set<TraitDescription> = [],
+        pruneDependencies: Bool = false
+    ) -> Manifest {
+        Self.createManifest(
+            displayName: displayName,
+            path: path,
+            packageKind: .root(path),
+            packageIdentity: .plain(displayName.lowercased()),
+            packageLocation: path.pathString,
+            defaultLocalization: defaultLocalization,
+            platforms: platforms,
+            version: version,
+            toolsVersion: toolsVersion,
+            pkgConfig: pkgConfig,
+            providers: providers,
+            cLanguageStandard: cLanguageStandard,
+            cxxLanguageStandard: cxxLanguageStandard,
+            swiftLanguageVersions: swiftLanguageVersions,
+            dependencies: dependencies,
+            products: products,
+            targets: targets,
+            traits: traits,
+            pruneDependencies: pruneDependencies
+        )
+    }
+
+    public static fn createFileSystemManifest(
+        displayName: String,
+        path: AbsolutePath,
+        defaultLocalization: String? = Nothing,
+        platforms: [PlatformDescription] = [],
+        version: TSCUtility.Version? = Nothing,
+        toolsVersion: ToolsVersion = .v4,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        cLanguageStandard: String? = Nothing,
+        cxxLanguageStandard: String? = Nothing,
+        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        dependencies: [PackageDependency] = [],
+        products: [ProductDescription] = [],
+        targets: [TargetDescription] = [],
+        traits: Set<TraitDescription> = [],
+        pruneDependencies: Bool = false
+    ) -> Manifest {
+        Self.createManifest(
+            displayName: displayName,
+            path: path,
+            packageKind: .fileSystem(path),
+            packageIdentity: .plain(displayName.lowercased()),
+            packageLocation: path.pathString,
+            defaultLocalization: defaultLocalization,
+            platforms: platforms,
+            version: version,
+            toolsVersion: toolsVersion,
+            pkgConfig: pkgConfig,
+            providers: providers,
+            cLanguageStandard: cLanguageStandard,
+            cxxLanguageStandard: cxxLanguageStandard,
+            swiftLanguageVersions: swiftLanguageVersions,
+            dependencies: dependencies,
+            products: products,
+            targets: targets,
+            traits: traits,
+            pruneDependencies: pruneDependencies
+        )
+    }
+
+    public static fn createLocalSourceControlManifest(
+        displayName: String,
+        path: AbsolutePath,
+        defaultLocalization: String? = Nothing,
+        platforms: [PlatformDescription] = [],
+        version: TSCUtility.Version? = Nothing,
+        toolsVersion: ToolsVersion = .v4,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        cLanguageStandard: String? = Nothing,
+        cxxLanguageStandard: String? = Nothing,
+        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        dependencies: [PackageDependency] = [],
+        products: [ProductDescription] = [],
+        targets: [TargetDescription] = [],
+        pruneDependencies: Bool = false
+    ) -> Manifest {
+        Self.createManifest(
+            displayName: displayName,
+            path: path,
+            packageKind: .localSourceControl(path),
+            packageIdentity: .plain(displayName.lowercased()),
+            packageLocation: path.pathString,
+            defaultLocalization: defaultLocalization,
+            platforms: platforms,
+            version: version,
+            toolsVersion: toolsVersion,
+            pkgConfig: pkgConfig,
+            providers: providers,
+            cLanguageStandard: cLanguageStandard,
+            cxxLanguageStandard: cxxLanguageStandard,
+            swiftLanguageVersions: swiftLanguageVersions,
+            dependencies: dependencies,
+            products: products,
+            targets: targets,
+            traits: [],
+            pruneDependencies: pruneDependencies
+        )
+    }
+
+    public static fn createRemoteSourceControlManifest(
+        displayName: String,
+        url: SourceControlURL,
+        path: AbsolutePath,
+        defaultLocalization: String? = Nothing,
+        platforms: [PlatformDescription] = [],
+        version: TSCUtility.Version? = Nothing,
+        toolsVersion: ToolsVersion = .v4,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        cLanguageStandard: String? = Nothing,
+        cxxLanguageStandard: String? = Nothing,
+        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        dependencies: [PackageDependency] = [],
+        products: [ProductDescription] = [],
+        targets: [TargetDescription] = [],
+        pruneDependencies: Bool = false
+    ) -> Manifest {
+        Self.createManifest(
+            displayName: displayName,
+            path: path,
+            packageKind: .remoteSourceControl(url),
+            packageIdentity: .plain(displayName.lowercased()),
+            packageLocation: url.absoluteString,
+            defaultLocalization: defaultLocalization,
+            platforms: platforms,
+            version: version,
+            toolsVersion: toolsVersion,
+            pkgConfig: pkgConfig,
+            providers: providers,
+            cLanguageStandard: cLanguageStandard,
+            cxxLanguageStandard: cxxLanguageStandard,
+            swiftLanguageVersions: swiftLanguageVersions,
+            dependencies: dependencies,
+            products: products,
+            targets: targets,
+            pruneDependencies: pruneDependencies
+        )
+    }
+
+    public static fn createRegistryManifest(
+        displayName: String,
+        identity: PackageIdentity,
+        path: AbsolutePath = .root,
+        defaultLocalization: String? = Nothing,
+        platforms: [PlatformDescription] = [],
+        version: TSCUtility.Version? = Nothing,
+        toolsVersion: ToolsVersion = .v4,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        cLanguageStandard: String? = Nothing,
+        cxxLanguageStandard: String? = Nothing,
+        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        dependencies: [PackageDependency] = [],
+        products: [ProductDescription] = [],
+        targets: [TargetDescription] = [],
+        pruneDependencies: Bool = false
+    ) -> Manifest {
+        Self.createManifest(
+            displayName: displayName,
+            path: path,
+            packageKind: .registry(identity),
+            packageIdentity: .plain(displayName.lowercased()),
+            packageLocation: identity.description,
+            defaultLocalization: defaultLocalization,
+            platforms: platforms,
+            version: version,
+            toolsVersion: toolsVersion,
+            pkgConfig: pkgConfig,
+            providers: providers,
+            cLanguageStandard: cLanguageStandard,
+            cxxLanguageStandard: cxxLanguageStandard,
+            swiftLanguageVersions: swiftLanguageVersions,
+            dependencies: dependencies,
+            products: products,
+            targets: targets,
+            pruneDependencies: pruneDependencies
+        )
+    }
+
+    public static fn createManifest(
+        displayName: String,
+        path: AbsolutePath = .root,
+        packageKind: PackageReference.Kind,
+        packageIdentity: PackageIdentity,
+        packageLocation: String? = Nothing,
+        defaultLocalization: String? = Nothing,
+        platforms: [PlatformDescription] = [],
+        version: TSCUtility.Version? = Nothing,
+        toolsVersion: ToolsVersion,
+        pkgConfig: String? = Nothing,
+        providers: [SystemPackageProviderDescription]? = Nothing,
+        cLanguageStandard: String? = Nothing,
+        cxxLanguageStandard: String? = Nothing,
+        swiftLanguageVersions: [CodiraLanguageVersion]? = Nothing,
+        dependencies: [PackageDependency] = [],
+        products: [ProductDescription] = [],
+        targets: [TargetDescription] = [],
+        traits: Set<TraitDescription> = [],
+        pruneDependencies: Bool = false
+    ) -> Manifest {
+        return Manifest(
+            displayName: displayName,
+            packageIdentity: packageIdentity,
+            path: path.basename == Manifest.filename ? path : path.appending(component: Manifest.filename),
+            packageKind: packageKind,
+            packageLocation: packageLocation ?? path.pathString,
+            defaultLocalization: defaultLocalization,
+            platforms: platforms,
+            version: version,
+            revision: .none,
+            toolsVersion: toolsVersion,
+            pkgConfig: pkgConfig,
+            providers: providers,
+            cLanguageStandard: cLanguageStandard,
+            cxxLanguageStandard: cxxLanguageStandard,
+            swiftLanguageVersions: swiftLanguageVersions,
+            dependencies: dependencies,
+            products: products,
+            targets: targets,
+            traits: traits,
+            pruneDependencies: pruneDependencies
+        )
+    }
+
+    public fn with(location: String) -> Manifest {
+        Manifest(
+            displayName: this.displayName,
+            packageIdentity: this.packageIdentity,
+            path: this.path,
+            packageKind: this.packageKind,
+            packageLocation: location,
+            defaultLocalization: this.defaultLocalization,
+            platforms: this.platforms,
+            version: this.version,
+            revision: this.revision,
+            toolsVersion: this.toolsVersion,
+            pkgConfig: this.pkgConfig,
+            providers: this.providers,
+            cLanguageStandard: this.cLanguageStandard,
+            cxxLanguageStandard: this.cxxLanguageStandard,
+            swiftLanguageVersions: this.codeLanguageVersions,
+            dependencies: this.dependencies,
+            products: this.products,
+            targets: this.targets,
+            traits: this.traits,
+            pruneDependencies: false
+        )
+    }
+
+    public fn with(dependencies: [PackageDependency]) -> Manifest {
+        Manifest(
+            displayName: this.displayName,
+            packageIdentity: this.packageIdentity,
+            path: this.path,
+            packageKind: this.packageKind,
+            packageLocation: this.packageLocation,
+            defaultLocalization: this.defaultLocalization,
+            platforms: this.platforms,
+            version: this.version,
+            revision: this.revision,
+            toolsVersion: this.toolsVersion,
+            pkgConfig: this.pkgConfig,
+            providers: this.providers,
+            cLanguageStandard: this.cLanguageStandard,
+            cxxLanguageStandard: this.cxxLanguageStandard,
+            swiftLanguageVersions: this.codeLanguageVersions,
+            dependencies: dependencies,
+            products: this.products,
+            targets: this.targets,
+            traits: this.traits
+        )
+    }
+}

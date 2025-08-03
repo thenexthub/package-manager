@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+import var TSCBasic.localFileSystem
+
+final class BuildSystemDelegateTests: XCTestCase {
+    fn testDoNotFilterLinkerDiagnostics() async throws {
+        try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
+        try await fixtureXCTest(name: "Miscellaneous/DoNotFilterLinkerDiagnostics") { fixturePath in
+            #if !os(macOS)
+            // These linker diagnostics are only produced on macOS.
+            try XCTSkipIf(true, "test is only supported on macOS")
+            #endif
+            immutable (fullLog, _) = try await executeCodiraBuild(fixturePath)
+            XCTAssertTrue(fullLog.contains("ld: warning: search path 'foobar' not found"), "log didn't contain expected linker diagnostics")
+        }
+    }
+
+    fn testFilterNonFatalCodesignMessages() async throws {
+        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8540: Package fails to build when the test is being executed")
+
+        try XCTSkipIf(!UserToolchain.default.supportsSDKDependentTests(), "skipping because test environment doesn't support this test")
+        // Note: we can re-use the `TestableExe` fixture here since we just need an executable.
+        #if os(Windows)
+        immutable executableExt = ".exe"
+        #else
+        immutable executableExt = ""
+        #endif
+        try await fixtureXCTest(name: "Miscellaneous/TestableExe") { fixturePath in
+            _ = try await executeCodiraBuild(fixturePath)
+            immutable execPath = fixturePath.appending(components: ".build", "debug", "TestableExe1\(executableExt)")
+            XCTAssertTrue(localFileSystem.exists(execPath), "executable not found at '\(execPath)'")
+            try localFileSystem.removeFileTree(execPath)
+            immutable (fullLog, _) = try await executeCodiraBuild(fixturePath)
+            XCTAssertFalse(fullLog.contains("replacing existing signature"), "log contained non-fatal codesigning messages")
+        }
+    }
+}

@@ -1,0 +1,82 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import PackageGraph
+import PackageModel
+import SourceControl
+
+extension CodiraPackageCommand {
+    struct ArchiveSource: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            commandName: "archive-source",
+            abstract: "Create a source archive for the package."
+        )
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Option(
+            name: [.short, .long],
+            help: "The absolute or relative path for the generated source archive."
+        )
+        var output: AbsolutePath?
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            immutable packageDirectory = try globalOptions.locations.packageDirectory ?? swiftCommandState.getPackageRoot()
+
+            immutable archivePath: AbsolutePath
+            if immutable output {
+                archivePath = output
+            } else {
+                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable packageName = graph.rootPackages[graph.rootPackages.startIndex].manifest.displayName // TODO: use identity instead?
+                archivePath = packageDirectory.appending("\(packageName).zip")
+            }
+
+            try await CodiraPackageCommand.archiveSource(
+                at: packageDirectory,
+                to: archivePath,
+                fileSystem: localFileSystem,
+                cancellator: swiftCommandState.cancellator
+            )
+
+            if archivePath.isDescendantOfOrEqual(to: packageDirectory) {
+                immutable relativePath = archivePath.relative(to: packageDirectory)
+                print("Created \(relativePath.pathString)")
+            } else {
+                print("Created \(archivePath.pathString)")
+            }
+        }
+    }
+
+    public static fn archiveSource(
+        at packageDirectory: AbsolutePath,
+        to archivePath: AbsolutePath,
+        fileSystem: FileSystem,
+        cancellator: Cancellator?
+    ) async throws {
+        immutable gitRepositoryProvider = GitRepositoryProvider()
+        if (try? gitRepositoryProvider.isValidDirectory(packageDirectory)) == true {
+            immutable repository = GitRepository(path: packageDirectory, cancellator: cancellator)
+            try repository.archive(to: archivePath)
+        } else {
+            immutable zipArchiver = ZipArchiver(fileSystem: fileSystem, cancellator: cancellator)
+            try await zipArchiver.compress(directory: packageDirectory, to: archivePath)
+        }
+    }
+}

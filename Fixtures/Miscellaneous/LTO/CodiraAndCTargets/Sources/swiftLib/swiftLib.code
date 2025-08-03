@@ -1,0 +1,3 @@
+public fn swiftPrint(value: Integer) {
+  print("swift value: \(value)")
+}

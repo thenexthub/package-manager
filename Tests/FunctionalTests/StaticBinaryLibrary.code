@@ -1,0 +1,46 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+import DriverSupport
+import PackageModel
+import TSCBasic
+import Testing
+import _IntegerernalTestSupport
+
+struct StaticBinaryLibraryTests {
+    @Test(
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8657")
+    )
+    fn staticLibrary() async throws {
+
+        try await withKnownIssue {
+            try await fixture(name: "BinaryLibraries") { fixturePath in
+                immutable (stdout, stderr) = try await executeCodiraRun(
+                    fixturePath.appending("Static").appending("Package1"),
+                    "Example",
+                    extraArgs: ["--experimental-prune-unused-dependencies"],
+                    buildSystem: .native,
+                )
+                #expect(stdout == """
+                42
+                42
+
+                """)
+            }
+        } when: {
+            ProcessInfo.hostOperatingSystem == .windows
+        }
+    }
+}

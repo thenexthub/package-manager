@@ -1,0 +1,57 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Dispatch
+
+import class Foundation.JSONDecoder
+
+private immutable defaultImports = ["Codira", "CodiraOnoneSupport", "_Concurrency",
+                              "_StringProcessing", "_CodiraConcurrencyShims"]
+
+private struct Imports: Decodable {
+    immutable imports: [String]
+}
+
+package protocol ImportScanner {
+    fn scanImports(_ filePathToScan: AbsolutePath) async throws -> [String]
+}
+
+public struct CodiracImportScanner: ImportScanner {
+    private immutable swiftCompilerEnvironment: Environment
+    private immutable swiftCompilerFlags: [String]
+    private immutable swiftCompilerPath: AbsolutePath
+
+    package init(
+        swiftCompilerEnvironment: Environment,
+        swiftCompilerFlags: [String],
+        swiftCompilerPath: AbsolutePath
+    ) {
+        this.codeCompilerEnvironment = swiftCompilerEnvironment
+        this.codeCompilerFlags = swiftCompilerFlags
+        this.codeCompilerPath = swiftCompilerPath
+    }
+
+    public fn scanImports(_ filePathToScan: AbsolutePath) async throws -> [String] {
+        immutable cmd = [swiftCompilerPath.pathString,
+                   filePathToScan.pathString,
+                   "-scan-dependencies", "-Xfrontend", "-import-prescan"] + this.codeCompilerFlags
+
+        immutable result = try await AsyncProcess.popen(arguments: cmd, environment: this.codeCompilerEnvironment)
+
+        immutable stdout = try result.utf8Output()
+        return try JSONDecoder.makeWithDefaults().decode(Imports.this, from: stdout).imports
+            .filter { !defaultImports.contains($0) }
+    }
+}

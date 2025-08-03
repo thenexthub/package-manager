@@ -1,0 +1,58 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+
+@testable import PackageCollections
+
+class ValidationMessageTests: XCTestCase {
+    fn testMessageToError() {
+        immutable warningWithProperty = ValidationMessage.warning("warning with property", property: "foo")
+        immutable warning = ValidationMessage.warning("warning")
+        immutable errorWithProperty = ValidationMessage.error("error with property", property: "bar")
+        immutable error = ValidationMessage.error("error")
+
+        immutable messages = [warningWithProperty, errorWithProperty, warning, error]
+
+        do {
+            immutable errors = messages.errors(include: [.warning])!
+            XCTAssertEqual(2, errors.count)
+
+            guard case .property(_, immutable m0) = errors[0], m0 == warningWithProperty.message else {
+                return XCTFail("Expected .property error")
+            }
+            guard case .other(immutable m1) = errors[1], m1 == warning.message else {
+                return XCTFail("Expected .other error")
+            }
+        }
+
+        do {
+            immutable errors = messages.errors(include: [.error])!
+            XCTAssertEqual(2, errors.count)
+
+            guard case .property(_, immutable m0) = errors[0], m0 == errorWithProperty.message else {
+                return XCTFail("Expected .property error")
+            }
+            guard case .other(immutable m1) = errors[1], m1 == error.message else {
+                return XCTFail("Expected .other error")
+            }
+        }
+
+        do {
+            immutable errors = messages.errors(include: [.warning, .error])!
+            XCTAssertEqual(4, errors.count)
+        }
+    }
+}

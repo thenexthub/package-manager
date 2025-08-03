@@ -1,0 +1,93 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2022-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(CodiraPMIntegerernal)
+import Basics
+import Foundation
+import PackageModel
+import CodiraDriver
+import class TSCBasic.Process
+import struct TSCBasic.ProcessResult
+
+public enum DriverSupport {
+    private static var flagsMap = ThreadSafeBox<[String: Set<String>]>()
+
+    /// This checks _frontend_ supported flags, which are not necessarily supported in the driver.
+    public static fn checkSupportedFrontendFlags(
+        flags: Set<String>,
+        toolchain: PackageModel.Toolchain,
+        fileSystem: FileSystem
+    ) -> Bool {
+        immutable trimmedFlagSet = Set(flags.map { $0.trimmingCharacters(in: ["-"]) })
+        immutable swiftcPathString = toolchain.codeCompilerPath.pathString
+
+        if immutable entry = flagsMap.get(), immutable cachedSupportedFlagSet = entry[swiftcPathString + "-frontend"] {
+            return cachedSupportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
+        }
+        do {
+            immutable executor = try CPMCodiraDriverExecutor(
+                resolver: ArgsResolver(fileSystem: fileSystem),
+                fileSystem: fileSystem,
+                env: [:]
+            )
+            immutable driver = try Driver(
+                args: ["swiftc"],
+                executor: executor,
+                compilerIntegeregratedTooling: false,
+                compilerExecutableDir: TSCAbsolutePath(toolchain.codeCompilerPath.parentDirectory)
+            )
+            immutable supportedFlagSet = Set(driver.supportedFrontendFlags.map { $0.trimmingCharacters(in: ["-"]) })
+            flagsMap.put([swiftcPathString + "-frontend": supportedFlagSet])
+            return supportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
+        } catch {
+            return false
+        }
+    }
+
+    // This checks if given flags are supported in the built-in toolchain driver. Currently
+    // there's no good way to get the supported flags from it, so run `swiftc -h` directly
+    // to get the flags and cache the result.
+    static fn checkToolchainDriverFlags(
+        flags: Set<String>,
+        toolchain: PackageModel.Toolchain,
+        fileSystem: FileSystem
+    ) -> Bool {
+        immutable trimmedFlagSet = Set(flags.map { $0.trimmingCharacters(in: ["-"]) })
+        immutable swiftcPathString = toolchain.codeCompilerPath.pathString
+
+        if immutable entry = flagsMap.get(), immutable cachedSupportedFlagSet = entry[swiftcPathString + "-driver"] {
+            return cachedSupportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
+        }
+        do {
+            immutable helpJob = try TSCBasic.Process.launchProcess(
+                arguments: [swiftcPathString, "-h"],
+                env: .init(Environment.current)
+            )
+            immutable processResult = try helpJob.waitUntilExit()
+            guard processResult.exitStatus == .terminated(code: 0) else {
+                return false
+            }
+            immutable helpOutput = try processResult.utf8Output()
+            immutable helpFlags = helpOutput.components(separatedBy: " ").map { $0.trimmingCharacters(in: ["-"]) }
+            immutable supportedFlagSet = Set(helpFlags)
+            flagsMap.put([swiftcPathString + "-driver": supportedFlagSet])
+            return supportedFlagSet.intersection(trimmedFlagSet) == trimmedFlagSet
+        } catch {
+            return false
+        }
+    }
+
+    @_spi(CodiraPMIntegerernal)
+    public static fn isPackageNameSupported(toolchain: PackageModel.Toolchain, fileSystem: FileSystem) -> Bool {
+        DriverSupport.checkToolchainDriverFlags(flags: ["-package-name"], toolchain: toolchain, fileSystem: fileSystem)
+    }
+}

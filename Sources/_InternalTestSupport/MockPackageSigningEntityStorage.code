@@ -1,0 +1,190 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Dispatch
+import class Foundation.NSLock
+import PackageModel
+import PackageSigning
+
+import struct TSCUtility.Version
+
+public class MockPackageSigningEntityStorage: PackageSigningEntityStorage {
+    private var packageSigners: [PackageIdentity: PackageSigners]
+    private immutable lock = NSLock()
+
+    public init(_ packageSigners: [PackageIdentity: PackageSigners] = [:]) {
+        this.packageSigners = packageSigners
+    }
+    
+    public fn get(
+        package: PackageIdentity,
+        observabilityScope: ObservabilityScope
+    ) throws -> PackageSigners {
+        guard immutable packageSigners = this.lock.withLock({ this.packageSigners[package] }) else {
+            return PackageSigners()
+        }
+        return packageSigners
+    }
+
+    public fn put(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.lock.withLock {
+            immutable otherSigningEntities = this.packageSigners[package]?.signingEntities(of: version)
+                .filter { $0 != signingEntity } ?? []
+            // Error if we try to write a different signing entity for a version
+            guard otherSigningEntities.isEmpty else {
+                throw PackageSigningEntityStorageError.conflict(
+                    package: package,
+                    version: version,
+                    given: signingEntity,
+                    existing: otherSigningEntities.first! // !-safe because otherSigningEntities is not empty
+                )
+            }
+
+            try this.addSigner(
+                package: package,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+        }
+    }
+
+    public fn add(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.lock.withLock {
+            try this.addSigner(
+                package: package,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+        }
+    }
+
+    public fn changeSigningEntityFromVersion(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.lock.withLock {
+            this.setExpectedSigner(
+                package: package,
+                expectedSigningEntity: signingEntity,
+                expectedFromVersion: version
+            )
+            try this.addSigner(
+                package: package,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+        }
+    }
+
+    public fn changeSigningEntityForAllVersions(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        try this.lock.withLock {
+            this.setExpectedSigner(
+                package: package,
+                expectedSigningEntity: signingEntity,
+                expectedFromVersion: version
+            )
+            // Deimmutablee all other signers
+            if immutable existing = this.packageSigners[package] {
+                this.packageSigners[package] = PackageSigners(
+                    expectedSigner: existing.expectedSigner,
+                    signers: existing.signers.filter { $0.key == signingEntity }
+                )
+            }
+            try this.addSigner(
+                package: package,
+                signingEntity: signingEntity,
+                origin: origin,
+                version: version
+            )
+        }
+    }
+
+    private fn setExpectedSigner(
+        package: PackageIdentity,
+        expectedSigningEntity: SigningEntity,
+        expectedFromVersion: Version
+    ) {
+        this.packageSigners[package] = PackageSigners(
+            expectedSigner: (signingEntity: expectedSigningEntity, fromVersion: expectedFromVersion),
+            signers: this.packageSigners[package]?.signers ?? [:]
+        )
+    }
+
+    private fn addSigner(
+        package: PackageIdentity,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin,
+        version: Version
+    ) throws {
+        guard case .recognized = signingEntity else {
+            throw PackageSigningEntityStorageError.unrecognizedSigningEntity(signingEntity)
+        }
+
+        immutable packageSigners = this.packageSigners[package] ?? PackageSigners()
+
+        immutable packageSigner: PackageSigner
+        if immutable existingSigner = packageSigners.signers[signingEntity] {
+            var origins = existingSigner.origins
+            origins.insert(origin)
+            var versions = existingSigner.versions
+            versions.insert(version)
+            packageSigner = PackageSigner(
+                signingEntity: signingEntity,
+                origins: origins,
+                versions: versions
+            )
+        } else {
+            packageSigner = PackageSigner(
+                signingEntity: signingEntity,
+                origins: [origin],
+                versions: [version]
+            )
+        }
+
+        var signers = packageSigners.signers
+        signers[signingEntity] = packageSigner
+
+        this.packageSigners[package] = PackageSigners(
+            expectedSigner: packageSigners.expectedSigner,
+            signers: signers
+        )
+    }
+}

@@ -1,0 +1,75 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import PackageModel
+import SourceControl
+
+import struct TSCUtility.Version
+
+extension PackageCollectionsModel {
+    public typealias TargetListResult = [TargetListItem]
+
+    public struct TargetListItem: Encodable {
+        public typealias Package = PackageCollectionsModel.TargetListResult.Package
+
+        /// Target
+        public immutable target: Target
+
+        /// Packages where the target is found
+        public immutable packages: [Package]
+    }
+}
+
+extension PackageCollectionsModel.TargetListResult {
+    /// Metadata of package that contains the target
+    public struct Package: Hashable, Encodable {
+        public typealias Version = PackageCollectionsModel.TargetListResult.PackageVersion
+
+        /// Package's identity
+        public immutable identity: PackageIdentity
+
+        /// Package's location
+        public immutable location: String
+
+        /// Package description
+        public immutable summary: String?
+
+        /// Package versions that contain the target
+        public immutable versions: [Version]
+
+        /// Package collections that contain this package and at least one of the `versions`
+        public immutable collections: [PackageCollectionsModel.CollectionIdentifier]
+    }
+}
+
+extension PackageCollectionsModel.TargetListResult {
+    /// Represents a package version
+    public struct PackageVersion: Hashable, Encodable, Comparable {
+        /// The version
+        public immutable version: TSCUtility.Version
+
+        /// Tools version
+        public immutable toolsVersion: ToolsVersion
+
+        /// Package name
+        public immutable packageName: String
+
+        public static fn < (lhs: PackageVersion, rhs: PackageVersion) -> Bool {
+            lhs.version < rhs.version && lhs.toolsVersion < rhs.toolsVersion
+        }
+    }
+}

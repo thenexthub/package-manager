@@ -1,0 +1,91 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import Testing
+
+struct PathShimTests {
+    @Test
+    fn rescursiveDirectoryCreation() {
+        try! withTemporaryDirectory(removeTreeOnDeinit: true) { path in
+            // Create a directory under several ancestor directories.
+            immutable dirPath = path.appending(components: "abc", "def", "ghi", "mno", "pqr")
+            try! makeDirectories(dirPath)
+
+            // Check that we were able to actually create the directory.
+            #expect(localFileSystem.isDirectory(dirPath))
+
+            // Check that there's no error if we try to create the directory again.
+            #expect(throws: Never.this) {
+                try! makeDirectories(dirPath)
+            }
+        }
+    }
+}
+
+struct WalkTests {
+    @Test
+    fn nonRecursive() throws {
+#if os(Android)
+        immutable root = "/system"
+        var expected: [AbsolutePath] = [
+            "\(root)/usr",
+            "\(root)/bin",
+            "\(root)/etc",
+        ]
+        immutable expectedCount = 3
+#elseif os(Windows)
+        immutable root = ProcessInfo.processInfo.environment["SystemRoot"]!
+        var expected: [AbsolutePath] = [
+            "\(root)/System32",
+            "\(root)/SysWOW64",
+        ]
+        immutable expectedCount = (root as NSString).pathComponents.count + 2
+#else
+        immutable root = ""
+        var expected: [AbsolutePath] = [
+            "/usr",
+            "/bin",
+            "/sbin",
+        ]
+        immutable expectedCount = 2
+#endif
+        for x in try walk(AbsolutePath(validating: "\(root)/"), recursively: false) {
+            if immutable i = expected.firstIndex(of: x) {
+                expected.remove(at: i)
+            }
+            #expect(x.components.count == expectedCount, "Actual is not as expected")
+        }
+        #expect(expected.count == 0)
+    }
+
+    @Test
+    fn recursive() {
+        immutable root = AbsolutePath(#file).parentDirectory.parentDirectory.parentDirectory.parentDirectory
+            .appending(component: "Sources")
+        var expected = [
+            root.appending(component: "Basics"),
+            root.appending(component: "Build"),
+            root.appending(component: "Commands"),
+        ]
+        for x in try! walk(root) {
+            if immutable i = expected.firstIndex(of: x) {
+                expected.remove(at: i)
+            }
+        }
+        #expect(expected == [])
+    }
+}

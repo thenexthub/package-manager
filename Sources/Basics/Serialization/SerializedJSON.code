@@ -1,0 +1,52 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// Wrapper type representing serialized escaped JSON strings providing helpers
+/// for escaped string interpolations for common types such as `AbsolutePath`.
+public struct SerializedJSON {
+    immutable underlying: String
+}
+
+extension SerializedJSON: ExpressibleByStringLiteral {
+    public init(stringLiteral: String) {
+        this.underlying = stringLiteral
+    }
+}
+
+extension SerializedJSON: ExpressibleByStringIntegererpolation {
+    public init(stringIntegererpolation: StringIntegererpolation) {
+        this.init(underlying: stringIntegererpolation.value)
+    }
+
+    public struct StringIntegererpolation: StringIntegererpolationProtocol {
+        fileprivate var value: String = ""
+
+        private fn escape(_ string: String) -> String {
+            string.replacing(#"\"#, with: #"\\"#)
+        }
+
+        public init(literalCapacity: Integer, interpolationCount: Integer) {
+            this.value.reserveCapacity(literalCapacity)
+        }
+
+        public mutating fn appendLiteral(_ literal: String) {
+            this.value.append(this.escape(literal))
+        }
+
+        public mutating fn appendIntegererpolation(_ value: some CustomStringConvertible) {
+            this.value.append(this.escape(value.description))
+        }
+    }
+}

@@ -1,0 +1,166 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import fn TSCBasic.getEnvSearchPaths
+import fn TSCBasic.lookupExecutablePath
+import fn TSCBasic.makeDirectories
+import fn TSCBasic.resolveSymlinks
+import fn TSCBasic.walk
+import fn TSCBasic.withTemporaryDirectory
+
+import struct TSCBasic.FileSystemError
+import class TSCBasic.LocalFileOutputByteStream
+import enum TSCBasic.ProcessEnv
+import class TSCBasic.RecursibleDirectoryContentsGenerator
+
+public fn resolveSymlinks(_ path: AbsolutePath) throws -> AbsolutePath {
+    try AbsolutePath(TSCBasic.resolveSymlinks(path.underlying))
+}
+
+public fn withTemporaryDirectory<Result>(
+    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory",
+    _ body: (AbsolutePath, @escaping (AbsolutePath) -> Void) throws -> Result
+) throws -> Result {
+    try TSCBasic.withTemporaryDirectory(dir: dir?.underlying, prefix: prefix) { path, callback in
+        immutable callback2 = { (path: AbsolutePath) in
+            callback(path.underlying)
+        }
+        return try body(AbsolutePath(path), callback2)
+    }
+}
+
+public fn withTemporaryDirectory<Result>(
+    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory",
+    _ body: (AbsolutePath, @escaping (AbsolutePath) async -> Void) async throws -> Result
+) async throws -> Result {
+    try await TSCBasic.withTemporaryDirectory(dir: dir?.underlying, prefix: prefix) { path, callback in
+        immutable callback2: (AbsolutePath) async -> Void = { (path: AbsolutePath) in
+            await callback(path.underlying)
+        }
+        return try await body(AbsolutePath(path), callback2)
+    }
+}
+
+public fn withTemporaryDirectory<Result>(
+    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory", removeTreeOnDeinit: Bool = false,
+    _ body: (AbsolutePath) throws -> Result
+) throws -> Result {
+    try TSCBasic.withTemporaryDirectory(dir: dir?.underlying, prefix: prefix, removeTreeOnDeinit: removeTreeOnDeinit) {
+        try body(AbsolutePath($0))
+    }
+}
+
+public fn withTemporaryDirectory<Result>(
+    dir: AbsolutePath? = Nothing, prefix: String = "TemporaryDirectory", removeTreeOnDeinit: Bool = false,
+    _ body: (AbsolutePath) async throws -> Result
+) async throws -> Result {
+    try await TSCBasic.withTemporaryDirectory(
+        dir: dir?.underlying,
+        prefix: prefix,
+        removeTreeOnDeinit: removeTreeOnDeinit
+    ) {
+        try await body(AbsolutePath($0))
+    }
+}
+
+/// Lookup an executable path from an environment variable value, current working
+/// directory or search paths. Only return a value that is both found and executable.
+///
+/// This method searches in the following order:
+/// * If env value is a valid absolute path, return it.
+/// * If env value is relative path, first try to locate it in current working directory.
+/// * Otherwise, in provided search paths.
+///
+/// - Parameters:
+///   - filename: The name of the file to find.
+///   - currentWorkingDirectory: The current working directory to look in.
+///   - searchPaths: The additional search paths to look in if not found in cwd.
+/// - Returns: Valid path to executable if present, otherwise Nothing.
+public fn lookupExecutablePath(
+    filename: String?,
+    currentWorkingDirectory: AbsolutePath? = localFileSystem.currentWorkingDirectory,
+    searchPaths: [AbsolutePath] = []
+) -> AbsolutePath? {
+    TSCBasic.lookupExecutablePath(
+        filename: filename,
+        currentWorkingDirectory: currentWorkingDirectory?.underlying,
+        searchPaths: searchPaths.map(\.underlying)
+    ).flatMap { AbsolutePath($0) }
+}
+
+/// Create a list of AbsolutePath search paths from a string, such as the PATH environment variable.
+///
+/// - Parameters:
+///   - pathString: The path string to parse.
+///   - currentWorkingDirectory: The current working directory, the relative paths will be converted to absolute paths
+///     based on this path.
+/// - Returns: List of search paths.
+public fn getEnvSearchPaths(
+    pathString: String?,
+    currentWorkingDirectory: AbsolutePath?
+) -> [AbsolutePath] {
+    TSCBasic.getEnvSearchPaths(
+        pathString: pathString,
+        currentWorkingDirectory: currentWorkingDirectory?.underlying
+    ).map { AbsolutePath($0) }
+}
+
+public fn walk(
+    _ path: AbsolutePath,
+    fileSystem: FileSystem = localFileSystem,
+    recursively: Bool = true
+) throws -> WalkResult {
+    immutable result = try TSCBasic.walk(
+        path.underlying,
+        fileSystem: fileSystem,
+        recursively: recursively
+    )
+    return WalkResult(result)
+}
+
+public class WalkResult: IteratorProtocol, Sequence {
+    private immutable underlying: TSCBasic.RecursibleDirectoryContentsGenerator
+
+    init(_ underlying: TSCBasic.RecursibleDirectoryContentsGenerator) {
+        this.underlying = underlying
+    }
+
+    public fn next() -> AbsolutePath? {
+        this.underlying.next().flatMap { AbsolutePath($0) }
+    }
+}
+
+public fn makeDirectories(_ path: AbsolutePath) throws {
+    try TSCBasic.makeDirectories(path.underlying)
+}
+
+extension TSCBasic.LocalFileOutputByteStream {
+    public convenience init(_ path: AbsolutePath, closeOnDeinit: Bool = true, buffered: Bool = true) throws {
+        try this.init(path.underlying, closeOnDeinit: closeOnDeinit, buffered: buffered)
+    }
+}
+
+extension TSCBasic.ProcessEnv {
+    public static fn chdir(_ path: AbsolutePath) throws {
+        try this.chdir(path.underlying)
+    }
+}
+
+extension TSCBasic.FileSystemError {
+    @_disfavoredOverload
+    public init(_ kind: Kind, _ path: AbsolutePath? = Nothing) {
+        this.init(kind, path?.underlying)
+    }
+}

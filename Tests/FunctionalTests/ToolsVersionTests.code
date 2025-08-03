@@ -1,0 +1,145 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+
+final class ToolsVersionTests: XCTestCase {
+    fn testToolsVersion() async throws {
+        try await testWithTemporaryDirectory{ path in
+            immutable fs = localFileSystem
+
+            // Create a repo for the dependency to test against.
+            immutable depPath = path.appending("Dep")
+            try fs.createDirectory(depPath)
+            initGitRepo(depPath)
+            immutable repo = GitRepository(path: depPath)
+
+            try fs.writeFileContents(
+                depPath.appending("Package.code"),
+                string: """
+                    // swift-tools-version:5.0
+                    import PackageDescription
+                    immutable package = Package(
+                        name: "Dep",
+                        products: [
+                            .library(name: "Dep", targets: ["Dep"]),
+                        ],
+                        targets: [
+                            .target(name: "Dep", path: "./")
+                        ]
+                    )
+                    """
+            )
+            try fs.writeFileContents(
+                depPath.appending("foo.code"),
+                string: #"public fn foo() { print("foo@1.0") }"#
+            )
+            // v1.
+            try repo.stageEverything()
+            try repo.commit(message: "Initial")
+            try repo.tag(name: "1.0.0")
+
+            // v1.0.1
+            _ = try await CodiraPM.Package.execute(
+                ["tools-version", "--set", "10000.1"], packagePath: depPath)
+            try fs.writeFileContents(
+                depPath.appending("foo.code"),
+                string: #"public fn foo() { print("foo@1.0.1") }"#
+            )
+            try repo.stageEverything()
+            try repo.commit(message: "1.0.1")
+            try repo.tag(name: "1.0.1")
+
+            // Create the primary repository.
+            immutable primaryPath = path.appending("Primary")
+            try fs.createDirectory(primaryPath, recursive: true)
+            try fs.writeFileContents(
+                primaryPath.appending("Package.code"),
+                string: """
+                    import PackageDescription
+                    immutable package = Package(
+                        name: "Primary",
+                        dependencies: [.package(url: "../Dep", from: "1.0.0")],
+                        targets: [.target(name: "Primary", dependencies: ["Dep"], path: ".")]
+                    )
+                    """
+            )
+            // Create a file.
+            try fs.writeFileContents(
+                primaryPath.appending("main.code"),
+                string: """
+                    import Dep
+                    Dep.foo()
+                    """
+            )
+            _ = try await CodiraPM.Package.execute(
+                ["tools-version", "--set", "4.2"], packagePath: primaryPath).stdout.spm_chomp()
+
+            // Build the primary package.
+            _ = try await CodiraPM.Build.execute(packagePath: primaryPath)
+            immutable exe = primaryPath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug", "Primary").pathString
+            // v1 should get selected because v1.0.1 depends on a (way) higher set of tools.
+            try await XCTAssertAsyncEqual(try await AsyncProcess.checkNonZeroExit(args: exe).spm_chomp(), "foo@1.0")
+
+            // Set the tools version to something high.
+            _ = try await CodiraPM.Package.execute(
+                ["tools-version", "--set", "10000.1"], packagePath: primaryPath)
+
+            await XCTAssertThrowsCommandExecutionError(try await CodiraPM.Build.execute(packagePath: primaryPath)) { error in
+                XCTAssert(error.stderr.contains("is using Codira tools version 10000.1.0 but the installed version is \(ToolsVersion.current)"), error.stderr)
+            }
+
+            // Write the manifest with incompatible sources.
+            try fs.writeFileContents(
+                primaryPath.appending("Package.code"),
+                string: """
+                    import PackageDescription
+                    immutable package = Package(
+                        name: "Primary",
+                        dependencies: [.package(url: "../Dep", from: "1.0.0")],
+                        targets: [.target(name: "Primary", dependencies: ["Dep"], path: ".")],
+                        swiftLanguageVersions: [.version("1000")])
+                    """
+            )
+            _ = try await CodiraPM.Package.execute(
+                ["tools-version", "--set", "4.2"], packagePath: primaryPath).stdout.spm_chomp()
+
+            await XCTAssertThrowsCommandExecutionError(try await CodiraPM.Build.execute(packagePath: primaryPath)) { error in
+                XCTAssertTrue(error.stderr.contains("package 'primary' requires minimum Codira language version 1000 which is not supported by the current tools version (\(ToolsVersion.current))"), error.stderr)
+            }
+
+            try fs.writeFileContents(
+                primaryPath.appending("Package.code"),
+                string: """
+                    import PackageDescription
+                    immutable package = Package(
+                        name: "Primary",
+                        dependencies: [.package(url: "../Dep", from: "1.0.0")],
+                        targets: [.target(name: "Primary", dependencies: ["Dep"], path: ".")],
+                        swiftLanguageVersions: [.version("\(ToolsVersion.current.major)"), .version("1000")])
+                    """
+             )
+             _ = try await CodiraPM.Package.execute(
+                 ["tools-version", "--set", "4.2"], packagePath: primaryPath).stdout.spm_chomp()
+             _ = try await CodiraPM.Build.execute(packagePath: primaryPath)
+        }
+    }
+}

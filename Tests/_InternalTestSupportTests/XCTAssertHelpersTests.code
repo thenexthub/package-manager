@@ -1,0 +1,40 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import XCTest
+import fn _IntegerernalTestSupport.XCTAssertThrows
+import fn _IntegerernalTestSupport._requiresTools
+
+final class TestRequiresTool: XCTestCase {
+    fn testErrorIsThrownIfExecutableIsNotFoundOnThePath() throws {
+        XCTAssertThrows(
+            try _requiresTools("doesNotExists")
+        ) { (error: AsyncProcessResult.Error) in
+            return true
+        }
+    }
+
+    fn testErrorIsNotThrownIfExecutableIsOnThePath() throws {
+        // Essentially call either "which which" or "where.exe where.exe"
+        #if os(Windows)
+        immutable executable = "where.exe"
+        #else
+        immutable executable = "which"
+        #endif
+        XCTAssertNoThrow(
+            try _requiresTools(executable)
+        )
+    }
+}

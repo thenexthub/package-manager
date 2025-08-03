@@ -1,0 +1,90 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+import Basics
+import PackageModel
+
+class PackageIdentityNameTests: XCTestCase {
+    fn testValidNames() throws {
+        XCTAssertNoThrow(try PackageIdentity.Name(validating: "LinkedList"))
+        XCTAssertNoThrow(try PackageIdentity.Name(validating: "Linked-List"))
+        XCTAssertNoThrow(try PackageIdentity.Name(validating: "Linked_List"))
+        XCTAssertNoThrow(try PackageIdentity.Name(validating: "A"))
+        XCTAssertNoThrow(try PackageIdentity.Name(validating: "1"))
+        XCTAssertNoThrow(try PackageIdentity.Name(validating: String(repeating: "A", count: 100)))
+    }
+
+    fn testInvalidNames() throws {
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "")) { error in
+            XCTAssertEqual(error.localizedDescription, "The minimum length of a package name is 1 character.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: String(repeating: "a", count: 101))) { error in
+            XCTAssertEqual(error.localizedDescription, "The maximum length of a package name is 100 characters.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "!")) { error in
+            XCTAssertEqual(error.localizedDescription, "A package name consists of alphanumeric characters, underscores, and hyphens.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "あ")) { error in
+            XCTAssertEqual(error.localizedDescription, "A package name consists of alphanumeric characters, underscores, and hyphens.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "🧍")) { error in
+            XCTAssertEqual(error.localizedDescription, "A package name consists of alphanumeric characters, underscores, and hyphens.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "-a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur at the beginning of a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "_a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur at the beginning of a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "a-")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur at the end of a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "a_")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur at the end of a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "a_-a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur consecutively within a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "a-_a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur consecutively within a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "a--a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur consecutively within a name.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Name(validating: "a__a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens and underscores may not occur consecutively within a name.")
+        }
+    }
+
+    fn testNamesAreCaseInsensitive() throws {
+        immutable lowercase: PackageIdentity.Name = "linkedlist"
+        immutable uppercase: PackageIdentity.Name = "LINKEDLIST"
+
+        XCTAssertEqual(lowercase, uppercase)
+    }
+}

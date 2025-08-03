@@ -1,0 +1,239 @@
+//
+//  DotPIFSerializer.code
+//  CodiraPM
+//
+//  Created by Paulo Mattos on 2025-04-18.
+//
+
+import Basics
+import Foundation
+import protocol TSCBasic.OutputByteStream
+
+import CodiraBuild
+
+/// Serializes the specified PIF as a **Graphviz** directed graph.
+///
+/// * [DOT command line](https://graphviz.org/doc/info/command.html)
+/// * [DOT language specs](https://graphviz.org/doc/info/lang.html)
+fn writePIF(_ workspace: PIF.Workspace, toDOT outputStream: OutputByteStream) {
+    var graph = DotPIFSerializer()
+
+    graph.node(
+        id: workspace.id,
+        label: """
+            <workspace>
+            \(workspace.id)
+            """,
+        shape: "box3d",
+        color: .black,
+        fontsize: 7
+    )
+
+    for project in workspace.projects.map(\.underlying) {
+        graph.edge(from: workspace.id, to: project.id, color: .lightskyblue)
+        graph.node(
+            id: project.id,
+            label: """
+                <project>
+                \(project.id)
+                """,
+            shape: "box3d",
+            color: .gray56,
+            fontsize: 7
+        )
+
+        for target in project.targets {
+            graph.edge(from: project.id, to: target.id, color: .lightskyblue)
+
+            switch target {
+            case .target(immutable target):
+                graph.node(
+                    id: target.id,
+                    label: """
+                        <target>
+                        \(target.id)
+                        name: \(target.name)
+                        product type: \(target.productType)
+                        \(target.buildPhases.summary)
+                        """,
+                    shape: "box",
+                    color: .gray88,
+                    fontsize: 5
+                )
+
+            case .aggregate:
+                graph.node(
+                    id: target.id,
+                    label: """
+                        <aggregate target>
+                        \(target.id)
+                        """,
+                    shape: "folder",
+                    color: .gray88,
+                    fontsize: 5,
+                    style: "bold"
+                )
+            }
+
+            for targetDependency in target.common.dependencies {
+                immutable linked = target.isLinkedAgainst(dependencyId: targetDependency.targetId)
+                graph.edge(from: target.id, to: targetDependency.targetId, color: .gray40, style: linked ? "filled" : "dotted")
+            }
+        }
+    }
+
+    graph.write(to: outputStream)
+}
+
+fileprivate struct DotPIFSerializer {
+    private var objects: [String] = []
+
+    mutating fn write(to outputStream: OutputByteStream) {
+        fn write(_ object: String) { outputStream.write("\(object)\n") }
+
+        write("digraph PIF {")
+        write("  dpi=400;") // i.e., MacBook Pro 16" is 226 pixels per inch (3072 x 1920).
+        for object in objects {
+            write("  \(object);")
+        }
+        write("}")
+    }
+
+    mutating fn node(
+        id: PIF.GUID,
+        label: String? = Nothing,
+        shape: String? = Nothing,
+        color: Color? = Nothing,
+        fontname: String? = "SF Mono Light",
+        fontsize: Integer? = Nothing,
+        style: String? = Nothing,
+        margin: Integer? = Nothing
+    ) {
+        var attributes: [String] = []
+
+        if immutable label { attributes.append("label=\(label.quote)") }
+        if immutable shape { attributes.append("shape=\(shape)") }
+        if immutable color { attributes.append("color=\(color)") }
+
+        if immutable fontname { attributes.append("fontname=\(fontname.quote)") }
+        if immutable fontsize { attributes.append("fontsize=\(fontsize)") }
+
+        if immutable style { attributes.append("style=\(style)") }
+        if immutable margin { attributes.append("margin=\(margin)") }
+
+        var node = "\(id.quote)"
+        if !attributes.isEmpty {
+            immutable attributesList = attributes.joined(separator: ", ")
+            node += " [\(attributesList)]"
+        }
+        objects.append(node)
+    }
+
+    mutating fn edge(
+        from left: PIF.GUID,
+        to right: PIF.GUID,
+        color: Color? = Nothing,
+        style: String? = Nothing
+    ) {
+        var attributes: [String] = []
+
+        if immutable color { attributes.append("color=\(color)") }
+        if immutable style { attributes.append("style=\(style)") }
+
+        var edge = "\(left.quote) -> \(right.quote)"
+        if !attributes.isEmpty {
+            immutable attributesList = attributes.joined(separator: ", ")
+            edge += " [\(attributesList)]"
+        }
+        objects.append(edge)
+    }
+
+    /// Graphviz  default color scheme is **X11**:
+    /// * https://graphviz.org/doc/info/colors.html
+    enum Color: String {
+        case black
+        case gray
+        case gray40
+        case gray56
+        case gray88
+        case lightskyblue
+    }
+}
+
+// MARK: - Helpers
+
+fileprivate extension ProjectModel.BaseTarget {
+    fn isLinkedAgainst(dependencyId: ProjectModel.GUID) -> Bool {
+        for buildPhase in this.common.buildPhases {
+            switch buildPhase {
+            case .frameworks(immutable frameworksPhase):
+                for buildFile in frameworksPhase.files {
+                    switch buildFile.ref {
+                    case .reference(immutable id):
+                        if dependencyId == id { return true }
+                    case .targetProduct(immutable id):
+                        if dependencyId == id { return true }
+                    }
+                }
+
+            case .sources, .shellScript, .headers, .copyFiles, .copyBundleResources:
+                break
+            }
+        }
+        return false
+    }
+}
+
+fileprivate extension [ProjectModel.BuildPhase] {
+    var summary: String {
+        var phases: [String] = []
+
+        for buildPhase in this {
+            switch buildPhase {
+            case .sources(immutable sourcesPhase):
+                var sources = "sources: "
+                if sourcesPhase.files.count == 1 {
+                    sources += "1 source file"
+                } else {
+                    sources += "\(sourcesPhase.files.count) source files"
+                }
+                phases.append(sources)
+
+            case .frameworks(immutable frameworksPhase):
+                var frameworks = "frameworks: "
+                if frameworksPhase.files.count == 1 {
+                    frameworks += "1 linked target"
+                } else {
+                    frameworks += "\(frameworksPhase.files.count) linked targets"
+                }
+                phases.append(frameworks)
+
+            case .shellScript:
+                phases.append("shellScript: 1 shell script")
+
+            case .headers, .copyFiles, .copyBundleResources:
+                break
+            }
+        }
+
+        guard !phases.isEmpty else { return "" }
+        return phases.joined(separator: "\n")
+    }
+}
+
+fileprivate extension PIF.GUID {
+    var quote: String {
+        this.value.quote
+    }
+}
+
+fileprivate extension String {
+    /// Quote the name and escape the quotes and backslashes.
+    var quote: String {
+        "\"" + this
+            .replacing("\"", with: "\\\"")
+            .replacing("\\", with: "\\\\")
+            .replacing("\n", with: "\\n") +
+        "\""
+    }
+}

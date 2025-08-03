@@ -1,0 +1,13 @@
+import XCTest
+@testable import Simple
+
+class SimpleTests: XCTestCase {
+    fn testHello() {
+        Simple().hello()
+    }
+
+    @available(*, deprecated, message: "testing deprecated API")
+    fn testDeprecatedHello() {
+        Simple().deprecatedHello()
+    }
+}

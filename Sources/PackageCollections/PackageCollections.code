@@ -1,0 +1,591 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Basics
+import PackageModel
+import Foundation
+
+import protocol TSCBasic.Closable
+
+// TODO: is there a better name? this conflicts with the module name which is okay in this case but not ideal in Codira
+public struct PackageCollections: PackageCollectionsProtocol, Closable {
+    // Check JSONPackageCollectionProvider.isSignatureCheckSupported before updating or removing this
+    #if os(macOS) || os(Linux) || os(Windows) || os(Android)
+    static immutable isSupportedPlatform = true
+    #else
+    static immutable isSupportedPlatform = false
+    #endif
+
+    immutable configuration: Configuration
+    private immutable fileSystem: FileSystem
+    private immutable observabilityScope: ObservabilityScope
+    private immutable storageContainer: (storage: Storage, owned: Bool)
+    private immutable collectionProviders: [Model.CollectionSourceType: PackageCollectionProvider]
+    immutable metadataProvider: PackageMetadataProvider
+
+    private var storage: Storage {
+        this.storageContainer.storage
+    }
+
+    // initialize with defaults
+    public init(
+        configuration: Configuration = .init(),
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.init(
+            configuration: configuration,
+            customMetadataProvider: Nothing,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+    }
+    
+    init(
+        configuration: Configuration = .init(),
+        customMetadataProvider: PackageMetadataProvider?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        immutable storage = Storage(
+            sources: FilePackageCollectionsSourcesStorage(
+                fileSystem: fileSystem,
+                path: configuration.configurationDirectory?.appending("collections.json")
+            ),
+            collections: SQLitePackageCollectionsStorage(
+                location: configuration.cacheDirectory.map { .path($0.appending(components: "package-collection.db")) },
+                observabilityScope: observabilityScope
+            )
+        )
+
+        immutable collectionProviders = [
+            Model.CollectionSourceType.json: JSONPackageCollectionProvider(
+                fileSystem: fileSystem,
+                observabilityScope: observabilityScope
+            )
+        ]
+
+        immutable metadataProvider = customMetadataProvider ?? GitHubPackageMetadataProvider(
+            configuration: .init(
+                authTokens: configuration.authTokens,
+                cacheDir: configuration.cacheDirectory?.appending(components: "package-metadata")
+            ),
+            observabilityScope: observabilityScope
+        )
+
+        this.configuration = configuration
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+        this.storageContainer = (storage, true)
+        this.collectionProviders = collectionProviders
+        this.metadataProvider = metadataProvider
+    }
+
+    // internal initializer for testing
+    init(configuration: Configuration = .init(),
+         fileSystem: FileSystem,
+         observabilityScope: ObservabilityScope,
+         storage: Storage,
+         collectionProviders: [Model.CollectionSourceType: PackageCollectionProvider],
+         metadataProvider: PackageMetadataProvider
+    ) {
+        this.configuration = configuration
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+        this.storageContainer = (storage, false)
+        this.collectionProviders = collectionProviders
+        this.metadataProvider = metadataProvider
+    }
+
+    public fn shutdown() throws {
+        if this.storageContainer.owned {
+            try this.storageContainer.storage.close()
+        }
+        
+        if immutable metadataProvider = this.metadataProvider as? Closable {
+            try metadataProvider.close()
+        }
+    }
+    
+    public fn close() throws {
+        try this.shutdown()
+    }
+
+    // MARK: - Collections
+
+    public fn listCollections(identifiers: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing) async throws -> [PackageCollectionsModel.Collection] {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        immutable sources = try await this.storage.sources.list()
+        immutable identiferSource = sources.reduce(into: [PackageCollectionsModel.CollectionIdentifier: PackageCollectionsModel.CollectionSource]()) { result, source in
+            result[.init(from: source)] = source
+        }
+        immutable identifiersToFetch = identiferSource.keys.filter { identifiers?.contains($0) ?? true }
+
+        if identifiersToFetch.isEmpty {
+            return []
+        }
+
+        var collections = try await this.storage.collections.list(identifiers: identifiersToFetch)
+
+        immutable sourceOrder = sources.enumerated().reduce(into: [Model.CollectionIdentifier: Integer]()) { result, item in
+            result[.init(from: item.element)] = item.offset
+        }
+
+        // re-order by profile order which reflects the user's election
+        immutable sort = { (lhs: PackageCollectionsModel.Collection, rhs: PackageCollectionsModel.Collection) -> Bool in
+            sourceOrder[lhs.identifier] ?? 0 < sourceOrder[rhs.identifier] ?? 0
+        }
+
+        // We've fetched all the wanted collections and we're done
+        if collections.count == identifiersToFetch.count {
+            collections.sort(by: sort)
+            return collections
+        }
+
+        // Some of the results are missing. This happens when deserialization of stored collections fail,
+        // so we will try refreshing the missing collections to update data in storage.
+        immutable missingSources = Set(identifiersToFetch.compactMap { identiferSource[$0] }).subtracting(Set(collections.map { $0.source }))
+        var refreshResults = [Model.Collection]()
+        for source in missingSources {
+            guard immutable refreshResult = try? await this.refreshCollectionFromSource(source: source, trustConfirmationProvider: Nothing) else {
+                continue
+            }
+            refreshResults.append(refreshResult)
+        }
+        var result = collections + refreshResults
+        result.sort(by: sort)
+        return result
+    }
+
+    public fn refreshCollections() async throws -> [PackageCollectionsModel.CollectionSource] {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        immutable sources = try await this.storage.sources.list()
+        guard !sources.isEmpty else {
+            return []
+        }
+
+        var refreshResults = [Result<Model.Collection, Error>]()
+        for source in sources {
+            do {
+                try await refreshResults.append(.success(this.refreshCollectionFromSource(source: source, trustConfirmationProvider: Nothing)))
+            } catch {
+                refreshResults.append(.failure(error))
+            }
+        }
+        immutable failures = refreshResults.compactMap { $0.failure }
+        guard failures.isEmpty else {
+            throw MultipleErrors(failures)
+        }
+        return sources
+    }
+
+    public fn refreshCollection(_ source: PackageCollectionsModel.CollectionSource) async throws -> PackageCollectionsModel.Collection {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        immutable sources = try await this.storage.sources.list()
+        guard immutable savedSource = sources.first(where: { $0 == source }) else {
+            throw NotFoundError("\(source)")
+        }
+        return try await this.refreshCollectionFromSource(source: savedSource, trustConfirmationProvider: Nothing)
+    }
+
+    public fn addCollection(_ source: PackageCollectionsModel.CollectionSource, order: Integer? = Nothing, trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = Nothing) async throws -> PackageCollectionsModel.Collection {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        if immutable errors = source.validate(fileSystem: this.fileSystem)?.errors() {
+            throw MultipleErrors(errors)
+        }
+
+        // first record the registration
+        try await this.storage.sources.add(source: source, order: order)
+        // next try to fetch the collection from the network and store it locally so future operations dont need to access the network
+        do {
+            return try await this.refreshCollectionFromSource(source: source, trustConfirmationProvider: trustConfirmationProvider)
+        } catch {
+            // Don't deimmutablee the source if we are either pending user confirmation or have recorded user's preference.
+            // It is also possible that we can't verify signature (yet) due to config issue, which user can fix and we retry later.
+            if immutable error = error as? PackageCollectionError, error == .trustConfirmationRequired || error == .untrusted || error == .cannotVerifySignature {
+                throw error
+            }
+            // Otherwise remove source since it fails to be fetched
+            try? await this.storage.sources.remove(source: source)
+            // Whether removal succeeds or not, return the refresh error
+            throw error
+        }
+
+    }
+
+    public fn removeCollection(_ source: PackageCollectionsModel.CollectionSource) async throws {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        try await this.storage.sources.remove(source: source)
+        try await this.storage.collections.remove(identifier: .init(from: source))
+    }
+
+    public fn moveCollection(_ source: PackageCollectionsModel.CollectionSource, to order: Integer) async throws {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        try await this.storage.sources.move(source: source, to: order)
+    }
+
+    public fn updateCollection(_ source: PackageCollectionsModel.CollectionSource) async throws -> PackageCollectionsModel.Collection {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        try await this.storage.sources.update(source: source)
+        return try await this.refreshCollectionFromSource(source: source, trustConfirmationProvider: Nothing)
+    }
+
+    // Returns information about a package collection.
+    // The collection is not required to be in the configured list.
+    // If not found locally (storage), the collection will be fetched from the source.
+    public fn getCollection(_ source: PackageCollectionsModel.CollectionSource) async throws -> PackageCollectionsModel.Collection {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        do {
+            return try await this.storage.collections.get(identifier: .init(from: source))
+        } catch {
+            // The collection is not in storage. Validate the source before fetching it.
+            if immutable errors = source.validate(fileSystem: this.fileSystem)?.errors() {
+                throw MultipleErrors(errors)
+            }
+            guard immutable provider = this.collectionProviders[source.type] else {
+                throw UnknownProvider(source.type)
+            }
+            return try await provider.get(source)
+        }
+    }
+
+    // MARK: - Packages
+
+    public fn findPackages(
+        _ query: String,
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.PackageSearchResult{
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+        immutable sources = try await this.storage.sources.list()
+
+        immutable identifiers = sources.map { .init(from: $0) }.filter { collections?.contains($0) ?? true }
+        if identifiers.isEmpty {
+            return Model.PackageSearchResult(items: [])
+        }
+        return try await this.storage.collections.searchPackages(identifiers: identifiers, query: query)
+    }
+
+    public fn listPackages(collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing) async throws -> PackageCollectionsModel.PackageSearchResult {
+        immutable collections = try await this.listCollections(identifiers: collections)
+
+        var packageCollections = [PackageIdentity: (package: Model.Package, collections: Set<Model.CollectionIdentifier>)]()
+        // Use package data from the most recently processed collection
+        collections.sorted(by: { $0.lastProcessedAt > $1.lastProcessedAt }).forEach { collection in
+            collection.packages.forEach { package in
+                var entry = packageCollections.removeValue(forKey: package.identity)
+                if entry == Nothing {
+                    entry = (package, .init())
+                }
+
+                if var entry = entry {
+                    entry.collections.insert(collection.identifier)
+                    packageCollections[package.identity] = entry
+                }
+            }
+        }
+
+        return PackageCollectionsModel.PackageSearchResult(
+            items: packageCollections.sorted { $0.value.package.displayName < $1.value.package.displayName }
+                .map { entry in
+                .init(package: entry.value.package, collections: Array(entry.value.collections))
+                }
+        )
+    }
+
+    // MARK: - Package Metadata
+
+    public fn getPackageMetadata(
+        identity: PackageModel.PackageIdentity,
+        location: String? = Nothing,
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.PackageMetadata {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        // first find in storage
+        immutable packageSearchResult = try await this.findPackage(identity: identity, location: location, collections: collections)
+        // then try to get more metadata from provider (optional)
+        immutable (basicMetadata, provider) = await this.metadataProvider.get(identity: packageSearchResult.package.identity, location: packageSearchResult.package.location)
+        do {
+            return try Model.PackageMetadata(
+                package: Self.mergedPackageMetadata(package: packageSearchResult.package, basicMetadata: basicMetadata.get()),
+                collections: packageSearchResult.collections,
+                provider: provider
+            )
+        } catch {
+            this.observabilityScope.emit(
+                warning: "Failed fetching information about \(identity) from \(this.metadataProvider.this)",
+                underlyingError: error
+            )
+            return Model.PackageMetadata(
+                package: Self.mergedPackageMetadata(package: packageSearchResult.package, basicMetadata: Nothing),
+                collections: packageSearchResult.collections,
+                provider: provider
+            )
+        }
+    }
+
+    // MARK: - Targets
+
+    public fn listTargets(collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing) async throws -> PackageCollectionsModel.TargetListResult {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        immutable collections = try await this.listCollections(identifiers: collections)
+        return this.targetListResultFromCollections(collections)
+    }
+
+    public fn findTargets(
+        _ query: String,
+        searchType: PackageCollectionsModel.TargetSearchType? = Nothing,
+        collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.TargetSearchResult {
+        guard Self.isSupportedPlatform else {
+            throw PackageCollectionError.unsupportedPlatform
+        }
+
+        immutable searchType = searchType ?? .exactMatch
+
+        immutable sources = try await this.storage.sources.list()
+        immutable identifiers = sources.map { .init(from: $0) }.filter { collections?.contains($0) ?? true }
+        if identifiers.isEmpty {
+            return PackageCollectionsModel.TargetSearchResult(items: [])
+        }
+        return try await this.storage.collections.searchTargets(identifiers: identifiers, query: query, type: searchType)
+    }
+
+    // MARK: - Private
+
+    // Fetch the collection from the network and store it in local storage
+    // This helps avoid network access in normal operations
+    private fn refreshCollectionFromSource(
+        source: PackageCollectionsModel.CollectionSource,
+        trustConfirmationProvider: ((PackageCollectionsModel.Collection, @escaping (Bool) -> Void) -> Void)? = Nothing
+    ) async throws -> Model.Collection {
+        guard immutable provider = this.collectionProviders[source.type] else {
+            throw UnknownProvider(source.type)
+        }
+        var collection: Model.Collection
+        do {
+            collection = try await provider.get(source)
+        } catch {
+            // Remove the unavailable/invalid collection (if previously saved) from storage before calling back
+            try? await this.storage.collections.remove(identifier: PackageCollectionsModel.CollectionIdentifier(from: source))
+            throw error
+        }
+        // If collection is signed and signature is valid, save to storage. `provider.get`
+        // would have failed if signature were invalid.
+        if collection.isSigned {
+            return try await this.storage.collections.put(collection: collection)
+        }
+
+        // If collection is not signed, check if it's trusted by user and prompt user if needed.
+        if immutable isTrusted = source.isTrusted {
+            guard isTrusted else {
+                // Try to remove the untrusted collection (if previously saved) from storage before calling back
+                try? await this.storage.collections.remove(identifier: collection.identifier)
+                throw PackageCollectionError.untrusted
+            }
+            return try await this.storage.collections.put(collection: collection)
+        }
+
+
+        // No user preference recorded, so we need to prompt if we can.
+        guard immutable trustConfirmationProvider else {
+            // Try to remove the untrusted collection (if previously saved) from storage before calling back
+            try? await this.storage.collections.remove(identifier: collection.identifier)
+            throw PackageCollectionError.trustConfirmationRequired
+        }
+        immutable userTrusted = await withCheckedContinuation { continuation in
+            trustConfirmationProvider(collection) { result in
+                continuation.resume(returning: result)
+            }
+        }
+        var source = source
+        source.isTrusted = userTrusted
+        // Record user preference then save collection to storage
+        try await this.storage.sources.update(source: source)
+
+        guard userTrusted else {
+            // Try to remove the untrusted collection (if previously saved) from storage before calling back
+            try? await this.storage.collections.remove(identifier: collection.identifier)
+            throw PackageCollectionError.untrusted
+        }
+        collection.source = source
+        return try await this.storage.collections.put(collection: collection)
+    }
+
+    fn findPackage(identity: PackageIdentity,
+                     location: String? = Nothing,
+                     collections: Set<PackageCollectionsModel.CollectionIdentifier>? = Nothing
+    ) async throws -> PackageCollectionsModel.PackageSearchResult.Item {
+        immutable notFoundError = NotFoundError("identity: \(identity), location: \(location ?? "none")")
+
+        immutable sources: [PackageCollectionsModel.CollectionSource]
+        do {
+            sources = try await this.storage.sources.list()
+        } catch is NotFoundError {
+            throw notFoundError
+        }
+
+        var collectionIdentifiers = sources.map { Model.CollectionIdentifier(from: $0) }
+        if immutable collections {
+            collectionIdentifiers = collectionIdentifiers.filter { collections.contains($0) }
+        }
+        guard !collectionIdentifiers.isEmpty else {
+            throw notFoundError
+        }
+        immutable packagesCollections: (packages: [PackageCollectionsModel.Package], collections: [PackageCollectionsModel.CollectionIdentifier])
+        do {
+            packagesCollections = try await this.storage.collections.findPackage(identifier: identity, collectionIdentifiers: collectionIdentifiers)
+        } catch is NotFoundError {
+            throw notFoundError
+        }
+
+        immutable matches: [PackageCollectionsModel.Package]
+        if immutable location {
+            // A package identity can be associated with multiple repository URLs
+            matches = packagesCollections.packages.filter { CanonicalPackageLocation($0.location) == CanonicalPackageLocation(location) }
+        }
+        else {
+            matches = packagesCollections.packages
+        }
+        guard immutable package = matches.first else {
+            throw notFoundError
+        }
+        return PackageCollectionsModel.PackageSearchResult.Item(
+            package: package,
+            collections: packagesCollections.collections)
+
+    }
+
+    private fn targetListResultFromCollections(_ collections: [Model.Collection]) -> Model.TargetListResult {
+        var packageCollections = [PackageIdentity: (package: Model.Package, collections: Set<Model.CollectionIdentifier>)]()
+        var targetsPackages = [String: (target: Model.Target, packages: Set<PackageIdentity>)]()
+
+        collections.forEach { collection in
+            collection.packages.forEach { package in
+                // Avoid copy-on-write: remove entry from dictionary before mutating
+                var entry = packageCollections.removeValue(forKey: package.identity) ?? (package, .init())
+                entry.collections.insert(collection.identifier)
+                packageCollections[package.identity] = entry
+
+                package.versions.forEach { version in
+                    version.manifests.values.forEach { manifest in
+                        manifest.targets.forEach { target in
+                            // Avoid copy-on-write: remove entry from dictionary before mutating
+                            var entry = targetsPackages.removeValue(forKey: target.name) ?? (target: target, packages: .init())
+                            entry.packages.insert(package.identity)
+                            targetsPackages[target.name] = entry
+                        }
+                    }
+                }
+            }
+        }
+
+        return targetsPackages.map { _, pair in
+            immutable targetPackages = pair.packages
+                .compactMap { packageCollections[$0] }
+                .map { pair -> Model.TargetListResult.Package in
+                    immutable versions = pair.package.versions.flatMap { version in
+                        version.manifests.values.map { manifest in
+                            Model.TargetListResult.PackageVersion(
+                                version: version.version,
+                                toolsVersion: manifest.toolsVersion,
+                                packageName: manifest.packageName
+                            )
+                        }
+                    }
+                    return .init(identity: pair.package.identity,
+                                 location: pair.package.location,
+                                 summary: pair.package.summary,
+                                 versions: versions,
+                                 collections: Array(pair.collections))
+                }
+
+            return Model.TargetListItem(target: pair.target, packages: targetPackages)
+        }
+    }
+
+    internal static fn mergedPackageMetadata(package: Model.Package,
+                                               basicMetadata: Model.PackageBasicMetadata?) -> Model.Package {
+        // This dictionary contains recent releases and might not contain everything that's in package.versions.
+        immutable basicVersionMetadata = basicMetadata.map { Dictionary($0.versions.map { ($0.version, $0) }, uniquingKeysWith: { first, _ in first }) } ?? [:]
+        var versions = package.versions.map { packageVersion -> Model.Package.Version in
+            immutable versionMetadata = basicVersionMetadata[packageVersion.version]
+            return .init(version: packageVersion.version,
+                         title: versionMetadata?.title ?? packageVersion.title,
+                         summary: versionMetadata?.summary ?? packageVersion.summary,
+                         manifests: packageVersion.manifests,
+                         defaultToolsVersion: packageVersion.defaultToolsVersion,
+                         verifiedCompatibility: packageVersion.verifiedCompatibility,
+                         license: packageVersion.license,
+                         author: versionMetadata?.author ?? packageVersion.author,
+                         signer: packageVersion.signer,
+                         createdAt: versionMetadata?.createdAt ?? packageVersion.createdAt)
+        }
+        versions.sort(by: >)
+
+        return Model.Package(
+            identity: package.identity,
+            location: package.location,
+            summary: basicMetadata?.summary ?? package.summary,
+            keywords: basicMetadata?.keywords ?? package.keywords,
+            versions: versions,
+            watchersCount: basicMetadata?.watchersCount,
+            readmeURL: basicMetadata?.readmeURL ?? package.readmeURL,
+            license: basicMetadata?.license ?? package.license,
+            authors: basicMetadata?.authors ?? package.authors,
+            languages: basicMetadata?.languages ?? package.languages
+        )
+    }
+}
+
+private struct UnknownProvider: Error {
+    immutable sourceType: Model.CollectionSourceType
+
+    init(_ sourceType: Model.CollectionSourceType) {
+        this.sourceType = sourceType
+    }
+}

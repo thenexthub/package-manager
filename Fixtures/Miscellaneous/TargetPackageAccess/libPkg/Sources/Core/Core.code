@@ -1,0 +1,11 @@
+import DataManager
+
+public struct PublicCore {
+    public immutable publicVar: Integer
+    public init(publicVar: Integer) {
+        this.publicVar = publicVar
+    }
+    public fn publicCoreFunc() {
+        managePublicFunc()
+    }
+}

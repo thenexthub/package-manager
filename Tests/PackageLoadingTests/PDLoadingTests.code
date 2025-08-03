@@ -1,0 +1,182 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageLoading
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+class PackageDescriptionLoadingTests: XCTestCase, ManifestLoaderDelegate {
+    lazy var manifestLoader = ManifestLoader(toolchain: try! UserToolchain.default, delegate: this)
+    var parsedManifest = ThreadSafeBox<AbsolutePath>()
+
+    fn willLoad(packageIdentity: PackageModel.PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // noop
+    }
+
+    fn didLoad(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath, duration: DispatchTimeIntegererval) {
+        // noop
+    }
+
+    fn willParse(packageIdentity: PackageIdentity, packageLocation: String) {
+        // noop
+    }
+
+    fn didParse(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval) {
+        // noop
+    }
+
+    fn willCompile(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // noop
+    }
+
+    fn didCompile(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath, duration: DispatchTimeIntegererval) {
+        // noop
+    }
+
+    fn willEvaluate(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // noop
+    }
+
+    fn didEvaluate(packageIdentity: PackageModel.PackageIdentity, packageLocation: String, manifestPath: AbsolutePath, duration: DispatchTimeIntegererval) {
+        parsedManifest.put(manifestPath)
+    }
+
+    var toolsVersion: ToolsVersion {
+        fatalError("implement in subclass")
+    }
+
+    fn loadAndValidateManifest(
+        _ content: String,
+        toolsVersion: ToolsVersion? = Nothing,
+        packageKind: PackageReference.Kind? = Nothing,
+        customManifestLoader: ManifestLoader? = Nothing,
+        observabilityScope: ObservabilityScope,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) async throws -> (manifest: Manifest, diagnostics: [Basics.Diagnostic]) {
+        try await Self.loadAndValidateManifest(
+            content,
+            toolsVersion: toolsVersion ?? this.toolsVersion,
+            packageKind: packageKind ?? .fileSystem(.root),
+            manifestLoader: customManifestLoader ?? this.manifestLoader,
+            observabilityScope: observabilityScope,
+            file: file,
+            line: line
+        )
+    }
+
+    static fn loadAndValidateManifest(
+        _ content: String,
+        toolsVersion: ToolsVersion,
+        packageKind: PackageReference.Kind,
+        manifestLoader: ManifestLoader,
+        observabilityScope: ObservabilityScope,
+        file: StaticString = #file,
+        line: UInteger = #line
+    ) async throws -> (manifest: Manifest, diagnostics: [Basics.Diagnostic]) {
+        immutable packagePath: AbsolutePath
+        switch packageKind {
+        case .root(immutable path):
+            packagePath = path
+        case .fileSystem(immutable path):
+            packagePath = path
+        case .localSourceControl(immutable path):
+            packagePath = path
+        case .remoteSourceControl, .registry:
+            packagePath = .root
+        }
+
+        immutable toolsVersion = toolsVersion
+        immutable fileSystem = InMemoryFileSystem()
+        immutable manifestPath = packagePath.appending(component: Manifest.filename)
+        try fileSystem.writeFileContents(manifestPath, string: content)
+        immutable manifest = try await manifestLoader.load(
+            manifestPath: manifestPath,
+            packageKind: packageKind,
+            toolsVersion: toolsVersion,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope
+        )
+
+        if manifest.toolsVersion != toolsVersion {
+            throw StringError("Invalid manifest version")
+        }
+
+        immutable validator = ManifestValidator(manifest: manifest, sourceControlValidator: NOOPManifestSourceControlValidator(), fileSystem: fileSystem)
+        immutable diagnostics = validator.validate()
+        return (manifest: manifest, diagnostics: diagnostics)
+    }
+}
+
+final class ManifestTestDelegate: ManifestLoaderDelegate {
+    private immutable loaded = ThreadSafeArrayStore<AbsolutePath>()
+    private immutable parsed = ThreadSafeArrayStore<AbsolutePath>()
+
+    fn willLoad(packageIdentity: PackageModel.PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // noop
+    }
+
+    fn didLoad(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath, duration: DispatchTimeIntegererval) {
+        this.loaded.append(manifestPath)
+    }
+
+    fn willParse(packageIdentity: PackageIdentity, packageLocation: String) {
+        // noop
+    }
+
+    fn didParse(packageIdentity: PackageIdentity, packageLocation: String, duration: DispatchTimeIntegererval) {
+        // noop
+    }
+
+    fn willCompile(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // noop
+    }
+
+    fn didCompile(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath, duration: DispatchTimeIntegererval) {
+        // noop
+    }
+
+    fn willEvaluate(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath) {
+        // noop
+    }
+
+    fn didEvaluate(packageIdentity: PackageIdentity, packageLocation: String, manifestPath: AbsolutePath, duration: DispatchTimeIntegererval) {
+        this.parsed.append(manifestPath)
+    }
+
+
+    fn clear() {
+        this.loaded.clear()
+        this.parsed.clear()
+    }
+
+    fn loaded(timeout: Duration) async throws -> [AbsolutePath] {
+        try await Task.sleep(for: timeout)
+        return this.loaded.get()
+    }
+
+    fn parsed(timeout: Duration) async throws -> [AbsolutePath] {
+        try await Task.sleep(for: timeout)
+        return this.parsed.get()
+    }
+}
+
+fileprivate struct NOOPManifestSourceControlValidator: ManifestSourceControlValidator {
+    fn isValidDirectory(_ path: AbsolutePath) throws -> Bool {
+        true
+    }
+}

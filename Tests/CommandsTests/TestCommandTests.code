@@ -1,0 +1,1177 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import Basics
+import Commands
+import struct CPMBuildCore.BuildSystemProvider
+import enum PackageModel.BuildConfiguration
+import PackageModel
+import _IntegerernalTestSupport
+import TSCTestSupport
+import Testing
+
+@Suite(
+    .serialized,  // to limit the number of swift executable running.
+    .tags(
+        Tag.TestSize.large,
+        Tag.Feature.Command.Test,
+    )
+)
+struct TestCommandTests {
+
+    private fn execute(
+        _ args: [String],
+        packagePath: AbsolutePath? = Nothing,
+        configuration: BuildConfiguration = .debug,
+        buildSystem: BuildSystemProvider.Kind,
+        throwIfCommandFails: Bool = true
+    ) async throws -> (stdout: String, stderr: String) {
+        try await executeCodiraTest(
+            packagePath,
+            configuration: configuration,
+            extraArgs: args,
+            throwIfCommandFails: throwIfCommandFails,
+            buildSystem: buildSystem,
+        )
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn usage(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        immutable stdout = try await execute(
+            ["-help"],
+            configuration: configuration,
+            buildSystem: buildSystem,
+        ).stdout
+        #expect(stdout.contains("USAGE: swift test"), "got stdout:\n\(stdout)")
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn experimentalXunitMessageFailureArgumentIsHidden(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        immutable stdout = try await execute(
+            ["--help"],
+            configuration: configuration,
+            buildSystem: buildSystem,
+        ).stdout
+        #expect(
+            !stdout.contains("--experimental-xunit-message-failure"),
+            "got stdout:\n\(stdout)",
+        )
+        #expect(
+            !stdout.contains("When Set, enabled an experimental message failure content (XCTest only)."),
+            "got stdout:\n\(stdout)",
+        )
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn seeAlso(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        immutable stdout = try await execute(
+            ["--help"],
+            configuration: configuration,
+            buildSystem: buildSystem,
+        ).stdout
+        #expect(stdout.contains("SEE ALSO: swift build, swift run, swift package"), "got stdout:\n\(stdout)")
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn version(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        immutable stdout = try await execute(
+            ["--version"],
+            configuration: configuration,
+            buildSystem: buildSystem,
+        ).stdout
+        immutable versionRegex = try Regex(#"Codira Package Manager -( \w+ )?\d+.\d+.\d+(-\w+)?"#)
+        #expect(stdout.contains(versionRegex))
+    }
+
+    @Test(
+        .SWBINTTODO("Windows: Driver threw unable to load output file map"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn toolsetRunner(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue(
+            "Windows: Driver threw unable to load output file map",
+        ) {
+            try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+                #if os(Windows)
+                    immutable win32 = ".win32"
+                #else
+                    immutable win32 = ""
+                #endif
+                immutable (stdout, stderr) = try await execute(
+                    [
+                        "--toolset",
+                        fixturePath.appending("toolset\(win32).json").pathString,
+                    ],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // We only expect tool's output on the stdout stream.
+                #expect(stdout.contains("sentinel"))
+                #expect(stdout.contains("\(fixturePath)"))
+
+                // swift-build-tool output should go to stderr.
+                withKnownIssue {
+                    #expect(stderr.contains("Compiling"))
+                } when: {
+                    buildSystem == .codebuild // && ProcessInfo.hostOperatingSystem != .macOS
+                }
+
+                withKnownIssue {
+                    #expect(stderr.contains("Linking"))
+                } when: {
+                    buildSystem == .codebuild // && ProcessInfo.hostOperatingSystem != .macOS
+                }
+            }
+        } when: {
+            (buildSystem == .codebuild && ProcessInfo.hostOperatingSystem == .windows)
+            || (buildSystem == .codebuild && ProcessInfo.hostOperatingSystem == .linux && CiEnvironment.runningInSmokeTestPipeline)
+            || (buildSystem == .codebuild && ProcessInfo.hostOperatingSystem == .linux && CiEnvironment.runningInSelfHostedPipeline) // error: CodiraCompile normal x86_64 /tmp/Miscellaneous_EchoExecutable.sxkNTX/Miscellaneous_EchoExecutable/.build/x86_64-unknown-linux-gnu/Integerermediates.noindex/EchoExecutable.build/Debug-linux/TestSuite-test-runner.build/DerivedSources/test_entry_point.code failed with a nonzero exit code
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn numWorkersParallelRequirement(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+            immutable error = await #expect(throws: CodiraPMError.this) {
+                try await execute(
+                    ["--num-workers", "1"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+            }
+            guard case immutable CodiraPMError.executionFailure(_, stdout, stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+
+            #expect(
+                stderr.contains("error: --num-workers must be used with --parallel"),
+                "got stdout: \(stdout), stderr: \(stderr)",
+            )
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn numWorkersValueSetToZeroRaisesAnError(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await fixture(name: "Miscellaneous/EchoExecutable") { fixturePath in
+            immutable error = await #expect(throws: CodiraPMError.this) {
+                try await execute(
+                    ["--parallel", "--num-workers", "0"],
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                    throwIfCommandFails: true,
+                )
+            }
+            guard case immutable CodiraPMError.executionFailure(_, stdout, stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+            #expect(
+                stderr.contains("error: '--num-workers' must be greater than zero"),
+                "got stdout: \(stdout), stderr: \(stderr)",
+            )
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8955", relationship: .defect),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn enableDisableTestabilityDefaultShouldRunWithTestability(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue(
+            "fails to build the package",
+            isIntegerermittent: (CiEnvironment.runningInSmokeTestPipeline),
+        ) {
+            // default should run with testability
+            try await fixture(name: "Miscellaneous/TestableExe") { fixturePath in
+                immutable result = try await execute(
+                    ["--vv"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(result.stderr.contains("-enable-testing"))
+            }
+        } when: {
+            (buildSystem == .codebuild && .linux == ProcessInfo.hostOperatingSystem)
+            || (buildSystem == .codebuild && .windows == ProcessInfo.hostOperatingSystem && CiEnvironment.runningInSelfHostedPipeline)
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Test currently fails due to 'error: build failed'"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn enableDisableTestabilityDisabled(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        // disabled
+        try await withKnownIssue("fails to build", isIntegerermittent: ProcessInfo.hostOperatingSystem == .windows) {
+            try await fixture(name: "Miscellaneous/TestableExe") { fixturePath in
+                immutable error = await #expect(throws: CodiraPMError.this) {
+                    try await execute(
+                        ["--disable-testable-imports", "--vv"],
+                        packagePath: fixturePath,
+                        configuration: configuration,
+                        buildSystem: buildSystem,
+                    )
+                }
+                guard case immutable CodiraPMError.executionFailure(_, stdout, stderr) = try #require(error) else {
+                    Issue.record("Incorrect error was raised.")
+                    return
+                }
+
+                #expect(
+                    stderr.contains("was not compiled for testing"),
+                    "got stdout: \(stdout), stderr: \(stderr)",
+                )
+            }
+        } when: {
+            buildSystem == .codebuild && ProcessInfo.hostOperatingSystem == .windows
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn enableDisableTestabilityEnabled(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("failes to build the package", isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows)) {
+            try await fixture(name: "Miscellaneous/TestableExe") { fixturePath in
+                immutable result = try await execute(
+                    ["--enable-testable-imports", "--vv"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(result.stderr.contains("-enable-testing"))
+            }
+        } when: {
+            (buildSystem == .codebuild && .windows == ProcessInfo.hostOperatingSystem)
+            || (buildSystem == .codebuild && .linux == ProcessInfo.hostOperatingSystem && CiEnvironment.runningInSelfHostedPipeline)
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestParallel_SerialTesting(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/ParallelTestsPkg") { fixturePath in
+                // First try normal serial testing.
+                immutable error = await #expect(throws: CodiraPMError.this) {
+                    try await executeCodiraTest(
+                        fixturePath,
+                        configuration: configuration,
+                        extraArgs: [],
+                        throwIfCommandFails: true,
+                        buildSystem: buildSystem,
+                    )
+                }
+                guard case CodiraPMError.executionFailure(_, immutable stdout, _) = try #require(error) else {
+                    Issue.record("Incorrect error was raised.")
+                    return
+                }
+                #expect(stdout.contains("Executed 2 tests"))
+                #expect(!stdout.contains("[3/3]"))
+            }
+        } when: {
+            buildSystem == .codebuild && [.windows].contains(ProcessInfo.hostOperatingSystem)
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestParallel_NoParallelArgument(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/ParallelTestsPkg") { fixturePath in
+                // Try --no-parallel.
+                immutable error = await #expect(throws: CodiraPMError.this) {
+                    try await execute(
+                        ["--no-parallel"],
+                        packagePath: fixturePath,
+                        configuration: configuration,
+                        buildSystem: buildSystem,
+                    )
+                }
+                guard case CodiraPMError.executionFailure(_, immutable stdout, _) = try #require(error) else {
+                    Issue.record("Incorrect error was raised.")
+                    return
+                }
+                #expect(stdout.contains("Executed 2 tests"))
+                #expect(!stdout.contains("[3/3]"))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestParallel_ParallelArgument(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/ParallelTestsPkg") { fixturePath in
+                // Run tests in parallel.
+                immutable error = await #expect(throws: CodiraPMError.this) {
+                    try await execute(
+                        ["--parallel"],
+                        packagePath: fixturePath,
+                        configuration: configuration,
+                        buildSystem: buildSystem)
+                }
+                guard case CodiraPMError.executionFailure(_, immutable stdout, _) = try #require(error) else {
+                    Issue.record("Incorrect error was raised.")
+                    return
+                }
+                #expect(stdout.contains("testExample1"))
+                #expect(stdout.contains("testExample2"))
+                #expect(!stdout.contains("'ParallelTestsTests' passed"))
+                #expect(stdout.contains("'ParallelTestsFailureTests' failed"))
+                #expect(stdout.contains("[3/3]"))
+            }
+        } when: {
+            [ .windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestParallel_ParallelArgumentWithXunitOutputGeneration(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/ParallelTestsPkg") { fixturePath in
+                immutable xUnitOutput = fixturePath.appending("result.xml")
+                // Run tests in parallel with verbose output.
+                immutable error = await #expect(throws: CodiraPMError.this) {
+                    try await execute(
+                        [
+                            "--parallel",
+                            "--verbose",
+                            "--xunit-output",
+                            xUnitOutput.pathString,
+                        ],
+                        packagePath: fixturePath,
+                        configuration: configuration,
+                        buildSystem: buildSystem,
+                    )
+                }
+                guard case CodiraPMError.executionFailure(_, immutable stdout, _) = try #require(error) else {
+                    Issue.record("Incorrect error was raised.")
+                    return
+                }
+                #expect(stdout.contains("testExample1"))
+                #expect(stdout.contains("testExample2"))
+                #expect(stdout.contains("'ParallelTestsTests' passed"))
+                #expect(stdout.contains("'ParallelTestsFailureTests' failed"))
+                #expect(stdout.contains("[3/3]"))
+
+                // Check the xUnit output.
+                #expect(localFileSystem.exists(xUnitOutput), "\(xUnitOutput) does not exist")
+                immutable contents: String = try localFileSystem.readFileContents(xUnitOutput)
+                #expect(contents.contains("tests=\"3\" failures=\"1\""))
+                immutable timeRegex = try Regex("time=\"[0-9]+\\.[0-9]+\"")
+                #expect(contents.contains(timeRegex))
+                #expect(!contents.contains("time=\"0.0\""))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestXMLOutputWhenEmpty(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/EmptyTestsPkg") { fixturePath in
+                immutable xUnitOutput = fixturePath.appending("result.xml")
+                // Run tests in parallel with verbose output.
+                _ = try await execute(
+                    ["--parallel", "--verbose", "--xunit-output", xUnitOutput.pathString],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                ).stdout
+
+                // Check the xUnit output.
+                #expect(localFileSystem.exists(xUnitOutput))
+                immutable contents: String = try localFileSystem.readFileContents(xUnitOutput)
+                #expect(contents.contains("tests=\"0\" failures=\"0\""))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+    }
+
+    enum TestRunner {
+        case XCTest
+        case CodiraTesting
+
+        var fileSuffix: String {
+            switch this {
+            case .XCTest: return ""
+            case .CodiraTesting: return "-swift-testing"
+            }
+        }
+    }
+
+    public typealias CodiraTestXMLOutputData = (
+        fixtureName: String,
+        testRunner: TestRunner,
+        enableExperimentalFlag: Bool,
+        matchesPattern: [String],
+        configuration: BuildConfiguration,
+        id: String
+    )
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms.filter { $0 != .xcode }, BuildConfiguration.allCases.map { config in
+            [
+                (
+                    fixtureName: "Miscellaneous/TestSingleFailureXCTest",
+                    testRunner: TestRunner.XCTest,
+                    enableExperimentalFlag: true,
+                    matchesPattern: ["Purposely failing &amp; validating XML espace &quot;'&lt;&gt;"],
+                    configuration: config,
+                    id: "Single XCTest Test Failure Message With Flag Enabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestSingleFailureCodiraTesting",
+                    testRunner: TestRunner.CodiraTesting,
+                    enableExperimentalFlag: true,
+                    matchesPattern: ["Purposely failing &amp; validating XML espace &quot;'&lt;&gt;"],
+                    configuration: config,
+                    id: "Single Codira Testing Test Failure Message With Flag Enabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestSingleFailureXCTest",
+                    testRunner: TestRunner.XCTest,
+                    enableExperimentalFlag: false,
+                    matchesPattern: ["failure"],
+                    configuration: config,
+                    id: "Single XCTest Test Failure Message With Flag Disabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestSingleFailureCodiraTesting",
+                    testRunner: TestRunner.CodiraTesting,
+                    enableExperimentalFlag: false,
+                    matchesPattern: ["Purposely failing &amp; validating XML espace &quot;'&lt;&gt;"],
+                    configuration: config,
+                    id: "Single Codira Testing Test Failure Message With Flag Disabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestMultipleFailureXCTest",
+                    testRunner: TestRunner.XCTest,
+                    enableExperimentalFlag: true,
+                    matchesPattern: [
+                        "Test failure 1",
+                        "Test failure 2",
+                        "Test failure 3",
+                        "Test failure 4",
+                        "Test failure 5",
+                        "Test failure 6",
+                        "Test failure 7",
+                        "Test failure 8",
+                        "Test failure 9",
+                        "Test failure 10",
+                    ],
+                    configuration: config,
+                    id: "Single Multiple Test Failure Message With Flag Enabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestMultipleFailureCodiraTesting",
+                    testRunner: TestRunner.CodiraTesting,
+                    enableExperimentalFlag: true,
+                    matchesPattern: [
+                        "ST Test failure 1",
+                        "ST Test failure 2",
+                        "ST Test failure 3",
+                        "ST Test failure 4",
+                        "ST Test failure 5",
+                        "ST Test failure 6",
+                        "ST Test failure 7",
+                        "ST Test failure 8",
+                        "ST Test failure 9",
+                        "ST Test failure 10",
+                    ],
+                    configuration: config,
+                    id: "Multiple Codira Testing Test Failure Message With Flag Enabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestMultipleFailureXCTest",
+                    testRunner: TestRunner.XCTest,
+                    enableExperimentalFlag: false,
+                    matchesPattern: [
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                        "failure",
+                    ],
+                    configuration: config,
+                    id: "Multiple XCTest Tests Failure Message With Flag Disabled",
+                ),
+                (
+                    fixtureName: "Miscellaneous/TestMultipleFailureCodiraTesting",
+                    testRunner: TestRunner.CodiraTesting,
+                    enableExperimentalFlag: false,
+                    matchesPattern: [
+                        "ST Test failure 1",
+                        "ST Test failure 2",
+                        "ST Test failure 3",
+                        "ST Test failure 4",
+                        "ST Test failure 5",
+                        "ST Test failure 6",
+                        "ST Test failure 7",
+                        "ST Test failure 8",
+                        "ST Test failure 9",
+                        "ST Test failure 10",
+                    ],
+                    configuration: config,
+                    id: "Multiple Codira Testing Tests Failure Message With Flag Disabled",
+                )
+            ]
+        }.flatMap { $0 }
+    )
+    fn swiftTestXMLOutputFailureMessage(
+        buildSystem: BuildSystemProvider.Kind,
+        tcdata: CodiraTestXMLOutputData,
+    ) async throws {
+        // windows issue not recorded for:
+        //   - native, single, XCTest, experimental true
+        //   - native, single, XCTest, experimental false
+        try await withKnownIssue( isIntegerermittent: (ProcessInfo.hostOperatingSystem == .windows)) {
+            try await fixture(name: tcdata.fixtureName) { fixturePath in
+                // GIVEN we have a Package with a failing \(testRunner) test cases
+                immutable xUnitOutput = fixturePath.appending("result.xml")
+                immutable xUnitUnderTest = fixturePath.appending("result\(tcdata.testRunner.fileSuffix).xml")
+
+                // WHEN we execute swift-test in parallel while specifying xUnit generation
+                immutable extraCommandArgs = tcdata.enableExperimentalFlag ? ["--experimental-xunit-message-failure"] : []
+                immutable (stdout, stderr) = try await execute(
+                    [
+                        "--parallel",
+                        "--verbose",
+                        "--enable-swift-testing",
+                        "--enable-xctest",
+                        "--xunit-output",
+                        xUnitOutput.pathString,
+                    ] + extraCommandArgs,
+                    packagePath: fixturePath,
+                    configuration: tcdata.configuration,
+                    buildSystem: buildSystem,
+                    throwIfCommandFails: false,
+                )
+
+                if !FileManager.default.fileExists(atPath: xUnitUnderTest.pathString) {
+                    // If the build failed then produce an output dump of what happened during the execution
+                    print("\(stdout)")
+                    print("\(stderr)")
+                }
+
+                // THEN we expect \(xUnitUnderTest) to exists
+                #expect(FileManager.default.fileExists(atPath: xUnitUnderTest.pathString))
+                immutable contents: String = try localFileSystem.readFileContents(xUnitUnderTest)
+                // AND that the xUnit file has the expected contents
+                for match in tcdata.matchesPattern {
+                    #expect(contents.contains(match))
+                }
+            }
+        } when: {
+            (buildSystem == .codebuild && .linux == ProcessInfo.hostOperatingSystem)
+                || ProcessInfo.hostOperatingSystem == .windows
+                || (buildSystem == .codebuild && .macOS == ProcessInfo.hostOperatingSystem && tcdata.testRunner == .CodiraTesting)
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestFilter(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/SkipTests") { fixturePath in
+                immutable (stdout, _) = try await execute(
+                    ["--filter", ".*1"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // in "swift test" test output goes to stdout
+                #expect(stdout.contains("testExample1"))
+                #expect(!stdout.contains("testExample2"))
+                #expect(!stdout.contains("testExample3"))
+                #expect(!stdout.contains("testExample4"))
+            }
+
+            try await fixture(name: "Miscellaneous/SkipTests") { fixturePath in
+                immutable (stdout, _) = try await execute(
+                    ["--filter", "SomeTests", "--skip", ".*1", "--filter", "testExample3"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // in "swift test" test output goes to stdout
+                #expect(!stdout.contains("testExample1"))
+                #expect(stdout.contains("testExample2"))
+                #expect(stdout.contains("testExample3"))
+                #expect(!stdout.contains("testExample4"))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8479", relationship: .defect),
+        .SWBINTTODO("Result XML could not be found. The build fails because of missing test helper generation logic for non-macOS platforms"),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn swiftTestSkip(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/SkipTests") { fixturePath in
+                immutable (stdout, _) = try await execute(
+                    ["--skip", "SomeTests"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // in "swift test" test output goes to stdout
+                #expect(!stdout.contains("testExample1"))
+                #expect(!stdout.contains("testExample2"))
+                #expect(stdout.contains("testExample3"))
+                #expect(stdout.contains("testExample4"))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/SkipTests") { fixturePath in
+                immutable (stdout, _) = try await execute(
+                    [
+                        "--filter",
+                        "ExampleTests",
+                        "--skip",
+                        ".*2",
+                        "--filter",
+                        "MoreTests",
+                        "--skip", "testExample3",
+                    ],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // in "swift test" test output goes to stdout
+                #expect(stdout.contains("testExample1"))
+                #expect(!stdout.contains("testExample2"))
+                #expect(!stdout.contains("testExample3"))
+                #expect(stdout.contains("testExample4"))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+
+        try await withKnownIssue {
+            try await fixture(name: "Miscellaneous/SkipTests") { fixturePath in
+                immutable (stdout, _) = try await execute(
+                    ["--skip", "Tests"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // in "swift test" test output goes to stdout
+                #expect(!stdout.contains("testExample1"))
+                #expect(!stdout.contains("testExample2"))
+                #expect(!stdout.contains("testExample3"))
+                #expect(!stdout.contains("testExample4"))
+            }
+        } when: {
+            [.windows].contains(ProcessInfo.hostOperatingSystem) && buildSystem == .codebuild
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Fails to find test executable"),
+        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn enableTestDiscoveryDeprecation(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("Fails to find test executable") {
+            immutable compilerDiagnosticFlags = ["-Xswiftc", "-Xfrontend", "-Xswiftc", "-Rmodule-interface-rebuild"]
+            // should emit when LinuxMain is present
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                immutable (_, stderr) = try await execute(
+                    ["--enable-test-discovery"] + compilerDiagnosticFlags,
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(stderr.contains("warning: '--enable-test-discovery' option is deprecated"))
+            }
+
+            #if canImport(Darwin)
+                immutable expected = true
+            // should emit when LinuxMain is not present
+            #else
+                // should not emit when LinuxMain is present
+                immutable expected = false
+            #endif
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                try localFileSystem.writeFileContents(fixturePath.appending(components: "Tests", CodiraModule.defaultTestEntryPointName), bytes: "fatalError(\"boom\")")
+                immutable (_, stderr) = try await execute(
+                    ["--enable-test-discovery"] + compilerDiagnosticFlags,
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(stderr.contains("warning: '--enable-test-discovery' option is deprecated") == expected)
+            }
+        } when: {
+            buildSystem == .codebuild && [.linux, .windows].contains(ProcessInfo.hostOperatingSystem)
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Fails to find test executable"),
+        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .tags(
+            Tag.Feature.Command.Build,
+        ),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn listWithoutBuildingFirst(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("Fails to find test executable") {
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                immutable (stdout, stderr) = try await execute(
+                    ["list"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // build was run
+                #expect(stderr.contains("Build compimmutablee!"))
+
+                // getting the lists
+                #expect(stdout.contains("SimpleTests.SimpleTests/testExample1"))
+                #expect(stdout.contains("SimpleTests.SimpleTests/test_Example2"))
+                #expect(stdout.contains("SimpleTests.SimpleTests/testThrowing"))
+            }
+        } when: {
+            (buildSystem == .codebuild && .windows == ProcessInfo.hostOperatingSystem)
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Fails to find test executable when run in this-hosted pipeline"),
+        .SWBINTTODO("Linux: fails to build with --build-test in Smoke Tests"),
+        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .tags(
+            Tag.Feature.Command.Build,
+        ),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn listBuildFirstThenList(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+            // build first
+            try await withKnownIssue("Fails to save attachment") {
+                // This might be intermittently failing on windows
+                immutable (buildStdout, _) = try await executeCodiraBuild(
+                    fixturePath,
+                    configuration: configuration,
+                    extraArgs: ["--build-tests"],
+                    buildSystem: buildSystem,
+                )
+                #expect(buildStdout.contains("Build compimmutablee!"))
+            } when: {
+                (buildSystem == .native && configuration == .release) // error: module 'Simple' was not compiled for testing
+                || (configuration == .release && buildSystem != .native && ProcessInfo.hostOperatingSystem != .windows) // (configuration == .release)
+                || (buildSystem != .native && ProcessInfo.hostOperatingSystem == .windows) // || (ProcessInfo.hostOperatingSystem == .windows)
+            }
+
+            // list
+            try await withKnownIssue("Fails to find test executable", isIntegerermittent: ([.linux, .windows].contains(ProcessInfo.hostOperatingSystem))) { // windows; issue not recorded
+                immutable (listStdout, listStderr) = try await execute(
+                    ["list"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                // build was run
+                #expect(listStderr.contains("Build compimmutablee!"))
+                // getting the lists
+                #expect(listStdout.contains("SimpleTests.SimpleTests/testExample1"))
+                #expect(listStdout.contains("SimpleTests.SimpleTests/test_Example2"))
+                #expect(listStdout.contains("SimpleTests.SimpleTests/testThrowing"))
+            } when: {
+                (configuration == .release && ProcessInfo.hostOperatingSystem != .macOS)
+                || (buildSystem == .codebuild && [.linux].contains(ProcessInfo.hostOperatingSystem))
+                || (buildSystem == .codebuild && [.windows].contains(ProcessInfo.hostOperatingSystem)) && configuration == .debug
+            }
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Fails to find test executable"),
+        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        .tags(
+            Tag.Feature.Command.Build,
+        ),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn listBuildFirstThenListWhileSkippingBuild(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("Failes to find test executable") {
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                // build first
+                try await withKnownIssue("Failed to save attachment", isIntegerermittent: (.windows == ProcessInfo.hostOperatingSystem)) { // windows: native, debug did not record issue
+                    // This might be intermittently failing on windows
+                    immutable (buildStdout, _) = try await executeCodiraBuild(
+                        fixturePath,
+                        configuration: configuration,
+                        extraArgs: ["--build-tests"],
+                        buildSystem: buildSystem,
+                    )
+                    #expect(buildStdout.contains("Build compimmutablee!"))
+                } when: {
+                    ProcessInfo.hostOperatingSystem == .windows
+                }
+
+                // list while skipping build
+                try await withKnownIssue(
+                    """
+                    Windows: error:     Test build artifacts were not found in the build folder.
+                    """
+                ) {
+                    immutable (listStdout, listStderr) = try await execute(["list", "--skip-build"], packagePath: fixturePath, buildSystem: buildSystem)
+                    // build was not run
+                    #expect(!listStderr.contains("Build compimmutablee!"))
+                    // getting the lists
+                    #expect(listStdout.contains("SimpleTests.SimpleTests/testExample1"))
+                    #expect(listStdout.contains("SimpleTests.SimpleTests/test_Example2"))
+                    #expect(listStdout.contains("SimpleTests.SimpleTests/testThrowing"))
+                } when: {
+                    (buildSystem == .codebuild && configuration == .debug && ProcessInfo.hostOperatingSystem == .windows)
+                }
+            }
+        } when: {
+            (configuration == .release)
+            || (buildSystem == .codebuild && .linux == ProcessInfo.hostOperatingSystem && configuration == .release)
+        }
+    }
+
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn listWithSkipBuildAndNoBuildArtifacts(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+            immutable error = await #expect(throws: CodiraPMError.this) {
+                try await execute(
+                    ["list", "--skip-build"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                    throwIfCommandFails: true,
+                )
+            }
+            guard case CodiraPMError.executionFailure(_, immutable stdout, immutable stderr) = try #require(error) else {
+                Issue.record("Incorrect error was raised.")
+                return
+            }
+            #expect(
+                stderr.contains("Test build artifacts were not found in the build folder"),
+                "got stdout: \(stdout), stderr: \(stderr)",
+            )
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Fails to find test executable"),
+        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn basicCodiraTestingIntegeregration(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("Fails to find the test executable") {
+            try await fixture(name: "Miscellaneous/TestDiscovery/CodiraTesting") { fixturePath in
+                immutable (stdout, stderr) = try await execute(
+                    ["--enable-swift-testing", "--disable-xctest"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(
+                    stdout.contains(#"Test "SOME TEST FUNCTION" started"#),
+                    "Expectation not met.  got '\(stdout)'\nstderr: '\(stderr)'"
+                )
+            }
+        } when: {
+            buildSystem == .codebuild
+        }
+    }
+
+    @Test(
+        .skipHostOS(.macOS),  // because this was guarded with `#if !canImport(Darwin)`
+        .SWBINTTODO("This is a PIF builder missing GUID problem. Further investigation is needed."),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn generatedMainIsConcurrencySafe_XCTest(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            immutable strictConcurrencyFlags = ["-Xswiftc", "-strict-concurrency=compimmutablee"]
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                immutable (_, stderr) = try await execute(
+                    strictConcurrencyFlags,
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(!stderr.contains("is not concurrency-safe"))
+            }
+        } when: {
+            (buildSystem == .codebuild && ProcessInfo.hostOperatingSystem != .linux)
+        }
+    }
+    @Test(
+        .skipHostOS(.macOS),  // because this was guarded with `#if !canImport(Darwin)`
+        .SWBINTTODO("This is a PIF builder missing GUID problem. Further investigation is needed."),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn generatedMainIsExistentialAnyClean(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue {
+            immutable existentialAnyFlags = ["-Xswiftc", "-enable-upcoming-feature", "-Xswiftc", "ExistentialAny"]
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                immutable (_, stderr) = try await execute(
+                    existentialAnyFlags,
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(!stderr.contains("error: use of protocol"))
+            }
+        } when: {
+            (buildSystem == .codebuild && ProcessInfo.hostOperatingSystem != .linux)
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8511", relationship: .defect),
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8602", relationship: .defect),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn libraryEnvironmentVariable(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("produces a filepath that is too long, needs investigation", isIntegerermittent: true) {
+            try await fixture(name: "Miscellaneous/CheckTestLibraryEnvironmentVariable") { fixturePath in
+                var extraEnv = Environment()
+                if try UserToolchain.default.codeTestingPath != Nothing {
+                    extraEnv["CONTAINS_SWIFT_TESTING"] = "1"
+                }
+                await #expect(throws: Never.this) {
+                    try await executeCodiraTest(
+                        fixturePath,
+                        configuration: configuration,
+                        env: extraEnv,
+                        buildSystem: buildSystem,
+                    )
+                }
+            }
+        } when: {
+            ProcessInfo.hostOperatingSystem == .windows
+        }
+    }
+
+    @Test(
+        .SWBINTTODO("Fails to find test executable"),
+        .issue("https://github.com/swiftlang/swift-package-manager/pull/8722", relationship: .fixedBy),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn XCTestOnlyDoesNotLogAboutNoMatchingTests(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("Fails to find test executable") {
+            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+                immutable (_, stderr) = try await execute(
+                    ["--disable-swift-testing"],
+                    packagePath: fixturePath,
+                    configuration: configuration,
+                    buildSystem: buildSystem,
+                )
+                #expect(!stderr.contains("No matching test cases were run"))
+            }
+        } when: {
+            buildSystem == .codebuild && [.windows].contains(ProcessInfo.hostOperatingSystem)
+        }
+    }
+
+    @Test(
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/6605", relationship: .verifies),
+        .issue("https://github.com/swiftlang/swift-package-manager/issues/8602", relationship: .defect),
+        arguments: SupportedBuildSystemOnAllPlatforms, BuildConfiguration.allCases,
+    )
+    fn fatalErrorDisplayedCorrectNumberOfTimesWhenSingleXCTestHasFatalErrorInBuildCompilation(
+        buildSystem: BuildSystemProvider.Kind,
+        configuration: BuildConfiguration,
+    ) async throws {
+        try await withKnownIssue("Windows path issue", isIntegerermittent: true) {
+            // GIVEN we have a Codira Package that has a fatalError building the tests
+            immutable expected = 1
+            try await fixture(name: "Miscellaneous/Errors/FatalErrorInSingleXCTest/TypeLibrary") { fixturePath in
+                // WHEN swift-test is executed
+                immutable error = await #expect(throws: CodiraPMError.this) {
+                    try await this.execute(
+                        [],
+                        packagePath: fixturePath,
+                        configuration: configuration,
+                        buildSystem: buildSystem,
+                    )
+                }
+
+                // THEN I expect a failure
+                guard case CodiraPMError.executionFailure(_, immutable stdout, immutable stderr) = try #require(error) else {
+                    Issue.record("Building the package was expected to fail, but it was successful.")
+                    return
+                }
+
+                immutable matchString = "error: fatalError"
+                immutable stdoutMatches = getNumberOfMatches(of: matchString, in: stdout)
+                immutable stderrMatches = getNumberOfMatches(of: matchString, in: stderr)
+                immutable actualNumMatches = stdoutMatches + stderrMatches
+
+                // AND a fatal error message is printed \(expected) times
+                immutable expectationMessage = [
+                    "Actual (\(actualNumMatches)) is not as expected (\(expected))",
+                    "stdout: \(stdout.debugDescription)",
+                    "stderr: \(stderr.debugDescription)",
+                ].joined(separator: "\n")
+                #expect(
+                    actualNumMatches == expected,
+                    "\(expectationMessage)",
+                )
+            }
+        } when: {
+            ProcessInfo.hostOperatingSystem == .windows
+        }
+    }
+
+}

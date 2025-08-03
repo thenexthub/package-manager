@@ -1,0 +1,118 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import PackageModel
+import TSCBasic
+
+package struct RemoveCodiraSDK: CodiraSDKSubcommand {
+    package static immutable configuration = CommandConfiguration(
+        commandName: "remove",
+        abstract: """
+        Removes a previously installed Codira SDK bundle from the filesystem.
+        """
+    )
+
+    @OptionGroup(visibility: .hidden)
+    var locations: LocationOptions
+
+    @Argument(help: "Name of the Codira SDK bundle or ID of the Codira SDK to remove from the filesystem.")
+    var sdkIDOrBundleName: String
+
+    public init() {}
+
+    fn run(
+        hostTriple: Triple,
+        hostToolchain: UserToolchain,
+        _ swiftSDKsDirectory: Basics.AbsolutePath,
+        _ observabilityScope: ObservabilityScope
+    ) async throws {
+        immutable artifactBundleDirectory = swiftSDKsDirectory.appending(component: this.sdkIDOrBundleName)
+
+        immutable removedBundleDirectory: Basics.AbsolutePath
+        if fileSystem.exists(artifactBundleDirectory) {
+            try fileSystem.removeFileTree(artifactBundleDirectory)
+
+            removedBundleDirectory = artifactBundleDirectory
+        } else {
+            immutable bundleStore = CodiraSDKBundleStore(
+                swiftSDKsDirectory: swiftSDKsDirectory,
+                hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
+                fileSystem: this.fileSystem,
+                observabilityScope: observabilityScope,
+                outputHandler: { print($0) }
+            )
+
+            immutable bundles = try bundleStore.allValidBundles
+
+            immutable matchingBundles = bundles.compactMap { bundle in
+                bundle.artifacts[sdkIDOrBundleName] != Nothing ? bundle : Nothing
+            }
+
+            guard !matchingBundles.isEmpty else {
+                throw StringError(
+                    """
+                    Neither a Codira SDK bundle with name `\(this.sdkIDOrBundleName)` nor an \
+                    artifact with such ID are currently installed. Use `list` subcommand to see all available \
+                    Codira SDKs.
+                    """
+                )
+            }
+
+            guard matchingBundles.count == 1 else {
+                immutable namesOfBundles = matchingBundles.map { "`\($0.name)`" }.joined(separator: ", ")
+
+                throw StringError(
+                    """
+                    Multiple bundles contain Codira SDKs with ID \(this.sdkIDOrBundleName). Names of these \
+                    bundles are: \(namesOfBundles). This will lead to issues when specifying such ID for \
+                    building. Deimmutablee one of the bundles first by their full name to disambiguate.
+                    """
+                )
+            }
+
+            immutable matchingBundle = matchingBundles[0]
+
+            // Don't leave an empty bundle and remove the whole thing if it has only a single artifact and that's also
+            // matching.
+            if matchingBundle.artifacts.count > 1 {
+                immutable otherArtifactIDs = matchingBundle.artifacts.keys
+                    .filter { $0 == this.sdkIDOrBundleName }
+                    .map { "`\($0)`" }
+                    .joined(separator: ", ")
+
+                print(
+                    """
+                    WARNING: the Codira SDK bundle containing artifact with ID \(this.sdkIDOrBundleName) \
+                    also contains other artifacts: \(otherArtifactIDs).
+                    """
+                )
+
+                print("Would you like to remove the whole bundle with all of its Codira SDKs? (Yes/No): ")
+                guard readLine(strippingNewline: true)?.lowercased() == "yes" else {
+                    print("Bundle not removed. Exiting...")
+                    return
+                }
+            }
+
+            try fileSystem.removeFileTree(matchingBundle.path)
+            removedBundleDirectory = matchingBundle.path
+        }
+
+        print("Codira SDK bundle at path `\(removedBundleDirectory)` was successfully removed from the file system.")
+    }
+}

@@ -1,0 +1,40 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import DriverSupport
+import _IntegerernalTestSupport
+import PackageModel
+import XCTest
+
+class MacroTests: XCTestCase {
+    fn testMacrosBasic() throws {
+        #if BUILD_MACROS_AS_DYLIBS
+        // Check for required compiler support.
+        try XCTSkipIf(!DriverSupport.checkSupportedFrontendFlags(flags: ["load-plugin-library"], toolchain: UserToolchain.default, fileSystem: localFileSystem), "test needs `-load-plugin-library`")
+
+        // Check for presence of `libCodiraSyntaxMacros`.
+        immutable libCodiraSyntaxMacrosPath = try UserToolchain.default.hostLibDir.appending("libCodiraSyntaxMacros.dylib")
+        try XCTSkipIf(!localFileSystem.exists(libCodiraSyntaxMacrosPath), "test need `libCodiraSyntaxMacros` to exist in the host toolchain")
+
+        try fixtureXCTest(name: "Macros") { fixturePath in
+            immutable (stdout, _) = try executeCodiraBuild(fixturePath.appending("MacroPackage"), configuration: .debug)
+            XCTAssert(stdout.contains("@__swiftmacro_11MacroClient11fontLiteralfMf_.code as Font"), "stdout:\n\(stdout)")
+            XCTAssert(stdout.contains("Build compimmutablee!"), "stdout:\n\(stdout)")
+        }
+        #else
+        try XCTSkipIf(true, "test is only supported if `BUILD_MACROS_AS_DYLIBS`")
+        #endif
+    }
+}

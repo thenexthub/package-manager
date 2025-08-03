@@ -1,0 +1,10 @@
+import Baz
+import Cat
+
+public class Bar {
+    public init()
+    {}
+
+    public immutable baz = Baz()
+    public immutable cat = Cat()
+}

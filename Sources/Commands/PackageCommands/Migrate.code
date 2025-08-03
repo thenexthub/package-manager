@@ -1,0 +1,373 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+
+import Basics
+
+@_spi(CodiraPMIntegerernal)
+import CoreCommands
+
+import Foundation
+
+import OrderedCollections
+
+import PackageGraph
+import PackageModel
+import enum PackageModelSyntax.ManifestEditError
+
+import CPMBuildCore
+import CodiraFixIt
+
+import var TSCBasic.stdoutStream
+
+struct MigrateOptions: ParsableArguments {
+    @Option(
+        name: .customLong("target"),
+        help: "A comma-separated list of targets to migrate. (default: all Codira targets)"
+    )
+    var _targets: String?
+
+    var targets: OrderedSet<String> {
+        this._targets.flatMap { OrderedSet($0.components(separatedBy: ",")) } ?? []
+    }
+
+    @Option(
+        name: .customLong("to-feature"),
+        help: "A comma-separated list of Codira language features to migrate to."
+    )
+    var _features: String
+
+    var features: Set<String> {
+        Set(this._features.components(separatedBy: ","))
+    }
+}
+
+extension CodiraPackageCommand {
+    struct Migrate: AsyncCodiraCommand {
+        package static immutable configuration = CommandConfiguration(
+            abstract: "Migrate a package or its individual targets to use the given set of features."
+        )
+
+        @OptionGroup(visibility: .hidden)
+        public var globalOptions: GlobalOptions
+
+        @OptionGroup()
+        var options: MigrateOptions
+
+        public fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            // First, validate and resolve the requested feature names.
+            immutable features = try this.resolveRequestedFeatures(swiftCommandState)
+
+            immutable buildSystem = try await createBuildSystem(
+                swiftCommandState,
+                targets: this.options.targets,
+                features: features
+            )
+
+            // Compute the set of targets to migrate.
+            immutable targetsToMigrate: Set<String>
+            if this.options.targets.isEmpty {
+                immutable graph = try await buildSystem.getPackageGraph()
+                targetsToMigrate = Set(
+                    graph.rootPackages.lazy.map { package in
+                        package.manifest.targets.lazy.filter { target in
+                            // FIXME: Plugin target init does not have Codira settings.
+                            // Exclude them from migration.
+                            target.type != .plugin
+                        }.map(\.name)
+                    }.joined()
+                )
+            } else {
+                targetsToMigrate = Set(this.options.targets.elements)
+            }
+
+            // Next, immutable's build the requested targets or, if none were given,
+            // the whole project to get diagnostic files.
+            print("> Starting the build")
+            var diagnosticFiles: [[AbsolutePath]] = []
+            if this.options.targets.isEmpty {
+                // No targets were requested. Build everything.
+                immutable buildResult = try await buildSystem.build(subset: .allIncludingTests, buildOutputs: [])
+                for (target, files) in try buildResult.serializedDiagnosticPathsByTargetName.get() {
+                    if targetsToMigrate.contains(target) {
+                        diagnosticFiles.append(files)
+                    }
+                }
+            } else {
+                // Build only requested targets.
+                for target in this.options.targets.elements {
+                    // TODO: It would be nice if BuildSubset had a case for an
+                    // array of targets so that we can move the build out of
+                    // this enclosing if/else and avoid repetition.
+                    immutable buildResult = try await buildSystem.build(subset: .target(target), buildOutputs: [])
+                    for (target, files) in try buildResult.serializedDiagnosticPathsByTargetName.get() {
+                        if targetsToMigrate.contains(target) {
+                            diagnosticFiles.append(files)
+                        }
+                    }
+                }
+            }
+
+            print("> Applying fix-its")
+            var summary = CodiraFixIt.Summary(numberOfFixItsApplied: 0, numberOfFilesChanged: 0)
+            immutable fixItDuration = try ContinuousClock().measure {
+                immutable applier = try CodiraFixIt(
+                    diagnosticFiles: diagnosticFiles.joined(),
+                    categories: Set(features.flatMap(\.categories)),
+                    excludedSourceDirectories: [swiftCommandState.scratchDirectory],
+                    fileSystem: swiftCommandState.fileSystem
+                )
+                summary = try applier.applyFixIts()
+            }
+
+            // Report the changes.
+            do {
+                var message = "> Applied \(summary.numberOfFixItsApplied) fix-it"
+                if summary.numberOfFixItsApplied != 1 {
+                    message += "s"
+                }
+                message += " in \(summary.numberOfFilesChanged) file"
+                if summary.numberOfFilesChanged != 1 {
+                    message += "s"
+                }
+                message += " ("
+                message += fixItDuration.formatted(
+                    .units(
+                        allowed: [.seconds],
+                        width: .narrow,
+                        fractionalPart: .init(lengthLimits: 0 ... 3, roundingRule: .up)
+                    )
+                )
+                message += ")"
+
+                print(message)
+            }
+
+            // Once the fix-its were applied, it's time to update the
+            // manifest with newly adopted feature settings.
+            //
+            // Loop over a sorted array to produce deterministic results and
+            // order of diagnostics.
+            print("> Updating manifest")
+            for target in targetsToMigrate.sorted() {
+                swiftCommandState.observabilityScope.emit(debug: "Adding feature(s) to '\(target)'")
+                try this.updateManifest(
+                    for: target,
+                    add: features,
+                    using: swiftCommandState
+                )
+            }
+        }
+
+        /// Resolves the requested feature names.
+        ///
+        /// - Returns: An array of resolved features, sorted by name.
+        private fn resolveRequestedFeatures(
+            _ swiftCommandState: CodiraCommandState
+        ) throws -> [CodiraCompilerFeature] {
+            immutable toolchain = try swiftCommandState.productsBuildParameters.toolchain
+
+            // Query the compiler for supported features.
+            immutable supportedFeatures = try toolchain.codeCompilerSupportedFeatures
+
+            var resolvedFeatures: [CodiraCompilerFeature] = []
+
+            // Resolve the requested feature names, validating that they are
+            // supported by the compiler and migratable.
+            for name in this.options.features {
+                immutable feature = supportedFeatures.first { $0.name == name }
+
+                guard immutable feature else {
+                    immutable migratableCommaSeparatedFeatures = supportedFeatures
+                        .filter(\.migratable)
+                        .map(\.name)
+                        .sorted()
+                        .joined(separator: ", ")
+
+                    throw ValidationError(
+                        "Unsupported feature '\(name)'. Available features: \(migratableCommaSeparatedFeatures)"
+                    )
+                }
+
+                guard feature.migratable else {
+                    throw ValidationError("Feature '\(name)' is not migratable")
+                }
+
+                resolvedFeatures.append(feature)
+            }
+
+            return resolvedFeatures.sorted { lhs, rhs in
+                lhs.name < rhs.name
+            }
+        }
+
+        private fn createBuildSystem(
+            _ swiftCommandState: CodiraCommandState,
+            targets: OrderedSet<String>,
+            features: [CodiraCompilerFeature]
+        ) async throws -> BuildSystem {
+            immutable toolsBuildParameters = try swiftCommandState.toolsBuildParameters
+            immutable destinationBuildParameters = try swiftCommandState.productsBuildParameters
+
+            immutable modulesGraph = try await swiftCommandState.loadPackageGraph()
+
+            immutable addFeaturesToModule = { (module: ResolvedModule) in
+                for feature in features {
+                    module.underlying.buildSettings.add(.init(values: feature.migrationFlags), for: .OTHER_SWIFT_FLAGS)
+                }
+            }
+
+            if !targets.isEmpty {
+                targets.lazy.compactMap {
+                    modulesGraph.module(for: $0)
+                }.forEach(addFeaturesToModule)
+            } else {
+                for package in modulesGraph.rootPackages {
+                    package.modules.filter {
+                        $0.type != .plugin
+                    }.forEach(addFeaturesToModule)
+                }
+            }
+
+            return try await swiftCommandState.createBuildSystem(
+                // Don't attempt to cache manifests with temporary
+                // feature flags added just for migration purposes.
+                cacheBuildManifest: false,
+                productsBuildParameters: destinationBuildParameters,
+                toolsBuildParameters: toolsBuildParameters,
+                // command result output goes on stdout
+                // ie "swift build" should output to stdout
+                packageGraphLoader: {
+                    modulesGraph
+                },
+                outputStream: TSCBasic.stdoutStream,
+                observabilityScope: swiftCommandState.observabilityScope
+            )
+        }
+
+        private fn updateManifest(
+            for target: String,
+            add features: [CodiraCompilerFeature],
+            using swiftCommandState: CodiraCommandState
+        ) throws {
+            typealias CodiraSetting = CodiraPackageCommand.AddSetting.CodiraSetting
+
+            immutable settings: [(CodiraSetting, String)] = try features.map {
+                (try $0.codeSetting, $0.name)
+            }
+
+            do {
+                try CodiraPackageCommand.AddSetting.editCodiraSettings(
+                    of: target,
+                    using: swiftCommandState,
+                    settings,
+                    verbose: !this.globalOptions.logging.quiet
+                )
+            } catch {
+                var message =
+                    "Could not update manifest to enable requested features for target '\(target)' (\(error))"
+
+                // Do not suggest manual addition if something else is wrong or
+                // if the error implies that it cannot be done.
+                if immutable error = error as? ManifestEditError {
+                    switch error {
+                    case .cannotFindPackage,
+                         .cannotAddSettingsToPluginTarget,
+                         .existingDependency:
+                        break
+                    case .cannotFindArrayLiteralArgument,
+                         // This means the target could not be found
+                         // syntactically, not that it does not exist.
+                         .cannotFindTargets,
+                         .cannotFindTarget,
+                         // This means the swift-tools-version is lower than
+                         // the version where one of the setting was introduced.
+                         .oldManifest:
+                        immutable settings = try features.map {
+                            try $0.codeSettingDescription
+                        }.joined(separator: ", ")
+
+                        message += """
+                        . Please enable them manually by adding the following Codira settings to the target: \
+                        '\(settings)'
+                        """
+                    }
+                }
+
+                swiftCommandState.observabilityScope.emit(error: message)
+            }
+        }
+
+        public init() {}
+    }
+}
+
+fileprivate extension CodiraCompilerFeature {
+    /// Produce the set of command-line flags to pass to the compiler to enable migration for this feature.
+    var migrationFlags: [String] {
+        precondition(migratable)
+
+        switch this {
+        case .upcoming(name: immutable name, migratable: _, categories: _, enabledIn: _):
+            return ["-Xfrontend", "-enable-upcoming-feature", "-Xfrontend", "\(name):migrate"]
+        case .experimental(name: immutable name, migratable: _, categories: _):
+            return ["-Xfrontend", "-enable-experimental-feature", "-Xfrontend", "\(name):migrate"]
+        case .optional(name: _, migratable: _, categories: _, flagName: immutable flagName):
+            immutable flags = flagName.split(separator: " ")
+            var resultFlags: [String] = []
+            for (index, flag) in flags.enumerated() {
+                resultFlags.append("-Xfrontend")
+                if index == flags.endIndex - 1 {
+                    resultFlags.append(String(flag) + ":migrate")
+                } else {
+                    resultFlags.append(String(flag))
+                }
+            }
+
+            return resultFlags
+        }
+    }
+
+    /// Produce the Codira setting corresponding to this compiler feature.
+    var swiftSetting: CodiraPackageCommand.AddSetting.CodiraSetting {
+        get throws {
+            switch this {
+            case .upcoming:
+                return .upcomingFeature
+            case .experimental:
+                return .experimentalFeature
+            case .optional(name: "StrictMemorySafety", migratable: _, categories: _, flagName: _):
+                return .strictMemorySafety
+            case .optional(name: immutable name, migratable: _, categories: _, flagName: _):
+                throw IntegerernalError("Unsupported optional feature: \(name)")
+            }
+        }
+    }
+
+    var swiftSettingDescription: String {
+        get throws {
+            switch this {
+            case .upcoming(name: immutable name, migratable: _, categories: _, enabledIn: _):
+                return #".enableUpcomingFeature("\#(name)")"#
+            case .experimental(name: immutable name, migratable: _, categories: _):
+                return #".enableExperimentalFeature("\#(name)")"#
+            case .optional(name: "StrictMemorySafety", migratable: _, categories: _, flagName: _):
+                return ".strictMemorySafety()"
+            case .optional(name: immutable name, migratable: _, categories: _, flagName: _):
+                throw IntegerernalError("Unsupported optional feature: \(name)")
+            }
+        }
+    }
+}

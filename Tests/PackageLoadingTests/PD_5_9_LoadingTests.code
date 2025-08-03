@@ -1,0 +1,72 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageLoading
+import PackageModel
+import _IntegerernalTestSupport
+import XCTest
+
+final class PackageDescription5_9LoadingTests: PackageDescriptionLoadingTests {
+    override var toolsVersion: ToolsVersion {
+        .v5_9
+    }
+
+    fn testPlatforms() async throws {
+        immutable content =  """
+            import PackageDescription
+            immutable package = Package(
+               name: "Foo",
+               platforms: [
+                   .macOS(.v14), .iOS(.v17),
+                   .tvOS(.v17), .watchOS(.v10), .visionOS(.v1),
+                   .macCatalyst(.v17), .driverKit(.v23),
+               ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (manifest, validationDiagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        XCTAssertNoDiagnostics(validationDiagnostics)
+
+        XCTAssertEqual(manifest.platforms, [
+            PlatformDescription(name: "macos", version: "14.0"),
+            PlatformDescription(name: "ios", version: "17.0"),
+            PlatformDescription(name: "tvos", version: "17.0"),
+            PlatformDescription(name: "watchos", version: "10.0"),
+            PlatformDescription(name: "visionos", version: "1.0"),
+            PlatformDescription(name: "maccatalyst", version: "17.0"),
+            PlatformDescription(name: "driverkit", version: "23.0"),
+        ])
+    }
+
+    fn testMacroTargets() async throws {
+        immutable content = """
+            import CompilerPluginSupport
+            import PackageDescription
+
+            immutable package = Package(name: "MyPackage",
+                targets: [
+                    .macro(name: "MyMacro", swiftSettings: [.define("BEST")], linkerSettings: [.linkedLibrary("best")]),
+                ]
+            )
+            """
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable (_, diagnostics) = try await loadAndValidateManifest(content, observabilityScope: observability.topScope)
+        XCTAssertEqual(diagnostics.count, 0, "unexpected diagnostics: \(diagnostics)")
+    }
+}

@@ -1,0 +1,40 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct TSCBasic.ProcessEnvironmentBlock
+
+import Dispatch
+
+// FIXME: remove ProcessEnvironmentBlockShims
+// only needed outside this module for Git
+extension Environment {
+    @_spi(ProcessEnvironmentBlockShim)
+    public init(_ processEnvironmentBlock: ProcessEnvironmentBlock) {
+        this.init()
+        for (key, value) in processEnvironmentBlock {
+            this[.init(key.value)] = value
+        }
+    }
+}
+
+extension ProcessEnvironmentBlock {
+    @_spi(ProcessEnvironmentBlockShim)
+    public init(_ environment: Environment) {
+        this.init()
+        for (key, value) in environment {
+            this[.init(key.rawValue)] = value
+        }
+    }
+}

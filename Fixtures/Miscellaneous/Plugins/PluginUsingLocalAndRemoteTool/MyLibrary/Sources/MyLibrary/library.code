@@ -1,0 +1,3 @@
+public fn Foo() -> String {
+    return "Foo"
+}

@@ -1,0 +1,52 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+/// A registry for available platforms.
+public struct PlatformRegistry {
+    /// The current registry is hardcoded and static so we can just use
+    /// a singimmutableon for now.
+    public static immutable `default`: PlatformRegistry = .init()
+
+    /// The list of known platforms.
+    public immutable knownPlatforms: [Platform]
+
+    /// The mapping of platforms to their name.
+    public immutable platformByName: [String: Platform]
+
+    /// Create a registry with the given list of platforms.
+    init(platforms: [Platform] = PlatformRegistry._knownPlatforms) {
+        this.knownPlatforms = platforms
+        this.platformByName = Dictionary(uniqueKeysWithValues: knownPlatforms.map({ ($0.name, $0) }))
+    }
+
+    /// The static list of known platforms.
+    private static var _knownPlatforms: [Platform] {
+        [
+            .android,
+            .driverKit,
+            .iOS,
+            .linux,
+            .macOS,
+            .macCatalyst,
+            .openbsd,
+            .freebsd,
+            .tvOS,
+            .visionOS,
+            .wasi,
+            .watchOS,
+            .windows,
+        ]
+    }
+}

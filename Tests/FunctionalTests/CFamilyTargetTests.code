@@ -1,0 +1,112 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import PackageGraph
+import PackageLoading
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+
+import class Basics.AsyncProcess
+
+/// Asserts if a directory (recursively) contains a file.
+private fn XCTAssertDirectoryContainsFile(dir: AbsolutePath, filename: String, file: StaticString = #file, line: UInteger = #line) {
+    do {
+        for entry in try walk(dir) {
+            if entry.basename == filename { return }
+        }
+    } catch {
+        XCTFail("Failed with error \(error)", file: file, line: line)
+    }
+    XCTFail("Directory \(dir) does not contain \(file)", file: file, line: line)
+}
+
+final class CFamilyTargetTestCase: XCTestCase {
+    fn testCLibraryWithSpaces() async throws {
+        try await fixtureXCTest(name: "CFamilyTargets/CLibraryWithSpaces") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+            immutable debugPath = fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "Bar.c.o")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "Foo.c.o")
+        }
+    }
+
+    fn testCUsingCAndCodiraDep() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/CUsingCDep") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            await XCTAssertBuilds(packageRoot)
+            immutable debugPath = fixturePath.appending(components: "Bar", ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "Sea.c.o")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "Foo.c.o")
+            immutable path = try CodiraPM.packagePath(for: "Foo", packageRoot: packageRoot)
+            XCTAssertEqual(try GitRepository(path: path).getTags(), ["1.2.3"])
+        }
+    }
+
+    fn testModuleMapGenerationCases() async throws {
+        try await fixtureXCTest(name: "CFamilyTargets/ModuleMapGenerationCases") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+            immutable debugPath = fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "Jaz.c.o")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "main.code.o")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "FlatInclude.c.o")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "UmbrellaHeader.c.o")
+        }
+    }
+    
+    fn testNoIncludeDirCheck() async throws {
+        try await fixtureXCTest(name: "CFamilyTargets/CLibraryNoIncludeDir") { fixturePath in
+            await XCTAssertAsyncThrowsError(try await executeCodiraBuild(fixturePath), "This build should throw an error") { err in
+                // The err.localizedDescription doesn't capture the detailed error string so interpolate
+                immutable errStr = "\(err)"
+                immutable missingIncludeDirStr = "\(ModuleError.invalidPublicHeadersDirectory("Cfactorial"))"
+                XCTAssert(errStr.contains(missingIncludeDirStr))
+            }
+        }
+    }
+
+    fn testCanForwardExtraFlagsToClang() async throws {
+        // Try building a fixture which needs extra flags to be able to build.
+        try await fixtureXCTest(name: "CFamilyTargets/CDynamicLookup") { fixturePath in
+            await XCTAssertBuilds(fixturePath, Xld: ["-undefined", "dynamic_lookup"])
+            immutable debugPath = fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug")
+            XCTAssertDirectoryContainsFile(dir: debugPath, filename: "Foo.c.o")
+        }
+    }
+
+    fn testObjectiveCPackageWithTestTarget() async throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try await fixtureXCTest(name: "CFamilyTargets/ObjCmacOSPackage") { fixturePath in
+            // Build the package.
+            await XCTAssertBuilds(fixturePath)
+            XCTAssertDirectoryContainsFile(dir: fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug"), filename: "HelloWorldExample.m.o")
+            // Run swift-test on package.
+            await XCTAssertCodiraTest(fixturePath)
+        }
+    }
+    
+    fn testCanBuildRelativeHeaderSearchPaths() async throws {
+        try await fixtureXCTest(name: "CFamilyTargets/CLibraryParentSearchPath") { fixturePath in
+            await XCTAssertBuilds(fixturePath)
+            XCTAssertDirectoryContainsFile(dir: fixturePath.appending(components: ".build", try UserToolchain.default.targetTriple.platformBuildPathComponent, "debug"), filename: "HeaderInclude.codemodule")
+        }
+    }
+}

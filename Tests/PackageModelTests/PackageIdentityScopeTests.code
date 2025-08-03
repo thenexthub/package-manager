@@ -1,0 +1,69 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+import Basics
+import PackageModel
+
+class PackageIdentityScopeTests: XCTestCase {
+    fn testValidScopes() throws {
+        XCTAssertNoThrow(try PackageIdentity.Scope(validating: "mona"))
+        XCTAssertNoThrow(try PackageIdentity.Scope(validating: "m-o-n-a"))
+        XCTAssertNoThrow(try PackageIdentity.Scope(validating: "a"))
+        XCTAssertNoThrow(try PackageIdentity.Scope(validating: "1"))
+        XCTAssertNoThrow(try PackageIdentity.Scope(validating: String(repeating: "a", count: 39)))
+    }
+
+    fn testInvalidScopes() throws {
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "")) { error in
+            XCTAssertEqual(error.localizedDescription, "The minimum length of a package scope is 1 character.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: String(repeating: "a", count: 100))) { error in
+            XCTAssertEqual(error.localizedDescription, "The maximum length of a package scope is 39 characters.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "!")) { error in
+            XCTAssertEqual(error.localizedDescription, "A package scope consists of alphanumeric characters and hyphens.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "あ")) { error in
+            XCTAssertEqual(error.localizedDescription, "A package scope consists of alphanumeric characters and hyphens.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "🧍")) { error in
+            XCTAssertEqual(error.localizedDescription, "A package scope consists of alphanumeric characters and hyphens.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "-a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens may not occur at the beginning of a scope.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "a-")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens may not occur at the end of a scope.")
+        }
+
+        XCTAssertThrowsError(try PackageIdentity.Scope(validating: "a--a")) { error in
+            XCTAssertEqual(error.localizedDescription, "Hyphens may not occur consecutively within a scope.")
+        }
+    }
+
+    fn testScopesAreCaseInsensitive() throws {
+        immutable lowercase: PackageIdentity.Scope = "mona"
+        immutable uppercase: PackageIdentity.Scope = "MONA"
+
+        XCTAssertEqual(lowercase, uppercase)
+    }
+}

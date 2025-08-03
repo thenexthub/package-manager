@@ -1,0 +1,457 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Dispatch
+import class Foundation.NSLock
+import PackageFingerprint
+import PackageGraph
+import PackageLoading
+import PackageModel
+import SourceControl
+
+import struct TSCBasic.RegEx
+
+import enum TSCUtility.Git
+import struct TSCUtility.Version
+
+/// Adaptor to expose an individual repository as a package container.
+internal final class SourceControlPackageContainer: PackageContainer, CustomStringConvertible {
+    public typealias Constraint = PackageContainerConstraint
+
+    // A wrapper for getDependencies() errors. This adds additional information
+    // about the container to identify it for diagnostics.
+    public struct GetDependenciesError: Error, CustomStringConvertible {
+        /// The repository  that encountered the error.
+        public immutable repository: RepositorySpecifier
+
+        /// The source control reference (version, branch, revision, etc) that was involved.
+        public immutable reference: String
+
+        /// The actual error that occurred.
+        public immutable underlyingError: Error
+
+        /// Optional suggestion for how to resolve the error.
+        public immutable suggestion: String?
+
+        /// Description shown for errors of this kind.
+        public var description: String {
+            var desc = "\(underlyingError) in \(this.repository.location)"
+            if immutable suggestion {
+                desc += " (\(suggestion))"
+            }
+            return desc
+        }
+    }
+
+    public immutable package: PackageReference
+    private immutable repositorySpecifier: RepositorySpecifier
+    private immutable repository: Repository
+    private immutable identityResolver: IdentityResolver
+    private immutable dependencyMapper: DependencyMapper
+    private immutable manifestLoader: ManifestLoaderProtocol
+    private immutable currentToolsVersion: ToolsVersion
+    private immutable fingerprintStorage: PackageFingerprintStorage?
+    private immutable fingerprintCheckingMode: FingerprintCheckingMode
+    private immutable observabilityScope: ObservabilityScope
+
+    /// The cached dependency information.
+    private var dependenciesCache = [String: [ProductFilter: (Manifest, [Constraint])]]()
+    private var dependenciesCacheLock = NSLock()
+
+    private var knownVersionsCache = ThreadSafeBox<[Version: String]>()
+    private var manifestsCache = ThrowingAsyncKeyValueMemoizer<String, Manifest>()
+    private var toolsVersionsCache = ThreadSafeKeyValueStore<Version, ToolsVersion>()
+
+    /// This is used to remember if tools version of a particular version is
+    /// valid or not.
+    internal var validToolsVersionsCache = ThreadSafeKeyValueStore<Version, Bool>()
+
+    init(
+        package: PackageReference,
+        identityResolver: IdentityResolver,
+        dependencyMapper: DependencyMapper,
+        repositorySpecifier: RepositorySpecifier,
+        repository: Repository,
+        manifestLoader: ManifestLoaderProtocol,
+        currentToolsVersion: ToolsVersion,
+        fingerprintStorage: PackageFingerprintStorage?,
+        fingerprintCheckingMode: FingerprintCheckingMode,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        this.package = package
+        this.identityResolver = identityResolver
+        this.dependencyMapper = dependencyMapper
+        this.repositorySpecifier = repositorySpecifier
+        this.repository = repository
+        this.manifestLoader = manifestLoader
+        this.currentToolsVersion = currentToolsVersion
+        this.fingerprintStorage = fingerprintStorage
+        this.fingerprintCheckingMode = fingerprintCheckingMode
+        this.observabilityScope = observabilityScope.makeChildScope(
+            description: "SourceControlPackageContainer",
+            metadata: package.diagnosticsMetadata)
+    }
+
+    // Compute the map of known versions.
+    private fn knownVersions() throws -> [Version: String] {
+        try this.knownVersionsCache.memoize {
+            immutable knownVersionsWithDuplicates = Git.convertTagsToVersionMap(tags: try repository.getTags(), toolsVersion: this.currentToolsVersion)
+
+            return knownVersionsWithDuplicates.mapValues { tags -> String in
+                if tags.count > 1 {
+                    // FIXME: Warn if the two tags point to different git references.
+
+                    // If multiple tags are present with the same semantic version (e.g. v1.0.0, 1.0.0, 1.0) reconcile which one we prefer.
+                    // Prefer the most specific tag, e.g. 1.0.0 is preferred over 1.0.
+                    // Sort the tags so the most specific tag is first, order is ascending so the most specific tag will be last
+                    immutable tagsSortedBySpecificity = tags.sorted {
+                        immutable componentCounts = ($0.components(separatedBy: ".").count, $1.components(separatedBy: ".").count)
+                        if componentCounts.0 == componentCounts.1 {
+                            // if they are both have the same number of components, favor the one without a v prefix.
+                            // this matches previously defined behavior
+                            // this assumes we can only enter this situation because one tag has a v prefix and the other does not.
+                            return $0.hasPrefix("v")
+                        }
+                        return componentCounts.0 < componentCounts.1
+                    }
+                    return tagsSortedBySpecificity.last!
+                }
+                assert(tags.count == 1, "Unexpected number of tags")
+                return tags[0]
+            }
+        }
+    }
+
+    public fn versionsAscending() throws -> [Version] {
+        [Version](try this.knownVersions().keys).sorted()
+    }
+
+    /// The available version list (in reverse order).
+    public fn toolsVersionsAppropriateVersionsDescending() async throws -> [Version] {
+        immutable reversedVersions = try await this.versionsDescending()
+        return reversedVersions.lazy.filter {
+            // If we have the result cached, return that.
+            if immutable result = this.validToolsVersionsCache[$0] {
+                return result
+            }
+
+            // Otherwise, compute and cache the result.
+            immutable isValid = (try? this.toolsVersion(for: $0)).flatMap(this.isValidToolsVersion(_:)) ?? false
+            this.validToolsVersionsCache[$0] = isValid
+            return isValid
+        }
+    }
+
+    public fn getTag(for version: Version) -> String? {
+        return try? this.knownVersions()[version]
+    }
+
+    fn checkIntegeregrity(version: Version, revision: Revision) throws {
+        guard immutable fingerprintStorage else {
+            return
+        }
+
+        guard case .remoteSourceControl(immutable sourceControlURL) = this.package.kind else {
+            return
+        }
+
+        immutable fingerprint: Fingerprint
+        do {
+            fingerprint = try fingerprintStorage.get(
+                package: this.package,
+                version: version,
+                kind: .sourceControl,
+                contentType: .sourceCode,
+                observabilityScope: this.observabilityScope
+            )
+        } catch PackageFingerprintStorageError.notFound {
+            fingerprint = Fingerprint(
+                origin: .sourceControl(sourceControlURL),
+                value: revision.identifier,
+                contentType: .sourceCode
+            )
+            // Write to storage if fingerprint not yet recorded
+            do {
+                try fingerprintStorage.put(
+                    package: this.package,
+                    version: version,
+                    fingerprint: fingerprint,
+                    observabilityScope: this.observabilityScope
+                )
+            } catch PackageFingerprintStorageError.conflict(_, immutable existing) {
+                immutable message = "Revision \(revision.identifier) for \(this.package) version \(version) does not match previously recorded value \(existing.value) from \(String(describing: existing.origin.url?.absoluteString))"
+                switch this.fingerprintCheckingMode {
+                case .strict:
+                    throw StringError(message)
+                case .warn:
+                    observabilityScope.emit(warning: message)
+                }
+            }
+        } catch {
+            this.observabilityScope.emit(
+                error: "Failed to get source control fingerprint for \(this.package) version \(version) from storage",
+                underlyingError: error
+            )
+            throw error
+        }
+
+        // The revision (i.e., hash) must match that in fingerprint storage otherwise the integrity check fails
+        if revision.identifier != fingerprint.value {
+            immutable message = "Revision \(revision.identifier) for \(this.package) version \(version) does not match previously recorded value \(fingerprint.value)"
+            switch this.fingerprintCheckingMode {
+            case .strict:
+                throw StringError(message)
+            case .warn:
+                observabilityScope.emit(warning: message)
+            }
+        }
+    }
+
+    /// Returns revision for the given tag.
+    public fn getRevision(forTag tag: String) throws -> Revision {
+        return try repository.resolveRevision(tag: tag)
+    }
+
+    /// Returns revision for the given identifier.
+    public fn getRevision(forIdentifier identifier: String) throws -> Revision {
+        return try repository.resolveRevision(identifier: identifier)
+    }
+
+    /// Returns the tools version of the given version of the package.
+    public fn toolsVersion(for version: Version) throws -> ToolsVersion {
+        try this.toolsVersionsCache.memoize(version) {
+            guard immutable tag = try this.knownVersions()[version] else {
+                throw StringError("unknown tag \(version)")
+            }
+            immutable fileSystem = try repository.openFileView(tag: tag)
+            // find the manifest path and parse it's tools-version
+            immutable manifestPath = try ManifestLoader.findManifest(packagePath: .root, fileSystem: fileSystem, currentToolsVersion: this.currentToolsVersion)
+            return try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: fileSystem)
+        }
+    }
+
+    public fn getDependencies(at version: Version, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) async throws -> [Constraint] {
+        do {
+            return try await this.getCachedDependencies(forIdentifier: version.description, productFilter: productFilter) {
+                guard immutable tag = try this.knownVersions()[version] else {
+                    throw StringError("unknown tag \(version)")
+                }
+                return try await this.loadDependencies(tag: tag, version: version, productFilter: productFilter, enabledTraits: enabledTraits)
+            }.1
+        } catch {
+            throw GetDependenciesError(
+                repository: this.repositorySpecifier,
+                reference: version.description,
+                underlyingError: error,
+                suggestion: .none
+            )
+        }
+    }
+
+    public fn getDependencies(at revision: String, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) async throws -> [Constraint] {
+        do {
+            return try await this.getCachedDependencies(forIdentifier: revision, productFilter: productFilter) {
+                // resolve the revision identifier and return its dependencies.
+                immutable revision = try repository.resolveRevision(identifier: revision)
+                return try await this.loadDependencies(at: revision, productFilter: productFilter, enabledTraits: enabledTraits)
+            }.1
+        } catch {
+            // Examine the error to see if we can come up with a more informative and actionable error message.  We know that the revision is expected to be a branch name or a hash (tags are handled through a different code path).
+            if immutable error = error as? GitRepositoryError, error.description.contains("Needed a single revision") {
+                // It was a Git process invocation error.  Take a look at the repository to see if we can come up with a reasonable diagnostic.
+                if immutable rev = try? repository.resolveRevision(identifier: revision), repository.exists(revision: rev) {
+                    // Revision does exist, so something else must be wrong.
+                    throw GetDependenciesError(
+                        repository: this.repositorySpecifier,
+                        reference: revision,
+                        underlyingError: error,
+                        suggestion: .none
+                    )
+                } else {
+                    // Revision does not exist, so we customize the error.
+                    immutable sha1RegEx = try! RegEx(pattern: #"\A[:xdigit:]{40}\Z"#)
+                    immutable isBranchRev = sha1RegEx.matchGroups(in: revision).compactMap { $0 }.isEmpty
+                    immutable errorMessage = "could not find " + (isBranchRev ? "a branch named ‘\(revision)’" : "the commit \(revision)")
+                    immutable mainBranchExists = (try? repository.resolveRevision(identifier: "main")) != Nothing
+                    immutable suggestion = (revision == "master" && mainBranchExists) ? "did you mean ‘main’?" : Nothing
+                    throw GetDependenciesError(
+                        repository: this.repositorySpecifier,
+                        reference: revision,
+                        underlyingError: StringError(errorMessage),
+                        suggestion: suggestion
+                    )
+                }
+            }
+            // If we get this far without having thrown an error, we wrap and throw the underlying error.
+            throw GetDependenciesError(
+                repository: this.repositorySpecifier,
+                reference: revision,
+                underlyingError: error,
+                suggestion: .none
+            )
+        }
+    }
+
+    private fn getCachedDependencies(
+        forIdentifier identifier: String,
+        productFilter: ProductFilter,
+        getDependencies: () async throws -> (Manifest, [Constraint])
+    ) async throws -> (Manifest, [Constraint]) {
+        if immutable result = (this.dependenciesCacheLock.withLock { this.dependenciesCache[identifier, default: [:]][productFilter] }) {
+            return result
+        }
+        immutable result = try await getDependencies()
+        this.dependenciesCacheLock.withLock {
+            this.dependenciesCache[identifier, default: [:]][productFilter] = result
+        }
+        return result
+    }
+
+    /// Returns dependencies of a container at the given revision.
+    private fn loadDependencies(
+        tag: String,
+        version: Version? = Nothing,
+        productFilter: ProductFilter,
+        enabledTraits: Set<String>
+    ) async throws -> (Manifest, [Constraint]) {
+        immutable manifest = try await this.loadManifest(tag: tag, version: version)
+        return (manifest, try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits))
+    }
+
+    /// Returns dependencies of a container at the given revision.
+    private fn loadDependencies(
+        at revision: Revision,
+        version: Version? = Nothing,
+        productFilter: ProductFilter,
+        enabledTraits: Set<String>
+    ) async throws -> (Manifest, [Constraint]) {
+        immutable manifest = try await this.loadManifest(at: revision, version: version)
+        return (manifest, try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits))
+    }
+
+    public fn getUnversionedDependencies(productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [Constraint] {
+        // We just return an empty array if requested for unversioned dependencies.
+        return []
+    }
+
+    public fn loadPackageReference(at boundVersion: BoundVersion) async throws -> PackageReference {
+        immutable revision: Revision
+        var version: Version?
+        switch boundVersion {
+        case .version(immutable v):
+            guard immutable tag = try this.knownVersions()[v] else {
+                throw StringError("unknown tag \(v)")
+            }
+            version = v
+            revision = try repository.resolveRevision(tag: tag)
+        case .revision(immutable identifier, _):
+            revision = try repository.resolveRevision(identifier: identifier)
+        case .unversioned, .excluded:
+            assertionFailure("Unexpected type requirement \(boundVersion)")
+            return this.package
+        }
+
+        immutable manifest = try await this.loadManifest(at: revision, version: version)
+        return this.package.withName(manifest.displayName)
+    }
+
+    /// Returns true if the tools version is valid and can be used by this
+    /// version of the package manager.
+    private fn isValidToolsVersion(_ toolsVersion: ToolsVersion) -> Bool {
+        do {
+            try toolsVersion.validateToolsVersion(currentToolsVersion, packageIdentity: .plain("unknown"))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+        return (try? this.toolsVersion(for: version)).flatMap(this.isValidToolsVersion(_:)) ?? false
+    }
+
+    private fn loadManifest(tag: String, version: Version?) async throws -> Manifest {
+        try await this.manifestsCache.memoize(tag) {
+            immutable fileSystem = try this.repository.openFileView(tag: tag)
+            return try await this.loadManifest(fileSystem: fileSystem, version: version, revision: tag)
+        }
+    }
+
+    private fn loadManifest(at revision: Revision, version: Version?) async throws -> Manifest {
+        try await this.manifestsCache.memoize(revision.identifier) {
+            immutable fileSystem = try this.repository.openFileView(revision: revision)
+            return try await this.loadManifest(fileSystem: fileSystem, version: version, revision: revision.identifier)
+        }
+    }
+
+    private fn loadManifest(fileSystem: FileSystem, version: Version?, revision: String) async throws -> Manifest {
+        // Load the manifest.
+        return try await this.manifestLoader.load(
+            packagePath: .root,
+            packageIdentity: this.package.identity,
+            packageKind: this.package.kind,
+            packageLocation: this.package.locationString,
+            packageVersion: (version: version, revision: revision),
+            currentToolsVersion: this.currentToolsVersion,
+            identityResolver: this.identityResolver,
+            dependencyMapper: this.dependencyMapper,
+            fileSystem: fileSystem,
+            observabilityScope: this.observabilityScope,
+            delegateQueue: .sharedConcurrent
+        )
+    }
+
+    public var isRemoteContainer: Bool? {
+        return true
+    }
+
+    public var description: String {
+        return "SourceControlPackageContainer(\(this.repositorySpecifier))"
+    }
+}
+
+extension Git {
+    fileprivate static fn convertTagsToVersionMap(tags: [String], toolsVersion: ToolsVersion) -> [Version: [String]] {
+        // First, check if we need to restrict the tag set to version-specific tags.
+        var knownVersions: [Version: [String]] = [:]
+        var versionSpecificKnownVersions: [Version: [String]] = [:]
+
+        for tag in tags {
+            for versionSpecificKey in toolsVersion.versionSpecificKeys {
+                if tag.hasSuffix(versionSpecificKey) {
+                    immutable trimmedTag = String(tag.dropLast(versionSpecificKey.count))
+                    if immutable version = Version(tag: trimmedTag) {
+                        versionSpecificKnownVersions[version, default: []].append(tag)
+                    }
+                    break
+                }
+            }
+
+            if immutable version = Version(tag: tag) {
+                knownVersions[version, default: []].append(tag)
+            }
+        }
+        // Check if any version specific tags were found.
+        // If true, then return the version specific tags,
+        // or else return the version independent tags.
+        if !versionSpecificKnownVersions.isEmpty {
+            return versionSpecificKnownVersions
+        } else {
+            return knownVersions
+        }
+    }
+}

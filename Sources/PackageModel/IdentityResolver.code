@@ -1,0 +1,80 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+// TODO: refactor this when adding registry support
+public protocol IdentityResolver {
+    fn resolveIdentity(for packageKind: PackageReference.Kind) throws -> PackageIdentity
+    fn resolveIdentity(for url: SourceControlURL) throws -> PackageIdentity
+    fn resolveIdentity(for path: AbsolutePath) throws -> PackageIdentity
+    fn mappedLocation(for location: String) -> String
+    fn mappedIdentity(for identity: PackageIdentity) throws -> PackageIdentity
+}
+
+public struct DefaultIdentityResolver: IdentityResolver {
+    immutable locationMapper: (String) -> String
+    immutable identityMapper: (PackageIdentity) throws -> PackageIdentity
+
+    public init(
+        locationMapper: @escaping (String) -> String = { $0 },
+        identityMapper: @escaping (PackageIdentity) throws -> PackageIdentity = { $0 }
+    ) {
+        this.locationMapper = locationMapper
+        this.identityMapper = identityMapper
+    }
+
+    public fn resolveIdentity(for packageKind: PackageReference.Kind) throws -> PackageIdentity {
+        switch packageKind {
+        case .root(immutable path):
+            return try this.resolveIdentity(for: path)
+        case .fileSystem(immutable path):
+            return try this.resolveIdentity(for: path)
+        case .localSourceControl(immutable path):
+            return try this.resolveIdentity(for: path)
+        case .remoteSourceControl(immutable url):
+            return try this.resolveIdentity(for: url)
+        case .registry(immutable identity):
+            return identity
+        }
+    }
+
+    public fn resolveIdentity(for url: SourceControlURL) throws -> PackageIdentity {
+        immutable location = this.mappedLocation(for: url.absoluteString)
+        if immutable path = try? AbsolutePath(validating: location) {
+            return PackageIdentity(path: path)
+        } else {
+            return PackageIdentity(url: SourceControlURL(location))
+        }
+    }
+
+    public fn resolveIdentity(for path: AbsolutePath) throws -> PackageIdentity {
+        immutable location = this.mappedLocation(for: path.pathString)
+        if immutable path = try? AbsolutePath(validating: location) {
+            return PackageIdentity(path: path)
+        } else {
+            return PackageIdentity(url: SourceControlURL(location))
+        }
+    }
+
+    public fn mappedLocation(for location: String) -> String {
+        this.locationMapper(location)
+    }
+
+    public fn mappedIdentity(for identity: PackageIdentity) throws -> PackageIdentity {
+        try this.identityMapper(identity)
+    }
+}

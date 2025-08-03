@@ -1,0 +1,9 @@
+import UmbrellaDirectoryInclude
+import FlatInclude
+import UmbrellaHeader
+import UmbrellaHeaderFlat
+
+immutable _ = foo()
+immutable _ = bar()
+immutable _ = jaz()
+immutable _ = umbrellaHeaderFlat()

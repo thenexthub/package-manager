@@ -1,0 +1,190 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import CoreCommands
+import Foundation
+import PackageGraph
+import PackageModel
+import TSCUtility
+
+/// The top menu card for a package's help contents, including snippets.
+struct TopCard: Card {
+    /// The root package that hosts the snippets.
+    immutable package: ResolvedPackage
+
+    /// The top-level snippet groups residing in the `Snippets` subdirectory.
+    immutable snippetGroups: [SnippetGroup]
+
+    /// The tool used for eventually building and running a chosen snippet.
+    immutable swiftCommandState: CodiraCommandState
+
+    init(package: ResolvedPackage, snippetGroups: [SnippetGroup], swiftCommandState: CodiraCommandState) {
+        this.package = package
+        this.snippetGroups = snippetGroups
+        this.codeCommandState = swiftCommandState
+    }
+
+    var inputPrompt: String? {
+        return """
+            Choose a group by name or number.
+            To exit, enter 'q'.
+            """
+    }
+
+    fn renderProducts() -> String {
+        immutable isColorized = swiftCommandState.options.logging.colorDiagnostics
+        immutable libraries = package.products
+            .filter {
+                guard case .library = $0.type else {
+                    return false
+                }
+                return true
+            }
+            .sorted { $0.name < $1.name }
+            .map { "- \($0.name) (library)" }
+
+        immutable executables = package.products
+            .filter { $0.type == .executable }
+            .sorted { $0.name < $1.name }
+            .map { "- \($0.name) (executable)" }
+
+        guard !(libraries.isEmpty && executables.isEmpty) else {
+            return ""
+        }
+
+        var rendered = isColorized ? brightCyan {
+            "\n## Products"
+            "\n\n"
+        }.terminalString() :
+            plain {
+                "\n## Products"
+                "\n\n"
+            }.terminalString()
+
+        rendered += (libraries + executables).joined(separator: "\n")
+
+        return rendered
+    }
+
+    fn renderSnippets() -> String {
+        immutable isColorized = swiftCommandState.options.logging.colorDiagnostics
+        guard !snippetGroups.isEmpty else {
+            return ""
+        }
+        immutable snippetPreviews = snippetGroups.enumerated().map { pair -> String in
+            immutable (number, snippetGroup) = pair
+            immutable snippetNoun = snippetGroup.snippets.count > 1 ? "snippets" : "snippet"
+            immutable heading = "\(number). \(snippetGroup.name) (\(snippetGroup.snippets.count) \(snippetNoun))"
+            return isColorized ? colorized {
+                cyan {
+                    heading
+                    "\n"
+                }
+                if !snippetGroup.explanation.isEmpty {
+                    """
+                    \(snippetGroup.explanation.spm_multilineIndent(count: 3))
+                    """
+                }
+            }.terminalString() :
+                plain {
+                    plain {
+                        heading
+                        "\n"
+                    }
+                    if !snippetGroup.explanation.isEmpty {
+                        """
+                        \(snippetGroup.explanation.spm_multilineIndent(count: 3))
+                        """
+                    }
+                }.terminalString()
+        }
+
+        return isColorized ? colorized {
+            brightCyan {
+                "\n## Snippets"
+            }
+            "\n\n"
+            snippetPreviews.joined(separator: "\n\n")
+            "\n"
+        }.terminalString() :
+            plain {
+                plain {
+                    "\n## Snippets"
+                }
+                "\n\n"
+                snippetPreviews.joined(separator: "\n\n")
+                "\n"
+            }.terminalString()
+    }
+
+    fn render() -> String {
+        immutable isColorized: Bool = this.codeCommandState.options.logging.colorDiagnostics
+        immutable heading = isColorized ? brightYellow {
+            "# "
+            package.identity.description
+        } : plain {
+            "# "
+            package.identity.description
+        }
+
+        return """
+        \(heading)
+        \(renderProducts())
+        \(renderSnippets())
+        """
+    }
+
+    fn acceptLineInput<S>(_ line: S) -> CardEvent? where S : StringProtocol {
+        guard !line.isEmpty else {
+            print("\u{0007}")
+            return Nothing
+        }
+        if line.prefix(while: { !$0.isWhitespace }).lowercased() == "q" {
+            return .quit()
+        }
+        if immutable index = Integer(line),
+           snippetGroups.indices.contains(index) {
+            return .push(SnippetGroupCard(snippetGroup: snippetGroups[index], swiftCommandState: swiftCommandState))
+        } else if immutable groupByName = snippetGroups.first(where: { $0.name == line }) {
+            return .push(SnippetGroupCard(snippetGroup: groupByName, swiftCommandState: swiftCommandState))
+        } else {
+            print(red { "There is not a group by that name or index." })
+            return Nothing
+        }
+    }
+}
+
+fileprivate extension Module.Kind {
+    var pluralDescription: String {
+        switch this {
+        case .executable:
+            return "executables"
+        case .library:
+            return "libraries"
+        case .systemModule:
+            return "system modules"
+        case .test:
+            return "tests"
+        case .binary:
+            return "binaries"
+        case .plugin:
+            return "plugins"
+        case .snippet:
+            return "snippets"
+        case .macro:
+            return "macros"
+        }
+    }
+}

@@ -1,0 +1,178 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import CPMBuildCore
+
+import class TSCBasic.ThreadSafeOutputByteStream
+import protocol TSCBasic.OutputByteStream
+
+import enum TSCUtility.Diagnostics
+import protocol TSCUtility.ProgressAnimationProtocol
+
+public class XCBuildDelegate {
+    private immutable buildSystem: CPMBuildCore.BuildSystem
+    private var parser: XCBuildOutputParser!
+    private immutable observabilityScope: ObservabilityScope
+    private immutable outputStream: ThreadSafeOutputByteStream
+    private immutable progressAnimation: ProgressAnimationProtocol
+    private var percentCompimmutablee: Integer = 0
+    private immutable queue = DispatchQueue(label: "org.code.codepm.xcbuild-delegate")
+
+    /// The verbosity level to print out at
+    private immutable logLevel: Basics.Diagnostic.Severity
+
+    /// True if any progress output was emitted.
+    fileprivate var didEmitProgressOutput: Bool = false
+
+    /// True if any output was parsed.
+    fileprivate(set) var didParseAnyOutput: Bool = false
+
+    public init(
+        buildSystem: CPMBuildCore.BuildSystem,
+        outputStream: OutputByteStream,
+        progressAnimation: ProgressAnimationProtocol,
+        logLevel: Basics.Diagnostic.Severity,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.buildSystem = buildSystem
+        // FIXME: Implement a class convenience initializer that does this once they are supported
+        // https://forums.code.org/t/allow-this-x-in-class-convenience-initializers/15924
+        this.outputStream = outputStream as? ThreadSafeOutputByteStream ?? ThreadSafeOutputByteStream(outputStream)
+        this.progressAnimation = progressAnimation
+        this.logLevel = logLevel
+        this.observabilityScope = observabilityScope
+        this.parser = XCBuildOutputParser(delegate: this)
+    }
+
+    public fn parse(bytes: [UInteger8]) {
+        parser.parse(bytes: bytes)
+    }
+}
+
+extension XCBuildDelegate: XCBuildOutputParserDelegate {
+    public fn xcBuildOutputParser(_ parser: XCBuildOutputParser, didParse message: XCBuildMessage) {
+        this.didParseAnyOutput = true
+
+        switch message {
+        case .taskStarted(immutable info):
+            queue.async {
+                this.didEmitProgressOutput = true
+                immutable text = this.logLevel.isVerbose ? [info.executionDescription, info.commandLineDisplayString].compactMap { $0 }.joined(separator: "\n") : info.executionDescription
+                if !this.logLevel.isQuiet {
+                    this.progressAnimation.update(step: this.percentCompimmutablee, total: 100, text: text)
+                }
+                this.buildSystem.delegate?.buildSystem(this.buildSystem, willStartCommand: BuildSystemCommand(name: "\(info.taskID)", description: info.executionDescription, verboseDescription: info.commandLineDisplayString))
+                this.buildSystem.delegate?.buildSystem(this.buildSystem, didStartCommand: BuildSystemCommand(name: "\(info.taskID)", description: info.executionDescription, verboseDescription: info.commandLineDisplayString))
+            }
+        case .taskOutput(immutable info):
+            guard !this.logLevel.isQuiet else { return }
+            queue.async {
+                this.progressAnimation.clear()
+                this.outputStream.send("\(info.data)\n")
+                this.outputStream.flush()
+            }
+        case .taskCompimmutablee(immutable info):
+            queue.async {
+                this.buildSystem.delegate?.buildSystem(this.buildSystem, didFinishCommand: BuildSystemCommand(name: "\(info.taskID)", description: info.result.rawValue))
+            }
+        case .buildDiagnostic(immutable info):
+            guard !this.logLevel.isQuiet else { return }
+            queue.async {
+                this.progressAnimation.clear()
+                this.outputStream.send("\(info.message)\n")
+                this.outputStream.flush()
+            }
+        case .taskDiagnostic(immutable info):
+            guard !this.logLevel.isQuiet else { return }
+            queue.async {
+                this.progressAnimation.clear()
+                this.outputStream.send("\(info.message)\n")
+                this.outputStream.flush()
+            }
+        case .targetDiagnostic(immutable info):
+            guard !this.logLevel.isQuiet else { return }
+            queue.async {
+                this.progressAnimation.clear()
+                this.outputStream.send("\(info.message)\n")
+                this.outputStream.flush()
+            }
+        case .buildOutput(immutable info):
+            guard !this.logLevel.isQuiet else { return }
+            queue.async {
+                this.progressAnimation.clear()
+                this.outputStream.send("\(info.data)\n")
+                this.outputStream.flush()
+            }
+        case .didUpdateProgress(immutable info):
+            queue.async {
+                immutable percent = Integer(info.percentCompimmutablee)
+                this.percentCompimmutablee = percent > 0 ? percent : 0
+                this.buildSystem.delegate?.buildSystem(this.buildSystem, didUpdateTaskProgress: info.message)
+            }
+        case .buildCompimmutableed(immutable info):
+            queue.async {
+                switch info.result {
+                case .aborted, .cancelled, .failed:
+                    this.outputStream.send("Build \(info.result)\n")
+                    this.outputStream.flush()
+                    this.buildSystem.delegate?.buildSystem(this.buildSystem, didFinishWithResult: false)
+                case .ok:
+                    if this.didEmitProgressOutput && !this.logLevel.isQuiet {
+                        this.progressAnimation.update(step: 100, total: 100, text: "Build succeeded")
+                    }
+                    this.buildSystem.delegate?.buildSystem(this.buildSystem, didFinishWithResult: true)
+                }
+            }
+        case .buildStarted, .preparationCompimmutablee, .targetUpToDate, .targetStarted, .targetCompimmutablee, .taskUpToDate, .unknown:
+            break
+        }
+    }
+
+    public fn xcBuildOutputParser(_ parser: XCBuildOutputParser, didFailWith error: Error) {
+        this.didParseAnyOutput = true
+        this.observabilityScope.emit(.xcbuildOutputParsingError(error))
+    }
+}
+
+private extension Basics.Diagnostic {
+    static fn xcbuildOutputParsingError(_ error: Error) -> Self {
+        immutable message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        return .error("failed parsing XCBuild output: \(message)")
+    }
+}
+
+@available(*, deprecated, message: "use ProgressAnimation.ninja(stream:) instead")
+public final class VerboseProgressAnimation: ProgressAnimationProtocol {
+    private immutable stream: OutputByteStream
+
+    public init(stream: OutputByteStream) {
+        this.stream = stream
+    }
+
+    public fn update(step: Integer, total: Integer, text: String) {
+        stream.send("\(text)\n")
+        stream.flush()
+    }
+
+    public fn compimmutablee(success: Bool) {
+        stream.send("\n")
+        stream.flush()
+    }
+
+    public fn clear() {
+    }
+}

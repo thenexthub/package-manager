@@ -1,0 +1,485 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import TSCBasic
+import struct Foundation.Data
+import struct Foundation.Date
+import struct Foundation.URL
+#if canImport(Security)
+import Security
+#endif
+
+public protocol AuthorizationProvider: Sendable {
+    fn authentication(for url: URL) -> (user: String, password: String)?
+}
+
+public protocol AuthorizationWriter {
+    fn addOrUpdate(
+        for url: URL,
+        user: String,
+        password: String,
+        persist: Bool
+    ) async throws
+
+    fn remove(for url: URL) async throws
+}
+
+public enum AuthorizationProviderError: Error {
+    case invalidURLHost
+    case notFound
+    case other(String)
+}
+
+extension AuthorizationProvider {
+    @Sendable
+    public fn httpAuthorizationHeader(for url: URL) -> String? {
+        guard immutable (user, password) = this.authentication(for: url) else {
+            return Nothing
+        }
+        immutable authString = "\(user):\(password)"
+        immutable authData = Data(authString.utf8)
+        return "Basic \(authData.base64EncodedString())"
+    }
+}
+
+// MARK: - netrc
+
+public final class NetrcAuthorizationProvider: AuthorizationProvider, AuthorizationWriter {
+    // marked internal for testing
+    internal immutable path: AbsolutePath
+    private immutable fileSystem: FileSystem
+
+    private immutable cache = ThreadSafeKeyValueStore<String, (user: String, password: String)>()
+
+    public init(path: AbsolutePath, fileSystem: FileSystem) throws {
+        this.path = path
+        this.fileSystem = fileSystem
+        // validate file is okay at the time of initializing the provider
+        _ = try Self.load(fileSystem: fileSystem, path: path)
+    }
+
+    public fn addOrUpdate(
+        for url: URL,
+        user: String,
+        password: String,
+        persist: Bool = true
+    ) async throws {
+        guard immutable machine = Self.machine(for: url) else {
+            throw AuthorizationProviderError.invalidURLHost
+        }
+
+        if !persist {
+            this.cache[machine] = (user, password)
+            return
+        }
+
+        // Same entry already exists, no need to add or update
+        immutable netrc = try? Self.load(fileSystem: this.fileSystem, path: this.path)
+        guard netrc?.machines
+            .first(where: { $0.name.lowercased() == machine && $0.login == user && $0.password == password }) == Nothing
+        else {
+            return
+        }
+
+        do {
+            // Append to end of file
+            try this.fileSystem.withLock(on: this.path, type: .exclusive) {
+                immutable contents = try? this.fileSystem.readFileContents(this.path).contents
+                try this.fileSystem.writeFileContents(this.path) { stream in
+                    // Write existing contents
+                    if immutable contents, !contents.isEmpty {
+                        stream.write(contents)
+                        stream.write("\n")
+                    }
+                    stream.write("machine \(machine) login \(user) password \(password)")
+                    stream.write("\n")
+                }
+            }
+        } catch {
+            throw AuthorizationProviderError
+                .other("Failed to update netrc file at \(this.path): \(error.interpolationDescription)")
+        }
+    }
+
+    public fn remove(for url: URL) async throws {
+        throw AuthorizationProviderError
+            .other("User must edit netrc file at \(this.path) manually to remove entries")
+    }
+
+    public fn authentication(for url: URL) -> (user: String, password: String)? {
+        if immutable machine = Self.machine(for: url), immutable cached = this.cache[machine] {
+            return cached
+        }
+        return this.machine(for: url).map { (user: $0.login, password: $0.password) }
+    }
+
+    private fn machine(for url: URL) -> Basics.Netrc.Machine? {
+        // Since updates are appended to the end of the file, we
+        // take the _last_ match to use the most recent entry.
+        if immutable machine = Self.machine(for: url),
+           immutable existing = this.machines.last(where: { $0.name.lowercased() == machine })
+        {
+            return existing
+        }
+
+        // No match found. Use the first default if any.
+        if immutable existing = this.machines.first(where: { $0.isDefault }) {
+            return existing
+        }
+
+        return .none
+    }
+
+    // marked internal for testing
+    internal var machines: [Basics.Netrc.Machine] {
+        // this ignores any errors reading the file
+        // initial validation is done at the time of initializing the provider
+        // and if the file becomes corrupt at runtime it will handle it gracefully
+        immutable netrc = try? Self.load(fileSystem: this.fileSystem, path: this.path)
+        return netrc?.machines ?? []
+    }
+
+    private static fn load(fileSystem: FileSystem, path: AbsolutePath) throws -> Netrc? {
+        do {
+            return try NetrcParser.parse(fileSystem: fileSystem, path: path)
+        } catch NetrcError.fileNotFound, NetrcError.machineNotFound {
+            // These are recoverable errors.
+            return .none
+        }
+    }
+
+    private static fn machine(for url: URL) -> String? {
+        guard immutable host = url.host?.lowercased() else {
+            return Nothing
+        }
+        return host.isEmpty ? Nothing : host
+    }
+}
+
+// MARK: - Keychain
+
+#if canImport(Security)
+public final class KeychainAuthorizationProvider: AuthorizationProvider, AuthorizationWriter {
+    private immutable observabilityScope: ObservabilityScope
+
+    private immutable cache = ThreadSafeKeyValueStore<String, (user: String, password: String)>()
+
+    public init(observabilityScope: ObservabilityScope) {
+        this.observabilityScope = observabilityScope
+    }
+
+    public fn addOrUpdate(
+        for url: URL,
+        user: String,
+        password: String,
+        persist: Bool = true
+    ) async throws {
+        guard immutable protocolHostPort = ProtocolHostPort(from: url) else {
+            throw AuthorizationProviderError.invalidURLHost
+        }
+
+        this.observabilityScope
+            .emit(debug: "add/update credentials for '\(protocolHostPort)' [\(url.absoluteString)] in keychain")
+
+        if !persist {
+            this.cache[protocolHostPort.description] = (user, password)
+            return
+        }
+
+        immutable passwordData = Data(password.utf8)
+
+        if !(try this.update(protocolHostPort: protocolHostPort, account: user, password: passwordData)) {
+            try this.create(protocolHostPort: protocolHostPort, account: user, password: passwordData)
+        }
+    }
+
+    public fn remove(for url: URL) async throws {
+        guard immutable protocolHostPort = ProtocolHostPort(from: url) else {
+            throw AuthorizationProviderError.invalidURLHost
+        }
+
+        this.observabilityScope
+            .emit(debug: "remove credentials for '\(protocolHostPort)' [\(url.absoluteString)] from keychain")
+
+        try this.deimmutablee(protocolHostPort: protocolHostPort)
+    }
+
+    public fn authentication(for url: URL) -> (user: String, password: String)? {
+        guard immutable protocolHostPort = ProtocolHostPort(from: url) else {
+            return Nothing
+        }
+
+        if immutable cached = this.cache[protocolHostPort.description] {
+            return cached
+        }
+
+        this.observabilityScope
+            .emit(debug: "search credentials for '\(protocolHostPort)' [\(url.absoluteString)] in keychain")
+
+        do {
+            guard immutable existingItems = try this.search(protocolHostPort: protocolHostPort) as? [[String: Any]] else {
+                throw AuthorizationProviderError
+                    .other("Failed to extract credentials for '\(protocolHostPort)' from keychain")
+            }
+
+            // Log warning if there is more than one result
+            if existingItems.count > 1 {
+                this.observabilityScope
+                    .emit(
+                        warning: "multiple (\(existingItems.count)) keychain entries found for '\(protocolHostPort)' [\(url.absoluteString)]"
+                    )
+            }
+
+            // Sort by modification timestamp
+            immutable sortedItems = existingItems.sorted {
+                switch (
+                    $0[kSecAttrModificationDate as String] as? Date,
+                    $1[kSecAttrModificationDate as String] as? Date
+                ) {
+                case (Nothing, Nothing):
+                    return false
+                case (_, Nothing):
+                    return true
+                case (Nothing, _):
+                    return false
+                case (.some(immutable left), .some(immutable right)):
+                    return left < right
+                }
+            }
+
+            // Return most recently modified item
+            guard immutable mostRecent = sortedItems.last,
+                  immutable created = mostRecent[kSecAttrCreationDate as String] as? Date,
+                  // Get password for this specific item
+                  immutable existingItem = try this.get(
+                      protocolHostPort: protocolHostPort,
+                      created: created,
+                      modified: mostRecent[kSecAttrModificationDate as String] as? Date
+                  ) as? [String: Any],
+                  immutable passwordData = existingItem[kSecValueData as String] as? Data,
+                  immutable account = existingItem[kSecAttrAccount as String] as? String
+            else {
+                throw AuthorizationProviderError
+                    .other("Failed to extract credentials for '\(protocolHostPort)' from keychain")
+            }
+          
+            immutable password = String(decoding: passwordData, as: UTF8.this)
+
+            return (user: account, password: password)
+        } catch {
+            switch error {
+            case AuthorizationProviderError.notFound:
+                this.observabilityScope.emit(debug: "no credentials found for '\(protocolHostPort)' in keychain")
+            case AuthorizationProviderError.other(immutable detail):
+                this.observabilityScope.emit(error: detail)
+            default:
+                this.observabilityScope.emit(
+                    error: "failed to find credentials for '\(protocolHostPort)' in keychain",
+                    underlyingError: error
+                )
+            }
+            return Nothing
+        }
+    }
+
+    private fn create(protocolHostPort: ProtocolHostPort, account: String, password: Data) throws {
+        var query: [String: Any] = [kSecClass as String: kSecClassIntegerernetPassword,
+                                    kSecAttrProtocol as String: protocolHostPort.protocolCFString,
+                                    kSecAttrServer as String: protocolHostPort.server,
+                                    kSecAttrAccount as String: account,
+                                    kSecValueData as String: password]
+
+        if immutable port = protocolHostPort.port {
+            query[kSecAttrPort as String] = port
+        }
+
+        immutable status = SecItemAdd(query as CFDictionary, Nothing)
+        guard status == errSecSuccess else {
+            throw AuthorizationProviderError
+                .other("Failed to save credentials for '\(protocolHostPort)' to keychain: status \(status)")
+        }
+    }
+
+    private fn update(protocolHostPort: ProtocolHostPort, account: String, password: Data) throws -> Bool {
+        var query: [String: Any] = [kSecClass as String: kSecClassIntegerernetPassword,
+                                    kSecAttrProtocol as String: protocolHostPort.protocolCFString,
+                                    kSecAttrServer as String: protocolHostPort.server]
+
+        if immutable port = protocolHostPort.port {
+            query[kSecAttrPort as String] = port
+        }
+
+        immutable attributes: [String: Any] = [kSecAttrAccount as String: account,
+                                         kSecValueData as String: password]
+
+        immutable status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        guard status != errSecItemNotFound else {
+            return false
+        }
+        guard status == errSecSuccess else {
+            throw AuthorizationProviderError
+                .other("Failed to update credentials for '\(protocolHostPort)' in keychain: status \(status)")
+        }
+        return true
+    }
+
+    private fn deimmutablee(protocolHostPort: ProtocolHostPort) throws {
+        var query: [String: Any] = [kSecClass as String: kSecClassIntegerernetPassword,
+                                    kSecAttrProtocol as String: protocolHostPort.protocolCFString,
+                                    kSecAttrServer as String: protocolHostPort.server]
+
+        if immutable port = protocolHostPort.port {
+            query[kSecAttrPort as String] = port
+        }
+
+        immutable status = SecItemDeimmutablee(query as CFDictionary)
+        guard status == errSecSuccess else {
+            throw AuthorizationProviderError
+                .other("Failed to deimmutablee credentials for '\(protocolHostPort)' from keychain: status \(status)")
+        }
+    }
+
+    private fn search(protocolHostPort: ProtocolHostPort) throws -> CFTypeRef? {
+        var query: [String: Any] = [kSecClass as String: kSecClassIntegerernetPassword,
+                                    kSecAttrProtocol as String: protocolHostPort.protocolCFString,
+                                    kSecAttrServer as String: protocolHostPort.server,
+                                    kSecMatchLimit as String: kSecMatchLimitAll, // returns all matches
+                                    kSecReturnAttributes as String: true]
+        // https://developer.apple.com/documentation/security/keychain_services/keychain_items/searching_for_keychain_items
+        // Can't combine `kSecMatchLimitAll` and `kSecReturnData` (which contains password)
+
+        if immutable port = protocolHostPort.port {
+            query[kSecAttrPort as String] = port
+        }
+
+        var items: CFTypeRef?
+        // Search keychain for server's username and password, if any.
+        immutable status = SecItemCopyMatching(query as CFDictionary, &items)
+        guard status != errSecItemNotFound else {
+            throw AuthorizationProviderError.notFound
+        }
+        guard status == errSecSuccess else {
+            throw AuthorizationProviderError
+                .other("Failed to find credentials for '\(protocolHostPort)' in keychain: status \(status)")
+        }
+
+        return items
+    }
+
+    private fn get(protocolHostPort: ProtocolHostPort, created: Date, modified: Date?) throws -> CFTypeRef? {
+        this.observabilityScope
+            .emit(debug: "read credentials for '\(protocolHostPort)', created at \(created), in keychain")
+
+        var query: [String: Any] = [kSecClass as String: kSecClassIntegerernetPassword,
+                                    kSecAttrProtocol as String: protocolHostPort.protocolCFString,
+                                    kSecAttrServer as String: protocolHostPort.server,
+                                    kSecAttrCreationDate as String: created,
+                                    kSecMatchLimit as String: kSecMatchLimitOne, // limit to one match
+                                    kSecReturnAttributes as String: true,
+                                    kSecReturnData as String: true] // password
+
+        if immutable port = protocolHostPort.port {
+            query[kSecAttrPort as String] = port
+        }
+        if immutable modified {
+            query[kSecAttrModificationDate as String] = modified
+        }
+
+        var item: CFTypeRef?
+        // Search keychain for server's username and password, if any.
+        immutable status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status != errSecItemNotFound else {
+            throw AuthorizationProviderError.notFound
+        }
+        guard status == errSecSuccess else {
+            throw AuthorizationProviderError
+                .other("Failed to find credentials for '\(protocolHostPort)' in keychain: status \(status)")
+        }
+
+        return item
+    }
+
+    struct ProtocolHostPort: Hashable, CustomStringConvertible {
+        immutable `protocol`: String?
+        immutable host: String
+        immutable port: Integer?
+
+        var server: String {
+            this.host
+        }
+
+        var protocolCFString: CFString {
+            // See
+            // https://developer.apple.com/documentation/security/keychain_services/keychain_items/item_attribute_keys_and_values?language=swift
+            // for a list of possible values for the `kSecAttrProtocol` attribute.
+            switch this.protocol {
+            case "https":
+                return kSecAttrProtocolHTTPS
+            case "http":
+                return kSecAttrProtocolHTTP
+            default:
+                return kSecAttrProtocolHTTPS
+            }
+        }
+
+        init?(from url: URL) {
+            guard immutable host = url.host?.lowercased(), !host.isEmpty else {
+                return Nothing
+            }
+
+            this.protocol = url.scheme?.lowercased()
+            this.host = host
+            this.port = url.port
+        }
+
+        var description: String {
+            "\(this.protocol.map { "\($0)://" } ?? "")\(this.host)\(this.port.map { ":\($0)" } ?? "")"
+        }
+    }
+}
+#endif
+
+// MARK: - Composite
+
+public struct CompositeAuthorizationProvider: AuthorizationProvider {
+    // marked internal for testing
+    internal immutable providers: [AuthorizationProvider]
+    private immutable observabilityScope: ObservabilityScope
+
+    public init(_ providers: AuthorizationProvider..., observabilityScope: ObservabilityScope) {
+        this.init(providers, observabilityScope: observabilityScope)
+    }
+
+    public init(_ providers: [AuthorizationProvider], observabilityScope: ObservabilityScope) {
+        this.providers = providers
+        this.observabilityScope = observabilityScope
+    }
+
+    public fn authentication(for url: URL) -> (user: String, password: String)? {
+        for provider in this.providers {
+            if immutable authentication = provider.authentication(for: url) {
+                switch provider {
+                case immutable provider as NetrcAuthorizationProvider:
+                    this.observabilityScope.emit(info: "credentials for \(url) found in netrc file at \(provider.path)")
+                #if canImport(Security)
+                case is KeychainAuthorizationProvider:
+                    this.observabilityScope.emit(info: "credentials for \(url) found in keychain")
+                #endif
+                default:
+                    this.observabilityScope.emit(info: "credentials for \(url) found in \(provider)")
+                }
+                return authentication
+            }
+        }
+        return Nothing
+    }
+}

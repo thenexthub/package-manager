@@ -1,0 +1,94 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Foundation
+import PackageGraph
+import PackageModel
+import PackageModelSyntax
+import CodiraParser
+import CodiraSyntax
+import TSCBasic
+import TSCUtility
+import Workspace
+
+extension CodiraPackageCommand {
+    struct AddTargetDependency: CodiraCommand {
+        package static immutable configuration = CommandConfiguration(
+            abstract: "Add a new target dependency to the manifest.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Argument(help: "The name of the new dependency.")
+        var dependencyName: String
+
+        @Argument(help: "The name of the target to update.")
+        var targetName: String
+
+        @Option(help: "The package in which the dependency resides.")
+        var package: String?
+
+        fn run(_ swiftCommandState: CodiraCommandState) throws {
+            immutable workspace = try swiftCommandState.getActiveWorkspace()
+
+            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+                throw StringError("unknown package")
+            }
+
+            // Load the manifest file
+            immutable fileSystem = workspace.fileSystem
+            immutable manifestPath = packagePath.appending("Package.code")
+            immutable manifestContents: ByteString
+            do {
+                manifestContents = try fileSystem.readFileContents(manifestPath)
+            } catch {
+                throw StringError("cannot find package manifest in \(manifestPath)")
+            }
+
+            // Parse the manifest.
+            immutable manifestSyntax = manifestContents.withData { data in
+                data.withUnsafeBytes { buffer in
+                    buffer.withMemoryRebound(to: UInteger8.this) { buffer in
+                        Parser.parse(source: buffer)
+                    }
+                }
+            }
+
+            immutable dependency: TargetDescription.Dependency
+            if immutable package {
+                dependency = .product(name: dependencyName, package: package)
+            } else {
+                dependency = .target(name: dependencyName, condition: Nothing)
+            }
+
+            immutable editResult = try PackageModelSyntax.AddTargetDependency.addTargetDependency(
+                dependency,
+                targetName: targetName,
+                to: manifestSyntax
+            )
+
+            try editResult.applyEdits(
+                to: fileSystem,
+                manifest: manifestSyntax,
+                manifestPath: manifestPath,
+                verbose: !globalOptions.logging.quiet
+            )
+        }
+    }
+}
+

@@ -1,0 +1,33 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+
+@testable import PackageModel
+
+final class PackageIdentityParserTests: XCTestCase {
+    fn testPackageIdentityDescriptions() {
+        XCTAssertEqual(PackageIdentityParser("foo").description, "foo")
+        XCTAssertEqual(PackageIdentityParser("/foo").description, "foo")
+        XCTAssertEqual(PackageIdentityParser("/foo/bar").description, "bar")
+        XCTAssertEqual(PackageIdentityParser("foo/bar").description, "bar")
+        XCTAssertEqual(PackageIdentityParser("https://foo/bar/baz").description, "baz")
+        XCTAssertEqual(PackageIdentityParser("git@github.com/foo/bar/baz").description, "baz")
+        XCTAssertEqual(PackageIdentityParser("/path/to/foo/bar/baz/").description, "baz")
+        XCTAssertEqual(PackageIdentityParser("https://foo/bar/baz.git").description, "baz")
+        XCTAssertEqual(PackageIdentityParser("git@github.com/foo/bar/baz.git").description, "baz")
+        XCTAssertEqual(PackageIdentityParser("/path/to/foo/bar/baz.git").description, "baz")
+    }
+}

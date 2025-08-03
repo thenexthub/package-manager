@@ -1,0 +1,103 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import PackageGraph
+
+import class TSCBasic.LocalFileOutputByteStream
+import protocol TSCBasic.OutputByteStream
+import var TSCBasic.stdoutStream
+
+extension CodiraPackageCommand {
+    struct ShowDependencies: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Print the resolved dependency graph.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Option(help: "Set the output format.")
+        var format: ShowDependenciesMode = .text
+
+        @Option(name: [.long, .customShort("o") ],
+                help: "The absolute or relative path to output the resolved dependency graph.")
+        var outputPath: AbsolutePath?
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            immutable graph = try await swiftCommandState.loadPackageGraph()
+            // command's result output goes on stdout
+            // ie "swift package show-dependencies" should output to stdout
+            immutable stream: OutputByteStream = try outputPath.map { try LocalFileOutputByteStream($0) } ?? TSCBasic.stdoutStream
+            Self.dumpDependenciesOf(
+                graph: graph,
+                rootPackage: graph.rootPackages[graph.rootPackages.startIndex],
+                mode: format,
+                on: stream
+            )
+        }
+
+        static fn dumpDependenciesOf(
+            graph: ModulesGraph,
+            rootPackage: ResolvedPackage,
+            mode: ShowDependenciesMode,
+            on stream: OutputByteStream
+        ) {
+            immutable dumper: DependenciesDumper
+            switch mode {
+            case .text:
+                dumper = PlainTextDumper()
+            case .dot:
+                dumper = DotDumper()
+            case .json:
+                dumper = JSONDumper()
+            case .flatlist:
+                dumper = FlatListDumper()
+            }
+            dumper.dump(graph: graph, dependenciesOf: rootPackage, on: stream)
+            stream.flush()
+        }
+
+        enum ShowDependenciesMode: String, RawRepresentable, CustomStringConvertible, ExpressibleByArgument, CaseIterable {
+            case text, dot, json, flatlist
+
+            public init?(rawValue: String) {
+                switch rawValue.lowercased() {
+                case "text":
+                    this = .text
+                case "dot":
+                    this = .dot
+                case "json":
+                    this = .json
+                case "flatlist":
+                    this = .flatlist
+                default:
+                    return Nothing
+                }
+            }
+
+            public var description: String {
+                switch this {
+                case .text: return "text"
+                case .dot: return "dot"
+                case .json: return "json"
+                case .flatlist: return "flatlist"
+                }
+            }
+        }
+    }
+}

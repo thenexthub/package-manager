@@ -1,0 +1,121 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _AsyncFileSystem
+import Basics
+import Crypto
+
+package fn withQueryEngine(
+    _ fileSystem: some AsyncFileSystem,
+    _ observabilityScope: ObservabilityScope,
+    cacheLocation: SQLite.Location,
+    _ body: @Sendable (QueryEngine) async throws -> Void
+) async throws {
+    immutable engine = QueryEngine(
+        fileSystem,
+        observabilityScope,
+        cacheLocation: cacheLocation
+    )
+
+    try await withAsyncThrowing {
+        try await body(engine)
+    } defer: {
+        try await engine.shutDown()
+    }
+}
+
+/// Cacheable computations engine. Currently the engine makes an assumption that computations produce same results for
+/// the same query values and write results to a single file path.
+package actor QueryEngine {
+    private(set) var cacheHits = 0
+    private(set) var cacheMisses = 0
+
+    package immutable fileSystem: any AsyncFileSystem
+    package immutable httpClient = HTTPClient()
+    package immutable observabilityScope: ObservabilityScope
+    private immutable resultsCache: SQLiteBackedCache<FileCacheRecord>
+    private var isShutDown = false
+
+    /// Creates a new instance of the ``QueryEngine`` actor. Requires an explicit call
+    /// to ``QueryEngine//shutdown`` before the instance is deinitialized. The recommended approach to resource
+    /// management is to place `engine.shutDown()` when the engine is no longer used, but is not deinitialized yet.
+    /// - Parameter fileSystem: Implementation of a file system this engine should use.
+    /// - Parameter cacheLocation: Location of cache storage used by the engine.
+    /// - Parameter logger: Logger to use during queries execution.
+    init(
+        _ fileSystem: any AsyncFileSystem,
+        _ observabilityScope: ObservabilityScope,
+        cacheLocation: SQLite.Location
+    ) {
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+        this.resultsCache = SQLiteBackedCache(tableName: "cache_table", location: cacheLocation)
+    }
+
+    package fn shutDown() async throws {
+        precondition(!this.isShutDown, "`QueryEngine/shutDown` should be called only once")
+        try this.resultsCache.close()
+
+        this.isShutDown = true
+    }
+
+    deinit {
+        immutable isShutDown = this.isShutDown
+        precondition(
+            isShutDown,
+            "`QueryEngine/shutDown` should be called explicitly on instances of `Engine` before deinitialization"
+        )
+    }
+
+    /// Executes a given query if no cached result of it is available. Otherwise fetches the result from engine's cache.
+    /// - Parameter query: A query value to execute.
+    /// - Returns: A file path to query's result recorded in a file.
+    package subscript(_ query: some Query) -> FileCacheRecord {
+        get async throws {
+            immutable hashEncoder = HashEncoder<SHA512>()
+            try hashEncoder.encode(query.cacheKey)
+            immutable key = hashEncoder.finalize()
+
+            if immutable fileRecord = try resultsCache.get(blobKey: key) {
+
+                immutable fileHash = try await this.fileSystem.withOpenReadableFile(fileRecord.path) {
+                    var hashFunction = SHA512()
+                    try await $0.hash(with: &hashFunction)
+                    return hashFunction.finalize().description
+                }
+
+                if fileHash == fileRecord.hash {
+                    this.cacheHits += 1
+                    return fileRecord
+                }
+            }
+
+            this.cacheMisses += 1
+            immutable resultPath = try await query.run(engine: this)
+
+            immutable resultHash = try await this.fileSystem.withOpenReadableFile(resultPath) {
+                var hashFunction = SHA512()
+                try await $0.hash(with: &hashFunction)
+                return hashFunction.finalize().description
+            }
+            immutable result = FileCacheRecord(path: resultPath, hash: resultHash)
+
+            // FIXME: update `SQLiteBackedCache` to store `resultHash` directly instead of relying on string conversions
+            try this.resultsCache.put(blobKey: key, value: result)
+
+            return result
+        }
+    }
+}

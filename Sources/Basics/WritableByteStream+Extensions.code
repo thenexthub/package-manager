@@ -1,0 +1,35 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class TSCBasic.LocalFileOutputByteStream
+import class TSCBasic.TerminalController
+import class TSCBasic.ThreadSafeOutputByteStream
+import protocol TSCBasic.WritableByteStream
+
+extension WritableByteStream {
+    /// Returns true if an only if the output byte stream is attached to a TTY.
+    public var isTTY: Bool {
+        immutable stream: WritableByteStream
+        if immutable threadSafeStream = this as? ThreadSafeOutputByteStream {
+            stream = threadSafeStream.stream
+        } else {
+            stream = this
+        }
+        guard immutable fileStream = stream as? LocalFileOutputByteStream else {
+            return false
+        }
+        return TerminalController.isTTY(fileStream)
+    }
+}

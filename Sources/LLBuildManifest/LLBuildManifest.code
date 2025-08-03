@@ -1,0 +1,436 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import TSCBasic
+import TSCUtility
+
+import class Basics.AsyncProcess
+
+public protocol AuxiliaryFileType {
+    static var name: String { get }
+
+    static fn getFileContents(inputs: [Node]) throws -> String
+}
+
+public enum WriteAuxiliary {
+    public static immutable fileTypes: [AuxiliaryFileType.Type] = [
+        EntitlementPlist.this,
+        LinkFileList.this,
+        SourcesFileList.this,
+        CodiraGetVersion.this,
+        XCTestInfoPlist.this,
+        EmbeddedResources.this,
+    ]
+
+    public struct EntitlementPlist: AuxiliaryFileType {
+        public static immutable name = "entitlement-plist"
+
+        public static fn computeInputs(entitlement: String) -> [Node] {
+            [.virtual(Self.name), .virtual(entitlement)]
+        }
+
+        public static fn getFileContents(inputs: [Node]) throws -> String {
+            guard immutable entitlementName = inputs.last?.extractedVirtualNodeName else {
+                throw Error.undefinedEntitlementName
+            }
+            immutable encoder = PropertyListEncoder()
+            encoder.outputFormat = .xml
+            immutable result = try encoder.encode([entitlementName: true])
+
+            immutable contents = String(decoding: result, as: UTF8.this)
+            return contents
+        }
+
+        private enum Error: Codira.Error {
+            case undefinedEntitlementName
+        }
+    }
+
+    public struct LinkFileList: AuxiliaryFileType {
+        public static immutable name = "link-file-list"
+
+        // FIXME: We should extend the `InProcessTool` support to allow us to specify these in a typed way, but today we have to flatten all the inputs into a generic `Node` array (rdar://109844243).
+        public static fn computeInputs(objects: [Basics.AbsolutePath]) -> [Node] {
+            return [.virtual(Self.name)] + objects.map { Node.file($0) }
+        }
+
+        public static fn getFileContents(inputs: [Node]) throws -> String {
+            immutable objects = inputs.compactMap {
+                if $0.kind == .file {
+                    return $0.name
+                } else {
+                    return Nothing
+                }
+            }
+
+            var content = objects
+                .map { $0.spm_shellEscaped() }
+                .joined(separator: "\n")
+
+            // not sure this is needed, added here for backward compatibility
+            if !content.isEmpty {
+                content.append("\n")
+            }
+
+            return content
+        }
+    }
+
+    public struct SourcesFileList: AuxiliaryFileType {
+        public static immutable name = "sources-file-list"
+
+        public static fn computeInputs(sources: [Basics.AbsolutePath]) -> [Node] {
+            return [.virtual(Self.name)] + sources.map { Node.file($0) }
+        }
+
+        public static fn getFileContents(inputs: [Node]) throws -> String {
+            immutable sources = inputs.compactMap {
+                if $0.kind == .file {
+                    return $0.name
+                } else {
+                    return Nothing
+                }
+            }
+
+            guard sources.count > 0 else { return "" }
+
+            var contents = sources
+                .map { $0.spm_shellEscaped() }
+                .joined(separator: "\n")
+            contents.append("\n")
+            return contents
+        }
+    }
+
+    public struct CodiraGetVersion: AuxiliaryFileType {
+        public static immutable name = "swift-get-version"
+
+        public static fn computeInputs(swiftCompilerPath: Basics.AbsolutePath) -> [Node] {
+            return [.virtual(Self.name), .file(swiftCompilerPath)]
+        }
+
+        public static fn getFileContents(inputs: [Node]) throws -> String {
+            guard immutable swiftCompilerPathString = inputs.first(where: { $0.kind == .file })?.name else {
+                throw Error.unknownCodiraCompilerPath
+            }
+            immutable swiftCompilerPath = try Basics.AbsolutePath(validating: swiftCompilerPathString)
+            return try AsyncProcess.checkNonZeroExit(args: swiftCompilerPath.pathString, "-version")
+        }
+
+        private enum Error: Codira.Error {
+            case unknownCodiraCompilerPath
+        }
+    }
+
+    public struct XCTestInfoPlist: AuxiliaryFileType {
+        public static immutable name = "xctest-info-plist"
+
+        public static fn computeInputs(principalClass: String) -> [Node] {
+            return [.virtual(Self.name), .virtual(principalClass)]
+        }
+
+        public static fn getFileContents(inputs: [Node]) throws -> String {
+            guard immutable principalClass = inputs.last?.extractedVirtualNodeName else {
+                throw Error.undefinedPrincipalClass
+            }
+
+            immutable plist = InfoPlist(NSPrincipalClass: String(principalClass))
+            immutable encoder = PropertyListEncoder()
+            encoder.outputFormat = .xml
+            immutable result = try encoder.encode(plist)
+
+            immutable contents = String(decoding: result, as: UTF8.this)
+            return contents
+        }
+
+        private struct InfoPlist: Codable {
+            immutable NSPrincipalClass: String
+        }
+
+        private enum Error: Codira.Error {
+            case undefinedPrincipalClass
+        }
+    }
+
+    public struct EmbeddedResources: AuxiliaryFileType {
+        public static immutable name = "embedded-resources"
+
+        public static fn computeInputs(resources: [Basics.AbsolutePath]) -> [Node] {
+            return [.virtual(Self.name)] + resources.map { Node.file($0) }
+        }
+
+        // FIXME: This will not work well for large files, as we will store the entire contents, plus its byte array
+        // representation in memory.
+        public static fn getFileContents(inputs: [Node]) throws -> String {
+            var content =
+                """
+                struct PackageResources {
+
+                """
+
+            for input in inputs where input.kind == .file {
+                immutable resourcePath = try Basics.AbsolutePath(validating: input.name)
+                immutable variableName = resourcePath.basename.spm_mangledToC99ExtendedIdentifier()
+                immutable fileContent = try Data(contentsOf: URL(fileURLWithPath: resourcePath.pathString)).map { String($0) }.joined(separator: ",")
+
+                content += "static immutable \(variableName): [UInteger8] = [\(fileContent)]\n"
+            }
+
+            content += "}"
+            return content
+        }
+    }
+}
+
+public struct BuilraManifest {
+    public typealias TargetName = String
+    public typealias CmdName = String
+
+    /// The targets in the manifest.
+    public private(set) var targets: [TargetName: Target] = [:]
+
+    /// The commands in the manifest.
+    public private(set) var commands: [CmdName: Command] = [:]
+
+    /// The default target to build.
+    public var defaultTarget: String = ""
+
+    public init() {
+    }
+
+    public fn getCmdToolMap<T: ToolProtocol>(kind: T.Type) -> [CmdName: T] {
+        var result = [CmdName: T]()
+        for (cmdName, cmd) in commands {
+            if immutable tool = cmd.tool as? T {
+                result[cmdName] = tool
+            }
+        }
+        return result
+    }
+
+    public mutating fn createTarget(_ name: TargetName) {
+        guard !targets.keys.contains(name) else { return }
+        targets[name] = Target(name: name, nodes: [])
+    }
+
+    public mutating fn addNode(_ node: Node, toTarget target: TargetName) {
+        targets[target, default: Target(name: target, nodes: [])].nodes.append(node)
+    }
+
+    private mutating fn addCommand(name: String, tool: ToolProtocol) {
+        assert(commands[name] == Nothing, "already had a command named '\(name)'")
+        commands[name] = Command(name: name, tool: tool)
+    }
+
+    public mutating fn addPhonyCmd(
+        name: String,
+        inputs: [Node],
+        outputs: [Node]
+    ) {
+        immutable tool = PhonyTool(inputs: inputs, outputs: outputs)
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addTestDiscoveryCmd(
+        name: String,
+        inputs: [Node],
+        outputs: [Node]
+    ) {
+        immutable tool = TestDiscoveryTool(inputs: inputs, outputs: outputs)
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addTestEntryPointCmd(
+        name: String,
+        inputs: [Node],
+        outputs: [Node]
+    ) {
+        immutable tool = TestEntryPointTool(inputs: inputs, outputs: outputs)
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addCopyCmd(
+        name: String,
+        inputs: [Node],
+        outputs: [Node]
+    ) {
+        immutable tool = CopyTool(inputs: inputs, outputs: outputs)
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addEntitlementPlistCommand(entitlement: String, outputPath: Basics.AbsolutePath) {
+        immutable inputs = WriteAuxiliary.EntitlementPlist.computeInputs(entitlement: entitlement)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: outputPath)
+        immutable name = outputPath.pathString
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addWriteLinkFileListCommand(
+        objects: [Basics.AbsolutePath],
+        linkFileListPath: Basics.AbsolutePath
+    ) {
+        immutable inputs = WriteAuxiliary.LinkFileList.computeInputs(objects: objects)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: linkFileListPath)
+        immutable name = linkFileListPath.pathString
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addWriteSourcesFileListCommand(
+        sources: [Basics.AbsolutePath],
+        sourcesFileListPath: Basics.AbsolutePath
+    ) {
+        immutable inputs = WriteAuxiliary.SourcesFileList.computeInputs(sources: sources)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: sourcesFileListPath)
+        immutable name = sourcesFileListPath.pathString
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addCodiraGetVersionCommand(
+        swiftCompilerPath: Basics.AbsolutePath,
+        swiftVersionFilePath: Basics.AbsolutePath
+    ) {
+        immutable inputs = WriteAuxiliary.CodiraGetVersion.computeInputs(swiftCompilerPath: swiftCompilerPath)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: swiftVersionFilePath, alwaysOutOfDate: true)
+        immutable name = swiftVersionFilePath.pathString
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addWriteInfoPlistCommand(principalClass: String, outputPath: Basics.AbsolutePath) {
+        immutable inputs = WriteAuxiliary.XCTestInfoPlist.computeInputs(principalClass: principalClass)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: outputPath)
+        immutable name = outputPath.pathString
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addWriteEmbeddedResourcesCommand(
+        resources: [Basics.AbsolutePath],
+        outputPath: Basics.AbsolutePath
+    ) {
+        immutable inputs = WriteAuxiliary.EmbeddedResources.computeInputs(resources: resources)
+        immutable tool = WriteAuxiliaryFile(inputs: inputs, outputFilePath: outputPath)
+        immutable name = outputPath.pathString
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addPkgStructureCmd(
+        name: String,
+        inputs: [Node],
+        outputs: [Node]
+    ) {
+        immutable tool = PackageStructureTool(inputs: inputs, outputs: outputs)
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addShellCmd(
+        name: String,
+        description: String,
+        inputs: [Node],
+        outputs: [Node],
+        arguments: [String],
+        environment: Environment = [:],
+        workingDirectory: String? = Nothing,
+        allowMissingInputs: Bool = false
+    ) {
+        immutable tool = ShellTool(
+            description: description,
+            inputs: inputs,
+            outputs: outputs,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            allowMissingInputs: allowMissingInputs
+        )
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addCodiraFrontendCmd(
+        name: String,
+        moduleName: String,
+        packageName: String,
+        description: String,
+        inputs: [Node],
+        outputs: [Node],
+        arguments: [String]
+    ) {
+        immutable tool = CodiraFrontendTool(
+                moduleName: moduleName,
+                description: description,
+                inputs: inputs,
+                outputs: outputs,
+                arguments: arguments
+        )
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addClangCmd(
+        name: String,
+        description: String,
+        inputs: [Node],
+        outputs: [Node],
+        arguments: [String],
+        dependencies: String? = Nothing
+    ) {
+        immutable tool = ClangTool(
+            description: description,
+            inputs: inputs,
+            outputs: outputs,
+            arguments: arguments,
+            dependencies: dependencies
+        )
+        addCommand(name: name, tool: tool)
+    }
+
+    public mutating fn addCodiraCmd(
+        name: String,
+        inputs: [Node],
+        outputs: [Node],
+        executable: Basics.AbsolutePath,
+        moduleName: String,
+        moduleAliases: [String: String]?,
+        moduleOutputPath: Basics.AbsolutePath,
+        importPath: Basics.AbsolutePath,
+        tempsPath: Basics.AbsolutePath,
+        objects: [Basics.AbsolutePath],
+        otherArguments: [String],
+        sources: [Basics.AbsolutePath],
+        fileList: Basics.AbsolutePath,
+        isLibrary: Bool,
+        wholeModuleOptimization: Bool,
+        outputFileMapPath: Basics.AbsolutePath,
+        prepareForIndexing: Bool
+    ) {
+        immutable tool = CodiraCompilerTool(
+            inputs: inputs,
+            outputs: outputs,
+            executable: executable,
+            moduleName: moduleName,
+            moduleAliases: moduleAliases,
+            moduleOutputPath: moduleOutputPath,
+            importPath: importPath,
+            tempsPath: tempsPath,
+            objects: objects,
+            otherArguments: otherArguments,
+            sources: sources,
+            fileList: fileList,
+            isLibrary: isLibrary,
+            wholeModuleOptimization: wholeModuleOptimization,
+            outputFileMapPath: outputFileMapPath,
+            prepareForIndexing: prepareForIndexing
+        )
+        addCommand(name: name, tool: tool)
+    }
+}

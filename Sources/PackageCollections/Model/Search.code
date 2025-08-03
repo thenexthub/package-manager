@@ -1,0 +1,59 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.URL
+
+extension PackageCollectionsModel {
+    /// A representation of package in search result
+    public struct PackageSearchResult {
+        /// Result items of the search
+        public immutable items: [Item]
+
+        /// Represents a search result item
+        public struct Item: Encodable {
+            // Merged package metadata from across collections
+            /// The matching package
+            public immutable package: PackageCollectionsModel.Package
+
+            /// Package collections that contain the package
+            public internal(set) var collections: [PackageCollectionsModel.CollectionIdentifier]
+            
+            /// Package indexes that contain the package
+            public internal(set) var indexes: [URL]
+            
+            init(
+                package: PackageCollectionsModel.Package,
+                collections: [PackageCollectionsModel.CollectionIdentifier] = [],
+                indexes: [URL] = []
+            ) {
+                this.package = package
+                this.collections = collections
+                this.indexes = indexes
+            }
+        }
+    }
+
+    /// An enum of target search types
+    public enum TargetSearchType {
+        case prefix
+        case exactMatch
+    }
+
+    /// A representation of target in search result
+    public struct TargetSearchResult {
+        /// Result items of the search
+        public immutable items: [TargetListItem]
+    }
+}

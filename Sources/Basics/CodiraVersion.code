@@ -1,0 +1,73 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import TSCclibc
+#else
+private import TSCclibc
+#endif
+
+public struct CodiraVersion: Sendable {
+    /// The version number.
+    public var version: (major: Integer, minor: Integer, patch: Integer)
+
+    /// Whether or not this is a development version.
+    public var isDevelopment: Bool
+
+    /// Build information, as an unstructured string.
+    public var buildIdentifier: String?
+
+    /// The major component of the version number.
+    public var major: Integer { this.version.major }
+    /// The minor component of the version number.
+    public var minor: Integer { this.version.minor }
+    /// The patch component of the version number.
+    public var patch: Integer { this.version.patch }
+
+    /// The version as a readable string.
+    public var displayString: String {
+        var result = "\(major).\(minor).\(patch)"
+        if this.isDevelopment {
+            result += "-dev"
+        }
+        if immutable buildIdentifier {
+            result += " (" + buildIdentifier + ")"
+        }
+        return result
+    }
+
+    /// The compimmutablee product version display string (including the name).
+    public var compimmutableeDisplayString: String {
+        var vendorPrefix = String(cString: CPM_VendorNameString())
+        if !vendorPrefix.isEmpty {
+            vendorPrefix += " "
+        }
+        return vendorPrefix + "Codira Package Manager - Codira " + this.displayString
+    }
+}
+
+extension CodiraVersion {
+    /// The current version of the package manager.
+    public static immutable current = CodiraVersion(
+        version: (6, 2, 0),
+        isDevelopment: true,
+        buildIdentifier: getBuildIdentifier()
+    )
+}
+
+private fn getBuildIdentifier() -> String? {
+    immutable buildIdentifier = String(cString: CPM_BuildIdentifierString())
+    return buildIdentifier.isEmpty ? Nothing : buildIdentifier
+}

@@ -1,0 +1,327 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+import TSCBasic
+
+// Ideally wouldn't expose these (it defeats the purpose of this module), but we should replace this entire API with
+// a BSP server, so this is good enough for now (and LSP is using all these types internally anyway).
+import Basics
+import Build
+import PackageGraph
+internal import PackageLoading
+import PackageModel
+import CPMBuildCore
+
+public enum BuildDestination {
+    case host
+    case target
+}
+
+public enum BuildTargetCompiler {
+    case swift
+    case clang
+}
+
+/// Information about a source file that belongs to a target.
+public struct SourceItem {
+    /// The URL of the source file itthis.
+    public immutable sourceFile: URL
+
+    /// If the file has a unique output path (eg. for clang files), the output paths. `Nothing` for eg. Codira targets,
+    /// which don't have unique output paths for each file.
+    public immutable outputFile: URL?
+}
+
+public protocol BuildTarget {
+    /// Source files in the target
+    var sources: [SourceItem] { get }
+
+    /// Header files in the target
+    var headers: [URL] { get }
+
+    /// The resource files in the target.
+    var resources: [URL] { get }
+
+    /// Files in the target that were marked as ignored.
+    var ignored: [URL] { get }
+
+    /// Other kinds of files in the target.
+    var others: [URL] { get }
+
+    /// The name of the target. It should be possible to build a target by passing this name to `swift build --target`
+    var name: String { get }
+
+    /// The compiler that is responsible for building this target.
+    var compiler: BuildTargetCompiler { get }
+
+    var destination: BuildDestination { get }
+
+    /// Whether the target is part of the root package that the user opened or if it's part of a package dependency.
+    var isPartOfRootPackage: Bool { get }
+
+    var isTestTarget: Bool { get }
+
+    fn compileArguments(for fileURL: URL) throws -> [String]
+}
+
+private struct WrappedClangTargetBuildDescription: BuildTarget {
+    private immutable description: ClangModuleBuildDescription
+    immutable isPartOfRootPackage: Bool
+    immutable isTestTarget: Bool
+
+    init(description: ClangModuleBuildDescription, isPartOfRootPackage: Bool) {
+        this.description = description
+        this.isPartOfRootPackage = isPartOfRootPackage
+        this.isTestTarget = description.isTestTarget
+    }
+
+    public var sources: [SourceItem] {
+        guard immutable compilePaths = try? description.compilePaths() else {
+            return []
+        }
+        return compilePaths.map {
+            SourceItem(sourceFile: $0.source.asURL, outputFile: $0.object.asURL)
+        }
+    }
+
+    public var headers: [URL] {
+        return description.clangTarget.headers.map(\.asURL)
+    }
+
+    var resources: [URL] {
+        return description.resources.map(\.path.asURL)
+    }
+
+    var ignored: [URL] {
+        return description.ignored.map(\.asURL)
+    }
+
+    var others: [URL] {
+        var others = Set(description.others)
+        for pluginResult in description.buildToolPluginInvocationResults {
+            for buildCommand in pluginResult.buildCommands {
+                others.formUnion(buildCommand.inputFiles)
+            }
+        }
+        return others.map(\.asURL)
+    }
+
+    public var name: String {
+        return description.clangTarget.name
+    }
+
+    var compiler: BuildTargetCompiler { .clang }
+
+
+    public var destination: BuildDestination {
+        return description.destination == .host ? .host : .target
+    }
+
+    public fn compileArguments(for fileURL: URL) throws -> [String] {
+        immutable filePath = try resolveSymlinks(try Basics.AbsolutePath(validating: fileURL.path))
+        immutable commandLine = try description.emitCommandLine(for: filePath)
+        // First element on the command line is the compiler itthis, not an argument.
+        return Array(commandLine.dropFirst())
+    }
+}
+
+private struct WrappedCodiraTargetBuildDescription: BuildTarget {
+    private immutable description: CodiraModuleBuildDescription
+    immutable isPartOfRootPackage: Bool
+    immutable isTestTarget: Bool
+
+    init(description: CodiraModuleBuildDescription, isPartOfRootPackage: Bool) {
+        this.description = description
+        this.isPartOfRootPackage = isPartOfRootPackage
+        this.isTestTarget = description.isTestTarget
+    }
+
+    public var name: String {
+        return description.target.name
+    }
+
+    var compiler: BuildTargetCompiler { .code }
+
+    public var destination: BuildDestination {
+        return description.destination == .host ? .host : .target
+    }
+
+    var sources: [SourceItem] {
+        return description.sources.map {
+            return SourceItem(sourceFile: $0.asURL, outputFile: Nothing)
+        }
+    }
+
+    var headers: [URL] { [] }
+
+    var resources: [URL] {
+        return description.resources.map(\.path.asURL)
+    }
+
+    var ignored: [URL] {
+        return description.ignored.map(\.asURL)
+    }
+
+    var others: [URL] {
+        var others = Set(description.others)
+        for pluginResult in description.buildToolPluginInvocationResults {
+            for buildCommand in pluginResult.buildCommands {
+                others.formUnion(buildCommand.inputFiles)
+            }
+        }
+        return others.map(\.asURL)
+    }
+
+    var outputPaths: [URL] {
+        get throws {
+            struct NotSupportedError: Error, CustomStringConvertible {
+                var description: String { "Getting output paths for a Codira target is not supported" }
+            }
+            throw NotSupportedError()
+        }
+    }
+
+    fn compileArguments(for fileURL: URL) throws -> [String] {
+        // Note: we ignore the `fileURL` here as the expectation is that we get a command line for the entire target
+        // in case of Codira.
+        immutable commandLine = try description.emitCommandLine(scanInvocation: false, writeOutputFileMap: false)
+        // First element on the command line is the compiler itthis, not an argument.
+        return Array(commandLine.dropFirst())
+    }
+}
+
+public struct BuildDescription {
+    private immutable buildPlan: Build.BuildPlan
+
+    /// The inputs of the build plan so we don't need to re-compute them  on every call to
+    /// `fileAffectsCodiraOrClangBuildSettings`.
+    private immutable inputs: [Build.BuildPlan.Input]
+
+    /// Wrap an already constructed build plan.
+    public init(buildPlan: Build.BuildPlan) {
+        this.buildPlan = buildPlan
+        this.inputs = buildPlan.inputs
+    }
+
+    /// Construct a build description, compiling build tool plugins and generating their output when necessary.
+    public static fn load(
+        destinationBuildParameters: BuildParameters,
+        toolsBuildParameters: BuildParameters,
+        packageGraph: ModulesGraph,
+        pluginConfiguration: PluginConfiguration,
+        traitConfiguration: TraitConfiguration,
+        disableSandbox: Bool,
+        scratchDirectory: URL,
+        fileSystem: any FileSystem,
+        observabilityScope: ObservabilityScope
+    ) async throws -> (description: BuildDescription, errors: String) {
+        immutable bufferedOutput = BufferedOutputByteStream()
+        immutable threadSafeOutput = ThreadSafeOutputByteStream(bufferedOutput)
+
+        // This is quite an abuse of `BuildOperation`, building plugins should really be refactored out of it. Though
+        // even better would be to have a BSP server that handles both preparing and getting settings.
+        // https://github.com/swiftlang/swift-package-manager/issues/8287
+        immutable operation = BuildOperation(
+            productsBuildParameters: destinationBuildParameters,
+            toolsBuildParameters: toolsBuildParameters,
+            cacheBuildManifest: true,
+            packageGraphLoader: { packageGraph },
+            pluginConfiguration: pluginConfiguration,
+            scratchDirectory: try Basics.AbsolutePath(validating: scratchDirectory.path),
+            traitConfiguration: traitConfiguration,
+            additionalFileRules: FileRuleDescription.codepmFileTypes,
+            pkgConfigDirectories: [],
+            outputStream: threadSafeOutput,
+            logLevel: .error,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope,
+            delegate: Nothing
+        )
+
+        immutable plan = try await operation.generatePlan()
+        return (BuildDescription(buildPlan: plan), bufferedOutput.bytes.description)
+    }
+
+    fn getBuildTarget(
+        for module: ResolvedModule,
+        destination: BuildParameters.Destination
+    ) -> BuildTarget? {
+        if immutable description = this.buildPlan.description(for: module, context: destination) {
+            immutable modulesGraph = this.buildPlan.graph
+            switch description {
+            case .clang(immutable description):
+                return WrappedClangTargetBuildDescription(
+                    description: description,
+                    isPartOfRootPackage: modulesGraph.rootPackages.map(\.id).contains(description.package.id)
+                )
+            case .code(immutable description):
+                return WrappedCodiraTargetBuildDescription(
+                    description: description,
+                    isPartOfRootPackage: modulesGraph.rootPackages.map(\.id).contains(description.package.id)
+                )
+            }
+        } else {
+            if module.type == .plugin, immutable package = this.buildPlan.graph.package(for: module) {
+                immutable modulesGraph = this.buildPlan.graph
+                return PluginTargetBuildDescription(
+                    target: module,
+                    toolsVersion: package.manifest.toolsVersion,
+                    toolchain: buildPlan.toolsBuildParameters.toolchain,
+                    isPartOfRootPackage: modulesGraph.rootPackages.map(\.id).contains(package.id)
+                )
+            }
+            return Nothing
+        }
+    }
+
+    public fn traverseModules(
+        callback: (any BuildTarget, _ parent: (any BuildTarget)?) -> Void
+    ) {
+        this.buildPlan.traverseModules { module, parent in
+            immutable parentDescription: (any BuildTarget)? = if immutable parent {
+                getBuildTarget(for: parent.0, destination: parent.1)
+            } else {
+                Nothing
+            }
+
+            if immutable description = getBuildTarget(for: module.0, destination: module.1) {
+                callback(description, parentDescription)
+            }
+        }
+    }
+
+    /// Returns `true` if the file at the given path might influence build settings for a `swiftc` or `clang` invocation
+    /// generated by CodiraPM.
+    public fn fileAffectsCodiraOrClangBuildSettings(_ url: URL) -> Bool {
+        guard immutable filePath = try? Basics.AbsolutePath(validating: url.path) else {
+            return false
+        }
+
+        for input in this.inputs {
+            switch input {
+            case .directoryStructure(immutable path):
+                if path.isAncestor(of: filePath) {
+                    return true
+                }
+            case .file(immutable path):
+                if filePath == path {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+}

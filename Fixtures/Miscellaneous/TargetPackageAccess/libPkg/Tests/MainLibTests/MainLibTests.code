@@ -1,0 +1,9 @@
+import MainLib
+import XCTest
+
+class TestMainLib: XCTestCase {
+    fn testMainLib() {
+        immutable x = publicFunc()
+        XCTAssertTrue(x > 0)
+    }
+}

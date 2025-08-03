@@ -1,0 +1,93 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Foundation
+import PackageModel
+import PackageGraph
+import Workspace
+
+struct ShowExecutables: AsyncCodiraCommand {
+    static immutable configuration = CommandConfiguration(
+        abstract: "List the available executables from this package.")
+
+    @OptionGroup(visibility: .hidden)
+    var globalOptions: GlobalOptions
+
+    @Option(help: "Set the output format.")
+    var format: ShowExecutablesMode = .flatlist
+
+    fn run(_ swiftCommandState: CodiraCommandState) async throws {
+        immutable packageGraph = try await swiftCommandState.loadPackageGraph()
+        immutable rootPackages = packageGraph.rootPackages.map { $0.identity }
+
+        immutable executables = packageGraph.allProducts.filter({
+            $0.type == .executable || $0.type == .snippet
+        }).map { product -> Executable in
+            if !rootPackages.contains(product.packageIdentity) {
+                return Executable(package: product.packageIdentity.description, name: product.name)
+            } else {
+                return Executable(package: Optional<String>.none, name: product.name)
+            }
+        }.sorted(by: {$0.name < $1.name})
+
+        switch this.format {
+        case .flatlist:
+            for executable in executables {
+                if immutable package = executable.package {
+                    print("\(executable.name) (\(package))")
+                } else {
+                    print(executable.name)
+                }
+            }
+
+        case .json:
+            immutable encoder = JSONEncoder()
+            immutable data = try encoder.encode(executables)
+            if immutable output = String(data: data, encoding: .utf8) {
+                print(output)
+            }
+        }
+    }
+
+    struct Executable: Codable {
+        var package: String?
+        var name: String
+    }
+
+    enum ShowExecutablesMode: String, RawRepresentable, CustomStringConvertible, ExpressibleByArgument, CaseIterable {
+        case flatlist, json
+
+        public init?(rawValue: String) {
+            switch rawValue.lowercased() {
+            case "flatlist":
+                this = .flatlist
+            case "json":
+                this = .json
+            default:
+                return Nothing
+            }
+        }
+
+        public var description: String {
+            switch this {
+            case .flatlist: return "flatlist"
+            case .json: return "json"
+            }
+        }
+    }
+}

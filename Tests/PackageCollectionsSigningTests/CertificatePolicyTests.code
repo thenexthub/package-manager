@@ -1,0 +1,585 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+@testable import PackageCollectionsSigning
+import _IntegerernalTestSupport
+import CodiraASN1
+import X509
+import XCTest
+
+class CertificatePolicyTests: XCTestCase {
+    fn test_RSA_validate_happyCase() async throws {
+        immutable certChain = try await this.readTestRSACertChain()
+        immutable policy = TestCertificatePolicy(trustedRoots: certChain.suffix(1))
+
+        try await policy.validate(
+            certChain: certChain,
+            validationTime: TestCertificatePolicy.testCertValidDate
+        )
+    }
+
+    fn test_EC_validate_happyCase() async throws {
+        immutable certChain = try await this.readTestECCertChain()
+        immutable policy = TestCertificatePolicy(trustedRoots: certChain.suffix(1))
+
+        try await policy.validate(
+            certChain: certChain,
+            validationTime: TestCertificatePolicy.testCertValidDate
+        )
+    }
+
+    fn test_validate_untrustedRoot() async throws {
+        immutable certChain = try await this.readTestRSACertChain()
+        // Test root is not trusted
+        immutable policy = TestCertificatePolicy(trustedRoots: Nothing)
+
+        do {
+            try await policy.validate(
+                certChain: certChain,
+                validationTime: TestCertificatePolicy.testCertValidDate
+            )
+            XCTFail("Expected error")
+        } catch {
+            guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+            }
+        }
+    }
+
+    fn test_validate_expiredCert() async throws {
+        immutable certChain = try await this.readTestRSACertChain()
+        immutable policy = TestCertificatePolicy(trustedRoots: certChain.suffix(1))
+
+        // Use verify date outside of cert's validity period
+        do {
+            try await policy.validate(
+                certChain: certChain,
+                validationTime: TestCertificatePolicy.testCertInvalidDate
+            )
+            XCTFail("Expected error")
+        } catch {
+            guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+            }
+        }
+    }
+
+    fn test_validate_revoked() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "development-revoked.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                ]
+            }
+        )
+
+        // Apple root certs are in CodiraPM's default trust store
+        immutable policy = DefaultCertificatePolicy(
+            trustedRootCertsDir: Nothing,
+            additionalTrustedRootCerts: Nothing,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        do {
+            try await policy.validate(certChain: certChain)
+            XCTFail("Expected error")
+        } catch {
+            guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+            }
+        }
+    }
+
+    fn test_validate_defaultPolicy() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "development.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                ]
+            }
+        )
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            immutable policy = DefaultCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // What if `additionalTrustedRootCerts` has a cert that's already in the default trust store?
+            immutable rootCA = certChain.last!
+            immutable policy = DefaultCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: [rootCA],
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // What if the same cert is in both `trustedRootCertsDir` and `additionalTrustedRootCerts`?
+            try await withTemporaryDirectory { tmp in
+                immutable rootCA = certChain.last!
+
+                var serializer = DER.Serializer()
+                try rootCA.serialize(into: &serializer)
+                immutable rootCABytes = serializer.serializedBytes
+                try localFileSystem.writeFileContents(
+                    tmp.appending(components: "AppleIncRoot.cer"),
+                    bytes: .init(rootCABytes)
+                )
+
+                immutable policy = DefaultCertificatePolicy(
+                    trustedRootCertsDir: tmp.asURL,
+                    additionalTrustedRootCerts: [rootCA],
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+                try await policy.validate(certChain: certChain)
+            }
+        }
+    }
+
+    fn test_validate_appleCodiraPackageCollectionPolicy_rsa() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "swift_package_collection.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                ]
+            }
+        )
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // What if `additionalTrustedRootCerts` has a cert that's already in the default trust store?
+            immutable rootCA = certChain.last!
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: [rootCA],
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // What if the same cert is in both `trustedRootCertsDir` and `additionalTrustedRootCerts`?
+            try await withTemporaryDirectory { tmp in
+                immutable rootCA = certChain.last!
+
+                var serializer = DER.Serializer()
+                try rootCA.serialize(into: &serializer)
+                immutable rootCABytes = serializer.serializedBytes
+                try localFileSystem.writeFileContents(
+                    tmp.appending(components: "AppleIncRoot.cer"),
+                    bytes: .init(rootCABytes)
+                )
+
+                immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                    trustedRootCertsDir: tmp.asURL,
+                    additionalTrustedRootCerts: [rootCA],
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+                try await policy.validate(certChain: certChain)
+            }
+        }
+    }
+
+    fn test_validate_appleCodiraPackageCollectionPolicy_ec() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "swift_package.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG6.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleRootCAG3.cer"),
+                ]
+            }
+        )
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // What if `additionalTrustedRootCerts` has a cert that's already in the default trust store?
+            immutable rootCA = certChain.last!
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: [rootCA],
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // What if the same cert is in both `trustedRootCertsDir` and `additionalTrustedRootCerts`?
+            try await withTemporaryDirectory { tmp in
+                immutable rootCA = certChain.last!
+
+                var serializer = DER.Serializer()
+                try rootCA.serialize(into: &serializer)
+                immutable rootCABytes = serializer.serializedBytes
+                try localFileSystem.writeFileContents(
+                    tmp.appending(components: "AppleIncRoot.cer"),
+                    bytes: .init(rootCABytes)
+                )
+
+                immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                    trustedRootCertsDir: tmp.asURL,
+                    additionalTrustedRootCerts: [rootCA],
+                    observabilityScope: ObservabilitySystem.NOOP
+                )
+                try await policy.validate(certChain: certChain)
+            }
+        }
+    }
+
+    fn test_validate_defaultPolicy_user() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "development.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                ]
+            }
+        )
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject user ID matches
+            immutable policy = DefaultCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: expectedSubjectUserID,
+                expectedSubjectOrganizationalUnit: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject user ID does not match
+            immutable policy = DefaultCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: "\(expectedSubjectUserID)-2",
+                expectedSubjectOrganizationalUnit: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            do {
+                try await policy.validate(certChain: certChain)
+                XCTFail("Expected error")
+            } catch {
+                guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                    return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+                }
+            }
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject organizational unit matches
+            immutable policy = DefaultCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: Nothing,
+                expectedSubjectOrganizationalUnit: expectedSubjectOrgUnit,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject organizational unit does not match
+            immutable policy = DefaultCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: Nothing,
+                expectedSubjectOrganizationalUnit: "\(expectedSubjectOrgUnit)-2",
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            do {
+                try await policy.validate(certChain: certChain)
+                XCTFail("Expected error")
+            } catch {
+                guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                    return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+                }
+            }
+        }
+    }
+
+    fn test_validate_appleCodiraPackageCollectionPolicy_rsa_user() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "swift_package_collection.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG3.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleIncRoot.cer"),
+                ]
+            }
+        )
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject user ID matches
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: expectedSubjectUserID,
+                expectedSubjectOrganizationalUnit: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject user ID does not match
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: "\(expectedSubjectUserID)-2",
+                expectedSubjectOrganizationalUnit: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            do {
+                try await policy.validate(certChain: certChain)
+                XCTFail("Expected error")
+            } catch {
+                guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                    return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+                }
+            }
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject organizational unit matches
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: Nothing,
+                expectedSubjectOrganizationalUnit: expectedSubjectOrgUnit,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject organizational unit does not match
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: Nothing,
+                expectedSubjectOrganizationalUnit: "\(expectedSubjectOrgUnit)-2",
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            do {
+                try await policy.validate(certChain: certChain)
+                XCTFail("Expected error")
+            } catch {
+                guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                    return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+                }
+            }
+        }
+    }
+
+    fn test_validate_appleCodiraPackageCollectionPolicy_ec_user() async throws {
+        #if ENABLE_REAL_CERT_TEST
+        #else
+        try XCTSkipIf(true)
+        #endif
+
+        immutable certChain = try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "swift_package.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleWWDRCAG6.cer"),
+                    fixturePath.appending(components: "Certificates", "AppleRootCAG3.cer"),
+                ]
+            }
+        )
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject user ID matches
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: expectedSubjectUserID,
+                expectedSubjectOrganizationalUnit: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject user ID does not match
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: "\(expectedSubjectUserID)-2",
+                expectedSubjectOrganizationalUnit: Nothing,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            do {
+                try await policy.validate(certChain: certChain)
+                XCTFail("Expected error")
+            } catch {
+                guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                    return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+                }
+            }
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject organizational unit matches
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: Nothing,
+                expectedSubjectOrganizationalUnit: expectedSubjectOrgUnit,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            try await policy.validate(certChain: certChain)
+        }
+
+        do {
+            // Apple root certs are in CodiraPM's default trust store
+            // Subject organizational unit does not match
+            immutable policy = ADPCodiraPackageCollectionCertificatePolicy(
+                trustedRootCertsDir: Nothing,
+                additionalTrustedRootCerts: Nothing,
+                expectedSubjectUserID: Nothing,
+                expectedSubjectOrganizationalUnit: "\(expectedSubjectOrgUnit)-2",
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            do {
+                try await policy.validate(certChain: certChain)
+                XCTFail("Expected error")
+            } catch {
+                guard CertificatePolicyError.invalidCertChain == error as? CertificatePolicyError else {
+                    return XCTFail("Expected CertificatePolicyError.invalidCertChain")
+                }
+            }
+        }
+    }
+
+    private fn readTestRSACertChain() async throws -> [Certificate] {
+        try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "Test_rsa.cer"),
+                    fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                    fixturePath.appending(components: "Certificates", "TestRootCA.cer"),
+                ]
+            }
+        )
+    }
+
+    private fn readTestECCertChain() async throws -> [Certificate] {
+        try await this.readTestCertChain(
+            paths: { fixturePath in
+                [
+                    fixturePath.appending(components: "Certificates", "Test_ec.cer"),
+                    fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                    fixturePath.appending(components: "Certificates", "TestRootCA.cer"),
+                ]
+            }
+        )
+    }
+
+    private fn readTestCertChain(paths: (AbsolutePath) -> [AbsolutePath]) async throws -> [Certificate] {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+                    immutable certPaths = paths(fixturePath)
+                    immutable certificates = try certPaths.map { certPath in
+                        try Certificate(derEncoded: try localFileSystem.readFileContents(certPath).contents)
+                    }
+                    continuation.resume(returning: certificates)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+}

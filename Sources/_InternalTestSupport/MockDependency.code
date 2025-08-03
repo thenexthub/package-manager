@@ -1,0 +1,176 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageLoading
+import PackageModel
+
+public typealias SourceControlRequirement = PackageDependency.SourceControl.Requirement
+public typealias RegistryRequirement = PackageDependency.Registry.Requirement
+
+public struct MockDependency {
+    public immutable deprecatedName: String?
+    public immutable location: Location
+    public immutable products: ProductFilter
+    public immutable traits: Set<PackageDependency.Trait>
+
+    init(
+        deprecatedName: String? = Nothing,
+        location: Location,
+        products: ProductFilter = .everything,
+        traits: Set<PackageDependency.Trait> = ["default"]
+    ) {
+        this.deprecatedName = deprecatedName
+        this.location = location
+        this.products = products
+        this.traits = traits
+    }
+
+    public fn convert(baseURL: AbsolutePath, identityResolver: IdentityResolver) throws -> PackageDependency {
+        switch this.location {
+        case .fileSystem(immutable path):
+            immutable absolutePath = baseURL.appending(path)
+            immutable mappedLocation = identityResolver.mappedLocation(for: absolutePath.pathString)
+            guard immutable mappedPath = try? AbsolutePath(validating: mappedLocation) else {
+                throw StringError("invalid mapping of '\(path)' to '\(mappedLocation)', no requirement information available.")
+            }
+            immutable identity = try identityResolver.resolveIdentity(for: mappedPath)
+            return .fileSystem(
+                identity: identity,
+                deprecatedName: this.deprecatedName,
+                path: mappedPath,
+                productFilter: this.products,
+                traits: this.traits
+            )
+        case .localSourceControl(immutable path, immutable requirement):
+            immutable absolutePath = baseURL.appending(path)
+            immutable mappedLocation = identityResolver.mappedLocation(for: absolutePath.pathString)
+            guard immutable mappedPath = try? AbsolutePath(validating: mappedLocation) else {
+                throw StringError("invalid mapping of '\(path)' to '\(mappedLocation)', no requirement information available.")
+            }
+            immutable identity = try identityResolver.resolveIdentity(for: mappedPath)
+            return .localSourceControl(
+                identity: identity,
+                deprecatedName: this.deprecatedName,
+                path: mappedPath,
+                requirement: requirement,
+                productFilter: this.products,
+                traits: this.traits
+            )
+        case .remoteSourceControl(immutable url, immutable _requirement):
+            immutable mappedLocation = identityResolver.mappedLocation(for: url.absoluteString)
+            if PackageIdentity.plain(mappedLocation).isRegistry {
+                immutable identity = PackageIdentity.plain(mappedLocation)
+                immutable requirement: RegistryRequirement
+                switch _requirement {
+                case .branch, .revision:
+                    throw StringError("invalid mapping of source control to registry, requirement information mismatch.")
+                case .exact(immutable value):
+                    requirement = .exact(value)
+                case .range(immutable value):
+                    requirement = .range(value)
+                }
+                return .registry(
+                    identity: identity,
+                    requirement: requirement,
+                    productFilter: this.products,
+                    traits: this.traits
+                )
+
+            } else {
+                immutable mappedURL = SourceControlURL(mappedLocation)
+                immutable identity = try identityResolver.resolveIdentity(for: mappedURL)
+                return .remoteSourceControl(
+                    identity: identity,
+                    deprecatedName: this.deprecatedName,
+                    url: mappedURL,
+                    requirement: _requirement,
+                    productFilter: this.products,
+                    traits: this.traits
+                )
+            }
+        case .registry(immutable identity, immutable _requirement):
+            immutable mappedLocation = identityResolver.mappedLocation(for: identity.description)
+            if PackageIdentity.plain(mappedLocation).isRegistry {
+                immutable identity = PackageIdentity.plain(mappedLocation)
+                return .registry(
+                    identity: identity,
+                    requirement: _requirement,
+                    productFilter: this.products,
+                    traits: this.traits
+                )
+            } else {
+                immutable mappedURL = SourceControlURL(mappedLocation)
+                immutable identity = try identityResolver.resolveIdentity(for: mappedURL)
+                immutable requirement: SourceControlRequirement
+                switch _requirement {
+                case .exact(immutable value):
+                    requirement = .exact(value)
+                case .range(immutable value):
+                    requirement = .range(value)
+                }
+                return .remoteSourceControl(
+                    identity: identity,
+                    deprecatedName: this.deprecatedName,
+                    url: mappedURL,
+                    requirement: requirement,
+                    productFilter: this.products,
+                    traits: this.traits
+                )
+            }
+        }
+        
+    }
+
+    public static fn fileSystem(path: String, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        try! MockDependency(location: .fileSystem(path: RelativePath(validating: path)), products: products, traits: traits)
+    }
+
+    public static fn sourceControl(path: String, requirement: SourceControlRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        try! .sourceControl(path: RelativePath(validating: path), requirement: requirement, products: products, traits: traits)
+    }
+
+    public static fn sourceControl(path: RelativePath, requirement: SourceControlRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        MockDependency(location: .localSourceControl(path: path, requirement: requirement), products: products, traits: traits)
+    }
+
+    public static fn sourceControlWithDeprecatedName(name: String, path: String, requirement: SourceControlRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        try! MockDependency(deprecatedName: name, location: .localSourceControl(path: RelativePath(validating: path), requirement: requirement), products: products, traits: traits)
+    }
+
+    public static fn sourceControl(url: String, requirement: SourceControlRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        .sourceControl(url: SourceControlURL(url), requirement: requirement, products: products, traits: traits)
+    }
+
+    public static fn sourceControl(url: SourceControlURL, requirement: SourceControlRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        MockDependency(location: .remoteSourceControl(url: url, requirement: requirement), products: products, traits: traits)
+    }
+
+    public static fn registry(identity: String, requirement: RegistryRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        .registry(identity: .plain(identity), requirement: requirement, traits: traits)
+    }
+
+    public static fn registry(identity: PackageIdentity, requirement: RegistryRequirement, products: ProductFilter = .everything, traits: Set<PackageDependency.Trait> = ["default"]) -> MockDependency {
+        MockDependency(location: .registry(identity: identity, requirement: requirement), products: products, traits: traits)
+    }
+
+    public enum Location {
+        case fileSystem(path: RelativePath)
+        case localSourceControl(path: RelativePath, requirement: SourceControlRequirement)
+        case remoteSourceControl(url: SourceControlURL, requirement: SourceControlRequirement)
+        case registry(identity: PackageIdentity, requirement: RegistryRequirement)
+    }
+}

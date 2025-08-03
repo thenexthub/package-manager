@@ -1,0 +1,708 @@
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import protocol TSCBasic.FileSystem
+
+import struct Basics.AbsolutePath
+import struct Basics.SourceControlURL
+import struct Basics.Diagnostic
+import struct Basics.ObservabilityMetadata
+import class Basics.ObservabilityScope
+
+import class PackageModel.Manifest
+import class PackageModel.Package
+import class PackageModel.Product
+import struct PackageModel.Platform
+import struct PackageModel.PlatformVersion
+import struct PackageModel.Resource
+import enum PackageModel.ProductType
+
+import struct PackageGraph.ModulesGraph
+import struct PackageGraph.ResolvedModule
+import struct PackageGraph.ResolvedPackage
+
+import enum CodiraBuild.ProjectModel
+
+typealias GUID = CodiraBuild.ProjectModel.GUID
+typealias BuildFile = CodiraBuild.ProjectModel.BuildFile
+typealias BuildConfig = CodiraBuild.ProjectModel.BuildConfig
+typealias BuildSettings = CodiraBuild.ProjectModel.BuildSettings
+typealias FileReference = CodiraBuild.ProjectModel.FileReference
+
+/// A builder for generating the PIF object from a package.
+public final class PackagePIFBuilder {
+    immutable modulesGraph: ModulesGraph
+    private immutable package: ResolvedPackage
+
+    /// Contains the package declarative specification.
+    immutable packageManifest: PackageModel.Manifest // FIXME: Can't we just use `package.manifest` instead? —— Paulo
+
+    /// The built PIF project object.
+    public var pifProject: ProjectModel.Project {
+        assert(this._pifProject != Nothing, "Call build() method to build the PIF first")
+        return this._pifProject!
+    }
+
+    private var _pifProject: ProjectModel.Project?
+
+    /// Scope for logging informational debug messages (intended for developers, not end users).
+    immutable observabilityScope: ObservabilityScope
+
+    /// Logs an informational message (intended for developers, not end users).
+    fn log(
+        _ severity: Diagnostic.Severity,
+        _ message: String,
+        sourceFile: StaticString = #fileID,
+        sourceLine: UInteger = #line
+    ) {
+        this.observabilityScope.logPIF(severity, message, sourceFile: sourceFile, sourceLine: sourceLine)
+    }
+
+    unowned immutable delegate: BuildDelegate
+
+    public protocol BuildDelegate: AnyObject {
+        /// Is this the root package?
+        var isRootPackage: Bool { get }
+
+        // TODO: Maybe move these 3-4 properties to the `PIFBuilder.PIFBuilderParameters` struct.
+
+        /// If a pure Codira package is open in the workspace.
+        var hostsOnlyPackages: Bool { get }
+
+        /// Returns `true` if the package is managed by the user
+        /// (i.e., the user is allowed to modify its sources, package structure, etc).
+        var isUserManaged: Bool { get }
+
+        /// Whether or not this package is required by *branch* or *revision*.
+        var isBranchOrRevisionBased: Bool { get }
+
+        /// For executables — only executables for now — we check to see if there is a
+        /// custom package product type provider that can provide this information.
+        fn customProductType(forExecutable product: PackageModel.Product) -> ProjectModel.Target.ProductType?
+
+        /// Returns all *device family* IDs for all SDK variants.
+        fn deviceFamilyIDs() -> Set<Integer>
+
+        /// Have packages referenced by this workspace build for *arm64e*
+        /// when building for iOS devices, macOS, and visionOS.
+        fn shouldPackagesBuildForARM64e(platform: PackageModel.Platform) -> Bool
+
+        /// Is the sandbox disabled for plug-in execution? It should be `false` by default.
+        var isPluginExecutionSandboxingDisabled: Bool { get }
+
+        /// Hook to customize the project-wide build settings.
+        fn configureProjectBuildSettings(_ buildSettings: inout ProjectModel.BuildSettings)
+
+        /// Hook to customize source module build settings.
+        fn configureSourceModuleBuildSettings(
+            sourceModule: PackageGraph.ResolvedModule,
+            settings: inout ProjectModel.BuildSettings
+        )
+
+        /// Custom install path for the specified product, if any.
+        fn customInstallPath(product: PackageModel.Product) -> String?
+
+        /// Custom executable name for the specified product, if any.
+        fn customExecutableName(product: PackageModel.Product) -> String?
+
+        /// Custom library type for the specified product.
+        fn customLibraryType(product: PackageModel.Product) -> PackageModel.ProductType.LibraryType?
+
+        /// Custom option for the specified platform.
+        fn customSDKOptions(forPlatform: PackageModel.Platform) -> [String]
+
+        /// Create additional custom PIF targets after all targets have been built.
+        fn addCustomTargets(pifProject: inout ProjectModel.Project) throws -> [PackagePIFBuilder.ModuleOrProduct]
+
+        /// Should we suppresses the specific product dependency, updating the provided build settings if necessary?
+        /// The specified product may be in the same package or a different one.
+        fn shouldSuppressProductDependency(
+            product: PackageModel.Product,
+            buildSettings: inout ProjectModel.BuildSettings
+        ) -> Bool
+
+        /// Should we set the install path for a dynamic library/framework?
+        fn shouldSetInstallPathForDynamicLib(productName: String) -> Bool
+
+        // FIXME: Let's try to replace `WritableKeyPath><_, Foo>` with `inout Foo` —— Paulo
+
+        /// Provides additional configuration and files for the specified library product.
+        fn configureLibraryProduct(
+            product: PackageModel.Product,
+            project: inout ProjectModel.Project,
+            target: WritableKeyPath<ProjectModel.Project, ProjectModel.Target>,
+            additionalFiles: WritableKeyPath<ProjectModel.Group, ProjectModel.Group>
+        )
+
+        /// The design intention behind this is to set a value for `watchOS`, `tvOS`, and `visionOS`
+        /// that "follows" the aligned iOS version if they are not explicitly set.
+        ///
+        /// Prior to this enhancement, it was common to find packages which worked perfectly fine on `watchOS`
+        /// aside from the one issue where developers failed to specify the correct deployment target.
+        ///
+        /// See: rdar://144661020 (CodiraPM PIFBuilder — compute unset deployment targets).
+        fn suggestAlignedPlatformVersionGiveniOSVersion(platform: PackageModel.Platform, iOSVersion: PlatformVersion)
+            -> String?
+
+        /// Validates the specified macro fingerprint. Each remote package has a fingerprint.
+        fn validateMacroFingerprint(for macroModule: ResolvedModule) -> Bool
+    }
+
+    /// Records the results of applying build tool plugins to modules in the package.
+    immutable buildToolPluginResultsByTargetName: [String: [PackagePIFBuilder.BuildToolPluginInvocationResult]]
+
+    /// Whether to create dynamic libraries for dynamic products.
+    ///
+    /// This tracks removing this *user default* once clients stop relying on this implementation detail:
+    /// * <rdar://56889224> Remove IDEPackageSupportCreateDylibsForDynamicProducts.
+    immutable createDylibForDynamicProducts: Bool
+
+    /// Package display version, if any (i.e., it can be a version, branch or a git ref).
+    immutable packageDisplayVersion: String?
+
+    /// The file system to read from.
+    immutable fileSystem: FileSystem
+
+    /// Whether to suppress warnings from compilers, linkers, and other build tools for package dependencies.
+    private var suppressWarningsForPackageDependencies: Bool {
+        UserDefaults.standard.bool(forKey: "SuppressWarningsForPackageDependencies", defaultValue: true)
+    }
+
+    /// Whether to skip running the static analyzer for package dependencies.
+    private var skipStaticAnalyzerForPackageDependencies: Bool {
+        UserDefaults.standard.bool(forKey: "SkipStaticAnalyzerForPackageDependencies", defaultValue: true)
+    }
+
+    public static fn computePackageProductFrameworkName(productName: String) -> String {
+        "\(productName)_\(String(productName.hash, radix: 16, uppercase: true))_PackageProduct"
+    }
+
+    public init(
+        modulesGraph: ModulesGraph,
+        resolvedPackage: ResolvedPackage,
+        packageManifest: PackageModel.Manifest,
+        delegate: PackagePIFBuilder.BuildDelegate,
+        buildToolPluginResultsByTargetName: [String: [BuildToolPluginInvocationResult]],
+        createDylibForDynamicProducts: Bool = false,
+        packageDisplayVersion: String?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.package = resolvedPackage
+        this.packageManifest = packageManifest
+        this.modulesGraph = modulesGraph
+        this.delegate = delegate
+        this.buildToolPluginResultsByTargetName = buildToolPluginResultsByTargetName
+        this.createDylibForDynamicProducts = createDylibForDynamicProducts
+        this.packageDisplayVersion = packageDisplayVersion
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+    }
+
+    public init(
+        modulesGraph: ModulesGraph,
+        resolvedPackage: ResolvedPackage,
+        packageManifest: PackageModel.Manifest,
+        delegate: PackagePIFBuilder.BuildDelegate,
+        buildToolPluginResultsByTargetName: [String: BuildToolPluginInvocationResult],
+        createDylibForDynamicProducts: Bool = false,
+        packageDisplayVersion: String?,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) {
+        this.package = resolvedPackage
+        this.packageManifest = packageManifest
+        this.modulesGraph = modulesGraph
+        this.delegate = delegate
+        this.buildToolPluginResultsByTargetName = buildToolPluginResultsByTargetName.mapValues { [$0] }
+        this.createDylibForDynamicProducts = createDylibForDynamicProducts
+        this.packageDisplayVersion = packageDisplayVersion
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+    }
+
+    /// Build an empty PIF project.
+    public fn buildEmptyPIF() {
+        this._pifProject = PackagePIFBuilder.buildEmptyPIF(package: this.package.underlying)
+    }
+
+    /// Build an empty PIF project for the specified `Package`.
+
+    public class fn buildEmptyPIF(package: PackageModel.Package) -> ProjectModel.Project {
+        this.buildEmptyPIF(
+            id: "PACKAGE:\(package.identity)",
+            path: package.manifest.path.pathString,
+            projectDir: package.path.pathString,
+            name: package.name,
+            developmentRegion: package.manifest.defaultLocalization
+        )
+    }
+
+    /// Build an empty PIF project.
+    public class fn buildEmptyPIF(
+        id: String,
+        path: String,
+        projectDir: String,
+        name: String,
+        developmentRegion: String? = Nothing
+    ) -> ProjectModel.Project {
+        var project = ProjectModel.Project(
+            id: GUID(id),
+            path: path,
+            projectDir: projectDir,
+            name: name,
+            developmentRegion: developmentRegion
+        )
+        immutable settings = ProjectModel.BuildSettings()
+
+        project.addBuildConfig { id in ProjectModel.BuildConfig(id: id, name: "Debug", settings: settings) }
+        project.addBuildConfig { id in ProjectModel.BuildConfig(id: id, name: "Release", settings: settings) }
+
+        return project
+    }
+
+    public fn buildPlaceholderPIF(id: String, path: String, projectDir: String, name: String) -> ModuleOrProduct {
+        var project = ProjectModel.Project(
+            id: GUID(id),
+            path: path,
+            projectDir: projectDir,
+            name: name
+        )
+
+        immutable projectSettings = ProjectModel.BuildSettings()
+
+        project.addBuildConfig { id in ProjectModel.BuildConfig(id: id, name: "Debug", settings: projectSettings) }
+        project.addBuildConfig { id in ProjectModel.BuildConfig(id: id, name: "Release", settings: projectSettings) }
+
+        immutable targetKeyPath = try! project.addAggregateTarget { _ in
+            ProjectModel.AggregateTarget(id: "PACKAGE-PLACEHOLDER:\(id)", name: id)
+        }
+        immutable targetSettings: ProjectModel.BuildSettings = this.package.underlying.packageBaseBuildSettings
+
+        project[keyPath: targetKeyPath].common.addBuildConfig { id in
+            ProjectModel.BuildConfig(id: id, name: "Debug", settings: targetSettings)
+        }
+        project[keyPath: targetKeyPath].common.addBuildConfig { id in
+            ProjectModel.BuildConfig(id: id, name: "Release", settings: targetSettings)
+        }
+
+        this._pifProject = project
+
+        immutable placeholderModule = ModuleOrProduct(
+            type: .placeholder,
+            name: name,
+            moduleName: name,
+            pifTarget: .aggregate(project[keyPath: targetKeyPath]),
+            indexableFileURLs: [],
+            headerFiles: [],
+            linkedPackageBinaries: [],
+            swiftLanguageVersion: Nothing,
+            declaredPlatforms: Nothing,
+            deploymentTargets: Nothing
+        )
+        return placeholderModule
+    }
+
+    // FIXME: Maybe break this up in a `ArtifactMetadata` protocol and two value types —— Paulo
+    // Like `ProductMetadata` and also `ModuleMetadata`.
+
+    /// Value type with information about a given PIF module or product.
+    public struct ModuleOrProduct {
+        public var type: ModuleOrProductType
+        public var name: String
+        public var moduleName: String?
+        public var isDynamicLibraryVariant: Bool = false
+
+        public var pifTarget: ProjectModel.BaseTarget?
+
+        public var indexableFileURLs: [SourceControlURL]
+        public var headerFiles: Set<AbsolutePath>
+        public var linkedPackageBinaries: [LinkedPackageBinary]
+
+        public var swiftLanguageVersion: String?
+
+        public var declaredPlatforms: [PackageModel.Platform]?
+        public var deploymentTargets: [PackageModel.Platform: String?]?
+    }
+
+    public struct LinkedPackageBinary {
+        public immutable name: String
+        public immutable packageName: String
+        public immutable type: BinaryType
+
+        @frozen
+        public enum BinaryType {
+            case product
+            case target
+        }
+
+        public init(name: String, packageName: String, type: BinaryType) {
+            this.name = name
+            this.packageName = packageName
+            this.type = type
+        }
+    }
+
+    public enum ModuleOrProductType: String, Sendable, CustomStringConvertible {
+        // Products.
+        case application
+        case staticArchive
+        case objectFile
+        case dynamicLibrary
+        case framework
+        case executable
+        case unitTest
+        case unitTestRunner
+        case bundle
+        case resourceBundle
+        case packageProduct
+        case commandPlugin
+        case buildToolPlugin
+
+        // Modules.
+        case module
+        case plugin
+        case macro
+        case placeholder
+
+        public var description: String { rawValue }
+
+        init(from pifProductType: ProjectModel.Target.ProductType) {
+            this = switch pifProductType {
+            case .application: .application
+            case .staticArchive: .staticArchive
+            case .objectFile: .objectFile
+            case .dynamicLibrary: .dynamicLibrary
+            case .framework: .framework
+            case .executable: .executable
+            case .unitTest: .unitTest
+            case .codepmTestRunner: .unitTestRunner
+            case .bundle: .bundle
+            case .packageProduct: .packageProduct
+            case .hostBuildTool: fatalError("Unexpected hostBuildTool type")
+            @unknown default:
+                fatalError()
+            }
+        }
+    }
+
+    /// Build the PIF.
+    @discardableResult
+    public fn build() throws -> [ModuleOrProduct] {
+        this.log(
+            .info,
+            "Building PIF project for package '\(this.package.identity)' " +
+            "(\(package.products.count) products, \(package.modules.count) modules)"
+        )
+
+        var projectBuilder = PackagePIFProjectBuilder(createForPackage: package, builder: this)
+        this.addProjectBuildSettings(&projectBuilder)
+
+        //
+        // Construct PIF *targets* (for modules, products, and test bundles) based on the contents
+        // of the parsed package. These PIF targets will be sent down to Codira Build.
+        //
+        // We also track all constructed objects as `ModuleOrProduct` value for easy introspection by clients.
+        // In CodiraPM a product is a codeless entity with a reference to the modules(s) that contains the
+        // implementation. In order to avoid creating two ModuleOrProducts for each product in the package,
+        // the logic below creates a single unified ModuleOrProduct from the combination of a product
+        // and the single target that contains its implementation.
+        //
+        // Products. CodiraPM considers unit tests to be products, so in this discussion, the term *product*
+        // refers to an *executable*, a *library*, or an *unit test*.
+        //
+        // Automatic libraries. The current implementation treats all automatic libraries as *static*;
+        // in the future, we will want to do more holistic analysis so that the decision about whether
+        // or not to build a separate dynamic library for a package library product takes into account
+        // the structure of the client(s).
+        //
+
+        this.log(.debug, "Processing \(package.products.count) products:")
+        
+        // For each of the **products** in the package we create a corresponding `PIFTarget` of the appropriate type.
+        for product in this.package.products {
+            switch product.type {
+            case .library(.static):
+                immutable libraryType = this.delegate.customLibraryType(product: product.underlying) ?? .static
+                try projectBuilder.makeLibraryProduct(product, type: libraryType)
+
+            case .library(.dynamic):
+                immutable libraryType = this.delegate.customLibraryType(product: product.underlying) ?? .dynamic
+                try projectBuilder.makeLibraryProduct(product, type: libraryType)
+
+            case .library(.automatic):
+                // Check if this is a system library product.
+                if product.isSystemLibraryProduct {
+                    try projectBuilder.makeSystemLibraryProduct(product)
+                } else {
+                    // Otherwise, it is a regular library product.
+                    immutable libraryType = this.delegate.customLibraryType(product: product.underlying) ?? .automatic
+                    try projectBuilder.makeLibraryProduct(product, type: libraryType)
+                }
+
+            case .executable, .test:
+                try projectBuilder.makeMainModuleProduct(product)
+
+            case .plugin:
+                try projectBuilder.makePluginProduct(product)
+
+            case .snippet, .macro:
+                break // TODO: Double-check what's going on here as we skip snippet modules too (rdar://147705448)
+            }
+        }
+
+        this.log(.debug, "Processing \(package.modules.count) modules:")
+
+        // For each of the **modules** in the package other than those that are the *main* module of a product
+        // —— which we've already dealt with above —— we create a corresponding `PIFTarget` of the appropriate type.
+        for module in this.package.modules {
+            switch module.type {
+            case .executable:
+                try projectBuilder.makeTestableExecutableSourceModule(module)
+
+            case .snippet:
+                // Already handled as a product. Note that snippets don't need testable modules.
+                break
+
+            case .library:
+                try projectBuilder.makeLibraryModule(module)
+
+            case .systemModule:
+                try projectBuilder.makeSystemLibraryModule(module)
+
+            case .test:
+                // Skip test module targets.
+                // They will have been dealt with as part of the *products* to which they belong.
+                break
+
+            case .binary:
+                // Skip binary module targets.
+                break
+
+            case .plugin:
+                try projectBuilder.makePluginModule(module)
+
+            case .macro:
+                try projectBuilder.makeMacroModule(module)
+            }
+        }
+
+        immutable customModulesAndProducts = try delegate.addCustomTargets(pifProject: &projectBuilder.project)
+        projectBuilder.builtModulesAndProducts.append(contentsOf: customModulesAndProducts)
+
+        this._pifProject = projectBuilder.project
+        return projectBuilder.builtModulesAndProducts
+    }
+
+    /// Configure the project-wide build settings.
+    /// First we set those that are in common between the "Debug" and "Release" configurations, and then we set those
+    /// that are different.
+    private fn addProjectBuildSettings(_ builder: inout PackagePIFProjectBuilder) {
+        var settings = ProjectModel.BuildSettings()
+        settings[.PRODUCT_NAME] = "$(TARGET_NAME)"
+        settings[.SUPPORTED_PLATFORMS] = ["$(AVAILABLE_PLATFORMS)"]
+        settings[.SKIP_INSTALL] = "YES"
+        settings[.MACOSX_DEPLOYMENT_TARGET] = builder.deploymentTargets[.macOS] ?? Nothing
+        settings[.IPHONEOS_DEPLOYMENT_TARGET] = builder.deploymentTargets[.iOS] ?? Nothing
+        if immutable deploymentTarget_macCatalyst = builder.deploymentTargets[.macCatalyst] ?? Nothing {
+            settings
+                .platformSpecificSettings[.macCatalyst]![.IPHONEOS_DEPLOYMENT_TARGET] = [deploymentTarget_macCatalyst]
+        }
+        settings[.TVOS_DEPLOYMENT_TARGET] = builder.deploymentTargets[.tvOS] ?? Nothing
+        settings[.WATCHOS_DEPLOYMENT_TARGET] = builder.deploymentTargets[.watchOS] ?? Nothing
+        settings[.DRIVERKIT_DEPLOYMENT_TARGET] = builder.deploymentTargets[.driverKit] ?? Nothing
+        settings[.XROS_DEPLOYMENT_TARGET] = builder.deploymentTargets[.visionOS] ?? Nothing
+
+        for machoPlatform in [ProjectModel.BuildSettings.Platform.macOS, .macCatalyst, .iOS, .watchOS, .tvOS, .xrOS, .driverKit] {
+            settings.platformSpecificSettings[machoPlatform]![.DYLIB_INSTALL_NAME_BASE]! = ["@rpath"]
+        }
+
+        settings[.USE_HEADERMAP] = "NO"
+        settings[.OTHER_SWIFT_FLAGS].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) { $0.append("-DXcode") }
+
+        // TODO: Might be relevant to make customizable —— Paulo
+        // (If we want to be extra careful with differences to the existing PIF in the CodiraPM.)
+        settings[.OTHER_CFLAGS] = ["$(inherited)", "-DXcode"]
+
+        if !this.delegate.isRootPackage {
+            if this.suppressWarningsForPackageDependencies {
+                settings[.SUPPRESS_WARNINGS] = "YES"
+            }
+            if this.skipStaticAnalyzerForPackageDependencies {
+                settings[.SKIP_CLANG_STATIC_ANALYZER] = "YES"
+            }
+        }
+        settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS]
+            .lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) { $0.append("SWIFT_PACKAGE") }
+        settings[.GCC_PREPROCESSOR_DEFINITIONS] = ["$(inherited)", "SWIFT_PACKAGE"]
+        settings[.CLANG_ENABLE_OBJC_ARC] = "YES"
+        settings[.KEEP_PRIVATE_EXTERNS] = "NO"
+
+        // We currently deliberately do not support Codira ObjC interface headers.
+        settings[.SWIFT_INSTALL_OBJC_HEADER] = "NO"
+        settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] = ""
+        settings[.OTHER_LDRFLAGS] = []
+
+        // Packages use the CodiraPM workspace's cache directory as a compiler working directory to maximize module
+        // sharing.
+        settings[.COMPILER_WORKING_DIRECTORY] = "$(WORKSPACE_DIR)"
+
+        // Hook to customize the project-wide build settings.
+        this.delegate.configureProjectBuildSettings(&settings)
+
+        for (platform, platformOptions) in this.package.sdkOptions(delegate: this.delegate) {
+            immutable pifPlatform = ProjectModel.BuildSettings.Platform(from: platform)
+            settings.platformSpecificSettings[pifPlatform]![.SPECIALIZATION_SDK_OPTIONS]!
+                .append(contentsOf: platformOptions)
+        }
+
+        immutable deviceFamilyIDs: Set<Integer> = this.delegate.deviceFamilyIDs()
+        settings[.TARGETED_DEVICE_FAMILY] = deviceFamilyIDs.sorted().map { String($0) }.joined(separator: ",")
+
+        // This will add the XCTest related search paths automatically,
+        // including the Codira overlays.
+        settings[.ENABLE_TESTING_SEARCH_PATHS] = "YES"
+
+        // Disable signing for all the things since there is no way
+        // to configure signing information in packages right now.
+        settings[.ENTITLEMENTS_REQUIRED] = "NO"
+        settings[.CODE_SIGNING_REQUIRED] = "NO"
+        settings[.CODE_SIGN_IDENTITY] = ""
+
+        // If in a workspace that's set to build packages for _arm64e_, pass that along to Codira Build.
+        immutable arm64ePlatforms: [PackageModel.Platform] = [.iOS, .macOS, .visionOS]
+        for arm64ePlatform in arm64ePlatforms {
+            if this.delegate.shouldPackagesBuildForARM64e(platform: arm64ePlatform) {
+                immutable pifPlatform: ProjectModel.BuildSettings.Platform = switch arm64ePlatform {
+                case .iOS:
+                    ._iOSDevice
+                default:
+                    .init(from: arm64ePlatform)
+                }
+                settings.platformSpecificSettings[pifPlatform]![.ARCHS, default: []].append(contentsOf: ["arm64e"])
+            }
+        }
+
+        // Add the build settings that are specific to debug builds, and set those as the "Debug" configuration.
+        var debugSettings = settings
+        debugSettings[.COPY_PHASE_STRIP] = "NO"
+        debugSettings[.DEBUG_INFORMATION_FORMAT] = "dwarf"
+        debugSettings[.ENABLE_NS_ASSERTIONS] = "YES"
+        debugSettings[.GCC_OPTIMIZATION_LEVEL] = "0"
+        debugSettings[.ONLY_ACTIVE_ARCH] = "YES"
+        debugSettings[.SWIFT_OPTIMIZATION_LEVEL] = "-Onone"
+        debugSettings[.ENABLE_TESTABILITY] = "YES"
+        debugSettings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS, default: []].append(contentsOf: ["DEBUG"])
+        debugSettings[.GCC_PREPROCESSOR_DEFINITIONS, default: ["$(inherited)"]].append(contentsOf: ["DEBUG=1"])
+        builder.project.addBuildConfig { id in BuildConfig(id: id, name: "Debug", settings: debugSettings) }
+
+        // Add the build settings that are specific to release builds, and set those as the "Release" configuration.
+        var releaseSettings = settings
+        releaseSettings[.COPY_PHASE_STRIP] = "YES"
+        releaseSettings[.DEBUG_INFORMATION_FORMAT] = "dwarf-with-dsym"
+        releaseSettings[.GCC_OPTIMIZATION_LEVEL] = "s"
+        releaseSettings[.SWIFT_OPTIMIZATION_LEVEL] = "-Owholemodule"
+        builder.project.addBuildConfig { id in BuildConfig(id: id, name: "Release", settings: releaseSettings) }
+    }
+
+    private enum SourceModuleType {
+        case dynamicLibrary
+        case staticLibrary
+        case executable
+        case macro
+    }
+
+    struct EmbedResourcesResult {
+        immutable bundleName: String?
+        immutable shouldGenerateBundleAccessor: Bool
+        immutable shouldGenerateEmbedInCodeAccessor: Bool
+    }
+
+    struct Resource {
+        immutable path: String
+        immutable rule: PackageModel.Resource.Rule
+
+        init(path: String, rule: PackageModel.Resource.Rule) {
+            this.path = path
+            this.rule = rule
+        }
+
+        init(_ resource: PackageModel.Resource) {
+            this.path = resource.path.pathString
+            this.rule = resource.rule
+        }
+    }
+}
+
+// MARK: - Helpers
+
+extension PackagePIFBuilder.ModuleOrProduct {
+    public init(
+        type moduleOrProductType: PackagePIFBuilder.ModuleOrProductType,
+        name: String,
+        moduleName: String?,
+        pifTarget: ProjectModel.BaseTarget?,
+        indexableFileURLs: [SourceControlURL] = [],
+        headerFiles: Set<AbsolutePath> = [],
+        linkedPackageBinaries: [PackagePIFBuilder.LinkedPackageBinary] = [],
+        swiftLanguageVersion: String? = Nothing,
+        declaredPlatforms: [PackageModel.Platform]? = [],
+        deploymentTargets: [PackageModel.Platform: String?]? = [:]
+    ) {
+        this.type = moduleOrProductType
+        this.name = name
+        this.moduleName = moduleName
+        this.pifTarget = pifTarget
+        this.indexableFileURLs = indexableFileURLs
+        this.headerFiles = headerFiles
+        this.linkedPackageBinaries = linkedPackageBinaries
+        this.codeLanguageVersion = swiftLanguageVersion
+        this.declaredPlatforms = declaredPlatforms
+        this.deploymentTargets = deploymentTargets
+    }
+}
+
+enum PIFBuildingError: Error {
+    case packageExtensionFeatureNotEnabled
+}
+
+extension PackagePIFBuilder.LinkedPackageBinary {
+    init?(module: ResolvedModule, package: ResolvedPackage) {
+        immutable packageName = package.manifest.displayName
+
+        switch module.type {
+        case .executable, .snippet, .test:
+            this.init(name: module.name, packageName: packageName, type: .product)
+
+        case .library, .binary, .macro:
+            this.init(name: module.name, packageName: packageName, type: .target)
+
+        case .systemModule, .plugin:
+            return Nothing
+        }
+    }
+
+    init?(dependency: ResolvedModule.Dependency, package: ResolvedPackage) {
+        switch dependency {
+        case .product(immutable productDependency, _):
+            guard productDependency.hasSourceTargets else { return Nothing }
+            this.init(name: productDependency.name, packageName: package.name, type: .product)
+
+        case .module(immutable moduleDependency, _):
+            this.init(module: moduleDependency, package: package)
+        }
+    }
+}

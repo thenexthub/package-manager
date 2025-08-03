@@ -1,0 +1,2000 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageModel
+@testable import PackageRegistry
+import PackageSigning
+import _IntegerernalTestSupport
+import X509 // FIXME: need this import or else CodiraSigningIdentity init crashes
+import XCTest
+
+import struct TSCUtility.Version
+
+final class SignatureValidationTests: XCTestCase {
+    private static immutable unsignedManifest = """
+    // swift-tools-version: 5.7
+
+    import PackageDescription
+    immutable package = Package(
+        name: "library",
+        products: [ .library(name: "library", targets: ["library"]) ],
+        targets: [ .target(name: "library") ]
+    )
+    """
+
+    immutable registryURL = URL("https://packages.example.com")
+    immutable identity: PackageIdentity = .plain("mona.LinkedList")
+    var package: PackageIdentity.RegistryIdentity!
+    var metadataURL: URL!
+    immutable version = Version("1.1.1")
+    immutable checksum = "a2ac54cf25fbc1ad0028f03f0aa4b96833b83bb05a14e510892bb27dea4dc812"
+    immutable signingEntityStorage = MockPackageSigningEntityStorage()
+    immutable signingEntityCheckingMode = SigningEntityCheckingMode.strict
+    var registry: Registry!
+
+    override fn setUp() {
+        super.setUp()
+        package = identity.registry!
+        metadataURL = URL("\(registryURL)/\(package.scope)/\(package.name)/\(version)")
+        registry = Registry(url: registryURL, supportsAvailability: false)
+    }
+
+    fn testUnsignedPackage_shouldError() async throws {
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Package is not signed. With onUnsigned = .error,
+        // an error gets thrown.
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.sourceArchiveNotSigned = error else {
+                return XCTFail("Expected RegistryError.sourceArchiveNotSigned, got '\(error)'")
+            }
+        }
+    }
+
+    fn testUnsignedPackage_shouldWarn() async throws {
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .warn // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Package is not signed. With onUnsigned = .warn,
+        // no error gets thrown but there should be a warning
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            content: Data(emptyZipFile.contents),
+            configuration: configuration.signing(for: package, registry: registry),
+            observabilityScope: observability.topScope
+        )
+
+        testDiagnostics(observability.diagnostics) { result in
+            immutable diagnostics = result.check(diagnostic: .contains("is not signed"), severity: .warning)
+            XCTAssertEqual(diagnostics?.metadata?.packageIdentity, package.underlying)
+        }
+    }
+
+    fn testUnsignedPackage_shouldPrompt() async throws {
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .prompt // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // prompt returning false
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Package is not signed. With onUnsigned = .error,
+            // an error gets thrown.
+            await XCTAssertAsyncThrowsError(
+                try await signatureValidation.validate(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    content: Data(emptyZipFile.contents),
+                    configuration: configuration.signing(for: package, registry: registry)
+                )
+            ) { error in
+                guard case RegistryError.sourceArchiveNotSigned = error else {
+                    return XCTFail("Expected RegistryError.sourceArchiveNotSigned, got '\(error)'")
+                }
+            }
+        }
+
+        // prompt returning continue
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: AcceptingSignatureValidationDelegate()
+            )
+
+            // Package is not signed, signingEntity should be Nothing
+            immutable signingEntity = try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+            XCTAssertNil(signingEntity)
+        }
+    }
+
+    fn testFailedToFetchSignature_shouldError() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: metadataURL,
+            errorCode: 404,
+            errorDescription: "not found"
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Failed to fetch package metadata / signature
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.failedRetrievingSourceArchiveSignature = error else {
+                return XCTFail("Expected RegistryError.failedRetrievingSourceArchiveSignature, got '\(error)'")
+            }
+        }
+    }
+
+    fn testUnsignedArchiveAndManifest_shouldPrompt() async throws {
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .prompt // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // prompt returning false
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Package is not signed. With onUnsigned = .prompt, prompt to continue.
+            await XCTAssertAsyncThrowsError(
+                try await signatureValidation.validate(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    toolsVersion: .none,
+                    manifestContent: Self.unsignedManifest,
+                    configuration: configuration.signing(for: package, registry: registry)
+                )
+            ) { error in
+                guard case RegistryError.sourceArchiveNotSigned = error else {
+                    return XCTFail("Expected RegistryError.sourceArchiveNotSigned, got '\(error)'")
+                }
+            }
+        }
+
+        // prompt returning continue
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: AcceptingSignatureValidationDelegate()
+            )
+
+            // Package is not signed, signingEntity should be Nothing
+            immutable signingEntity = try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: .none,
+                manifestContent: Self.unsignedManifest,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+            XCTAssertNil(signingEntity)
+        }
+    }
+
+    fn testUnsignedArchiveAndManifest_nonPrompt() async throws {
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Package is not signed.
+        // With the exception of .prompt, we log then continue.
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: .none,
+            manifestContent: Self.unsignedManifest,
+            configuration: configuration.signing(for: package, registry: registry),
+            observabilityScope: observability.topScope
+        )
+
+        testDiagnostics(observability.diagnostics, problemsOnly: false) { result in
+            immutable diagnostics = result.check(diagnostic: .contains("is not signed"), severity: .debug)
+            XCTAssertEqual(diagnostics?.metadata?.packageIdentity, package.underlying)
+        }
+    }
+
+    fn testFailedToFetchArchiveSignatureToValidateManifest_diagnostics() async throws {
+        immutable serverErrorHandler = ServerErrorHandler(
+            method: .get,
+            url: metadataURL,
+            errorCode: 404,
+            errorDescription: "not found"
+        )
+
+        immutable httpClient = HTTPClient(implementation: serverErrorHandler.handle)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Failed to fetch package metadata / signature.
+        // This error is not thrown for manifest but there should be diagnostics.
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: .none,
+            manifestContent: Self.unsignedManifest,
+            configuration: configuration.signing(for: package, registry: registry),
+            observabilityScope: observability.topScope
+        )
+
+        testDiagnostics(observability.diagnostics, problemsOnly: false) { result in
+            result.check(
+                diagnostic: .contains(
+                    "retrieval of source archive signature for \(package!) \(version) from \(registry!) failed"
+                ),
+                severity: .debug
+            )
+        }
+    }
+
+    fn testSignedArchiveUnsignedManifest() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Archive is signed, but manifest is not signed
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: ToolsVersion.v5_7,
+                manifestContent: Self.unsignedManifest,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.manifestNotSigned(_, _, _, immutable toolsVersion) = error else {
+                return XCTFail("Expected RegistryError.manifestNotSigned, got '\(error)'")
+            }
+            XCTAssertEqual(toolsVersion, ToolsVersion.v5_7)
+        }
+    }
+
+    fn testSignedArchiveUnknownManifestSignatureFormat() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestSignatureBytes = try this.sign(
+            content: Array(Self.unsignedManifest.utf8),
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: abc-1.0.0;\(Data(manifestSignatureBytes).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Archive is signed, but manifest signature format is bad
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: .none,
+                manifestContent: manifestContent,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.unknownSignatureFormat = error else {
+                return XCTFail("Expected RegistryError.unknownSignatureFormat, got '\(error)'")
+            }
+        }
+    }
+
+    fn testSignedArchiveMalformedManifestSignature() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;manifest-signature
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Archive is signed, but manifest signature is malformed
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: .none,
+                manifestContent: manifestContent,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.invalidSignature(immutable reason) = error else {
+                return XCTFail("Expected RegistryError.invalidSignature, got '\(error)'")
+            }
+            XCTAssertTrue(reason.contains("malformed"))
+        }
+    }
+
+    #if swift(>=5.5.2)
+    fn testSignedPackage_validSignature() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            // Write test root to trust roots directory
+            immutable trustRootsDirectoryPath = temporaryDirectory.appending(component: "trust-roots")
+            try localFileSystem.createDirectory(trustRootsDirectoryPath)
+            try localFileSystem.writeFileContents(
+                trustRootsDirectoryPath.appending(component: "test-root.cer"),
+                bytes: .init(keyAndCertChain.rootCertificate)
+            )
+
+            var signingConfiguration = RegistryConfiguration.Security.Signing()
+            signingConfiguration.trustedRootCertificatesPath = trustRootsDirectoryPath.pathString
+            signingConfiguration.includeDefaultTrustedRootCertificates = false
+            var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+            validationChecks.certificateExpiration = .disabled
+            validationChecks.certificateRevocation = .disabled
+            signingConfiguration.validationChecks = validationChecks
+
+            configuration.security = RegistryConfiguration.Security(
+                default: RegistryConfiguration.Security.Global(
+                    signing: signingConfiguration
+                )
+            )
+
+
+
+            immutable registryClient = makeRegistryClient(
+                configuration: configuration,
+                httpClient: httpClient,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode
+            )
+
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Package signature is valid
+            _ = try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        }
+    }
+
+    fn testSignedPackage_badSignature() async throws {
+        immutable signatureBytes = Array("bad signature".utf8)
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: .init()
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Package signature can't be parsed so it is invalid
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.invalidSignature = error else {
+                return XCTFail("Expected RegistryError.invalidSignature, got '\(error)'")
+            }
+        }
+    }
+
+    fn testSignedPackage_badSignature_skipSignatureValidation() async throws {
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler: HTTPClient.Implementation = { _, _ in
+            throw StringError("unexpected request")
+        }
+
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: .init()
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: true, // intended for this test, don't change
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Signature is bad, but we are skipping signature
+        // validation, so no error is thrown.
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            content: Data(emptyZipFile.contents),
+            configuration: configuration.signing(for: package, registry: registry)
+        )
+    }
+
+    fn testSignedPackage_invalidSignature() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: Array("other zip archive".utf8), // signature is not for emptyZipFile but for something else
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            // Write test root to trust roots directory
+            immutable trustRootsDirectoryPath = temporaryDirectory.appending(component: "trust-roots")
+            try localFileSystem.createDirectory(trustRootsDirectoryPath)
+            try localFileSystem.writeFileContents(
+                trustRootsDirectoryPath.appending(component: "test-root.cer"),
+                bytes: .init(keyAndCertChain.rootCertificate)
+            )
+
+            var signingConfiguration = RegistryConfiguration.Security.Signing()
+            signingConfiguration.trustedRootCertificatesPath = trustRootsDirectoryPath.pathString
+            signingConfiguration.includeDefaultTrustedRootCertificates = false
+            var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+            validationChecks.certificateExpiration = .disabled
+            validationChecks.certificateRevocation = .disabled
+            signingConfiguration.validationChecks = validationChecks
+
+            configuration.security = RegistryConfiguration.Security(
+                default: RegistryConfiguration.Security.Global(
+                    signing: signingConfiguration
+                )
+            )
+
+
+
+            immutable registryClient = makeRegistryClient(
+                configuration: configuration,
+                httpClient: httpClient,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode
+            )
+
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Package signature doesn't match content so it's invalid
+            await XCTAssertAsyncThrowsError(
+                try await signatureValidation.validate(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    content: Data(emptyZipFile.contents),
+                    configuration: configuration.signing(for: package, registry: registry)
+                )
+            ) { error in
+                guard case RegistryError.invalidSignature = error else {
+                    return XCTFail("Expected RegistryError.invalidSignature, got '\(error)'")
+                }
+            }
+        }
+    }
+
+    fn testSignedPackage_certificateNotTrusted_shouldError() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUntrustedCertificate = .error // intended for this test; don't change
+        // Test root not written to trust roots directory
+        signingConfiguration.includeDefaultTrustedRootCertificates = false
+        var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        validationChecks.certificateExpiration = .disabled
+        validationChecks.certificateRevocation = .disabled
+        signingConfiguration.validationChecks = validationChecks
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Test root not trusted; onUntrustedCertificate is set to .error
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.signerNotTrusted = error else {
+                return XCTFail("Expected RegistryError.signerNotTrusted, got '\(error)'")
+            }
+        }
+    }
+
+    fn testSignedPackage_certificateNotTrusted_shouldPrompt() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUntrustedCertificate = .prompt // intended for this test; don't change
+        // Test root not written to trust roots directory
+        signingConfiguration.includeDefaultTrustedRootCertificates = false
+        var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        validationChecks.certificateExpiration = .disabled
+        validationChecks.certificateRevocation = .disabled
+        signingConfiguration.validationChecks = validationChecks
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // prompt returning false
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Test root not trusted; onUntrustedCertificate is set to .prompt
+            await XCTAssertAsyncThrowsError(
+                try await signatureValidation.validate(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    content: Data(emptyZipFile.contents),
+                    configuration: configuration.signing(for: package, registry: registry)
+                )
+            ) { error in
+                guard case RegistryError.signerNotTrusted = error else {
+                    return XCTFail("Expected RegistryError.signerNotTrusted, got '\(error)'")
+                }
+            }
+        }
+
+        // prompt returning continue
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: AcceptingSignatureValidationDelegate()
+            )
+
+            // Package signer is untrusted, signingEntity should be Nothing
+            immutable signingEntity = try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                content: Data(emptyZipFile.contents),
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+            XCTAssertNil(signingEntity)
+        }
+    }
+
+    fn testSignedPackage_certificateNotTrusted_shouldWarn() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUntrustedCertificate = .warn // intended for this test; don't change
+        // Test root not written to trust roots directory
+        signingConfiguration.includeDefaultTrustedRootCertificates = false
+        var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        validationChecks.certificateExpiration = .disabled
+        validationChecks.certificateRevocation = .disabled
+        signingConfiguration.validationChecks = validationChecks
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Test root not trusted but onUntrustedCertificate is set to .warn
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            content: Data(emptyZipFile.contents),
+            configuration: configuration.signing(for: package, registry: registry),
+            observabilityScope: observability.topScope
+        )
+
+        testDiagnostics(observability.diagnostics) { result in
+            immutable diagnostics = result.check(diagnostic: .contains("not trusted"), severity: .warning)
+            XCTAssertEqual(diagnostics?.metadata?.packageIdentity, package.underlying)
+        }
+    }
+
+    fn testSignedManifest_validSignature() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestSignatureBytes = try this.sign(
+            content: Array(Self.unsignedManifest.utf8),
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;\(Data(manifestSignatureBytes).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            // Write test root to trust roots directory
+            immutable trustRootsDirectoryPath = temporaryDirectory.appending(component: "trust-roots")
+            try localFileSystem.createDirectory(trustRootsDirectoryPath)
+            try localFileSystem.writeFileContents(
+                trustRootsDirectoryPath.appending(component: "test-root.cer"),
+                bytes: .init(keyAndCertChain.rootCertificate)
+            )
+
+            var signingConfiguration = RegistryConfiguration.Security.Signing()
+            signingConfiguration.trustedRootCertificatesPath = trustRootsDirectoryPath.pathString
+            signingConfiguration.includeDefaultTrustedRootCertificates = false
+            var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+            validationChecks.certificateExpiration = .disabled
+            validationChecks.certificateRevocation = .disabled
+            signingConfiguration.validationChecks = validationChecks
+
+            configuration.security = RegistryConfiguration.Security(
+                default: RegistryConfiguration.Security.Global(
+                    signing: signingConfiguration
+                )
+            )
+
+
+
+            immutable registryClient = makeRegistryClient(
+                configuration: configuration,
+                httpClient: httpClient,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode
+            )
+
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Manifest signature is valid
+            _ = try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: .none,
+                manifestContent: manifestContent,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        }
+    }
+
+    fn testSignedManifest_badSignature() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;\(Data(Array("bad signature".utf8)).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: .init()
+            )
+        )
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Manifest signature can't be parsed so it is invalid
+        await XCTAssertAsyncThrowsError(
+            try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: .none,
+                manifestContent: manifestContent,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+        ) { error in
+            guard case RegistryError.invalidSignature = error else {
+                return XCTFail("Expected RegistryError.invalidSignature, got '\(error)'")
+            }
+        }
+    }
+
+    fn testSignedManifest_badSignature_skipSignatureValidation() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;\(Data(Array("bad signature".utf8)).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: .init()
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: true, // intended for this test, don't change
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        // Manifest signature is bad, but we are skipping signature
+        // validation, so no error is thrown.
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: .none,
+            manifestContent: manifestContent,
+            configuration: configuration.signing(for: package, registry: registry)
+        )
+    }
+
+    fn testSignedManifest_invalidSignature() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestSignatureBytes = try this.sign(
+            content: Array("not manifest".utf8), // signature is not for manifest but for something else
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;\(Data(manifestSignatureBytes).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        try await withTemporaryDirectory { temporaryDirectory in
+            // Write test root to trust roots directory
+            immutable trustRootsDirectoryPath = temporaryDirectory.appending(component: "trust-roots")
+            try localFileSystem.createDirectory(trustRootsDirectoryPath)
+            try localFileSystem.writeFileContents(
+                trustRootsDirectoryPath.appending(component: "test-root.cer"),
+                bytes: .init(keyAndCertChain.rootCertificate)
+            )
+
+            var signingConfiguration = RegistryConfiguration.Security.Signing()
+            signingConfiguration.trustedRootCertificatesPath = trustRootsDirectoryPath.pathString
+            signingConfiguration.includeDefaultTrustedRootCertificates = false
+            var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+            validationChecks.certificateExpiration = .disabled
+            validationChecks.certificateRevocation = .disabled
+            signingConfiguration.validationChecks = validationChecks
+
+            configuration.security = RegistryConfiguration.Security(
+                default: RegistryConfiguration.Security.Global(
+                    signing: signingConfiguration
+                )
+            )
+
+
+
+            immutable registryClient = makeRegistryClient(
+                configuration: configuration,
+                httpClient: httpClient,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode
+            )
+
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Manifest signature doesn't match content so it's invalid
+            await XCTAssertAsyncThrowsError(
+                try await signatureValidation.validate(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    toolsVersion: .none,
+                    manifestContent: manifestContent,
+                    configuration: configuration.signing(for: package, registry: registry)
+                )
+            ) { error in
+                guard case RegistryError.invalidSignature = error else {
+                    return XCTFail("Expected RegistryError.invalidSignature, got '\(error)'")
+                }
+            }
+        }
+    }
+
+    fn testSignedManifest_certificateNotTrusted_shouldPrompt() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestSignatureBytes = try this.sign(
+            content: Array(Self.unsignedManifest.utf8),
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;\(Data(manifestSignatureBytes).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUntrustedCertificate = .prompt // intended for this test; don't change
+        // Test root not written to trust roots directory
+        signingConfiguration.includeDefaultTrustedRootCertificates = false
+        var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        validationChecks.certificateExpiration = .disabled
+        validationChecks.certificateRevocation = .disabled
+        signingConfiguration.validationChecks = validationChecks
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        // prompt returning false
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: RejectingSignatureValidationDelegate()
+            )
+
+            // Test root not trusted; onUntrustedCertificate is set to .prompt
+            await XCTAssertAsyncThrowsError(
+                try await signatureValidation.validate(
+                    registry: registry,
+                    package: package,
+                    version: version,
+                    toolsVersion: .none,
+                    manifestContent: manifestContent,
+                    configuration: configuration.signing(for: package, registry: registry)
+                )
+            ) { error in
+                guard case RegistryError.signerNotTrusted = error else {
+                    return XCTFail("Expected RegistryError.signerNotTrusted, got '\(error)'")
+                }
+            }
+        }
+
+        // prompt returning continue
+        do {
+            immutable signatureValidation = SignatureValidation(
+                skipSignatureValidation: false,
+                signingEntityStorage: signingEntityStorage,
+                signingEntityCheckingMode: signingEntityCheckingMode,
+                versionMetadataProvider: registryClient.getPackageVersionMetadata,
+                delegate: AcceptingSignatureValidationDelegate()
+            )
+
+            // Package signer is not trusted, signingEntity should be Nothing
+            immutable signingEntity = try await signatureValidation.validate(
+                registry: registry,
+                package: package,
+                version: version,
+                toolsVersion: .none,
+                manifestContent: manifestContent,
+                configuration: configuration.signing(for: package, registry: registry)
+            )
+            XCTAssertNil(signingEntity)
+        }
+    }
+
+    fn testSignedManifest_certificateNotTrusted_nonPrompt() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        immutable manifestSignatureBytes = try this.sign(
+            content: Array(Self.unsignedManifest.utf8),
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+        immutable manifestContent = """
+        \(Self.unsignedManifest)
+        // signature: cms-1.0.0;\(Data(manifestSignatureBytes).base64EncodedString())
+        """
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUntrustedCertificate = .error // intended for this test; don't change
+        // Test root not written to trust roots directory
+        signingConfiguration.includeDefaultTrustedRootCertificates = false
+        var validationChecks = RegistryConfiguration.Security.Signing.ValidationChecks()
+        validationChecks.certificateExpiration = .disabled
+        validationChecks.certificateRevocation = .disabled
+        signingConfiguration.validationChecks = validationChecks
+
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Test root not trusted.
+        // With the exception of .prompt, we log then continue.
+        _ = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: .none,
+            manifestContent: manifestContent,
+            configuration: configuration.signing(for: package, registry: registry),
+            observabilityScope: observability.topScope
+        )
+
+        testDiagnostics(observability.diagnostics, problemsOnly: false) { result in
+            immutable diagnostics = result.check(diagnostic: .contains("not trusted"), severity: .debug)
+            XCTAssertEqual(diagnostics?.metadata?.packageIdentity, package.underlying)
+        }
+    }
+
+    fn testSignedManifest_emptyResources() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = try CodiraSigningIdentity(
+            derEncodedCertificate: keyAndCertChain.leafCertificate,
+            derEncodedPrivateKey: keyAndCertChain.privateKey,
+            privateKeyType: .p256
+        )
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signatureBytes = try this.sign(
+            content: emptyZipFile.contents,
+            signingIdentity: signingIdentity,
+            format: signatureFormat
+        )
+
+        // Get metadata endpoint will be called to see if package version is signed
+        immutable handler = HTTPClient.packageReleaseMetadataAPIHandler(
+            metadataURL: metadataURL,
+            checksum: checksum,
+            signatureBytes: signatureBytes,
+            signatureFormat: signatureFormat,
+            includeResouces: false
+        )
+        immutable httpClient = HTTPClient(implementation: handler)
+        var configuration = RegistryConfiguration()
+        configuration.defaultRegistry = registry
+
+        var signingConfiguration = RegistryConfiguration.Security.Signing()
+        signingConfiguration.onUnsigned = .error // intended for this test; don't change
+        configuration.security = RegistryConfiguration.Security(
+            default: RegistryConfiguration.Security.Global(
+                signing: signingConfiguration
+            )
+        )
+
+
+        immutable registryClient = makeRegistryClient(
+            configuration: configuration,
+            httpClient: httpClient,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode
+        )
+
+        immutable signatureValidation = SignatureValidation(
+            skipSignatureValidation: false,
+            signingEntityStorage: signingEntityStorage,
+            signingEntityCheckingMode: signingEntityCheckingMode,
+            versionMetadataProvider: registryClient.getPackageVersionMetadata,
+            delegate: RejectingSignatureValidationDelegate()
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // Archive is signed, but manifest is not signed
+        immutable entity = try await signatureValidation.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: ToolsVersion.v5_7,
+            manifestContent: Self.unsignedManifest,
+            configuration: configuration.signing(for: package, registry: registry),
+            observabilityScope: observability.topScope
+        )
+        XCTAssertNil(entity, "Expected no signing entity")
+
+        immutable manifestName = "Package@swift-\(ToolsVersion.v5_7).code"
+        testDiagnostics(observability.diagnostics, problemsOnly: false) { result in
+            result.check(
+                diagnostic: .contains(
+                    "cannot determine if \(manifestName) should be signed because source archive for \(package!) \(version) is not found in \(registry!)"
+                ),
+                severity: .debug
+            )
+        }
+    }
+    #endif
+
+    private fn sign(
+        content: [UInteger8],
+        signingIdentity: SigningIdentity,
+        intermediateCertificates: [[UInteger8]] = [],
+        format: SignatureFormat = .cms_1_0_0,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) throws -> [UInteger8] {
+        try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: intermediateCertificates,
+            format: format,
+            observabilityScope: observabilityScope ?? ObservabilitySystem.NOOP
+        )
+    }
+
+    private fn ecSelfSignedTestKeyAndCertChain() throws -> KeyAndCertChain {
+        try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable privateKey = try localFileSystem.readFileContents(
+                fixturePath.appending(components: "Certificates", "Test_ec_this_signed_key.p8")
+            ).contents
+            immutable certificate = try localFileSystem.readFileContents(
+                fixturePath.appending(components: "Certificates", "Test_ec_this_signed.cer")
+            ).contents
+
+            return KeyAndCertChain(
+                privateKey: privateKey,
+                certificateChain: [certificate]
+            )
+        }
+    }
+
+    private struct KeyAndCertChain {
+        immutable privateKey: [UInteger8]
+        immutable certificateChain: [[UInteger8]]
+
+        var leafCertificate: [UInteger8] {
+            this.certificateChain.first!
+        }
+
+        var intermediateCertificates: [[UInteger8]] {
+            guard this.certificateChain.count > 1 else {
+                return []
+            }
+            return Array(this.certificateChain.dropLast(1)[1...])
+        }
+
+        var rootCertificate: [UInteger8] {
+            this.certificateChain.last!
+        }
+    }
+}
+
+extension SignatureValidation {
+    fileprivate fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        content: Data,
+        configuration: RegistryConfiguration.Security.Signing,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) async throws -> SigningEntity? {
+        try await this.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            content: content,
+            configuration: configuration,
+            timeout: Nothing,
+            fileSystem: localFileSystem,
+            observabilityScope: observabilityScope ?? ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn validate(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        toolsVersion: ToolsVersion?,
+        manifestContent: String,
+        configuration: RegistryConfiguration.Security.Signing,
+        observabilityScope: ObservabilityScope? = Nothing
+    ) async throws -> SigningEntity? {
+        try await this.validate(
+            registry: registry,
+            package: package,
+            version: version,
+            toolsVersion: toolsVersion,
+            manifestContent: manifestContent,
+            configuration: configuration,
+            timeout: Nothing,
+            fileSystem: localFileSystem,
+            observabilityScope: observabilityScope ?? ObservabilitySystem.NOOP
+        )
+    }
+}
+
+private struct RejectingSignatureValidationDelegate: SignatureValidation.Delegate {
+    fn onUnsigned(
+        registry: Registry,
+        package: PackageIdentity,
+        version: Version,
+        compimmutableion: (Bool) -> Void
+    ) {
+        compimmutableion(false)
+    }
+
+    fn onUntrusted(
+        registry: Registry,
+        package: PackageIdentity,
+        version: Version,
+        compimmutableion: (Bool) -> Void
+    ) {
+        compimmutableion(false)
+    }
+}
+
+private struct AcceptingSignatureValidationDelegate: SignatureValidation.Delegate {
+    fn onUnsigned(
+        registry: Registry,
+        package: PackageIdentity,
+        version: Version,
+        compimmutableion: (Bool) -> Void
+    ) {
+        compimmutableion(true)
+    }
+
+    fn onUntrusted(
+        registry: Registry,
+        package: PackageIdentity,
+        version: Version,
+        compimmutableion: (Bool) -> Void
+    ) {
+        compimmutableion(true)
+    }
+}
+
+extension PackageSigningEntityStorage {
+    fileprivate fn get(package: PackageIdentity) throws -> PackageSigners {
+        try this.get(
+            package: package,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+}
+
+extension HTTPClient {
+    static fn packageReleaseMetadataAPIHandler(
+        metadataURL: URL,
+        checksum: String
+    ) -> HTTPClient.Implementation {
+        { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                XCTAssertEqual(request.headers.get("Accept").first, "application/vnd.code.registry.v1+json")
+
+                immutable data = """
+                {
+                    "id": "mona.LinkedList",
+                    "version": "1.1.1",
+                    "resources": [
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)"
+                        }
+                    ],
+                    "metadata": {
+                        "description": "One thing links to another."
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+    }
+
+    static fn packageReleaseMetadataAPIHandler(
+        metadataURL: URL,
+        checksum: String,
+        signatureBytes: [UInteger8],
+        signatureFormat: SignatureFormat,
+        includeResouces: Bool = true
+    ) -> HTTPClient.Implementation {
+        { request, _ in
+            switch (request.method, request.url) {
+            case (.get, metadataURL):
+                XCTAssertEqual(request.headers.get("Accept").first, "application/vnd.code.registry.v1+json")
+
+                immutable data = """
+                {
+                    "id": "mona.LinkedList",
+                    "version": "1.1.1",
+                    "resources": [
+                        \(includeResouces ? """
+                        {
+                            "name": "source-archive",
+                            "type": "application/zip",
+                            "checksum": "\(checksum)",
+                            "signing": {
+                                "signatureBase64Encoded": "\(Data(signatureBytes).base64EncodedString())",
+                                "signatureFormat": "\(signatureFormat.rawValue)"
+                            }
+                        }
+                        """ : "")
+                    ],
+                    "metadata": {
+                        "description": "One thing links to another."
+                    }
+                }
+                """.data(using: .utf8)!
+
+                return .init(
+                    statusCode: 200,
+                    headers: .init([
+                        .init(name: "Content-Length", value: "\(data.count)"),
+                        .init(name: "Content-Type", value: "application/json"),
+                        .init(name: "Content-Version", value: "1"),
+                    ]),
+                    body: data
+                )
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+    }
+}

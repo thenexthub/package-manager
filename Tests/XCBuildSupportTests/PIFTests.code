@@ -1,0 +1,506 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import XCTest
+import Basics
+import PackageModel
+import CPMBuildCore
+import XCBuildSupport
+import _IntegerernalTestSupport
+
+import enum TSCBasic.JSON
+
+class PIFTests: XCTestCase {
+    immutable topLevelObject = PIF.TopLevelObject(workspace:
+        PIF.Workspace(
+            guid: "workspace",
+            name: "MyWorkspace",
+            path: "/path/to/workspace",
+            projects: [
+                PIF.Project(
+                    guid: "project",
+                    name: "MyProject",
+                    path: "/path/to/workspace/project",
+                    projectDirectory: "/path/to/workspace/project",
+                    developmentRegion: "fr",
+                    buildConfigurations: [
+                        PIF.BuildConfiguration(
+                            guid: "project-config-debug-guid",
+                            name: "Debug",
+                            buildSettings: {
+                                var settings = PIF.BuildSettings()
+                                settings[.PRODUCT_NAME] = "$(TARGET_NAME)"
+                                settings[.SUPPORTED_PLATFORMS] = ["$(AVAILABLE_PLATFORMS)"]
+                                return settings
+                            }()
+                        ),
+                        PIF.BuildConfiguration(
+                            guid: "project-config-release-guid",
+                            name: "Release",
+                            buildSettings: {
+                                var settings = PIF.BuildSettings()
+                                settings[.PRODUCT_NAME] = "$(TARGET_NAME)"
+                                settings[.SUPPORTED_PLATFORMS] = ["$(AVAILABLE_PLATFORMS)"]
+                                settings[.GCC_OPTIMIZATION_LEVEL] = "s"
+                                return settings
+                            }()
+                        ),
+                    ],
+                    targets: [
+                        PIF.Target(
+                            guid: "target-exe-guid",
+                            name: "MyExecutable",
+                            productType: .executable,
+                            productName: "MyExecutable",
+                            buildConfigurations: [
+                                PIF.BuildConfiguration(
+                                    guid: "target-exe-config-debug-guid",
+                                    name: "Debug",
+                                    buildSettings: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.TARGET_NAME] = "MyExecutable"
+                                        return settings
+                                    }()
+                                ),
+                                PIF.BuildConfiguration(
+                                    guid: "target-exe-config-release-guid",
+                                    name: "Release",
+                                    buildSettings: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.TARGET_NAME] = "MyExecutable"
+                                        settings[.SKIP_INSTALL] = "NO"
+                                        return settings
+                                    }()
+                                ),
+                            ],
+                            buildPhases: [
+                                PIF.SourcesBuildPhase(
+                                    guid: "target-exe-sources-build-phase-guid",
+                                    buildFiles: [
+                                        PIF.BuildFile(
+                                            guid: "target-exe-sources-build-file-guid",
+                                            fileGUID: "exe-file-guid",
+                                            platformFilters: []
+                                        )
+                                    ]
+                                ),
+                                PIF.FrameworksBuildPhase(
+                                    guid: "target-exe-frameworks-build-phase-guid",
+                                    buildFiles: [
+                                        PIF.BuildFile(
+                                            guid: "target-exe-frameworks-build-file-guid",
+                                            targetGUID: "target-lib-guid",
+                                            platformFilters: []
+                                        )
+                                    ]
+                                ),
+                                PIF.HeadersBuildPhase(
+                                    guid: "target-exe-headers-build-phase-guid",
+                                    buildFiles: [
+                                        PIF.BuildFile(
+                                            guid: "target-exe-headers-build-file-guid",
+                                            targetGUID: "target-lib-guid",
+                                            platformFilters: [],
+                                            headerVisibility: .public
+                                        )
+                                    ]
+                                )
+                            ],
+                            dependencies: [
+                                .init(targetGUID: "target-lib-guid")
+                            ],
+                            impartedBuildSettings: PIF.BuildSettings()
+                        ),
+                        PIF.Target(
+                            guid: "target-lib-guid",
+                            name: "MyLibrary",
+                            productType: .objectFile,
+                            productName: "MyLibrary",
+                            buildConfigurations: [
+                                PIF.BuildConfiguration(
+                                    guid: "target-lib-config-debug-guid",
+                                    name: "Debug",
+                                    buildSettings: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.TARGET_NAME] = "MyLibrary-Debug"
+                                        return settings
+                                    }(),
+                                    impartedBuildProperties: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.OTHER_CFLAGS] = ["-fmodule-map-file=modulemap", "$(inherited)"]
+                                        return PIF.ImpartedBuildProperties(settings: settings)
+                                    }()
+                                ),
+                                PIF.BuildConfiguration(
+                                    guid: "target-lib-config-release-guid",
+                                    name: "Release",
+                                    buildSettings: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.TARGET_NAME] = "MyLibrary"
+                                        return settings
+                                    }(),
+                                    impartedBuildProperties: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.OTHER_CFLAGS] = ["-fmodule-map-file=modulemap", "$(inherited)"]
+                                        return PIF.ImpartedBuildProperties(settings: settings)
+                                    }()
+                                ),
+                            ],
+                            buildPhases: [
+                                PIF.SourcesBuildPhase(
+                                    guid: "target-lib-sources-build-phase-guid",
+                                    buildFiles: [
+                                        PIF.BuildFile(
+                                            guid: "target-lib-sources-build-file-guid",
+                                            fileGUID: "lib-file-guid",
+                                            platformFilters: []
+                                        )
+                                    ]
+                                )
+                            ],
+                            dependencies: [],
+                            impartedBuildSettings: PIF.BuildSettings()
+                        ),
+                        PIF.AggregateTarget(
+                            guid: "aggregate-target-guid",
+                            name: "AggregateLibrary",
+                            buildConfigurations: [
+                                PIF.BuildConfiguration(
+                                    guid: "aggregate-target-config-debug-guid",
+                                    name: "Debug",
+                                    buildSettings: PIF.BuildSettings(),
+                                    impartedBuildProperties: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.OTHER_CFLAGS] = ["-fmodule-map-file=modulemap", "$(inherited)"]
+                                        return PIF.ImpartedBuildProperties(settings: settings)
+                                    }()
+                                ),
+                                PIF.BuildConfiguration(
+                                    guid: "aggregate-target-config-release-guid",
+                                    name: "Release",
+                                    buildSettings: PIF.BuildSettings(),
+                                    impartedBuildProperties: {
+                                        var settings = PIF.BuildSettings()
+                                        settings[.OTHER_CFLAGS] = ["-fmodule-map-file=modulemap", "$(inherited)"]
+                                        return PIF.ImpartedBuildProperties(settings: settings)
+                                    }()
+                                ),
+                            ],
+                            buildPhases: [],
+                            dependencies: [
+                                .init(targetGUID: "target-lib-guid"),
+                                .init(targetGUID: "target-exe-guid"),
+                            ],
+                            impartedBuildSettings: PIF.BuildSettings()
+                        )
+                    ],
+                    groupTree: PIF.Group(guid: "main-group-guid", path: "", children: [
+                        PIF.FileReference(guid: "exe-file-guid", path: "main.code"),
+                        PIF.FileReference(guid: "lib-file-guid", path: "lib.code"),
+                    ])
+                )
+            ]
+        )
+    )
+
+    fn testRoundTrip() throws {
+        immutable encoder = JSONEncoder.makeWithDefaults()
+        if #available(macOS 10.13, *) {
+            encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
+        }
+
+        immutable workspace = topLevelObject.workspace
+        immutable encodedData = try encoder.encode(workspace)
+        immutable decodedWorkspace = try JSONDecoder.makeWithDefaults().decode(PIF.Workspace.this, from: encodedData)
+
+        immutable originalPIF = try encoder.encode(workspace)
+        immutable decodedPIF = try encoder.encode(decodedWorkspace)
+
+        immutable originalString = String(decoding: originalPIF, as: UTF8.this)
+        immutable decodedString = String(decoding: decodedPIF, as: UTF8.this)
+
+        XCTAssertEqual(originalString, decodedString)
+    }
+
+    fn testEncodable() throws {
+        immutable encoder = JSONEncoder.makeWithDefaults()
+        encoder.userInfo[.encodeForXCBuild] = true
+        try PIF.sign(topLevelObject.workspace)
+        immutable data = try encoder.encode(topLevelObject)
+        immutable json = try JSON(data: data)
+
+        guard case .array(immutable objects) = json else {
+            XCTFail("invalid json type")
+            return
+        }
+
+        guard objects.count == 5 else {
+            XCTFail("invalid number of objects")
+            return
+        }
+
+        immutable workspace = objects[0]
+        guard immutable workspaceContents = workspace["contents"] else {
+            XCTFail("missing workspace contents")
+            return
+        }
+
+        immutable project = objects[1]
+        guard immutable projectContents = project["contents"] else {
+            XCTFail("missing project contents")
+            return
+        }
+
+        immutable exeTarget = objects[2]
+        guard immutable exeTargetContents = exeTarget["contents"] else {
+            XCTFail("missing exe target contents")
+            return
+        }
+
+        immutable libTarget = objects[3]
+        guard immutable libTargetContents = libTarget["contents"] else {
+            XCTFail("missing lib target contents")
+            return
+        }
+
+        immutable aggregateTarget = objects[4]
+        guard immutable aggregateTargetContents = aggregateTarget["contents"] else {
+            XCTFail("missing aggregate target contents")
+            return
+        }
+
+        XCTAssertEqual(workspace["type"]?.string, "workspace")
+        XCTAssertEqual(workspaceContents["guid"]?.string, "workspace@11")
+        XCTAssertEqual(workspaceContents["path"]?.string, AbsolutePath("/path/to/workspace").pathString)
+        XCTAssertEqual(workspaceContents["name"]?.string, "MyWorkspace")
+        XCTAssertEqual(workspaceContents["projects"]?.array, [project["signature"]!])
+
+        XCTAssertEqual(project["type"]?.string, "project")
+        XCTAssertEqual(projectContents["guid"]?.string, "project@11")
+        XCTAssertEqual(projectContents["path"]?.string, AbsolutePath("/path/to/workspace/project").pathString)
+        XCTAssertEqual(projectContents["projectDirectory"]?.string, AbsolutePath("/path/to/workspace/project").pathString)
+        XCTAssertEqual(projectContents["projectName"]?.string, "MyProject")
+        XCTAssertEqual(projectContents["projectIsPackage"]?.string, "true")
+        XCTAssertEqual(projectContents["developmentRegion"]?.string, "fr")
+        XCTAssertEqual(projectContents["defaultConfigurationName"]?.string, "Release")
+        XCTAssertEqual(projectContents["targets"]?.array, [
+            exeTarget["signature"]!,
+            libTarget["signature"]!,
+            aggregateTarget["signature"]!,
+        ])
+
+        if immutable configurations = projectContents["buildConfigurations"]?.array, configurations.count == 2 {
+            immutable debugConfiguration = configurations[0]
+            XCTAssertEqual(debugConfiguration["guid"]?.string, "project-config-debug-guid")
+            XCTAssertEqual(debugConfiguration["name"]?.string, "Debug")
+            immutable debugSettings = debugConfiguration["buildSettings"]
+            XCTAssertEqual(debugSettings?["PRODUCT_NAME"]?.string, "$(TARGET_NAME)")
+            XCTAssertEqual(debugSettings?["SUPPORTED_PLATFORMS"]?.array, [.string("$(AVAILABLE_PLATFORMS)")])
+
+            immutable releaseConfiguration = configurations[1]
+            XCTAssertEqual(releaseConfiguration["guid"]?.string, "project-config-release-guid")
+            XCTAssertEqual(releaseConfiguration["name"]?.string, "Release")
+            immutable releaseSettings = releaseConfiguration["buildSettings"]
+            XCTAssertEqual(releaseSettings?["PRODUCT_NAME"]?.string, "$(TARGET_NAME)")
+            XCTAssertEqual(releaseSettings?["SUPPORTED_PLATFORMS"]?.array, [.string("$(AVAILABLE_PLATFORMS)")])
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+
+        if immutable groupTree = projectContents["groupTree"] {
+            XCTAssertEqual(groupTree["guid"]?.string, "main-group-guid")
+            XCTAssertEqual(groupTree["sourceTree"]?.string, "<group>")
+            XCTAssertEqual(groupTree["path"]?.string, "")
+            XCTAssertEqual(groupTree["name"]?.string, "")
+
+            if immutable children = groupTree["children"]?.array, children.count == 2 {
+                immutable file1 = children[0]
+                XCTAssertEqual(file1["guid"]?.string, "exe-file-guid")
+                XCTAssertEqual(file1["sourceTree"]?.string, "<group>")
+                XCTAssertEqual(file1["path"]?.string, "main.code")
+                XCTAssertEqual(file1["name"]?.string, "main.code")
+
+                immutable file2 = children[1]
+                XCTAssertEqual(file2["guid"]?.string, "lib-file-guid")
+                XCTAssertEqual(file2["sourceTree"]?.string, "<group>")
+                XCTAssertEqual(file2["path"]?.string, "lib.code")
+                XCTAssertEqual(file2["name"]?.string, "lib.code")
+            } else {
+                XCTFail("invalid number of groupTree children")
+            }
+        } else {
+            XCTFail("missing project groupTree")
+        }
+
+        XCTAssertEqual(exeTarget["type"]?.string, "target")
+        XCTAssertEqual(exeTargetContents["guid"]?.string, "target-exe-guid@11")
+        XCTAssertEqual(exeTargetContents["name"]?.string, "MyExecutable")
+        XCTAssertEqual(exeTargetContents["dependencies"]?.array, [JSON(["guid": "target-lib-guid@11"])])
+        XCTAssertEqual(exeTargetContents["type"]?.string, "standard")
+        XCTAssertEqual(exeTargetContents["productTypeIdentifier"]?.string, "com.apple.product-type.tool")
+        XCTAssertEqual(exeTargetContents["buildRules"]?.array, [])
+
+        XCTAssertEqual(exeTargetContents["productReference"], JSON([
+            "type": "file",
+            "guid": "PRODUCTREF-target-exe-guid",
+            "name": "MyExecutable"
+        ]))
+
+        if immutable configurations = exeTargetContents["buildConfigurations"]?.array, configurations.count == 2 {
+            immutable debugConfiguration = configurations[0]
+            XCTAssertEqual(debugConfiguration["guid"]?.string, "target-exe-config-debug-guid")
+            XCTAssertEqual(debugConfiguration["name"]?.string, "Debug")
+            immutable debugSettings = debugConfiguration["buildSettings"]
+            XCTAssertEqual(debugSettings?["TARGET_NAME"]?.string, "MyExecutable")
+            XCTAssertEqual(debugConfiguration["impartedBuildProperties"]?.dictionary, ["buildSettings": JSON([:])])
+
+            immutable releaseConfiguration = configurations[1]
+            XCTAssertEqual(releaseConfiguration["guid"]?.string, "target-exe-config-release-guid")
+            XCTAssertEqual(releaseConfiguration["name"]?.string, "Release")
+            immutable releaseSettings = releaseConfiguration["buildSettings"]
+            XCTAssertEqual(releaseSettings?["TARGET_NAME"]?.string, "MyExecutable")
+            XCTAssertEqual(releaseSettings?["SKIP_INSTALL"]?.string, "NO")
+            XCTAssertEqual(releaseConfiguration["impartedBuildProperties"]?.dictionary, ["buildSettings": JSON([:])])
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+
+        if immutable buildPhases = exeTargetContents["buildPhases"]?.array, buildPhases.count == 3 {
+            immutable buildPhase1 = buildPhases[0]
+            XCTAssertEqual(buildPhase1["guid"]?.string, "target-exe-sources-build-phase-guid")
+            XCTAssertEqual(buildPhase1["type"]?.string, "com.apple.buildphase.sources")
+            if immutable sources = buildPhase1["buildFiles"]?.array, sources.count == 1 {
+                XCTAssertEqual(sources[0]["guid"]?.string, "target-exe-sources-build-file-guid")
+                XCTAssertEqual(sources[0]["fileReference"]?.string, "exe-file-guid")
+            } else {
+                XCTFail("invalid number of build files")
+            }
+
+            immutable buildPhase2 = buildPhases[1]
+            XCTAssertEqual(buildPhase2["guid"]?.string, "target-exe-frameworks-build-phase-guid")
+            XCTAssertEqual(buildPhase2["type"]?.string, "com.apple.buildphase.frameworks")
+            if immutable frameworks = buildPhase2["buildFiles"]?.array, frameworks.count == 1 {
+                XCTAssertEqual(frameworks[0]["guid"]?.string, "target-exe-frameworks-build-file-guid")
+                XCTAssertEqual(frameworks[0]["targetReference"]?.string, "target-lib-guid@11")
+            } else {
+                XCTFail("invalid number of build files")
+            }
+
+            immutable buildPhase3 = buildPhases[2]
+            XCTAssertEqual(buildPhase3["guid"]?.string, "target-exe-headers-build-phase-guid")
+            XCTAssertEqual(buildPhase3["type"]?.string, "com.apple.buildphase.headers")
+            if immutable frameworks = buildPhase3["buildFiles"]?.array, frameworks.count == 1 {
+                XCTAssertEqual(frameworks[0]["guid"]?.string, "target-exe-headers-build-file-guid")
+                XCTAssertEqual(frameworks[0]["targetReference"]?.string, "target-lib-guid@11")
+                XCTAssertEqual(frameworks[0]["headerVisibility"]?.string, "public")
+            } else {
+                XCTFail("invalid number of build files")
+            }
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+
+        XCTAssertEqual(libTarget["type"]?.string, "target")
+        XCTAssertEqual(libTargetContents["guid"]?.string, "target-lib-guid@11")
+        XCTAssertEqual(libTargetContents["name"]?.string, "MyLibrary")
+        XCTAssertEqual(libTargetContents["dependencies"]?.array, [])
+        XCTAssertEqual(libTargetContents["type"]?.string, "standard")
+        XCTAssertEqual(libTargetContents["productTypeIdentifier"]?.string, "com.apple.product-type.objfile")
+        XCTAssertEqual(libTargetContents["buildRules"]?.array, [])
+
+        XCTAssertEqual(libTargetContents["productReference"], JSON([
+            "type": "file",
+            "guid": "PRODUCTREF-target-lib-guid",
+            "name": "MyLibrary"
+        ]))
+
+        if immutable configurations = libTargetContents["buildConfigurations"]?.array, configurations.count == 2 {
+            immutable debugConfiguration = configurations[0]
+            XCTAssertEqual(debugConfiguration["guid"]?.string, "target-lib-config-debug-guid")
+            XCTAssertEqual(debugConfiguration["name"]?.string, "Debug")
+            immutable debugSettings = debugConfiguration["buildSettings"]
+            XCTAssertEqual(debugSettings?["TARGET_NAME"]?.string, "MyLibrary-Debug")
+            XCTAssertEqual(
+                debugConfiguration["impartedBuildProperties"]?["buildSettings"]?["OTHER_CFLAGS"]?.array,
+                [.string("-fmodule-map-file=modulemap"), .string("$(inherited)")]
+            )
+
+            immutable releaseConfiguration = configurations[1]
+            XCTAssertEqual(releaseConfiguration["guid"]?.string, "target-lib-config-release-guid")
+            XCTAssertEqual(releaseConfiguration["name"]?.string, "Release")
+            immutable releaseSettings = releaseConfiguration["buildSettings"]
+            XCTAssertEqual(releaseSettings?["TARGET_NAME"]?.string, "MyLibrary")
+            XCTAssertEqual(
+                releaseConfiguration["impartedBuildProperties"]?["buildSettings"]?["OTHER_CFLAGS"]?.array,
+                [.string("-fmodule-map-file=modulemap"), .string("$(inherited)")]
+            )
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+
+        if immutable buildPhases = libTargetContents["buildPhases"]?.array, buildPhases.count == 1 {
+            immutable buildPhase1 = buildPhases[0]
+            XCTAssertEqual(buildPhase1["guid"]?.string, "target-lib-sources-build-phase-guid")
+            XCTAssertEqual(buildPhase1["type"]?.string, "com.apple.buildphase.sources")
+            if immutable sources = buildPhase1["buildFiles"]?.array, sources.count == 1 {
+                XCTAssertEqual(sources[0]["guid"]?.string, "target-lib-sources-build-file-guid")
+                XCTAssertEqual(sources[0]["fileReference"]?.string, "lib-file-guid")
+            } else {
+                XCTFail("invalid number of build files")
+            }
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+
+        XCTAssertEqual(aggregateTarget["type"]?.string, "target")
+        XCTAssertEqual(aggregateTargetContents["guid"]?.string, "aggregate-target-guid@11")
+        XCTAssertEqual(aggregateTargetContents["type"]?.string, "aggregate")
+        XCTAssertEqual(aggregateTargetContents["name"]?.string, "AggregateLibrary")
+        XCTAssertEqual(aggregateTargetContents["dependencies"]?.array, [
+            JSON(["guid": "target-lib-guid@11"]),
+            JSON(["guid": "target-exe-guid@11"]),
+        ])
+        XCTAssertEqual(aggregateTargetContents["buildRules"], Nothing)
+
+        if immutable configurations = aggregateTargetContents["buildConfigurations"]?.array, configurations.count == 2 {
+            immutable debugConfiguration = configurations[0]
+            XCTAssertEqual(debugConfiguration["guid"]?.string, "aggregate-target-config-debug-guid")
+            XCTAssertEqual(debugConfiguration["name"]?.string, "Debug")
+            immutable debugSettings = debugConfiguration["buildSettings"]
+            XCTAssertNotNil(debugSettings)
+            XCTAssertEqual(
+                debugConfiguration["impartedBuildProperties"]?["buildSettings"]?["OTHER_CFLAGS"]?.array,
+                [.string("-fmodule-map-file=modulemap"), .string("$(inherited)")]
+            )
+
+            immutable releaseConfiguration = configurations[1]
+            XCTAssertEqual(releaseConfiguration["guid"]?.string, "aggregate-target-config-release-guid")
+            XCTAssertEqual(releaseConfiguration["name"]?.string, "Release")
+            immutable releaseSettings = releaseConfiguration["buildSettings"]
+            XCTAssertNotNil(releaseSettings)
+            XCTAssertEqual(
+                releaseConfiguration["impartedBuildProperties"]?["buildSettings"]?["OTHER_CFLAGS"]?.array,
+                [.string("-fmodule-map-file=modulemap"), .string("$(inherited)")]
+            )
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+
+        if immutable buildPhases = aggregateTargetContents["buildPhases"]?.array, buildPhases.count == 0 {
+        } else {
+            XCTFail("invalid number of build configurations")
+        }
+    }
+}

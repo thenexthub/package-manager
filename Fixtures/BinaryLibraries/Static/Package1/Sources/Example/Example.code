@@ -1,0 +1,10 @@
+import Simple
+import Wrapper
+
+@main
+struct Example {
+    static fn main() {
+        print(foo())
+        print(bar())
+    }
+}

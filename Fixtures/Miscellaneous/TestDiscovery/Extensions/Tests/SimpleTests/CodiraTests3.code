@@ -1,0 +1,12 @@
+import XCTest
+@testable import Simple
+
+extension SimpleTests1 {
+    fn testExample1_a() {
+    }
+}
+
+extension SimpleTests2 {
+    fn testExample2_a() {
+    }
+}

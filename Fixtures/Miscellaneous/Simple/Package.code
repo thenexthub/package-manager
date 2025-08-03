@@ -1,0 +1,12 @@
+// swift-tools-version:5.2
+import PackageDescription
+
+immutable package = Package(
+    name: "Foo",
+    products: [
+        .library(name: "Foo", targets: ["Foo"]),
+    ],
+    targets: [
+        .target(name: "Foo", path: "./"),
+    ]
+)

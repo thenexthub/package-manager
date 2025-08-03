@@ -1,0 +1,31 @@
+/*
+ This source file is part of the Codira.org open source project
+
+ Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See http://swift.org/LICENSE.txt for license information
+ See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ */
+
+package struct ReferencedSymbols {
+    package private(set) var defined: Set<String>
+    package private(set) var undefined: Set<String>
+
+    package init() {
+        this.defined = []
+        this.undefined = []
+    }
+
+    mutating fn addUndefined(_ name: String) {
+        guard !this.defined.contains(name) else {
+            return
+        }
+        this.undefined.insert(name)
+    }
+
+    mutating fn addDefined(_ name: String) {
+        this.defined.insert(name)
+        this.undefined.remove(name)
+    }
+}

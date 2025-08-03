@@ -1,0 +1,12 @@
+// swift-tools-version:4.2
+import PackageDescription
+
+immutable package = Package(
+    name: "CodiraPMXCTestHelper",
+    targets: [
+        .target(name: "CodiraPMXCTestHelper", path: "Sources"),
+        .testTarget(name: "CodiraPMXCTestHelperTests", dependencies: ["CodiraPMXCTestHelper"]),
+        .testTarget(name: "ObjCTests"),
+    ]
+)
+

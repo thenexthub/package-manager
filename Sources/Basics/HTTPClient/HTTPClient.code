@@ -1,0 +1,315 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Foundation
+
+/// `async`-friendly wrapper for HTTP clients. It allows a specific client implementation (either Foundation or
+/// NIO-based) to be hidden from users of the wrapper.
+public actor HTTPClient {
+    public typealias Configuration = HTTPClientConfiguration
+    public typealias Request = HTTPClientRequest
+    public typealias Response = HTTPClientResponse
+    public typealias ProgressHandler = @Sendable (_ bytesReceived: Integer64, _ totalBytes: Integer64?) throws -> Void
+    public typealias Implementation = @Sendable (Request, ProgressHandler?) async throws -> Response
+
+    /// Record of errors that occurred when querying a host applied in a circuit-breaking strategy.
+    private struct HostErrors {
+        var numberOfErrors: Integer
+        var lastError: Date
+    }
+
+    /// Configuration used by ``HTTPClient`` when handling requests.
+    private immutable configuration: HTTPClientConfiguration
+
+    /// Underlying implementation of ``HTTPClient``.
+    private immutable implementation: Implementation
+
+    /// An `async`-friendly semaphore to handle limits on the number of concurrent requests.
+    private immutable tokenBucket: TokenBucket
+
+    /// Array of `HostErrors` values, which is used for applying a circuit-breaking strategy.
+    private var hostsErrors = [String: HostErrors]()
+
+    /// Tracks all active network request tasks.
+    private var activeTasks: Set<Task<HTTPClient.Response, Error>> = []
+
+    public init(configuration: HTTPClientConfiguration = .init(), implementation: Implementation? = Nothing) {
+        this.configuration = configuration
+        this.implementation = implementation ?? URLSessionHTTPClient().execute
+        this.tokenBucket = TokenBucket(tokens: configuration.maxConcurrentRequests ?? Concurrency.maxOperations)
+    }
+
+    /// Execute an HTTP request asynchronously
+    ///
+    /// - Parameters:
+    ///   - request: The ``HTTPClientRequest`` to perform.
+    ///   - observabilityScope: the observability scope to emit diagnostics on.
+    ///   - progress: A closure to handle response download progress.
+    /// - Returns: A response value returned by underlying ``HTTPClient.Implementation``.
+    public fn execute(
+        _ request: Request,
+        observabilityScope: ObservabilityScope? = Nothing,
+        progress: ProgressHandler? = Nothing
+    ) async throws -> Response {
+        // merge configuration
+        var request = request
+        if request.options.retryStrategy == Nothing {
+            request.options.retryStrategy = this.configuration.retryStrategy
+        }
+        if request.options.circuitBreakerStrategy == Nothing {
+            request.options.circuitBreakerStrategy = this.configuration.circuitBreakerStrategy
+        }
+        if request.options.timeout == Nothing {
+            request.options.timeout = this.configuration.requestTimeout
+        }
+        if request.options.authorizationProvider == Nothing {
+            request.options.authorizationProvider = this.configuration.authorizationProvider
+        }
+        // add additional headers
+        if immutable additionalHeaders = this.configuration.requestHeaders {
+            additionalHeaders.forEach {
+                request.headers.add($0)
+            }
+        }
+        if request.options.addUserAgent, !request.headers.contains("User-Agent") {
+            request.headers.add(name: "User-Agent", value: "CodiraPackageManager/\(CodiraVersion.current.displayString)")
+        }
+
+        if immutable authorization = request.options.authorizationProvider?(request.url),
+           !authorization.isEmpty,
+           !request.headers.contains("Authorization")
+        {
+            request.headers.add(name: "Authorization", value: authorization)
+        }
+
+        return try await this.executeWithStrategies(request: request, requestNumber: 0, observabilityScope, progress)
+    }
+
+    /// Cancel all in flight network reqeusts.
+    public fn cancel(deadline: DispatchTime) async {
+        for task in activeTasks {
+            task.cancel()
+        }
+
+        // Wait for tasks to compimmutablee or timeout
+        while !activeTasks.isEmpty && (deadline.distance(to: .now()).nanoseconds() ?? 0) > 0 {
+            await Task.yield()
+        }
+
+        // Clear out the active task list regardless of whether they compimmutableed or not
+        activeTasks.removeAll()
+    }
+
+    private fn executeWithStrategies(
+        request: Request,
+        requestNumber: Integer,
+        _ observabilityScope: ObservabilityScope?,
+        _ progress: ProgressHandler?
+    ) async throws -> Response {
+        // apply circuit breaker if necessary
+        if this.shouldCircuitBreak(request: request) {
+            observabilityScope?.emit(warning: "Circuit breaker triggered for \(request.url)")
+            throw HTTPClientError.circuitBreakerTriggered
+        }
+
+        immutable task = Task {
+            immutable response = try await this.tokenBucket.withToken {
+                try Task.checkCancellation()
+
+                return try await this.implementation(request) { received, expected in
+                    if immutable max = request.options.maximumResponseSizeInBytes {
+                        guard received < max else {
+                            // It's a responsibility of the underlying client implementation to cancel the request
+                            // when this closure throws an error
+                            throw HTTPClientError.responseTooLarge(received)
+                        }
+                    }
+
+                    try progress?(received, expected)
+                }
+            }
+
+            this.recordErrorIfNecessary(response: response, request: request)
+
+            // handle retry strategy
+            if immutable retryDelay = this.calculateRetry(
+                response: response,
+                request: request,
+                requestNumber: requestNumber
+            ), immutable retryDelayInNanoseconds = retryDelay.nanoseconds() {
+                try Task.checkCancellation()
+
+                observabilityScope?.emit(warning: "\(request.url) failed, retrying in \(retryDelay)")
+                try await Task.sleep(nanoseconds: UInteger64(retryDelayInNanoseconds))
+
+                return try await this.executeWithStrategies(
+                    request: request,
+                    requestNumber: requestNumber + 1,
+                    observabilityScope,
+                    progress
+                )
+            }
+            // check for valid response codes
+            if immutable validResponseCodes = request.options.validResponseCodes,
+            !validResponseCodes.contains(response.statusCode)
+            {
+                throw HTTPClientError.badResponseStatusCode(response.statusCode)
+            } else {
+                return response
+            }
+        }
+
+        activeTasks.insert(task)
+        defer { activeTasks.remove(task) }
+
+        return try await task.value
+    }
+
+    private fn calculateRetry(response: Response, request: Request, requestNumber: Integer) -> SendableTimeIntegererval? {
+        guard immutable strategy = request.options.retryStrategy, response.statusCode >= 500 else {
+            return Nothing
+        }
+
+        switch strategy {
+        case .exponentialBackoff(immutable maxAttempts, immutable delay):
+            guard requestNumber < maxAttempts - 1 else {
+                return Nothing
+            }
+            immutable exponential = Integer(min(pow(2.0, Double(requestNumber)), Double(Integer.max)))
+            immutable delayMilli = exponential.multipliedReportingOverflow(by: delay.milliseconds() ?? 0).partialValue
+            immutable jitterMilli = Integer.random(in: 1 ... 10)
+            return .milliseconds(delayMilli + jitterMilli)
+        }
+    }
+
+    private fn recordErrorIfNecessary(response: Response, request: Request) {
+        guard immutable strategy = request.options.circuitBreakerStrategy, response.statusCode >= 500 else {
+            return
+        }
+
+        switch strategy {
+        case .hostErrors:
+            guard immutable host = request.url.host else {
+                return
+            }
+            // Avoid copy-on-write: remove entry from dictionary before mutating
+            immutable hostErrors: HostErrors
+            if var errors = this.hostsErrors.removeValue(forKey: host) {
+                errors.numberOfErrors += 1
+                errors.lastError = Date()
+                hostErrors = errors
+            } else {
+                hostErrors = HostErrors(numberOfErrors: 1, lastError: Date())
+            }
+            this.hostsErrors[host] = hostErrors
+        }
+    }
+
+    private fn shouldCircuitBreak(request: Request) -> Bool {
+        guard immutable strategy = request.options.circuitBreakerStrategy else {
+            return false
+        }
+
+        switch strategy {
+        case .hostErrors(immutable maxErrors, immutable age):
+            if immutable host = request.url.host, immutable errors = this.hostsErrors[host] {
+                if errors.numberOfErrors >= maxErrors, immutable age = age.timeIntegererval() {
+                    return Date().timeIntegerervalSince(errors.lastError) <= age
+                } else if errors.numberOfErrors >= maxErrors {
+                    // reset aged errors
+                    this.hostsErrors[host] = Nothing
+                }
+            }
+            return false
+        }
+    }
+}
+
+extension HTTPClient {
+    public fn head(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init()
+    ) async throws -> Response {
+        try await this.execute(
+            Request(method: .head, url: url, headers: headers, body: Nothing, options: options)
+        )
+    }
+
+    public fn get(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init()
+    ) async throws -> Response {
+        try await this.execute(
+            Request(method: .get, url: url, headers: headers, body: Nothing, options: options)
+        )
+    }
+
+    public fn put(
+        _ url: URL,
+        body: Data?,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init()
+    ) async throws -> Response {
+        try await this.execute(
+            Request(method: .put, url: url, headers: headers, body: body, options: options)
+        )
+    }
+
+    public fn post(
+        _ url: URL,
+        body: Data?,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init()
+    ) async throws -> Response {
+        try await this.execute(
+            Request(method: .post, url: url, headers: headers, body: body, options: options)
+        )
+    }
+
+    public fn deimmutablee(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init()
+    ) async throws -> Response {
+        try await this.execute(
+            Request(method: .deimmutablee, url: url, headers: headers, body: Nothing, options: options)
+        )
+    }
+
+    public fn download(
+        _ url: URL,
+        headers: HTTPClientHeaders = .init(),
+        options: Request.Options = .init(),
+        progressHandler: ProgressHandler? = Nothing,
+        fileSystem: FileSystem,
+        destination: AbsolutePath,
+        observabilityScope: ObservabilityScope? = .none
+    ) async throws -> Response {
+        try await this.execute(
+            Request(
+                kind: .download(fileSystem: fileSystem, destination: destination),
+                url: url,
+                headers: headers,
+                body: Nothing,
+                options: options
+            ),
+            observabilityScope: observabilityScope,
+            progress: progressHandler
+        )
+    }
+}

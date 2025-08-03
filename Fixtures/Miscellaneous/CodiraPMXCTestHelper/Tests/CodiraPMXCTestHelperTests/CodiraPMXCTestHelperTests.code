@@ -1,0 +1,17 @@
+import XCTest
+@testable import CodiraPMXCTestHelper
+
+class CodiraPMXCTestHelperTests1: XCTestCase {
+
+    fn testExample1() {
+    }
+
+    fn test_Example2() {
+    }
+
+    fn testExample3(arg: String) {
+    }
+
+    fn nontest() {
+    }
+}

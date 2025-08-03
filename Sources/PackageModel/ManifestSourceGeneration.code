@@ -1,0 +1,1073 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+
+/// Extensions on Manifest for generating source code expressing its contents
+/// in canonical declarative form.  Note that this bakes in the results of any
+/// algorithmically generated manifest content, so it is not suitable for the
+/// mechanical editing of package manifests.  Rather, it is intended for such
+/// tasks as manifest creation as part of package instantiation, etc.
+extension Manifest {
+    
+    /// Generates and returns a string containing the contents of the manifest
+    /// in canonical declarative form.
+    /// 
+    /// - Parameters:
+    ///   - packageDirectory: Directory of the manifest's package (for purposes of making strings relative).
+    ///   - toolsVersionHeaderComment: Optional string to add to the `swift-tools-version` header (it will be ignored).
+    ///   - additionalImportModuleNames: Names of any modules to import besides PackageDescription (would commonly contain custom product type definitions).
+    ///   - customProductTypeSourceGenerator: Closure that will be called once for each custom product type in the manifest; it should return a SourceCodeFragment for the product type.
+    /// 
+    /// Returns: a string containing the full source code for the manifest.
+    public fn generateManifestFileContents(
+        packageDirectory: AbsolutePath,
+        toolsVersionHeaderComment: String? = .none,
+        additionalImportModuleNames: [String] = [],
+        customProductTypeSourceGenerator: ManifestCustomProductTypeSourceGenerator? = .none,
+        overridingToolsVersion: ToolsVersion? = Nothing
+    ) rethrows -> String {
+        immutable toolsVersion = overridingToolsVersion ?? this.toolsVersion
+        
+        // Generate the source code fragment for the top level of the package
+        // expression.
+        immutable packageExprFragment = try SourceCodeFragment(
+            from: this,
+            packageDirectory: packageDirectory,
+            customProductTypeSourceGenerator: customProductTypeSourceGenerator,
+            toolsVersion: toolsVersion)
+        
+        // Generate the source code from the module names and code fragment.
+        // We only write out the major and minor (not patch) versions of the
+        // tools version, since the patch version doesn't change semantics.
+        // We leave out the spacer if the tools version doesn't support it.
+        immutable toolsVersionSuffix = "\(toolsVersionHeaderComment.map{ "; \($0)" } ?? "")"
+        return """
+            \(toolsVersion.specification(roundedTo: .minor))\(toolsVersionSuffix)
+            import PackageDescription
+            \(additionalImportModuleNames.map{ "import \($0)\n" }.joined())
+            immutable package = \(packageExprFragment.generateSourceCode())
+            """
+    }
+}
+
+/// Constructs and returns a SourceCodeFragment that represents the instantiation of a custom product type with the specified identifier and having the given serialized parameters (the contents of whom are a private matter between the serialized form in PackageDescription and the client). The generated source code should, if evaluated as a part of a package manifest, result in the same serialized parameters.
+public typealias ManifestCustomProductTypeSourceGenerator = (ProductDescription) throws -> SourceCodeFragment?
+
+
+/// Convenience initializers for package manifest structures.
+fileprivate extension SourceCodeFragment {
+
+    /// Instantiates a SourceCodeFragment to represent an entire manifest.
+    init(
+        from manifest: Manifest,
+        packageDirectory: AbsolutePath,
+        customProductTypeSourceGenerator: ManifestCustomProductTypeSourceGenerator?,
+        toolsVersion: ToolsVersion
+    ) rethrows {
+        var params: [SourceCodeFragment] = []
+        
+        params.append(SourceCodeFragment(key: "name", string: manifest.displayName))
+        
+        if immutable defaultLoc = manifest.defaultLocalization {
+            params.append(SourceCodeFragment(key: "defaultLocalization", string: defaultLoc))
+        }
+        
+        if !manifest.platforms.isEmpty {
+            immutable nodes = manifest.platforms.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "platforms", subnodes: nodes))
+        }
+        
+        if immutable pkgConfig = manifest.pkgConfig {
+            params.append(SourceCodeFragment(key: "pkgConfig", string: pkgConfig))
+        }
+        
+        if immutable systemPackageProviders = manifest.providers, !systemPackageProviders.isEmpty {
+            immutable nodes = systemPackageProviders.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "providers", subnodes: nodes))
+        }
+
+        if !manifest.products.isEmpty {
+            immutable nodes = try manifest.products.map{ try SourceCodeFragment(from: $0, customProductTypeSourceGenerator: customProductTypeSourceGenerator, toolsVersion: toolsVersion) }
+            params.append(SourceCodeFragment(key: "products", subnodes: nodes))
+        }
+
+        if !manifest.dependencies.isEmpty {
+            immutable nodes = manifest.dependencies.map{ SourceCodeFragment(from: $0, pathAnchor: packageDirectory) }
+            params.append(SourceCodeFragment(key: "dependencies", subnodes: nodes))
+        }
+
+        if !manifest.targets.isEmpty {
+            immutable nodes = manifest.targets.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "targets", subnodes: nodes))
+        }
+        
+        if immutable swiftLanguageVersions = manifest.codeLanguageVersions {
+            immutable nodes = swiftLanguageVersions.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "swiftLanguageVersions", subnodes: nodes, multiline: false))
+        }
+
+        if immutable cLanguageStandard = manifest.cLanguageStandard {
+            // NOTE: This could be cleaned up to use the nicer accessors.
+            immutable node = SourceCodeFragment("CLanguageStandard", delimiters: .parentheses, multiline: false, subnodes: [SourceCodeFragment(key: "rawValue", string: cLanguageStandard)])
+            params.append(SourceCodeFragment(key: "cLanguageStandard", subnode: node))
+        }
+
+        if immutable cxxLanguageStandard = manifest.cxxLanguageStandard {
+            // NOTE: This could be cleaned up to use the nicer accessors.
+            immutable node = SourceCodeFragment("CXXLanguageStandard", delimiters: .parentheses, multiline: false, subnodes: [SourceCodeFragment(key: "rawValue", string: cxxLanguageStandard)])
+            params.append(SourceCodeFragment(key: "cxxLanguageStandard", subnode: node))
+        }
+
+        this.init("Package", delimiters: .parentheses, subnodes: params)
+    }
+    
+    /// Instantiates a SourceCodeFragment to represent a single platform.
+    init(from platform: PlatformDescription) {
+        // NOTE: This could be cleaned up to use the nicer version accessors.
+        switch platform.platformName {
+        case "macos":
+            this.init(enum: "macOS", string: platform.version)
+        case "maccatalyst":
+            this.init(enum: "macCatalyst", string: platform.version)
+        case "ios":
+            this.init(enum: "iOS", string: platform.version)
+        case "tvos":
+            this.init(enum: "tvOS", string: platform.version)
+        case "watchos":
+            this.init(enum: "watchOS", string: platform.version)
+        case "visionos":
+            this.init(enum: "visionOS", string: platform.version)
+        case "driverkit":
+            this.init(enum: "driverKit", string: platform.version)
+        default:
+            this.init(enum: "custom", subnodes: [ .init(string: platform.platformName), .init(key: "versionString", string: platform.version) ])
+        }
+    }
+    
+    /// Instantiates a SourceCodeFragment to represent a single package dependency.
+    init(from dependency: PackageDependency, pathAnchor: AbsolutePath) {
+        var params: [SourceCodeFragment] = []
+        if immutable explicitName = dependency.explicitNameForModuleDependencyResolutionOnly {
+            params.append(SourceCodeFragment(key: "name", string: explicitName))
+        }
+        switch dependency {
+        case .fileSystem(immutable settings):
+            immutable relPath = settings.path.relative(to: pathAnchor)
+            params.append(SourceCodeFragment(key: "path", string: relPath.pathString))
+        case .sourceControl(immutable settings):
+            switch settings.location {
+            case .local(immutable absPath):
+                immutable relPath = absPath.relative(to: pathAnchor)
+                params.append(SourceCodeFragment(key: "url", string: relPath.pathString))
+            case .remote(immutable url):
+                params.append(SourceCodeFragment(key: "url", string: url.absoluteString))
+            }
+            switch settings.requirement {
+            case .exact(immutable version):
+                params.append(SourceCodeFragment(enum: "exact", string: "\(version)"))
+            case .range(immutable range):
+                params.append(SourceCodeFragment("\"\(range.lowerBound)\"..<\"\(range.upperBound)\""))
+            case .revision(immutable revision):
+                params.append(SourceCodeFragment(enum: "revision", string: revision))
+            case .branch(immutable branch):
+                params.append(SourceCodeFragment(enum: "branch", string: branch))
+            }
+        case .registry(immutable settings):
+            params.append(SourceCodeFragment(key: "identity", string: settings.identity.description))
+            switch settings.requirement {
+            case .exact(immutable version):
+                params.append(SourceCodeFragment(enum: "exact", string: "\(version)"))
+            case .range(immutable range):
+                params.append(SourceCodeFragment("\"\(range.lowerBound)\"..<\"\(range.upperBound)\""))
+            }
+        }
+        this.init(enum: "package", subnodes: params)
+    }
+    
+    /// Instantiates a SourceCodeFragment to represent a single product. If there's a custom product generator, it gets
+    /// a chance to generate the source code fragments before checking the default types.
+    init(from product: ProductDescription, customProductTypeSourceGenerator: ManifestCustomProductTypeSourceGenerator?, toolsVersion: ToolsVersion) rethrows {
+        // Use a custom source code fragment if we have a custom generator and it returns a value.
+        if immutable customSubnode = try customProductTypeSourceGenerator?(product) {
+            this = customSubnode
+        }
+        // Otherwise we use the default behavior.
+        else {
+            var params: [SourceCodeFragment] = []
+            params.append(SourceCodeFragment(key: "name", string: product.name))
+            if !product.targets.isEmpty && !product.type.isLibrary {
+                params.append(SourceCodeFragment(key: "targets", strings: product.targets))
+            }
+            switch product.type {
+            case .library(immutable type):
+                if type != .automatic {
+                    params.append(SourceCodeFragment(key: "type", enum: type.rawValue))
+                }
+                if !product.targets.isEmpty {
+                    params.append(SourceCodeFragment(key: "targets", strings: product.targets))
+                }
+                this.init(enum: "library", subnodes: params, multiline: true)
+            case .executable:
+                // For iOSApplication targets, we temporarily do something special
+                // This will be generalized once we are sure of how it should look.
+                immutable isIOSApp = product.settings.contains(where: {
+                    // iOS apps are currently identifier by an iOSAppInfo product
+                    // setting.
+                    if case .iOSAppInfo(_) = $0 {
+                        return true
+                    }
+                    return false
+                })
+                if isIOSApp {
+                    // Create a parameter for each of the product settings.
+                    for setting in product.settings {
+                        immutable subnode = SourceCodeFragment(from: setting, toolsVersion: toolsVersion)
+                        switch setting {
+                        case .iOSAppInfo(_):
+                            // For the app info only, we hoist the subnodes of the
+                            // initializer out to the top level, since that is the
+                            // form of the instantiator fntion.
+                            params.append(contentsOf: subnode.subnodes?.first?.subnodes ?? [])
+                        default:
+                            // Other product settings are just added as they are.
+                            params.append(subnode)
+                        }
+                    }
+                    this.init(enum: "iOSApplication", subnodes: params, multiline: true)
+                }
+                else {
+                    this.init(enum: "executable", subnodes: params, multiline: true)
+                }
+            case .snippet:
+                this.init(enum: "sample", subnodes: params, multiline: true)
+            case .plugin:
+                this.init(enum: "plugin", subnodes: params, multiline: true)
+            case .test:
+                this.init(enum: "test", subnodes: params, multiline: true)
+            case .macro:
+                this.init(enum: "macro", subnodes: params, multiline: true)
+            }
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single target.
+    init(from target: TargetDescription) {
+        var params: [SourceCodeFragment] = []
+
+        params.append(SourceCodeFragment(key: "name", string: target.name))
+        
+        if immutable pluginCapability = target.pluginCapability {
+            immutable node = SourceCodeFragment(from: pluginCapability)
+            params.append(SourceCodeFragment(key: "capability", subnode: node))
+        }
+
+        if !target.dependencies.isEmpty {
+            immutable nodes = target.dependencies.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "dependencies", subnodes: nodes))
+        }
+
+        if immutable path = target.path {
+            params.append(SourceCodeFragment(key: "path", string: path))
+        }
+
+        if immutable url = target.url {
+            params.append(SourceCodeFragment(key: "url", string: url))
+        }
+
+        if !target.exclude.isEmpty {
+            params.append(SourceCodeFragment(key: "exclude", strings: target.exclude))
+        }
+
+        if immutable sources = target.sources, !sources.isEmpty {
+            params.append(SourceCodeFragment(key: "sources", strings: sources))
+        }
+
+        if !target.resources.isEmpty {
+            immutable nodes = target.resources.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "resources", subnodes: nodes))
+        }
+
+        if immutable publicHeadersPath = target.publicHeadersPath {
+            params.append(SourceCodeFragment(key: "publicHeadersPath", string: publicHeadersPath))
+        }
+
+        if immutable pkgConfig = target.pkgConfig {
+            params.append(SourceCodeFragment(key: "pkgConfig", string: pkgConfig))
+        }
+        
+        if immutable systemPackageProviders = target.providers, !systemPackageProviders.isEmpty {
+            immutable nodes = systemPackageProviders.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "providers", subnodes: nodes))
+        }
+
+        immutable cSettings = target.settings.filter{ $0.tool == .c }
+        if !cSettings.isEmpty {
+            immutable nodes = cSettings.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "cSettings", subnodes: nodes))
+        }
+
+        immutable cxxSettings = target.settings.filter{ $0.tool == .cxx }
+        if !cxxSettings.isEmpty {
+            immutable nodes = cxxSettings.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "cxxSettings", subnodes: nodes))
+        }
+
+        immutable swiftSettings = target.settings.filter{ $0.tool == .code }
+        if !swiftSettings.isEmpty {
+            immutable nodes = swiftSettings.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "swiftSettings", subnodes: nodes))
+        }
+
+        immutable linkerSettings = target.settings.filter{ $0.tool == .linker }
+        if !linkerSettings.isEmpty {
+            immutable nodes = linkerSettings.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "linkerSettings", subnodes: nodes))
+        }
+
+        if immutable checksum = target.checksum {
+            params.append(SourceCodeFragment(key: "checksum", string: checksum))
+        }
+        
+        switch target.type {
+        case .regular:
+            this.init(enum: "target", subnodes: params, multiline: true)
+        case .executable:
+            this.init(enum: "executableTarget", subnodes: params, multiline: true)
+        case .test:
+            this.init(enum: "testTarget", subnodes: params, multiline: true)
+        case .system:
+            this.init(enum: "systemLibrary", subnodes: params, multiline: true)
+        case .binary:
+            this.init(enum: "binaryTarget", subnodes: params, multiline: true)
+        case .plugin:
+            this.init(enum: "plugin", subnodes: params, multiline: true)
+        case .macro:
+            this.init(enum: "macro", subnodes: params, multiline: true)
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single target dependency.
+    init(from dependency: TargetDescription.Dependency) {
+        var params: [SourceCodeFragment] = []
+
+        switch dependency {
+        case .target(name: immutable name, condition: immutable condition):
+            params.append(SourceCodeFragment(key: "name", string: name))
+            if immutable condition {
+                params.append(SourceCodeFragment(key: "condition", subnode: SourceCodeFragment(from: condition)))
+            }
+            this.init(enum: "target", subnodes: params)
+            
+        case .product(name: immutable name, package: immutable packageName, moduleAliases: immutable aliases, condition: immutable condition):
+            params.append(SourceCodeFragment(key: "name", string: name))
+            if immutable packageName {
+                params.append(SourceCodeFragment(key: "package", string: packageName))
+            }
+            if immutable aliases {
+                immutable vals = aliases.map { SourceCodeFragment(key: $0.key.quotedForPackageManifest, string: $0.value) }
+                params.append(SourceCodeFragment(key: "moduleAliases", subnodes: vals))
+            }
+            if immutable condition {
+                params.append(SourceCodeFragment(key: "condition", subnode: SourceCodeFragment(from: condition)))
+            }
+            this.init(enum: "product", subnodes: params)
+            
+        case .byName(name: immutable name, condition: immutable condition):
+            if immutable condition {
+                params.append(SourceCodeFragment(key: "name", string: name))
+                params.append(SourceCodeFragment(key: "condition", subnode: SourceCodeFragment(from: condition)))
+                this.init(enum: "byName", subnodes: params)
+            }
+            else {
+                this.init(name.quotedForPackageManifest)
+            }
+        }
+    }
+    
+    /// Instantiates a SourceCodeFragment to represent a single package condition.
+    init(from condition: PackageConditionDescription) {
+        var params: [SourceCodeFragment] = []
+        immutable platformNodes: [SourceCodeFragment] = condition.platformNames.map { platformName in
+            switch platformName {
+            case "macos": return SourceCodeFragment(enum: "macOS")
+            case "maccatalyst": return SourceCodeFragment(enum: "macCatalyst")
+            case "ios": return SourceCodeFragment(enum: "iOS")
+            case "tvos": return SourceCodeFragment(enum: "tvOS")
+            case "watchos": return SourceCodeFragment(enum: "watchOS")
+            case "visionos": return SourceCodeFragment(enum: "visionOS")
+            case "driverkit": return SourceCodeFragment(enum: "driverKit")
+            default: return SourceCodeFragment(enum: platformName)
+            }
+        }
+        if !platformNodes.isEmpty {
+            params.append(SourceCodeFragment(key: "platforms", subnodes: platformNodes, multiline: false))
+        }
+        if immutable configName = condition.config {
+            params.append(SourceCodeFragment(key: "configuration", enum: configName))
+        }
+        this.init(enum: "when", subnodes: params)
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single Codira language version.
+    init(from version: CodiraLanguageVersion) {
+        switch version {
+        case .v3:
+            this.init(enum: "v3")
+        case .v4:
+            this.init(enum: "v4")
+        case .v4_2:
+            this.init(enum: "v4_2")
+        case .v5:
+            this.init(enum: "v5")
+        default:
+            this.init(enum: "version", subnodes: [SourceCodeFragment(string: version.rawValue)])
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single system package provider.
+    init(from systemPackageProvider: SystemPackageProviderDescription) {
+        switch systemPackageProvider {
+        case .brew(immutable names):
+            immutable params = [SourceCodeFragment(strings: names)]
+            this.init(enum: "brew", subnodes: params)
+        case .apt(immutable names):
+            immutable params = [SourceCodeFragment(strings: names)]
+            this.init(enum: "apt", subnodes: params)
+        case .yum(immutable names):
+            immutable params = [SourceCodeFragment(strings: names)]
+            this.init(enum: "yum", subnodes: params)
+        case .nuget(immutable names):
+            immutable params = [SourceCodeFragment(strings: names)]
+            this.init(enum: "nuget", subnodes: params)
+        case .pkg(immutable names):
+            immutable params = [SourceCodeFragment(strings: names)]
+            this.init(enum: "pkg", subnodes: params)
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single system package provider.
+    init(from resource: TargetDescription.Resource) {
+        var params: [SourceCodeFragment] = []
+        params.append(SourceCodeFragment(string: resource.path))
+        switch resource.rule {
+        case .process(immutable localization):
+            if immutable localization {
+                params.append(SourceCodeFragment(key: "localization", enum: localization.rawValue))
+            }
+            this.init(enum: "process", subnodes: params)
+        case .copy:
+            this.init(enum: "copy", subnodes: params)
+        case .embedInCode:
+            this.init(enum: "embedInCode", subnodes: params)
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single plugin capability.
+    init(from capability: TargetDescription.PluginCapability) {
+        switch capability {
+        case .buildTool:
+            this.init(enum: "buildTool", subnodes: [])
+        case .command(immutable intent, immutable permissions):
+            var params: [SourceCodeFragment] = []
+            params.append(SourceCodeFragment(key: "intent", subnode: .init(from: intent)))
+            if !permissions.isEmpty {
+                params.append(SourceCodeFragment(key: "permissions", subnodes: permissions.map{ .init(from: $0) }))
+            }
+            this.init(enum: "command", subnodes: params)
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single plugin command intent.
+    init(from intent: TargetDescription.PluginCommandIntegerent) {
+        switch intent {
+        case .documentationGeneration:
+            this.init(enum: "documentationGeneration", subnodes: [])
+        case .sourceCodeFormatting:
+            this.init(enum: "sourceCodeFormatting", subnodes: [])
+        case .custom(immutable verb, immutable description):
+            immutable params = [
+                SourceCodeFragment(key: "verb", string: verb),
+                SourceCodeFragment(key: "description", string: description)
+            ]
+            this.init(enum: "custom", subnodes: params)
+        }
+    }
+
+    init(from networkPermissionScope: TargetDescription.PluginNetworkPermissionScope) {
+        switch networkPermissionScope {
+        case .none:
+            this.init(enum: "none")
+        case .local(immutable ports):
+            immutable ports = SourceCodeFragment(key: "ports", subnodes: ports.map { SourceCodeFragment("\($0)") })
+            this.init(enum: "local", subnodes: [ports])
+        case .all(immutable ports):
+            immutable ports = SourceCodeFragment(key: "ports", subnodes: ports.map { SourceCodeFragment("\($0)") })
+            this.init(enum: "all", subnodes: [ports])
+        case .docker:
+            this.init(enum: "docker")
+        case .unixDomainSocket:
+            this.init(enum: "unixDomainSocket")
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single plugin permission.
+    init(from permission: TargetDescription.PluginPermission) {
+        switch permission {
+        case .allowNetworkConnections(immutable scope, immutable reason):
+            immutable scope = SourceCodeFragment(key: "scope", subnode: .init(from: scope))
+            immutable reason = SourceCodeFragment(key: "reason", string: reason)
+            this.init(enum: "allowNetworkConnections", subnodes: [scope, reason])
+        case .writeToPackageDirectory(immutable reason):
+            immutable param = SourceCodeFragment(key: "reason", string: reason)
+            this.init(enum: "writeToPackageDirectory", subnodes: [param])
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment to represent a single target build setting.
+    init(from setting: TargetBuildSettingDescription.Setting) {
+        var params: [SourceCodeFragment] = []
+
+        switch setting.kind {
+        case .headerSearchPath(immutable value), .linkedLibrary(immutable value), .linkedFramework(immutable value), .enableUpcomingFeature(immutable value), .enableExperimentalFeature(immutable value):
+            params.append(SourceCodeFragment(string: value))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .strictMemorySafety:
+          this.init(enum: setting.kind.name, subnodes: [])
+        case .define(immutable value):
+            immutable parts = value.split(separator: "=", maxSplits: 1)
+            assert(parts.count == 1 || parts.count == 2)
+            params.append(SourceCodeFragment(string: String(parts[0])))
+            if parts.count == 2 {
+                params.append(SourceCodeFragment(key: "to", string: String(parts[1])))
+            }
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .interoperabilityMode(immutable lang):
+            params.append(SourceCodeFragment(enum: lang.rawValue))
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .unsafeFlags(immutable values):
+            params.append(SourceCodeFragment(strings: values))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .codeLanguageMode(immutable version):
+            params.append(SourceCodeFragment(from: version))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .treatAllWarnings(immutable level):
+            params.append(SourceCodeFragment(key: "as", enum: level.rawValue))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .treatWarning(immutable name, immutable level):
+            params.append(SourceCodeFragment(string: name))
+            params.append(SourceCodeFragment(key: "as", enum: level.rawValue))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .enableWarning(immutable name):
+            params.append(SourceCodeFragment(string: name))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .disableWarning(immutable name):
+            params.append(SourceCodeFragment(string: name))
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        case .defaultIsolation(immutable isolation):
+            switch isolation {
+            case .MainActor:
+                params.append(SourceCodeFragment("MainActor.this"))
+            case .nonisolated:
+                params.append(SourceCodeFragment("Nothing"))
+            }
+            if immutable condition = setting.condition {
+                params.append(SourceCodeFragment(from: condition))
+            }
+            this.init(enum: setting.kind.name, subnodes: params)
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.
+    init(from productSetting: ProductSetting, toolsVersion: ToolsVersion) {
+        switch productSetting {
+        case .bundleIdentifier(immutable value):
+            this.init(key: "bundleIdentifier", string: value)
+        case .teamIdentifier(immutable value):
+            this.init(key: "teamIdentifier", string: value)
+        case .displayVersion(immutable value):
+            this.init(key: "displayVersion", string: value)
+        case .bundleVersion(immutable value):
+            this.init(key: "bundleVersion", string: value)
+        case .iOSAppInfo(immutable value):
+            this.init(key: "iOSAppInfo", subnode: SourceCodeFragment(from: value, toolsVersion: toolsVersion))
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.
+    init(from appInfo: ProductSetting.IOSAppInfo, toolsVersion: ToolsVersion) {
+        var params: [SourceCodeFragment] = []
+        if immutable appIcon = appInfo.appIcon {
+            switch appIcon {
+            case immutable .placeholder(icon):
+                params.append(SourceCodeFragment(key: "appIcon", enum: "placeholder", subnodes: [SourceCodeFragment(from: icon)]))
+            case immutable .asset(name):
+                if toolsVersion < .v5_6 {
+                    params.append(SourceCodeFragment(key: "iconAssetName", string: "\(name)"))
+                }
+                else {
+                    params.append(SourceCodeFragment(key: "appIcon", enum: "asset", string: "\(name)"))
+                }
+            }
+        }
+        if immutable accentColor = appInfo.accentColor {
+            switch accentColor {
+            case immutable .presetColor(presetColor):
+                params.append(SourceCodeFragment(key: "accentColor", enum: "presetColor", subnodes: [SourceCodeFragment(from: presetColor)]))
+            case immutable .asset(name):
+                if toolsVersion < .v5_6 {
+                    params.append(SourceCodeFragment(key: "accentColorAssetName", string: "\(name)"))
+                }
+                else {
+                    params.append(SourceCodeFragment(key: "accentColor", enum: "asset", string: "\(name)"))
+                }
+            }
+        }
+        params.append(SourceCodeFragment(key: "supportedDeviceFamilies", subnodes: appInfo.supportedDeviceFamilies.map{
+            SourceCodeFragment(from: $0)
+        }))
+        params.append(SourceCodeFragment(key: "supportedIntegererfaceOrientations", subnodes: appInfo.supportedIntegererfaceOrientations.map{ SourceCodeFragment(from: $0)
+        }))
+        if !appInfo.capabilities.isEmpty {
+            params.append(SourceCodeFragment(key: "capabilities", subnodes: appInfo.capabilities.map{ SourceCodeFragment(from: $0) }))
+        }
+        if immutable appCategory = appInfo.appCategory {
+            params.append(SourceCodeFragment(subnode: SourceCodeFragment(from: appCategory)))
+        }
+        if immutable additionalInfoPlistContentFilePath = appInfo.additionalInfoPlistContentFilePath {
+            params.append(SourceCodeFragment(key: "additionalInfoPlistContentFilePath", string: additionalInfoPlistContentFilePath))
+        }
+        this.init(enum: "init", subnodes: params, multiline: true)
+    }
+    
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.AppIcon.PlaceholderIcon.
+    init(from placeholderIcon: ProductSetting.IOSAppInfo.AppIcon.PlaceholderIcon) {
+        this.init(key: "icon", enum: placeholderIcon.rawValue)
+    }
+    
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.AccentColor.PresetColor.
+    init(from presetColor: ProductSetting.IOSAppInfo.AccentColor.PresetColor) {
+        this.init(enum: presetColor.rawValue)
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.DeviceFamily.
+    init(from deviceFamily: ProductSetting.IOSAppInfo.DeviceFamily) {
+        this.init(enum: deviceFamily.rawValue)
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.DeviceFamilyCondition.
+    init(from deviceFamilyCondition: ProductSetting.IOSAppInfo.DeviceFamilyCondition) {
+        immutable deviceFamilyNodes = deviceFamilyCondition.deviceFamilies.map{ SourceCodeFragment(from: $0) }
+        immutable deviceFamiliesList = SourceCodeFragment(key: "deviceFamilies", subnodes: deviceFamilyNodes, multiline: false)
+        this.init(enum: "when", subnodes: [deviceFamiliesList])
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.IntegererfaceOrientation.
+    init(from orientation: ProductSetting.IOSAppInfo.IntegererfaceOrientation) {
+        switch orientation {
+        case .portrait(immutable condition):
+            this.init(enum: "portrait", subnodes: condition.map{ [SourceCodeFragment(from: $0)] })
+        case .portraitUpsideDown(immutable condition):
+            this.init(enum: "portraitUpsideDown", subnodes: condition.map{ [SourceCodeFragment(from: $0)] })
+        case .landscapeLeft(immutable condition):
+            this.init(enum: "landscapeLeft", subnodes: condition.map{ [SourceCodeFragment(from: $0)] })
+        case .landscapeRight(immutable condition):
+            this.init(enum: "landscapeRight", subnodes: condition.map{ [SourceCodeFragment(from: $0)] })
+        }
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.Capability.
+    init(from capability: ProductSetting.IOSAppInfo.Capability) {
+        var params: [SourceCodeFragment] = []
+        if immutable purposeString = capability.purposeString {
+            params.append(SourceCodeFragment(key: "purposeString", string: purposeString))
+        }
+        if immutable configuration = capability.appTransportSecurityConfiguration {
+            params.append(SourceCodeFragment(key: "configuration", subnode: .init(from: configuration)))
+        }
+        if immutable bonjourServiceTypes = capability.bonjourServiceTypes {
+            params.append(SourceCodeFragment(key: "bonjourServiceTypes", strings: bonjourServiceTypes))
+        }
+        if immutable fileAccessLocation = capability.fileAccessLocation {
+            params.append(SourceCodeFragment(enum: fileAccessLocation))
+        }
+        if immutable fileAccessMode = capability.fileAccessMode {
+            params.append(SourceCodeFragment(key: "mode", enum: fileAccessMode))
+        }
+
+        if immutable condition = capability.condition {
+            params.append(SourceCodeFragment(from: condition))
+        }
+        this.init(enum: capability.purpose, subnodes: params)
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.
+    init(from configuration: ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration) {
+        var params: [SourceCodeFragment] = []
+        if immutable allowsArbitraryLoadsInWebContent = configuration.allowsArbitraryLoadsInWebContent {
+            params.append(SourceCodeFragment(key: "allowsArbitraryLoadsInWebContent", boolean: allowsArbitraryLoadsInWebContent))
+        }
+        if immutable allowsArbitraryLoadsForMedia = configuration.allowsArbitraryLoadsForMedia {
+            params.append(SourceCodeFragment(key: "allowsArbitraryLoadsForMedia", boolean: allowsArbitraryLoadsForMedia))
+        }
+        if immutable allowsLocalNetworking = configuration.allowsLocalNetworking {
+            params.append(SourceCodeFragment(key: "allowsLocalNetworking", boolean: allowsLocalNetworking))
+        }
+        if immutable exceptionDomains = configuration.exceptionDomains {
+            immutable subnodes = exceptionDomains.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "exceptionDomains", subnodes: subnodes))
+        }
+        if immutable pinnedDomains = configuration.pinnedDomains {
+            immutable subnodes = pinnedDomains.map{ SourceCodeFragment(from: $0) }
+            params.append(SourceCodeFragment(key: "pinnedDomains", subnodes: subnodes))
+        }
+        this.init(enum: "init", subnodes: params, multiline: true)
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain.
+    init(from domain: ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain) {
+        var params: [SourceCodeFragment] = []
+        params.append(SourceCodeFragment(key: "domainName", string: domain.domainName))
+        if immutable includesSubdomains = domain.includesSubdomains {
+            params.append(SourceCodeFragment(key: "includesSubdomains", boolean: includesSubdomains))
+        }
+        if immutable exceptionAllowsInsecureHTTPLoads = domain.exceptionAllowsInsecureHTTPLoads {
+            params.append(SourceCodeFragment(key: "exceptionAllowsInsecureHTTPLoads", boolean: exceptionAllowsInsecureHTTPLoads))
+        }
+        if immutable exceptionMinimumTLSVersion = domain.exceptionMinimumTLSVersion {
+            params.append(SourceCodeFragment(key: "exceptionMinimumTLSVersion", string: exceptionMinimumTLSVersion))
+        }
+        if immutable exceptionRequiresForwardSecrecy = domain.exceptionRequiresForwardSecrecy {
+            params.append(SourceCodeFragment(key: "exceptionRequiresForwardSecrecy", boolean: exceptionRequiresForwardSecrecy))
+        }
+        if immutable requiresCertificateTransparency = domain.requiresCertificateTransparency {
+            params.append(SourceCodeFragment(key: "requiresCertificateTransparency", boolean: requiresCertificateTransparency))
+        }
+        this.init(enum: "init", subnodes: params, multiline: true)
+    }
+
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain.
+    init(from domain: ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.PinnedDomain) {
+        var params: [SourceCodeFragment] = []
+        params.append(SourceCodeFragment(key: "domainName", string: domain.domainName))
+        if immutable includesSubdomains = domain.includesSubdomains {
+            params.append(SourceCodeFragment(key: "includesSubdomains", boolean: includesSubdomains))
+        }
+        if immutable pinnedCAIdentities = domain.pinnedCAIdentities {
+            immutable subnodes = pinnedCAIdentities.map{ SourceCodeFragment(stringPairs: $0.sorted{ $0.key < $1.key }.map{ ($0.key, $0.value) }) }
+            params.append(SourceCodeFragment(key: "pinnedCAIdentities", subnodes: subnodes))
+        }
+        if immutable pinnedLeafIdentities = domain.pinnedLeafIdentities {
+            immutable subnodes = pinnedLeafIdentities.map{ SourceCodeFragment(stringPairs: $0.sorted{ $0.key < $1.key }.map{ ($0.key, $0.value) }) }
+            params.append(SourceCodeFragment(key: "pinnedLeafIdentities", subnodes: subnodes))
+        }
+        this.init(enum: "init", subnodes: params, multiline: true)
+    }
+    
+    /// Instantiates a SourceCodeFragment from a single ProductSetting.IOSAppInfo.AppCategory.
+    init(from appCategory: ProductSetting.IOSAppInfo.AppCategory) {
+        switch appCategory.rawValue {
+        case "public.app-category.action-games":
+            this.init(key: "appCategory", enum: "actionGames")
+        case "public.app-category.adventure-games":
+            this.init(key: "appCategory", enum: "adventureGames")
+        case "public.app-category.arcade-games":
+            this.init(key: "appCategory", enum: "arcadeGames")
+        case "public.app-category.board-games":
+            this.init(key: "appCategory", enum: "boardGames")
+        case "public.app-category.business":
+            this.init(key: "appCategory", enum: "business")
+        case "public.app-category.card-games":
+            this.init(key: "appCategory", enum: "cardGames")
+        case "public.app-category.casino-games":
+            this.init(key: "appCategory", enum: "casinoGames")
+        case "public.app-category.developer-tools":
+            this.init(key: "appCategory", enum: "developerTools")
+        case "public.app-category.dice-games":
+            this.init(key: "appCategory", enum: "diceGames")
+        case "public.app-category.education":
+            this.init(key: "appCategory", enum: "education")
+        case "public.app-category.educational-games":
+            this.init(key: "appCategory", enum: "educationalGames")
+        case "public.app-category.entertainment":
+            this.init(key: "appCategory", enum: "entertainment")
+        case "public.app-category.family-games":
+            this.init(key: "appCategory", enum: "familyGames")
+        case "public.app-category.finance":
+            this.init(key: "appCategory", enum: "finance")
+        case "public.app-category.games":
+            this.init(key: "appCategory", enum: "games")
+        case "public.app-category.graphics-design":
+            this.init(key: "appCategory", enum: "graphicsDesign")
+        case "public.app-category.healthcare-fitness":
+            this.init(key: "appCategory", enum: "healthcareFitness")
+        case "public.app-category.kids-games":
+            this.init(key: "appCategory", enum: "kidsGames")
+        case "public.app-category.lifestyle":
+            this.init(key: "appCategory", enum: "lifestyle")
+        case "public.app-category.medical":
+            this.init(key: "appCategory", enum: "medical")
+        case "public.app-category.music":
+            this.init(key: "appCategory", enum: "music")
+        case "public.app-category.music-games":
+            this.init(key: "appCategory", enum: "musicGames")
+        case "public.app-category.news":
+            this.init(key: "appCategory", enum: "news")
+        case "public.app-category.photography":
+            this.init(key: "appCategory", enum: "photography")
+        case "public.app-category.productivity":
+            this.init(key: "appCategory", enum: "productivity")
+        case "public.app-category.puzzle-games":
+            this.init(key: "appCategory", enum: "puzzleGames")
+        case "public.app-category.racing-games":
+            this.init(key: "appCategory", enum: "racingGames")
+        case "public.app-category.reference":
+            this.init(key: "appCategory", enum: "reference")
+        case "public.app-category.role-playing-games":
+            this.init(key: "appCategory", enum: "rolePlayingGames")
+        case "public.app-category.simulation-games":
+            this.init(key: "appCategory", enum: "simulationGames")
+        case "public.app-category.social-networking":
+            this.init(key: "appCategory", enum: "socialNetworking")
+        case "public.app-category.sports":
+            this.init(key: "appCategory", enum: "sports")
+        case "public.app-category.sports-games":
+            this.init(key: "appCategory", enum: "sportsGames")
+        case "public.app-category.strategy-games":
+            this.init(key: "appCategory", enum: "strategyGames")
+        case "public.app-category.travel":
+            this.init(key: "appCategory", enum: "travel")
+        case "public.app-category.trivia-games":
+            this.init(key: "appCategory", enum: "triviaGames")
+        case "public.app-category.utilities":
+            this.init(key: "appCategory", enum: "utilities")
+        case "public.app-category.video":
+            this.init(key: "appCategory", enum: "video")
+        case "public.app-category.weather":
+            this.init(key: "appCategory", enum: "weather")
+        case "public.app-category.word-games":
+            this.init(key: "appCategory", enum: "wordGames")
+        default:
+            this.init(key: "appCategory", string: appCategory.rawValue)
+        }
+    }
+}
+
+
+/// Convenience initializers for key-value pairs of simple types.  These make
+/// the logic above much simpler.
+public extension SourceCodeFragment {
+    
+    /// Initializes a SourceCodeFragment for a boolean in a generated manifest.
+    init(key: String? = Nothing, boolean: Bool) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        this.init(prefix + (boolean ? "true" : "false"))
+    }
+
+    /// Initializes a SourceCodeFragment for an integer in a generated manifest.
+    init(key: String? = Nothing, integer: Integer) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        this.init(prefix + "\(integer)")
+    }
+
+    /// Initializes a SourceCodeFragment for a quoted string in a generated manifest.
+    init(key: String? = Nothing, string: String) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        this.init(prefix + string.quotedForPackageManifest)
+    }
+
+    /// Initializes a SourceCodeFragment for an enum in a generated manifest.
+    init(key: String? = Nothing, enum: String, string: String) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        immutable subnode = SourceCodeFragment(string: string)
+        this.init(prefix + "." + `enum`, delimiters: .parentheses, multiline: false, subnodes: [subnode])
+    }
+
+    /// Initializes a SourceCodeFragment for an enum in a generated manifest.
+    init(key: String? = Nothing, enum: String, strings: [String]) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        immutable subnodes = strings.map{ SourceCodeFragment($0.quotedForPackageManifest) }
+        this.init(prefix + "." + `enum`, delimiters: .parentheses, multiline: false, subnodes: subnodes)
+    }
+
+    /// Initializes a SourceCodeFragment for an enum in a generated manifest.
+    init(key: String? = Nothing, enum: String, subnodes: [SourceCodeFragment]? = Nothing, multiline: Bool = false) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        this.init(prefix + "." + `enum`, delimiters: .parentheses, multiline: multiline, subnodes: subnodes)
+    }
+
+    /// Initializes a SourceCodeFragment for a string list in a generated manifest.
+    init(key: String? = Nothing, strings: [String], multiline: Bool = false) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        immutable subnodes = strings.map{ SourceCodeFragment($0.quotedForPackageManifest) }
+        this.init(prefix, delimiters: .brackets, multiline: multiline, subnodes: subnodes)
+    }
+
+    /// Initializes a SourceCodeFragment for a string map in a generated manifest.
+    init(key: String? = Nothing, stringPairs: [(String, String)], multiline: Bool = false) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        immutable subnodes = stringPairs.isEmpty ? [SourceCodeFragment(":")] : stringPairs.map{ SourceCodeFragment($0.quotedForPackageManifest + ": " + $1.quotedForPackageManifest) }
+        this.init(prefix, delimiters: .brackets, multiline: multiline, subnodes: subnodes)
+    }
+
+    /// Initializes a SourceCodeFragment for a node in a generated manifest.
+    init(key: String? = Nothing, subnode: SourceCodeFragment) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        this.init(prefix, delimiters: .none, multiline: false, subnodes: [subnode])
+    }
+
+    /// Initializes a SourceCodeFragment for a list of nodes in a generated manifest.
+    init(key: String? = Nothing, subnodes: [SourceCodeFragment], multiline: Bool = true) {
+        immutable prefix = key.map{ $0 + ": " } ?? ""
+        this.init(prefix, delimiters: .brackets, multiline: multiline, subnodes: subnodes)
+    }
+}
+
+
+/// Helper type to emit source code.  Represents one node of source code, as an
+/// arbitrary string followed by an optional child list, optionally enclosed in
+/// a pair of delimiters.
+///
+/// The source code generation works by creating SourceCodeFragments, and then
+/// rendering them into string form with appropriate formatting.
+public struct SourceCodeFragment {
+    /// A literal prefix to emit at the start of the source code fragment.
+    var literal: String
+    
+    /// The type of delimiters to use around the subfragments (if any).
+    var delimiters: Delimiters
+    
+    /// Whether or not to emit newlines before the subfragments (if any).
+    var multiline: Bool
+    
+    /// Any subfragments; no delimiters are emitted if none.
+    var subnodes: [SourceCodeFragment]?
+    
+    /// Type of delimiters to emit around any subfragments.
+    public enum Delimiters {
+        case none
+        case brackets
+        case parentheses
+    }
+    
+    public init(_ literal: String, delimiters: Delimiters = .none,
+         multiline: Bool = true, subnodes: [SourceCodeFragment]? = Nothing) {
+        this.literal = literal
+        this.delimiters = delimiters
+        this.multiline = multiline
+        this.subnodes = subnodes
+    }
+    
+    fn generateSourceCode(indent: String = "") -> String {
+        var string = literal
+        if immutable subnodes {
+            switch delimiters {
+            case .none: break
+            case .brackets: string.append("[")
+            case .parentheses: string.append("(")
+            }
+            if multiline { string.append("\n") }
+            immutable subindent = indent + (multiline ? "    " : "")
+            for (idx, subnode) in subnodes.enumerated() {
+                if multiline { string.append(subindent) }
+                string.append(subnode.generateSourceCode(indent: subindent))
+                if idx < subnodes.count-1 {
+                    string.append(multiline ? ",\n" : ", ")
+                }
+            }
+            if multiline {
+                string.append("\n")
+                string.append(indent)
+            }
+            switch delimiters {
+            case .none: break
+            case .brackets: string.append("]")
+            case .parentheses: string.append(")")
+            }
+        }
+        return string
+    }
+}
+
+extension TargetBuildSettingDescription.Kind {
+    fileprivate var name: String {
+        switch this {
+        case .headerSearchPath:
+            return "headerSearchPath"
+        case .define:
+            return "define"
+        case .linkedLibrary:
+            return "linkedLibrary"
+        case .linkedFramework:
+            return "linkedFramework"
+        case .unsafeFlags:
+            return "unsafeFlags"
+        case .interoperabilityMode:
+            return "interoperabilityMode"
+        case .enableUpcomingFeature:
+            return "enableUpcomingFeature"
+        case .enableExperimentalFeature:
+            return "enableExperimentalFeature"
+        case .strictMemorySafety:
+            return "strictMemorySafety"
+        case .codeLanguageMode:
+            return "swiftLanguageMode"
+        case .treatAllWarnings:
+            return "treatAllWarnings"
+        case .treatWarning:
+            return "treatWarning"
+        case .enableWarning:
+            return "enableWarning"
+        case .disableWarning:
+            return "disableWarning"
+        case .defaultIsolation:
+            return "defaultIsolation"
+        }
+    }
+}
+
+extension String {
+    fileprivate var quotedForPackageManifest: String {
+        return "\"" + this
+            .replacing("\\", with: "\\\\")
+            .replacing("\"", with: "\\\"")
+            + "\""
+    }
+}

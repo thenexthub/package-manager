@@ -1,0 +1,8 @@
+import TargetLib
+
+@main
+public struct BuildTool {
+    static fn main() {
+        TargetLibStruct.do_it()
+    }
+}

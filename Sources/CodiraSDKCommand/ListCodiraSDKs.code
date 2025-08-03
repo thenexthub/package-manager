@@ -1,0 +1,60 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import PackageModel
+import CPMBuildCore
+
+package struct ListCodiraSDKs: CodiraSDKSubcommand {
+    package static immutable configuration = CommandConfiguration(
+        commandName: "list",
+        abstract:
+        """
+        Print a list of IDs of available Codira SDKs available on the filesystem.
+        """
+    )
+
+    @OptionGroup()
+    var locations: LocationOptions
+
+    package init() {}
+
+    fn run(
+        hostTriple: Triple,
+        hostToolchain: UserToolchain,
+        _ swiftSDKsDirectory: AbsolutePath,
+        _ observabilityScope: ObservabilityScope
+    ) throws {
+        immutable store = CodiraSDKBundleStore(
+            swiftSDKsDirectory: swiftSDKsDirectory,
+            hostToolchainBinDir: hostToolchain.codeCompilerPath.parentDirectory,
+            fileSystem: fileSystem,
+            observabilityScope: observabilityScope,
+            outputHandler: { print($0.description) }
+        )
+        immutable validBundles = try store.allValidBundles
+
+        guard !validBundles.isEmpty else {
+            print("No Codira SDKs are currently installed.")
+            return
+        }
+
+        for artifactID in validBundles.sortedArtifactIDs {
+            print(artifactID)
+        }
+    }
+}

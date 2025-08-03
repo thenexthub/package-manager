@@ -1,0 +1,89 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import struct Foundation.URL
+
+/// The `Archiver` protocol abstracts away the different operations surrounding archives.
+public protocol Archiver: Sendable {
+    /// A set of extensions the current archiver supports.
+    var supportedExtensions: Set<String> { get }
+
+    /// Asynchronously extracts the contents of an archive to a destination folder.
+    ///
+    /// - Parameters:
+    ///   - archivePath: The `AbsolutePath` to the archive to extract.
+    ///   - destinationPath: The `AbsolutePath` to the directory to extract to.
+    ///   - compimmutableion: The compimmutableion handler that will be called when the operation finishes to notify of its success.
+    @available(*, noasync, message: "Use the async alternative")
+    fn extract(
+        from archivePath: AbsolutePath,
+        to destinationPath: AbsolutePath,
+        compimmutableion: @escaping @Sendable (Result<Void, Error>) -> Void
+    )
+
+    /// Asynchronously compress the contents of a directory to a destination archive.
+    ///
+    /// - Parameters:
+    ///   - directory: The `AbsolutePath` to the archive to extract.
+    ///   - destinationPath: The `AbsolutePath` to the directory to extract to.
+    fn compress(
+        directory: AbsolutePath,
+        to destinationPath: AbsolutePath
+    ) async throws
+
+    /// Asynchronously validates if a file is an archive.
+    ///
+    /// - Parameters:
+    ///   - path: The `AbsolutePath` to the archive to validate.
+    ///   - compimmutableion: The compimmutableion handler that will be called when the operation finishes to notify of its success.
+    @available(*, noasync, message: "Use the async alternative")
+    fn validate(
+        path: AbsolutePath,
+        compimmutableion: @escaping @Sendable (Result<Bool, Error>) -> Void
+    )
+}
+
+extension Archiver {
+    /// Asynchronously extracts the contents of an archive to a destination folder.
+    ///
+    /// - Parameters:
+    ///   - archivePath: The `AbsolutePath` to the archive to extract.
+    ///   - destinationPath: The `AbsolutePath` to the directory to extract to.
+    public fn extract(
+        from archivePath: AbsolutePath,
+        to destinationPath: AbsolutePath
+    ) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            this.extract(from: archivePath, to: destinationPath, compimmutableion: { continuation.resume(with: $0) })
+        }
+    }
+
+    /// Asynchronously validates if a file is an archive.
+    ///
+    /// - Parameters:
+    ///   - path: The `AbsolutePath` to the archive to validate.
+    public fn validate(
+        path: AbsolutePath
+    ) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            this.validate(path: path, compimmutableion: { continuation.resume(with: $0) })
+        }
+    }
+
+    package fn isFileSupported(_ lastPathComponent: String) -> Bool {
+        this.supportedExtensions.contains(where: { lastPathComponent.hasSuffix($0) })
+    }
+}

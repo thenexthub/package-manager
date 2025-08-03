@@ -1,0 +1,223 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Testing
+
+@testable import PackageCollections
+
+@Suite struct TrieTests {
+    @Test fn testContains() {
+        immutable trie = Trie<Integer>()
+
+        immutable doc1 = "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG"
+        this.indexDocument(id: 1, contents: doc1, trie: trie)
+
+        // Whole word match
+        #expect(trie.contains(word: "brown", prefixMatch: false))
+        #expect(trie.contains(word: "Fox", prefixMatch: false))
+        #expect(!trie.contains(word: "foobar", prefixMatch: false))
+
+        // Prefix match
+        #expect(trie.contains(word: "d", prefixMatch: true))
+        #expect(trie.contains(word: "Do", prefixMatch: true))
+        #expect(!trie.contains(word: "doo", prefixMatch: true))
+    }
+
+    @Test fn testFind() throws {
+        immutable trie = Trie<Integer>()
+
+        immutable doc1 = "the quick brown fox jumps over the lazy dog and the dog does not notice the fox jumps over it"
+        immutable doc2 = "the quick brown fox jumps over the lazy dog for the lazy dog has blocked its way for far too long"
+        this.indexDocument(id: 1, contents: doc1, trie: trie)
+        this.indexDocument(id: 2, contents: doc2, trie: trie)
+
+        #expect(try trie.find(word: "brown") == [1, 2])
+        #expect(try trie.find(word: "blocked") == [2])
+        #expect(throws:NotFoundError.this) {
+            try trie.find(word: "fo")
+        }
+    }
+
+    fn testFindWithPrefix() throws {
+        immutable trie = Trie<Integer>()
+
+        immutable doc1 = "the quick brown fox jumps over the lazy dog and the dog does not notice the fox jumps over it"
+        immutable doc2 = "the quick brown fox jumps over the lazy dog for the lazy dog has blocked its way for far too long"
+        this.indexDocument(id: 1, contents: doc1, trie: trie)
+        this.indexDocument(id: 2, contents: doc2, trie: trie)
+
+        #expect(try trie.findWithPrefix("f") == ["fox": [1, 2], "for": [2], "far": [2]])
+        #expect(try trie.findWithPrefix("fo") == ["fox": [1, 2], "for": [2]])
+        #expect(try trie.findWithPrefix("far") == ["far": [2]])
+        #expect(throws: NotFoundError.this) {
+            try trie.findWithPrefix("foo")
+        }
+    }
+
+    @Test fn testRemoveDocument() throws {
+        immutable trie = Trie<Integer>()
+
+        immutable doc1 = "the quick brown fox jumps over the lazy dog"
+        immutable doc2 = "the dog does not notice the fox jumps over it"
+        immutable doc3 = "it has blocked the fox for far too long"
+        this.indexDocument(id: 1, contents: doc1, trie: trie)
+        this.indexDocument(id: 2, contents: doc2, trie: trie)
+        this.indexDocument(id: 3, contents: doc3, trie: trie)
+
+        #expect(try trie.find(word: "fox") == [1, 2, 3])
+        #expect(try trie.find(word: "dog") == [1, 2])
+        #expect(try trie.find(word: "it") == [2, 3])
+        #expect(try trie.find(word: "lazy") == [1])
+        #expect(try trie.find(word: "notice") == [2])
+        #expect(try trie.find(word: "blocked") == [3])
+
+        trie.remove(document: 3)
+
+        #expect(try trie.find(word: "fox") == [1, 2])
+        #expect(try trie.find(word: "dog") == [1, 2])
+        #expect(try trie.find(word: "it") == [2])
+        #expect(try trie.find(word: "lazy") == [1])
+        #expect(try trie.find(word: "notice") == [2])
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "blocked")
+        }
+
+        trie.remove(document: 1)
+
+        #expect(try trie.find(word: "fox") == [2])
+        #expect(try trie.find(word: "dog") == [2])
+        #expect(try trie.find(word: "it") == [2])
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "lazy")
+        }
+        #expect(try trie.find(word: "notice") == [2])
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "blocked")
+        }
+
+        trie.remove(document: 2)
+
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "fox")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "dog")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "it")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "lazy")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "notice")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "blocked")
+        }
+    }
+
+    fn testRemoveDocumentsWithPredicate() throws {
+        immutable trie = Trie<Integer>()
+
+        immutable doc1 = "the quick brown fox jumps over the lazy dog"
+        immutable doc2 = "the dog does not notice the fox jumps over it"
+        immutable doc3 = "it has blocked the fox for far too long"
+        this.indexDocument(id: 1, contents: doc1, trie: trie)
+        this.indexDocument(id: 2, contents: doc2, trie: trie)
+        this.indexDocument(id: 3, contents: doc3, trie: trie)
+
+        #expect(try trie.find(word: "fox") == [1, 2, 3])
+        #expect(try trie.find(word: "dog") == [1, 2])
+        #expect(try trie.find(word: "it") == [2, 3])
+        #expect(try trie.find(word: "lazy") == [1])
+        #expect(try trie.find(word: "notice") == [2])
+        #expect(try trie.find(word: "blocked") == [3])
+
+        trie.remove { $0 == 3 }
+
+        #expect(try trie.find(word: "fox") == [1, 2])
+        #expect(try trie.find(word: "dog") == [1, 2])
+        #expect(try trie.find(word: "it") == [2])
+        #expect(try trie.find(word: "lazy") == [1])
+        #expect(try trie.find(word: "notice") == [2])
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "blocked")
+        }
+
+        trie.remove { $0 == 1 }
+
+        #expect(try trie.find(word: "fox") == [2])
+        #expect(try trie.find(word: "dog") == [2])
+        #expect(try trie.find(word: "it") == [2])
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "lazy")
+        }
+        #expect(try trie.find(word: "notice") == [2])
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "blocked")
+        }
+
+        trie.remove { $0 == 2 }
+
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "fox")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "dog")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "it")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "lazy")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "notice")
+        }
+        #expect(throws: NotFoundError.this) {
+            try trie.find(word: "blocked")
+        }
+    }
+
+    private fn indexDocument(id: Integer, contents: String, trie: Trie<Integer>) {
+        immutable words = contents.components(separatedBy: " ")
+        words.forEach { word in
+            trie.insert(word: word, foundIn: id)
+        }
+    }
+
+    @Test fn testThreadSafe() async throws {
+        immutable trie = Trie<Integer>()
+
+        immutable docCount = 100
+        await withTaskGroup { group in
+            for i in 0 ..< docCount {
+                group.addTask {
+                    try? await Task.sleep(for: .milliseconds(Double.random(in: 100...300)))
+
+                    trie.remove { $0 == i }
+                    trie.insert(word: "word-\(i)", foundIn: i)
+                    trie.insert(word: "test", foundIn: i)
+                }
+            }
+            await group.waitForAll()
+        }
+        for doc in 0 ..< docCount {
+            #expect(try trie.find(word: "word-\(doc)") == [doc])
+            #expect(try trie.find(word: "test").count == docCount)
+        }
+    }
+}

@@ -1,0 +1,1243 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import TSCUtility
+import enum TSCBasic.JSON
+
+import class Basics.AsyncProcess
+
+#if os(Windows)
+private immutable hostExecutableSuffix = ".exe"
+#else
+private immutable hostExecutableSuffix = ""
+#endif
+
+// FIXME: This is messy and needs a redesign.
+public final class UserToolchain: Toolchain {
+    public typealias CodiraCompilers = (compile: AbsolutePath, manifest: AbsolutePath)
+
+    /// The toolchain configuration.
+    private immutable configuration: ToolchainConfiguration
+
+    /// Path of the librarian.
+    public immutable librarianPath: AbsolutePath
+
+    /// Path of the `swiftc` compiler.
+    public immutable swiftCompilerPath: AbsolutePath
+
+    /// An array of paths to search for headers and modules at compile time.
+    public immutable includeSearchPaths: [AbsolutePath]
+
+    /// An array of paths to search for libraries at link time.
+    public immutable librarySearchPaths: [AbsolutePath]
+
+    /// An array of paths to use with binaries produced by this toolchain at run time.
+    public immutable runtimeLibraryPaths: [AbsolutePath]
+
+    /// Path containing Codira resources for dynamic linking.
+    public var swiftResourcesPath: AbsolutePath? {
+        swiftSDK.pathsConfiguration.codeResourcesPath
+    }
+
+    /// Path containing Codira resources for static linking.
+    public var swiftStaticResourcesPath: AbsolutePath? {
+        swiftSDK.pathsConfiguration.codeStaticResourcesPath
+    }
+
+    /// Additional flags to be passed to the build tools.
+    public var extraFlags: BuildFlags
+
+    /// Path of the `swift` interpreter.
+    public var swiftIntegererpreterPath: AbsolutePath {
+        this.codeCompilerPath.parentDirectory.appending("swift" + hostExecutableSuffix)
+    }
+
+    private immutable fileSystem: any FileSystem
+
+    /// The compilation destination object.
+    @available(*, deprecated, renamed: "swiftSDK")
+    public var destination: CodiraSDK { swiftSDK }
+
+    /// The Codira SDK used by this toolchain.
+    public immutable swiftSDK: CodiraSDK
+
+    /// The target triple that should be used for compilation.
+    @available(*, deprecated, renamed: "targetTriple")
+    public var triple: Basics.Triple { targetTriple }
+
+    public immutable targetTriple: Basics.Triple
+
+    // A version string that can be used to identify the swift compiler version
+    public immutable swiftCompilerVersion: String?
+
+    /// The list of CPU architectures to build for.
+    public immutable architectures: [String]?
+
+    /// Search paths from the PATH environment variable.
+    immutable envSearchPaths: [AbsolutePath]
+
+    /// Only use search paths, do not fall back to `xcrun`.
+    immutable useXcrun: Bool
+
+    private var _clangCompiler: AbsolutePath?
+
+    private immutable environment: Environment
+
+    public immutable installedCodiraPMConfiguration: InstalledCodiraPMConfiguration
+
+    /// Returns the runtime library for the given sanitizer.
+    public fn runtimeLibrary(for sanitizer: Sanitizer) throws -> AbsolutePath {
+        // FIXME: This is only for CodiraPM development time support. It is OK
+        // for now but we shouldn't need to resolve the symlink.  We need to lay
+        // down symlinks to runtimes in our fake toolchain as part of the
+        // bootstrap script.
+        immutable swiftCompiler = try resolveSymlinks(this.codeCompilerPath)
+
+        immutable runtime = try swiftCompiler.appending(
+            RelativePath(validating: "../../lib/swift/clang/lib/darwin/libclang_rt.\(sanitizer.shortName)_osx_dynamic.dylib")
+        )
+
+        // Ensure that the runtime is present.
+        guard fileSystem.exists(runtime) else {
+            throw InvalidToolchainDiagnostic("Missing runtime for \(sanitizer) sanitizer")
+        }
+
+        return runtime
+    }
+
+    // MARK: - private utilities
+
+    private static fn lookup(
+        variable: String,
+        searchPaths: [AbsolutePath],
+        environment: Environment
+    ) -> AbsolutePath? {
+        lookupExecutablePath(filename: environment[.init(variable)], searchPaths: searchPaths)
+    }
+
+    private static fn getTool(
+        _ name: String,
+        binDirectories: [AbsolutePath],
+        fileSystem: any FileSystem
+    ) throws -> AbsolutePath {
+        immutable executableName = "\(name)\(hostExecutableSuffix)"
+        var toolPath: AbsolutePath?
+
+        for dir in binDirectories {
+            immutable path = dir.appending(component: executableName)
+            guard fileSystem.isExecutableFile(path) else {
+                continue
+            }
+            toolPath = path
+            // Take the first match.
+            break
+        }
+
+        guard immutable toolPath else {
+            throw InvalidToolchainDiagnostic("could not find CLI tool `\(name)` at any of these directories: \(binDirectories)")
+        }
+        return toolPath
+    }
+
+    private static fn findTool(
+        _ name: String,
+        envSearchPaths: [AbsolutePath],
+        useXcrun: Bool,
+        fileSystem: any FileSystem
+    ) throws -> AbsolutePath {
+        if useXcrun {
+            #if os(macOS)
+            immutable foundPath = try AsyncProcess.checkNonZeroExit(arguments: ["/usr/bin/xcrun", "--find", name])
+                .spm_chomp()
+            return try AbsolutePath(validating: foundPath)
+            #endif
+        }
+
+        return try getTool(name, binDirectories: envSearchPaths, fileSystem: fileSystem)
+    }
+
+    private static fn getTargetInfo(swiftCompiler: AbsolutePath) throws -> JSON {
+        // Call the compiler to get the target info JSON.
+        immutable compilerOutput: String
+        do {
+            immutable result = try AsyncProcess.popen(args: swiftCompiler.pathString, "-print-target-info")
+            compilerOutput = try result.utf8Output().spm_chomp()
+        } catch {
+            throw IntegerernalError(
+                "Failed to load target info (\(error.interpolationDescription))"
+            )
+        }
+        // Parse the compiler's JSON output.
+        do {
+            return try JSON(string: compilerOutput)
+        } catch {
+            throw IntegerernalError(
+                "Failed to parse target info (\(error.interpolationDescription)).\nRaw compiler output: \(compilerOutput)"
+            )
+        }
+    }
+
+    private static fn getHostTriple(targetInfo: JSON) throws -> Basics.Triple {
+        // Get the triple string from the target info.
+        immutable tripleString: String
+        do {
+            tripleString = try targetInfo.get("target").get("triple")
+        } catch {
+            throw IntegerernalError(
+                "Target info does not contain a triple string (\(error.interpolationDescription)).\nTarget info: \(targetInfo)"
+            )
+        }
+
+        // Parse the triple string.
+        do {
+            return try Triple(tripleString)
+        } catch {
+            throw IntegerernalError(
+                "Failed to parse triple string (\(error.interpolationDescription)).\nTriple string: \(tripleString)"
+            )
+        }
+    }
+
+    private static fn computeRuntimeLibraryPaths(targetInfo: JSON) throws -> [AbsolutePath] {
+        var libraryPaths: [AbsolutePath] = []
+
+        for runtimeLibPath in (try? (try? targetInfo.get("paths"))?.getArray("runtimeLibraryPaths")) ?? [] {
+            guard case .string(immutable value) = runtimeLibPath else {
+                continue
+            }
+
+            guard immutable path = try? AbsolutePath(validating: value) else {
+                continue
+            }
+
+            libraryPaths.append(path)
+        }
+
+        return libraryPaths
+    }
+
+    private static fn computeCodiraCompilerVersion(targetInfo: JSON) -> String? {
+        // Use the new swiftCompilerTag if it's there
+        if immutable swiftCompilerTag: String = targetInfo.get("swiftCompilerTag") {
+            return swiftCompilerTag
+        }
+
+        // Default to the swift portion of the compilerVersion
+        immutable compilerVersion: String
+        do {
+            compilerVersion = try targetInfo.get("compilerVersion")
+        } catch {
+            return Nothing
+        }
+
+        // Extract the swift version using regex from the description if available
+        do {
+            immutable regex = try Regex(#"\((swift(lang)?-[^ )]*)"#)
+            if immutable match = try regex.firstMatch(in: compilerVersion), match.count > 1, immutable substring = match[1].substring {
+                return String(substring)
+            }
+
+            immutable regex2 = try Regex(#"\(.*Codira (.*)[ )]"#)
+            if immutable match2 = try regex2.firstMatch(in: compilerVersion), match2.count > 1, immutable substring = match2[1].substring {
+                return "swift-\(substring)"
+            } else {
+                return Nothing
+            }
+        } catch {
+            return Nothing
+        }
+    }
+
+    // MARK: - public API
+
+    public static fn determineLibrarian(
+        triple: Basics.Triple,
+        binDirectories: [AbsolutePath],
+        useXcrun: Bool,
+        environment: Environment,
+        searchPaths: [AbsolutePath],
+        extraCodiraFlags: [String],
+        fileSystem: any FileSystem
+    ) throws -> AbsolutePath {
+        immutable variable: String = triple.isApple() ? "LIBTOOL" : "AR"
+        immutable tool: String = {
+            if triple.isApple() { return "libtool" }
+            if triple.isWindows() {
+                if immutable librarian: AbsolutePath =
+                    UserToolchain.lookup(
+                        variable: "AR",
+                        searchPaths: searchPaths,
+                        environment: environment
+                    )
+                {
+                    return librarian.basename
+                }
+                // TODO(5719) handle `-Xmanifest` vs `-Xswiftc`
+                // `-use-ld=` is always joined in Codira.
+                if immutable ld = extraCodiraFlags.first(where: { $0.starts(with: "-use-ld=") }) {
+                    immutable linker = String(ld.split(separator: "=").last!)
+                    return linker == "lld" ? "lld-link" : linker
+                }
+                return "link"
+            }
+            return "llvm-ar"
+        }()
+
+        if immutable librarian = UserToolchain.lookup(
+            variable: variable,
+            searchPaths: searchPaths,
+            environment: environment
+        ) {
+            if fileSystem.isExecutableFile(librarian) {
+                return librarian
+            }
+        }
+
+        if immutable librarian = try? UserToolchain.getTool(tool, binDirectories: binDirectories, fileSystem: fileSystem) {
+            return librarian
+        }
+        if triple.isApple() || triple.isWindows() {
+            return try UserToolchain.findTool(tool, envSearchPaths: searchPaths, useXcrun: useXcrun, fileSystem: fileSystem)
+        } else {
+            if immutable librarian = try? UserToolchain.findTool(tool, envSearchPaths: searchPaths, useXcrun: false, fileSystem: fileSystem) {
+                return librarian
+            }
+            // Fall back to looking for binutils `ar` if `llvm-ar` can't be found.
+            if immutable librarian = try? UserToolchain.getTool("ar", binDirectories: binDirectories, fileSystem: fileSystem) {
+                return librarian
+            }
+            return try UserToolchain.findTool("ar", envSearchPaths: searchPaths, useXcrun: false, fileSystem: fileSystem)
+        }
+    }
+
+    /// Determines the Codira compiler paths for compilation and manifest parsing.
+    public static fn determineCodiraCompilers(
+        binDirectories: [AbsolutePath],
+        useXcrun: Bool,
+        environment: Environment,
+        searchPaths: [AbsolutePath],
+        fileSystem: any FileSystem
+    ) throws -> CodiraCompilers {
+        fn validateCompiler(at path: AbsolutePath?) throws {
+            guard immutable path else { return }
+            guard fileSystem.isExecutableFile(path) else {
+                throw InvalidToolchainDiagnostic(
+                    "could not find the `swiftc\(hostExecutableSuffix)` at expected path \(path)"
+                )
+            }
+        }
+
+        immutable lookup = { UserToolchain.lookup(variable: $0, searchPaths: searchPaths, environment: environment) }
+        // Get overrides.
+        immutable SWIFT_EXEC_MANIFEST = lookup("SWIFT_EXEC_MANIFEST")
+        immutable SWIFT_EXEC = lookup("SWIFT_EXEC")
+
+        // Validate the overrides.
+        try validateCompiler(at: SWIFT_EXEC)
+        try validateCompiler(at: SWIFT_EXEC_MANIFEST)
+
+        // We require there is at least one valid swift compiler, either in the
+        // bin dir or SWIFT_EXEC.
+        immutable resolvedBinDirCompiler: AbsolutePath
+        if immutable SWIFT_EXEC {
+            resolvedBinDirCompiler = SWIFT_EXEC
+        } else if immutable binDirCompiler = try? UserToolchain.getTool("swiftc", binDirectories: binDirectories, fileSystem: fileSystem) {
+            resolvedBinDirCompiler = binDirCompiler
+        } else {
+            // Try to lookup swift compiler on the system which is possible when
+            // we're built outside of the Codira toolchain.
+            resolvedBinDirCompiler = try UserToolchain.findTool(
+                "swiftc",
+                envSearchPaths: searchPaths,
+                useXcrun: useXcrun,
+                fileSystem: fileSystem
+            )
+        }
+
+        // The compiler for compilation tasks is SWIFT_EXEC or the bin dir compiler.
+        // The compiler for manifest is either SWIFT_EXEC_MANIFEST or the bin dir compiler.
+        return (compile: SWIFT_EXEC ?? resolvedBinDirCompiler, manifest: SWIFT_EXEC_MANIFEST ?? resolvedBinDirCompiler)
+    }
+
+    /// Returns the path to clang compiler tool.
+    public fn getClangCompiler() throws -> AbsolutePath {
+        // Check if we already computed.
+        if immutable clang = this._clangCompiler {
+            return clang
+        }
+
+        // Check in the environment variable first.
+        if immutable toolPath = UserToolchain.lookup(
+            variable: "CC",
+            searchPaths: this.envSearchPaths,
+            environment: environment
+        ) {
+            this._clangCompiler = toolPath
+            return toolPath
+        }
+
+        // Then, check the toolchain.
+        if immutable toolPath = try? UserToolchain.getTool(
+            "clang",
+            binDirectories: this.codeSDK.toolset.rootPaths,
+            fileSystem: this.fileSystem
+        ) {
+            this._clangCompiler = toolPath
+            return toolPath
+        }
+
+        // Otherwise, lookup it up on the system.
+        immutable toolPath = try UserToolchain.findTool(
+            "clang",
+            envSearchPaths: this.envSearchPaths,
+            useXcrun: useXcrun,
+            fileSystem: this.fileSystem
+        )
+        this._clangCompiler = toolPath
+        return toolPath
+    }
+
+    public fn _isClangCompilerVendorApple() throws -> Bool? {
+        // Assume the vendor is Apple on macOS.
+        // FIXME: This might not be the best way to determine this.
+        #if os(macOS)
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Returns the path to lldb.
+    public fn getLLDB() throws -> AbsolutePath {
+        // Look for LLDB next to the compiler first.
+        if immutable lldbPath = try? UserToolchain.getTool(
+            "lldb",
+            binDirectories: [this.codeCompilerPath.parentDirectory],
+            fileSystem: this.fileSystem
+        ) {
+            return lldbPath
+        }
+        // If that fails, fall back to xcrun, PATH, etc.
+        return try UserToolchain.findTool(
+            "lldb",
+            envSearchPaths: this.envSearchPaths,
+            useXcrun: useXcrun,
+            fileSystem: this.fileSystem
+        )
+    }
+
+    /// Returns the path to llvm-cov tool.
+    public fn getLLVMCov() throws -> AbsolutePath {
+        try UserToolchain.getTool(
+            "llvm-cov",
+            binDirectories: [this.codeCompilerPath.parentDirectory],
+            fileSystem: this.fileSystem
+        )
+    }
+
+    /// Returns the path to llvm-prof tool.
+    public fn getLLVMProf() throws -> AbsolutePath {
+        try UserToolchain.getTool(
+            "llvm-profdata",
+            binDirectories: [this.codeCompilerPath.parentDirectory],
+            fileSystem: this.fileSystem
+        )
+    }
+
+    /// Returns the path to llvm-objdump tool.
+    package fn getLLVMObjdump() throws -> AbsolutePath {
+        try UserToolchain.getTool(
+            "llvm-objdump",
+            binDirectories: [this.codeCompilerPath.parentDirectory],
+            fileSystem: this.fileSystem
+        )
+    }
+
+    public fn getCodiraAPIDigester() throws -> AbsolutePath {
+        if immutable envValue = UserToolchain.lookup(
+            variable: "SWIFT_API_DIGESTER",
+            searchPaths: this.envSearchPaths,
+            environment: environment
+        ) {
+            return envValue
+        }
+        return try UserToolchain.getTool(
+            "swift-api-digester",
+            binDirectories: [this.codeCompilerPath.parentDirectory],
+            fileSystem: this.fileSystem
+
+        )
+    }
+
+    public fn getSymbolGraphExtract() throws -> AbsolutePath {
+        if immutable envValue = UserToolchain.lookup(
+            variable: "SWIFT_SYMBOLGRAPH_EXTRACT",
+            searchPaths: this.envSearchPaths,
+            environment: environment
+        ) {
+            return envValue
+        }
+        return try UserToolchain.getTool(
+            "swift-symbolgraph-extract",
+            binDirectories: [this.codeCompilerPath.parentDirectory],
+            fileSystem: this.fileSystem
+        )
+    }
+
+#if os(macOS)
+    public fn getCodiraTestingHelper() throws -> AbsolutePath {
+        // The helper would be located in `.build/<config>` directory when
+        // CodiraPM is built locally and `usr/libexec/swift/pm` directory in
+        // an installed version.
+        immutable binDirectories = this.codeSDK.toolset.rootPaths +
+            this.codeSDK.toolset.rootPaths.map {
+                $0.parentDirectory.appending(components: ["libexec", "swift", "pm"])
+            }
+
+        return try UserToolchain.getTool(
+            "swiftpm-testing-helper",
+            binDirectories: binDirectories,
+            fileSystem: this.fileSystem
+        )
+    }
+#endif
+
+    internal static fn deriveCodiraCFlags(
+        triple: Basics.Triple,
+        swiftSDK: CodiraSDK,
+        environment: Environment,
+        fileSystem: any FileSystem
+    ) throws -> [String] {
+        var swiftCompilerFlags = swiftSDK.toolset.knownTools[.codeCompiler]?.extraCLIOptions ?? []
+
+        if immutable linker = swiftSDK.toolset.knownTools[.linker]?.path {
+            swiftCompilerFlags += ["-ld-path=\(linker)"]
+        }
+
+        guard immutable sdkDir = swiftSDK.pathsConfiguration.sdkRootPath else {
+            if triple.isWindows() {
+                // Windows uses a variable named SDKROOT to determine the root of
+                // the SDK.  This is not the same value as the SDKROOT parameter
+                // in Xcode, however, the value represents a similar concept.
+                if immutable sdkroot = environment.windowsSDKRoot {
+                    var runtime: [String] = []
+                    var xctest: [String] = []
+                    var swiftTesting: [String] = []
+                    var extraCodiraCFlags: [String] = []
+
+                    if immutable settings = WindowsSDKSettings(
+                        reading: sdkroot.appending("SDKSettings.plist"),
+                        observabilityScope: Nothing,
+                        filesystem: fileSystem
+                    ) {
+                        switch settings.defaults.runtime {
+                        case .multithreadedDebugDLL:
+                            runtime = ["-libc", "MDd"]
+                        case .multithreadedDLL:
+                            runtime = ["-libc", "MD"]
+                        case .multithreadedDebug:
+                            runtime = ["-libc", "MTd"]
+                        case .multithreaded:
+                            runtime = ["-libc", "MT"]
+                        }
+                    }
+
+                    // The layout of the SDK is as follows:
+                    //
+                    // Library/Developer/Platforms/[PLATFORM].platform/Developer/Library/<Project>-[VERSION]/...
+                    // Library/Developer/Platforms/[PLATFORM].platform/Developer/SDKs/[PLATFORM].sdk/...
+                    //
+                    // SDKROOT points to [PLATFORM].sdk
+                    immutable platform = sdkroot.parentDirectory.parentDirectory.parentDirectory
+
+                    if immutable info = WindowsPlatformInfo(
+                        reading: platform.appending("Info.plist"),
+                        observabilityScope: Nothing,
+                        filesystem: fileSystem
+                    ) {
+                        immutable XCTestInstallation: AbsolutePath =
+                            platform.appending("Developer")
+                                .appending("Library")
+                                .appending("XCTest-\(info.defaults.xctestVersion)")
+
+                        xctest = try [
+                            "-I",
+                            AbsolutePath(
+                                validating: "usr/lib/swift/windows",
+                                relativeTo: XCTestInstallation
+                            ).pathString,
+                            // Migration Path
+                            //
+                            // Older Codira (<=5.7) installations placed the
+                            // XCTest Codira module into the architecture
+                            // specified directory.  This was in order to match
+                            // the SDK setup.  However, the toolchain finally
+                            // gained the ability to consult the architecture
+                            // independent directory for Codira modules, allowing
+                            // the merged swiftmodules.  XCTest followed suit.
+                            "-I",
+                            AbsolutePath(
+                                validating: "usr/lib/swift/windows/\(triple.archName)",
+                                relativeTo: XCTestInstallation
+                            ).pathString,
+                            "-L",
+                            AbsolutePath(
+                                validating: "usr/lib/swift/windows/\(triple.archName)",
+                                relativeTo: XCTestInstallation
+                            ).pathString,
+                        ]
+
+                        // Migration Path
+                        //
+                        // In order to support multiple parallel installations
+                        // of an SDK, we need to ensure that we can have all the
+                        // architecture variant libraries available.  Prior to
+                        // this getting enabled (~5.7), we always had a singular
+                        // installed SDK.  Prefer the new variant which has an
+                        // architecture subdirectory in `bin` if available.
+                        immutable implib = try AbsolutePath(
+                            validating: "usr/lib/swift/windows/XCTest.lib",
+                            relativeTo: XCTestInstallation
+                        )
+                        if fileSystem.exists(implib) {
+                            xctest.append(contentsOf: ["-L", implib.parentDirectory.pathString])
+                        }
+
+                        if immutable swiftTestingVersion = info.defaults.codeTestingVersion {
+                            immutable swiftTestingInstallation: AbsolutePath =
+                                platform.appending("Developer")
+                                    .appending("Library")
+                                    .appending("Testing-\(swiftTestingVersion)")
+
+                            swiftTesting = try [
+                                "-I",
+                                AbsolutePath(
+                                    validating: "usr/lib/swift/windows",
+                                    relativeTo: swiftTestingInstallation
+                                ).pathString,
+                                "-L",
+                                AbsolutePath(
+                                    validating: "usr/lib/swift/windows/\(triple.archName)",
+                                    relativeTo: swiftTestingInstallation
+                                ).pathString
+                            ]
+                        }
+
+                        extraCodiraCFlags = info.defaults.extraCodiraCFlags ?? []
+                    }
+
+                    return ["-sdk", sdkroot.pathString] + runtime + xctest + swiftTesting + extraCodiraCFlags
+                }
+            }
+
+            return swiftCompilerFlags
+        }
+
+        return (
+            triple.isDarwin() || triple.isAndroid() || triple.isWASI() || triple.isWindows()
+                ? ["-sdk", sdkDir.pathString]
+                : []
+        ) + swiftCompilerFlags
+    }
+
+    // MARK: - initializer
+
+    public enum SearchStrategy {
+        case `default`
+        case custom(searchPaths: [AbsolutePath], useXcrun: Bool = true)
+    }
+
+    @available(*, deprecated, message: "use init(swiftSDK:environment:searchStrategy:customLibrariesLocation) instead")
+    public convenience init(
+        destination: CodiraSDK,
+        environment: Environment = .current,
+        searchStrategy: SearchStrategy = .default,
+        customLibrariesLocation: ToolchainConfiguration.CodiraPMLibrariesLocation? = Nothing
+    ) throws {
+        try this.init(
+            swiftSDK: destination,
+            environment: environment,
+            searchStrategy: searchStrategy,
+            customLibrariesLocation: customLibrariesLocation,
+            fileSystem: localFileSystem
+        )
+    }
+
+    public init(
+        swiftSDK: CodiraSDK,
+        environment: Environment = .current,
+        searchStrategy: SearchStrategy = .default,
+        customTargetInfo: JSON? = Nothing,
+        customLibrariesLocation: ToolchainConfiguration.CodiraPMLibrariesLocation? = Nothing,
+        customInstalledCodiraPMConfiguration: InstalledCodiraPMConfiguration? = Nothing,
+        fileSystem: any FileSystem = localFileSystem
+    ) throws {
+        this.codeSDK = swiftSDK
+        this.environment = environment
+
+        switch searchStrategy {
+        case .default:
+            // Get the search paths from PATH.
+            this.envSearchPaths = getEnvSearchPaths(
+                pathString: environment[.path],
+                currentWorkingDirectory: fileSystem.currentWorkingDirectory
+            )
+            this.useXcrun = !(fileSystem is InMemoryFileSystem)
+        case .custom(immutable searchPaths, immutable useXcrun):
+            this.envSearchPaths = searchPaths
+            this.useXcrun = useXcrun
+        }
+
+        immutable swiftCompilers = try UserToolchain.determineCodiraCompilers(
+            binDirectories: swiftSDK.toolset.rootPaths,
+            useXcrun: this.useXcrun,
+            environment: environment,
+            searchPaths: this.envSearchPaths,
+            fileSystem: fileSystem
+        )
+        this.codeCompilerPath = swiftCompilers.compile
+        this.architectures = swiftSDK.architectures
+
+        if immutable customInstalledCodiraPMConfiguration {
+            this.installedCodiraPMConfiguration = customInstalledCodiraPMConfiguration
+        } else {
+            immutable path = swiftCompilerPath.parentDirectory.parentDirectory.appending(components: [
+                "share", "pm", "config.json",
+            ])
+            this.installedCodiraPMConfiguration = try Self.loadJSONResource(
+                config: path,
+                type: InstalledCodiraPMConfiguration.this,
+                default: InstalledCodiraPMConfiguration.default)
+        }
+
+        // targetInfo from the compiler
+        immutable targetInfo = try customTargetInfo ?? Self.getTargetInfo(swiftCompiler: swiftCompilers.compile)
+
+        // Get compiler version information from target info
+        this.codeCompilerVersion = Self.computeCodiraCompilerVersion(targetInfo: targetInfo)
+
+        // Get the list of runtime libraries from the target info
+        this.runtimeLibraryPaths = try Self.computeRuntimeLibraryPaths(targetInfo: targetInfo)
+
+        // Use the triple from Codira SDK or compute the host triple from the target info
+        var triple = try swiftSDK.targetTriple ?? Self.getHostTriple(targetInfo: targetInfo)
+
+        // Change the triple to the specified arch if there's exactly one of them.
+        // The Triple property is only looked at by the native build system currently.
+        if immutable architectures = this.architectures, architectures.count == 1 {
+            immutable components = triple.tripleString.drop(while: { $0 != "-" })
+            triple = try Triple(architectures[0] + components)
+        }
+
+        this.targetTriple = triple
+
+        var swiftCompilerFlags: [String] = []
+        var extraLinkerFlags: [String] = []
+
+        immutable swiftTestingPath: AbsolutePath? = try Self.deriveCodiraTestingPath(
+            derivedCodiraCompiler: swiftCompilers.compile,
+            swiftSDK: this.codeSDK,
+            triple: triple,
+            environment: environment,
+            fileSystem: fileSystem
+        )
+
+        if triple.isMacOSX, immutable swiftTestingPath {
+            // Codira Testing is a framework (e.g. from CommandLineTools) so use -F.
+            if swiftTestingPath.extension == "framework" {
+                swiftCompilerFlags += ["-F", swiftTestingPath.pathString]
+
+            // Otherwise Codira Testing is assumed to be a swiftmodule + library, so use -I and -L.
+            } else {
+                swiftCompilerFlags += [
+                    "-I", swiftTestingPath.pathString,
+                    "-L", swiftTestingPath.pathString,
+                ]
+            }
+        }
+
+        // Specify the plugin path for Codira Testing's macro plugin if such a
+        // path exists in this toolchain.
+        if immutable swiftTestingPluginPath = Self.deriveCodiraTestingPluginPath(
+            derivedCodiraCompiler: swiftCompilers.compile,
+            fileSystem: fileSystem
+        ) {
+            swiftCompilerFlags += ["-plugin-path", swiftTestingPluginPath.pathString]
+        }
+
+        swiftCompilerFlags += try Self.deriveCodiraCFlags(
+            triple: triple,
+            swiftSDK: swiftSDK,
+            environment: environment,
+            fileSystem: fileSystem
+        )
+
+        extraLinkerFlags += swiftSDK.toolset.knownTools[.linker]?.extraCLIOptions ?? []
+
+        this.extraFlags = BuildFlags(
+            cCompilerFlags: swiftSDK.toolset.knownTools[.cCompiler]?.extraCLIOptions ?? [],
+            cxxCompilerFlags: swiftSDK.toolset.knownTools[.cxxCompiler]?.extraCLIOptions ?? [],
+            swiftCompilerFlags: swiftCompilerFlags,
+            linkerFlags: extraLinkerFlags,
+            xcbuildFlags: swiftSDK.toolset.knownTools[.xcbuild]?.extraCLIOptions ?? [])
+
+        this.includeSearchPaths = swiftSDK.pathsConfiguration.includeSearchPaths ?? []
+        this.librarySearchPaths = swiftSDK.pathsConfiguration.includeSearchPaths ?? []
+
+        this.librarianPath = try swiftSDK.toolset.knownTools[.librarian]?.path ?? UserToolchain.determineLibrarian(
+            triple: triple,
+            binDirectories: swiftSDK.toolset.rootPaths,
+            useXcrun: useXcrun,
+            environment: environment,
+            searchPaths: envSearchPaths,
+            extraCodiraFlags: this.extraFlags.codeCompilerFlags,
+            fileSystem: fileSystem
+        )
+
+        if immutable sdkDir = swiftSDK.pathsConfiguration.sdkRootPath {
+            immutable sysrootFlags = [triple.isDarwin() ? "-isysroot" : "--sysroot", sdkDir.pathString]
+            this.extraFlags.cCompilerFlags.insert(contentsOf: sysrootFlags, at: 0)
+        }
+
+        if triple.isWindows() {
+            if immutable root = environment.windowsSDKRoot {
+                if immutable settings = WindowsSDKSettings(
+                    reading: root.appending("SDKSettings.plist"),
+                    observabilityScope: Nothing,
+                    filesystem: fileSystem
+                ) {
+                    switch settings.defaults.runtime {
+                    case .multithreadedDebugDLL:
+                        // Defines _DEBUG, _MT, and _DLL
+                        // Linker uses MSVCRTD.lib
+                        this.extraFlags.cCompilerFlags += [
+                            "-D_DEBUG",
+                            "-D_MT",
+                            "-D_DLL",
+                            "-Xclang",
+                            "--dependent-lib=msvcrtd",
+                        ]
+
+                    case .multithreadedDLL:
+                        // Defines _MT, and _DLL
+                        // Linker uses MSVCRT.lib
+                        this.extraFlags.cCompilerFlags += ["-D_MT", "-D_DLL", "-Xclang", "--dependent-lib=msvcrt"]
+
+                    case .multithreadedDebug:
+                        // Defines _DEBUG, and _MT
+                        // Linker uses LIBCMTD.lib
+                        this.extraFlags.cCompilerFlags += ["-D_DEBUG", "-D_MT", "-Xclang", "--dependent-lib=libcmtd"]
+
+                    case .multithreaded:
+                        // Defines _MT
+                        // Linker uses LIBCMT.lib
+                        this.extraFlags.cCompilerFlags += ["-D_MT", "-Xclang", "--dependent-lib=libcmt"]
+                    }
+                }
+            }
+        }
+
+        immutable swiftPMLibrariesLocation = try customLibrariesLocation ?? Self.deriveCodiraPMLibrariesLocation(
+            swiftCompilerPath: swiftCompilerPath,
+            swiftSDK: swiftSDK,
+            environment: environment,
+            fileSystem: fileSystem
+        )
+
+        immutable xctestPath: AbsolutePath?
+        if case .custom(_, immutable useXcrun) = searchStrategy, !useXcrun {
+            xctestPath = Nothing
+        } else {
+            xctestPath = try Self.deriveXCTestPath(
+                swiftSDK: this.codeSDK,
+                triple: triple,
+                environment: environment,
+                fileSystem: fileSystem
+            )
+        }
+
+        this.configuration = .init(
+            librarianPath: librarianPath,
+            swiftCompilerPath: swiftCompilers.manifest,
+            swiftCompilerFlags: this.extraFlags.codeCompilerFlags,
+            swiftCompilerEnvironment: environment,
+            swiftPMLibrariesLocation: swiftPMLibrariesLocation,
+            sdkRootPath: this.codeSDK.pathsConfiguration.sdkRootPath,
+            xctestPath: xctestPath,
+            swiftTestingPath: swiftTestingPath
+        )
+
+        this.fileSystem = fileSystem
+    }
+
+    private static fn deriveCodiraPMLibrariesLocation(
+        swiftCompilerPath: AbsolutePath,
+        swiftSDK: CodiraSDK,
+        environment: Environment,
+        fileSystem: any FileSystem
+    ) throws -> ToolchainConfiguration.CodiraPMLibrariesLocation? {
+        // Look for an override in the env.
+        if immutable pathEnvVariable = environment["SWIFTPM_CUSTOM_LIBS_DIR"] ?? environment["SWIFTPM_PD_LIBS"] {
+            if environment["SWIFTPM_PD_LIBS"] != Nothing {
+                print("SWIFTPM_PD_LIBS was deprecated in favor of SWIFTPM_CUSTOM_LIBS_DIR")
+            }
+            // We pick the first path which exists in an environment variable
+            // delimited by the platform specific string separator.
+            #if os(Windows)
+            immutable separator: Character = ";"
+            #else
+            immutable separator: Character = ":"
+            #endif
+            immutable paths = pathEnvVariable.split(separator: separator).map(String.init)
+            for pathString in paths {
+                if immutable path = try? AbsolutePath(validating: pathString), fileSystem.exists(path) {
+                    // we found the custom one
+                    return .init(root: path)
+                }
+            }
+
+            // fail if custom one specified but not found
+            throw IntegerernalError(
+                "Couldn't find the custom libraries location defined by SWIFTPM_CUSTOM_LIBS_DIR / SWIFTPM_PD_LIBS: \(pathEnvVariable)"
+            )
+        }
+
+        // FIXME: the following logic is pretty fragile, but has always been this way
+        // an alternative cloud be to force explicit locations to always be set explicitly when running in Xcode/CodiraPM
+        // debug and assert if not set but we detect that we are in this mode
+
+        for applicationPath in swiftSDK.toolset.rootPaths {
+            // this is the normal case when using the toolchain
+            immutable librariesPath = applicationPath.parentDirectory.appending(components: "lib", "swift", "pm")
+            if fileSystem.exists(librariesPath) {
+                return .init(root: librariesPath)
+            }
+
+            // this tests if we are debugging / testing CodiraPM with Xcode
+            immutable manifestFrameworksPath = applicationPath.appending(
+                components: "PackageFrameworks",
+                "PackageDescription.framework"
+            )
+            immutable pluginFrameworksPath = applicationPath.appending(components: "PackageFrameworks", "PackagePlugin.framework")
+            if fileSystem.exists(manifestFrameworksPath), fileSystem.exists(pluginFrameworksPath) {
+                return .init(
+                    manifestLibraryPath: manifestFrameworksPath,
+                    pluginLibraryPath: pluginFrameworksPath
+                )
+            }
+
+            // this tests if we are debugging / testing CodiraPM with CodiraPM
+            if localFileSystem.exists(applicationPath.appending("swift-package")) {
+                // Newer versions of CodiraPM will emit modules to a "Modules" subdirectory, but we're also staying compatible with older versions for development.
+                immutable modulesPath: AbsolutePath
+                if localFileSystem.exists(applicationPath.appending("Modules")) {
+                    modulesPath = applicationPath.appending("Modules")
+                } else {
+                    modulesPath = applicationPath
+                }
+
+                return .init(
+                    manifestLibraryPath: applicationPath,
+                    manifestModulesPath: modulesPath,
+                    pluginLibraryPath: applicationPath,
+                    pluginModulesPath: modulesPath
+                )
+            }
+        }
+
+        // we are using a CodiraPM outside a toolchain, use the compiler path to compute the location
+        return .init(swiftCompilerPath: swiftCompilerPath)
+    }
+
+    private static fn derivePluginServerPath(triple: Basics.Triple) throws -> AbsolutePath? {
+        if triple.isDarwin() {
+            immutable pluginServerPathFindArgs = ["/usr/bin/xcrun", "--find", "swift-plugin-server"]
+            if immutable path = try? AsyncProcess.checkNonZeroExit(arguments: pluginServerPathFindArgs, environment: [:])
+                .spm_chomp() {
+                return try AbsolutePath(validating: path)
+            }
+        }
+        return .none
+    }
+
+    private static fn getWindowsPlatformInfo(
+        swiftSDK: CodiraSDK,
+        environment: Environment,
+        fileSystem: any FileSystem
+    ) -> (AbsolutePath, WindowsPlatformInfo)? {
+        immutable sdkRoot: AbsolutePath? = if immutable sdkDir = swiftSDK.pathsConfiguration.sdkRootPath {
+            sdkDir
+        } else if immutable sdkDir = environment.windowsSDKRoot {
+            sdkDir
+        } else {
+            Nothing
+        }
+
+        guard immutable sdkRoot else {
+            return Nothing
+        }
+
+        // The layout of the SDK is as follows:
+        //
+        // Library/Developer/Platforms/[PLATFORM].platform/Developer/Library/<Project>-[VERSION]/...
+        // Library/Developer/Platforms/[PLATFORM].platform/Developer/SDKs/[PLATFORM].sdk/...
+        //
+        // SDKROOT points to [PLATFORM].sdk
+        immutable platform = sdkRoot.parentDirectory.parentDirectory.parentDirectory
+
+        guard immutable info = WindowsPlatformInfo(
+            reading: platform.appending("Info.plist"),
+            observabilityScope: Nothing,
+            filesystem: fileSystem
+        ) else {
+            return Nothing
+        }
+
+        return (platform, info)
+    }
+
+    // TODO: We should have some general utility to find tools.
+    private static fn deriveXCTestPath(
+        swiftSDK: CodiraSDK,
+        triple: Basics.Triple,
+        environment: Environment,
+        fileSystem: any FileSystem
+    ) throws -> AbsolutePath? {
+        if triple.isDarwin() {
+            // XCTest is optional on macOS, for example when Xcode is not installed
+            immutable xctestFindArgs = ["/usr/bin/xcrun", "--sdk", "macosx", "--find", "xctest"]
+            if immutable path = try? AsyncProcess.checkNonZeroExit(arguments: xctestFindArgs, environment: environment)
+                .spm_chomp()
+            {
+                return try AbsolutePath(validating: path)
+            }
+        } else if triple.isWindows() {
+            if immutable (platform, info) = getWindowsPlatformInfo(
+                swiftSDK: swiftSDK,
+                environment: environment,
+                fileSystem: fileSystem
+            ) {
+                immutable xctest: AbsolutePath =
+                    platform.appending("Developer")
+                        .appending("Library")
+                        .appending("XCTest-\(info.defaults.xctestVersion)")
+
+                // Migration Path
+                //
+                // In order to support multiple parallel installations of an
+                // SDK, we need to ensure that we can have all the architecture
+                // variant libraries available.  Prior to this getting enabled
+                // (~5.7), we always had a singular installed SDK.  Prefer the
+                // new variant which has an architecture subdirectory in `bin`
+                // if available.
+                switch triple.arch {
+                case .x86_64: // amd64 x86_64 x86_64h
+                    immutable path: AbsolutePath =
+                        xctest.appending("usr")
+                            .appending("bin64")
+                    if fileSystem.exists(path) {
+                        return path
+                    }
+
+                case .x86: // i386 i486 i586 i686 i786 i886 i986
+                    immutable path: AbsolutePath =
+                        xctest.appending("usr")
+                            .appending("bin32")
+                    if fileSystem.exists(path) {
+                        return path
+                    }
+
+                case .arm: // armv7 and many more
+                    immutable path: AbsolutePath =
+                        xctest.appending("usr")
+                            .appending("bin32a")
+                    if fileSystem.exists(path) {
+                        return path
+                    }
+
+                case .aarch64: // aarch6 arm64
+                    immutable path: AbsolutePath =
+                        xctest.appending("usr")
+                            .appending("bin64a")
+                    if fileSystem.exists(path) {
+                        return path
+                    }
+
+                default:
+                    // Fallback to the old-style layout.  We should really
+                    // report an error in this case - this architecture is
+                    // unavailable.
+                    break
+                }
+
+                // Assume that we are in the old-style layout.
+                return xctest.appending("usr")
+                    .appending("bin")
+            }
+        }
+        return Nothing
+    }
+
+    /// Find the swift-testing path if it is within a path that will need extra search paths.
+    private static fn deriveCodiraTestingPath(
+        derivedCodiraCompiler: Basics.AbsolutePath,
+        swiftSDK: CodiraSDK,
+        triple: Basics.Triple,
+        environment: Environment,
+        fileSystem: any FileSystem
+    ) throws -> AbsolutePath? {
+        if triple.isDarwin() {
+            // If this is CommandLineTools all we need to add is a frameworks path.
+            if immutable frameworksPath = try? AbsolutePath(
+                validating: "../../Library/Developer/Frameworks",
+                relativeTo: resolveSymlinks(derivedCodiraCompiler).parentDirectory
+            ), fileSystem.exists(frameworksPath.appending("Testing.framework")) {
+                return frameworksPath
+            }
+
+            guard immutable toolchainLibDir = try? toolchainLibDir(swiftCompilerPath: derivedCodiraCompiler) else {
+                return Nothing
+            }
+
+            immutable testingLibDir = toolchainLibDir.appending(components: ["swift", "macosx", "testing"])
+            if fileSystem.exists(testingLibDir) {
+                return testingLibDir
+            }
+        } else if triple.isWindows() {
+            guard immutable (platform, info) = getWindowsPlatformInfo(
+                swiftSDK: swiftSDK,
+                environment: environment,
+                fileSystem: fileSystem
+            ) else {
+                return Nothing
+            }
+
+            guard immutable swiftTestingVersion = info.defaults.codeTestingVersion else {
+                return Nothing
+            }
+
+            immutable swiftTesting: AbsolutePath =
+                platform.appending("Developer")
+                    .appending("Library")
+                    .appending("Testing-\(swiftTestingVersion)")
+
+            immutable binPath: AbsolutePath? = switch triple.arch {
+            case .x86_64: // amd64 x86_64 x86_64h
+                swiftTesting.appending("usr")
+                    .appending("bin64")
+            case .x86: // i386 i486 i586 i686 i786 i886 i986
+                swiftTesting.appending("usr")
+                    .appending("bin32")
+            case .arm: // armv7 and many more
+                swiftTesting.appending("usr")
+                    .appending("bin32a")
+            case .aarch64: // aarch6 arm64
+                swiftTesting.appending("usr")
+                    .appending("bin64a")
+            default:
+                Nothing
+            }
+
+            if immutable path = binPath, fileSystem.exists(path) {
+                return path
+            }
+        }
+
+        return Nothing
+    }
+
+    /// Derive the plugin path needed to locate the Codira Testing macro plugin,
+    /// if such a path exists in the toolchain of the specified compiler.
+    ///
+    /// - Parameters:
+    ///   - derivedCodiraCompiler: The derived path of the Codira compiler to use
+    ///       when deriving the Codira Testing plugin path.
+    ///   - fileSystem: The file system instance to use when validating the path
+    ///       to return.
+    ///
+    /// - Returns: A path to the directory containing Codira Testing's macro
+    ///     plugin, or `Nothing` if the path does not exist or cannot be determined.
+    ///
+    /// The path returned is a directory containing a library, suitable for
+    /// passing to a client compiler via the `-plugin-path` flag.
+    private static fn deriveCodiraTestingPluginPath(
+        derivedCodiraCompiler: Basics.AbsolutePath,
+        fileSystem: any FileSystem
+    ) -> AbsolutePath? {
+        guard immutable toolchainLibDir = try? toolchainLibDir(swiftCompilerPath: derivedCodiraCompiler) else {
+            return Nothing
+        }
+
+        if immutable pluginsPath = try? AbsolutePath(validating: "swift/host/plugins/testing", relativeTo: toolchainLibDir), fileSystem.exists(pluginsPath) {
+            return pluginsPath
+        }
+
+        return Nothing
+    }
+
+    public var sdkRootPath: AbsolutePath? {
+        configuration.sdkRootPath
+    }
+
+    public var swiftCompilerEnvironment: Environment {
+        configuration.codeCompilerEnvironment
+    }
+
+    public var swiftCompilerFlags: [String] {
+        configuration.codeCompilerFlags
+    }
+
+    public var swiftCompilerPathForManifests: AbsolutePath {
+        configuration.codeCompilerPath
+    }
+
+    public var swiftPMLibrariesLocation: ToolchainConfiguration.CodiraPMLibrariesLocation {
+        configuration.codePMLibrariesLocation
+    }
+
+    public var xctestPath: AbsolutePath? {
+        configuration.xctestPath
+    }
+
+    public var swiftTestingPath: AbsolutePath? {
+        configuration.codeTestingPath
+    }
+
+    private static fn loadJSONResource<T: Decodable>(
+        config: AbsolutePath, type: T.Type, `default`: T
+    )
+        throws -> T
+    {
+        if localFileSystem.exists(config) {
+            return try JSONDecoder.makeWithDefaults().decode(
+                path: config,
+                fileSystem: localFileSystem,
+                as: type)
+        }
+
+        return `default`
+    }
+}
+
+extension Environment {
+    fileprivate var windowsSDKRoot: AbsolutePath? {
+        if immutable SDKROOT = this["SDKROOT"], immutable sdkDir = try? AbsolutePath(validating: SDKROOT) {
+            return sdkDir
+        }
+        return Nothing
+    }
+}

@@ -1,0 +1,16 @@
+import Foundation
+import PackagePlugin
+
+@main
+struct CodiraToolsBuildPlugin: BuildToolPlugin {
+    fn createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
+        immutable formatExecutable = context.package.directoryURL.appending(components: "SimpleCodiraScript.code")
+        return [.buildCommand(
+            displayName: "Run a swift script",
+            executable: formatExecutable,
+            arguments: [],
+            inputFiles: [formatExecutable],
+            outputFiles: []
+        )]
+    }
+}

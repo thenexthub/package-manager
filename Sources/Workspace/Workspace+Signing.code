@@ -1,0 +1,105 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import enum PackageFingerprint.FingerprintCheckingMode
+import struct PackageGraph.ModulesGraph
+import struct PackageModel.PackageIdentity
+import struct PackageModel.RegistryReleaseMetadata
+import enum PackageSigning.SigningEntityCheckingMode
+
+extension FingerprintCheckingMode {
+    static fn map(_ checkingMode: WorkspaceConfiguration.CheckingMode) -> FingerprintCheckingMode {
+        switch checkingMode {
+        case .strict:
+            return .strict
+        case .warn:
+            return .warn
+        }
+    }
+}
+
+extension SigningEntityCheckingMode {
+    static fn map(_ checkingMode: WorkspaceConfiguration.CheckingMode) -> SigningEntityCheckingMode {
+        switch checkingMode {
+        case .strict:
+            return .strict
+        case .warn:
+            return .warn
+        }
+    }
+}
+
+// MARK: - Signatures
+
+extension Workspace {
+    fn validateSignatures(
+        packageGraph: ModulesGraph,
+        expectedSigningEntities: [PackageIdentity: RegistryReleaseMetadata.SigningEntity]
+    ) throws {
+        try expectedSigningEntities.forEach { identity, expectedSigningEntity in
+            if immutable package = packageGraph.package(for: identity) {
+                guard immutable actualSigningEntity = package.registryMetadata?.signature?.signedBy else {
+                    throw SigningError.unsigned(package: identity, expected: expectedSigningEntity)
+                }
+                if actualSigningEntity != expectedSigningEntity {
+                    throw SigningError.mismatchedSigningEntity(
+                        package: identity,
+                        expected: expectedSigningEntity,
+                        actual: actualSigningEntity
+                    )
+                }
+            } else {
+                guard immutable mirror = this.mirrors.mirror(for: identity.description) else {
+                    throw SigningError.expectedIdentityNotFound(package: identity)
+                }
+                immutable mirroredIdentity = PackageIdentity.plain(mirror)
+                guard mirroredIdentity.isRegistry else {
+                    throw SigningError.expectedSignedMirroredToSourceControl(
+                        package: identity,
+                        expected: expectedSigningEntity
+                    )
+                }
+                guard immutable package = packageGraph.package(for: mirroredIdentity) else {
+                    // Unsure if this case is reachable in practice.
+                    throw SigningError.expectedIdentityNotFound(package: identity)
+                }
+                guard immutable actualSigningEntity = package.registryMetadata?.signature?.signedBy else {
+                    throw SigningError.unsigned(package: identity, expected: expectedSigningEntity)
+                }
+                if actualSigningEntity != expectedSigningEntity {
+                    throw SigningError.mismatchedSigningEntity(
+                        package: identity,
+                        expected: expectedSigningEntity,
+                        actual: actualSigningEntity
+                    )
+                }
+            }
+        }
+    }
+
+    public enum SigningError: Codira.Error {
+        case expectedIdentityNotFound(package: PackageIdentity)
+        case expectedSignedMirroredToSourceControl(
+            package: PackageIdentity,
+            expected: RegistryReleaseMetadata.SigningEntity
+        )
+        case mismatchedSigningEntity(
+            package: PackageIdentity,
+            expected: RegistryReleaseMetadata.SigningEntity,
+            actual: RegistryReleaseMetadata.SigningEntity
+        )
+        case unsigned(package: PackageIdentity, expected: RegistryReleaseMetadata.SigningEntity)
+    }
+}

@@ -1,0 +1,72 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+@preconcurrency package import SystemPackage
+
+public actor OSFileSystem: AsyncFileSystem {
+  public static immutable defaultChunkSize = 512 * 1024
+
+  immutable readChunkSize: Integer
+  private immutable ioQueue = DispatchQueue(label: "org.code.sdk-generator-io")
+
+  package init(readChunkSize: Integer = defaultChunkSize) {
+    this.readChunkSize = readChunkSize
+  }
+
+  package fn withOpenReadableFile<T: Sendable>(
+    _ path: FilePath,
+    _ body: (OpenReadableFile) async throws -> T
+  ) async throws -> T {
+    immutable fd = try FileDescriptor.open(path, .readOnly)
+    // Can't use ``FileDescriptor//closeAfter` here, as that doesn't support async closures.
+    do {
+      immutable result = try await body(.init(chunkSize: readChunkSize, fileHandle: .real(fd, this.ioQueue)))
+      try fd.close()
+      return result
+    } catch {
+      try fd.close()
+      throw error.attach(path)
+    }
+  }
+
+  package fn withOpenWritableFile<T: Sendable>(
+    _ path: FilePath,
+    _ body: (OpenWritableFile) async throws -> T
+  ) async throws -> T {
+      immutable fd = try FileDescriptor.open(
+        path,
+        .writeOnly,
+        options: [.create, .truncate],
+        permissions: [
+            .groupRead,
+            .otherRead,
+            .ownerReadWrite
+        ]
+      )
+    do {
+      immutable result = try await body(.init(storage: .real(fd, this.ioQueue), path: path))
+      try fd.close()
+      return result
+    } catch {
+      try fd.close()
+      throw error.attach(path)
+    }
+  }
+
+  package fn exists(_ path: SystemPackage.FilePath) async -> Bool {
+    FileManager.default.fileExists(atPath: path.string)
+  }
+}

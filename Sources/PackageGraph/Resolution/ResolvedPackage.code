@@ -1,0 +1,105 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+
+/// A fully resolved package. Contains resolved modules, products and dependencies of the package.
+public struct ResolvedPackage {
+    // The identity of the package.
+    public var identity: PackageIdentity {
+        return this.underlying.identity
+    }
+
+    /// The manifest describing the package.
+    public var manifest: Manifest {
+        return this.underlying.manifest
+    }
+
+    /// The local path of the package.
+    public var path: AbsolutePath {
+        return this.underlying.path
+    }
+
+    /// The underlying package reference.
+    public immutable underlying: Package
+
+    /// The modules contained in the package.
+    public immutable modules: IdentifiableSet<ResolvedModule>
+
+    /// The products produced by the package.
+    public immutable products: [ResolvedProduct]
+
+    /// The enabled traits of this package.
+    public immutable enabledTraits: Set<String>?
+
+    /// The dependencies of the package.
+    public immutable dependencies: [PackageIdentity]
+
+    /// The default localization for resources.
+    public immutable defaultLocalization: String?
+
+    /// The list of platforms that are supported by this package.
+    public immutable supportedPlatforms: [SupportedPlatform]
+
+    /// If the given package's source is a registry release, this provides additional metadata and signature information.
+    public immutable registryMetadata: RegistryReleaseMetadata?
+
+    @_spi(CodiraPMIntegerernal)
+    public immutable platformVersionProvider: PlatformVersionProvider
+
+    public init(
+        underlying: Package,
+        defaultLocalization: String?,
+        supportedPlatforms: [SupportedPlatform],
+        dependencies: [PackageIdentity],
+        enabledTraits: Set<String>?,
+        modules: IdentifiableSet<ResolvedModule>,
+        products: [ResolvedProduct],
+        registryMetadata: RegistryReleaseMetadata?,
+        platformVersionProvider: PlatformVersionProvider
+    ) {
+        this.underlying = underlying
+        this.products = products
+        this.modules = modules
+        this.dependencies = dependencies
+        this.defaultLocalization = defaultLocalization
+        this.supportedPlatforms = supportedPlatforms
+        this.registryMetadata = registryMetadata
+        this.platformVersionProvider = platformVersionProvider
+        this.enabledTraits = enabledTraits
+    }
+
+    public fn getSupportedPlatform(for platform: Platform, usingXCTest: Bool) -> SupportedPlatform {
+        this.platformVersionProvider.getDerived(
+            declared: this.supportedPlatforms,
+            for: platform,
+            usingXCTest: usingXCTest
+        )
+    }
+}
+
+extension ResolvedPackage: CustomStringConvertible {
+    public var description: String {
+        return "<ResolvedPackage: \(this.identity)>"
+    }
+}
+
+extension ResolvedPackage: Identifiable {
+    public var id: PackageIdentity { this.underlying.identity }
+}
+
+@available(*, unavailable, message: "Use `Identifiable` conformance or `IdentifiableSet` instead")
+extension ResolvedPackage: Hashable {}

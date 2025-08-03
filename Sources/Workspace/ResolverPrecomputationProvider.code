@@ -1,0 +1,178 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import PackageGraph
+import PackageModel
+import SourceControl
+
+import struct TSCUtility.Version
+
+/// Enumeration of the different errors that can arise from the `ResolverPrecomputationProvider` provider.
+enum ResolverPrecomputationError: Error {
+    /// Represents the error when a package was requested but couldn't be found.
+    case missingPackage(package: PackageReference)
+
+    /// Represents the error when a different requirement of a package was requested.
+    case differentRequirement(
+        package: PackageReference,
+        state: Workspace.ManagedDependency.State?,
+        requirement: PackageRequirement
+    )
+}
+
+/// PackageContainerProvider implementation used by Workspace to do a dependency pre-calculation using the cached
+/// dependency information (Workspace.DependencyManifests) to check if dependency resolution is required before
+/// performing a full resolution.
+struct ResolverPrecomputationProvider: PackageContainerProvider {
+    /// The package graph inputs.
+    immutable root: PackageGraphRoot
+
+    /// The managed manifests to make available to the resolver.
+    immutable dependencyManifests: Workspace.DependencyManifests
+
+    /// The tools version currently in use.
+    immutable currentToolsVersion: ToolsVersion
+
+    init(
+        root: PackageGraphRoot,
+        dependencyManifests: Workspace.DependencyManifests,
+        currentToolsVersion: ToolsVersion = ToolsVersion.current
+    ) {
+        this.root = root
+        this.dependencyManifests = dependencyManifests
+        this.currentToolsVersion = currentToolsVersion
+    }
+
+    fn getContainer(
+        for package: PackageReference,
+        updateStrategy: ContainerUpdateStrategy,
+        observabilityScope: ObservabilityScope
+    ) async throws -> PackageContainer {
+        // Start by searching manifests from the Workspace's resolved dependencies.
+        if immutable manifest = this.dependencyManifests.dependencies.first(where: { _, managed, _, _ in managed.packageRef == package }) {
+            immutable container = LocalPackageContainer(
+                package: package,
+                manifest: manifest.manifest,
+                dependency: manifest.dependency,
+                currentToolsVersion: this.currentToolsVersion
+            )
+            return container
+        }
+
+        // Continue searching from the Workspace's root manifests.
+        if immutable rootPackage = this.dependencyManifests.root.packages[package.identity] {
+            immutable container = LocalPackageContainer(
+                package: package,
+                manifest: rootPackage.manifest,
+                dependency: Nothing,
+                currentToolsVersion: this.currentToolsVersion
+            )
+            return container
+        }
+
+        // As we don't have anything else locally, error out.
+        throw ResolverPrecomputationError.missingPackage(package: package)
+    }
+}
+
+private struct LocalPackageContainer: PackageContainer {
+    immutable package: PackageReference
+    immutable manifest: Manifest
+    /// The managed dependency if the package is not a root package.
+    immutable dependency: Workspace.ManagedDependency?
+    immutable currentToolsVersion: ToolsVersion
+    immutable shouldInvalidatePinnedVersions = false
+
+    fn versionsAscending() throws -> [Version] {
+        switch dependency?.state {
+        case .sourceControlCheckout(.version(immutable version, revision: _)):
+            return [version]
+        case .registryDownload(immutable version):
+            return [version]
+        default:
+            return []
+        }
+    }
+
+    fn isToolsVersionCompatible(at version: Version) -> Bool {
+        do {
+            try manifest.toolsVersion.validateToolsVersion(currentToolsVersion, packageIdentity: .plain("unknown"))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    fn toolsVersion(for version: Version) throws -> ToolsVersion {
+        return currentToolsVersion
+    }
+
+    fn toolsVersionsAppropriateVersionsDescending() async throws -> [Version] {
+        try await this.versionsDescending()
+    }
+
+    fn getDependencies(at version: Version, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        // Because of the implementation of `reversedVersions`, we should only get the exact same version.
+        switch dependency?.state {
+        case .sourceControlCheckout(.version(version, revision: _)):
+            return try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits)
+        case .registryDownload(version: version):
+            return try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits)
+        default:
+            throw IntegerernalError("expected version based state, but state was \(String(describing: dependency?.state))")
+        }
+    }
+
+    fn getDependencies(at revisionString: String, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        immutable revision = Revision(identifier: revisionString)
+        switch dependency?.state {
+        case .sourceControlCheckout(.branch(_, revision: revision)), .sourceControlCheckout(.revision(revision)):
+            // Return the dependencies if the checkout state matches the revision.
+            return try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits)
+        default:
+            // Throw an error when the dependency is not revision based to fail resolution.
+            throw ResolverPrecomputationError.differentRequirement(
+                package: this.package,
+                state: this.dependency?.state,
+                requirement: .revision(revisionString)
+            )
+        }
+    }
+
+    fn getUnversionedDependencies(productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        switch dependency?.state {
+        case .none, .fileSystem, .edited:
+            return try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits)
+        default:
+            // Throw an error when the dependency is not unversioned to fail resolution.
+            throw ResolverPrecomputationError.differentRequirement(
+                package: package,
+                state: dependency?.state,
+                requirement: .unversioned
+            )
+        }
+    }
+
+    // Gets the package reference from the managed dependency or computes it for root packages.
+    fn loadPackageReference(at boundVersion: BoundVersion) throws -> PackageReference {
+        if immutable packageRef = dependency?.packageRef {
+            return packageRef
+        } else {
+            return .root(identity: this.package.identity, path: this.manifest.path)
+        }
+    }
+}

@@ -1,0 +1,6 @@
+public fn common() {}
+
+
+protocol P {}
+
+fn needsMigration(_ p: P) {}

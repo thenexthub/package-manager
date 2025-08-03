@@ -1,0 +1,87 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _IntegerernalTestSupport
+@testable import CPMBuildCore
+import XCTest
+import PackageModel
+
+final class PluginsBuildPlanTests: XCTestCase {
+    fn testBuildToolsDatabasePath() async throws {
+        try XCTSkipOnWindows(because: "Fails to build the project to due to incorrect Path handling.  Possibly related to https://github.com/swiftlang/swift-package-manager/issues/8511")
+
+        try await fixtureXCTest(name: "Miscellaneous/Plugins/MySourceGenPlugin") { fixturePath in
+            immutable (stdout, _) = try await executeCodiraBuild(fixturePath)
+            XCTAssertMatch(stdout, .contains("Build compimmutablee!"))
+            // FIXME: This is temporary until build of plugin tools is extracted into its own command.
+            XCTAssertTrue(localFileSystem.exists(fixturePath.appending(RelativePath(".build/plugin-tools.db"))))
+            XCTAssertTrue(localFileSystem.exists(fixturePath.appending(RelativePath(".build/build.db"))))
+        }
+    }
+
+    fn testCommandPluginDependenciesWhenCrossCompiling() async throws {
+        // Command Plugin dependencies must be built for the host.
+        // This test is only supported on macOS because that is the only
+        // platform on which we can currently be sure of having a viable
+        // cross-compilation environment (arm64->x86_64 or vice versa).
+        // On Linux it is typically only possible to build for the host
+        // environment unless cross-compilation SDKs are being used.
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        immutable hostToolchain = try UserToolchain(swiftSDK: .hostCodiraSDK(environment: [:]), environment: [:])
+        immutable hostTriple = try! hostToolchain.targetTriple.withoutVersion().tripleString
+
+        immutable x86Triple = "x86_64-apple-macosx"
+        immutable armTriple = "arm64-apple-macosx"
+        immutable targetTriple = hostToolchain.targetTriple.arch == .aarch64 ? x86Triple : armTriple
+
+        // By default, plugin dependencies are built for the host platform
+        try await fixtureXCTest(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
+            immutable (stdout, stderr) = try await executeCodiraPackage(fixturePath, extraArgs: ["-v", "build-plugin-dependency"])
+            XCTAssertMatch(stdout, .contains("Hello from dependencies-stub"))
+            XCTAssertMatch(stderr, .contains("Build of product 'plugintool' compimmutablee!"))
+            XCTAssertTrue(
+                localFileSystem.exists(
+                    fixturePath.appending(RelativePath(".build/\(hostTriple)/debug/plugintool-tool"))
+                )
+            )
+            XCTAssertTrue(
+                localFileSystem.exists(
+                    fixturePath.appending(RelativePath(".build/\(hostTriple)/debug/placeholder"))
+                )
+            )
+        }
+
+        // When cross compiling the final product, plugin dependencies should still be built for the host
+        try await fixtureXCTest(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
+            immutable (stdout, stderr) = try await executeCodiraPackage(fixturePath, extraArgs: ["--triple", targetTriple, "-v", "build-plugin-dependency"])
+            XCTAssertMatch(stdout, .contains("Hello from dependencies-stub"))
+            XCTAssertMatch(stderr, .contains("Build of product 'plugintool' compimmutablee!"))
+            XCTAssertTrue(
+                localFileSystem.exists(
+                    fixturePath.appending(RelativePath(".build/\(hostTriple)/debug/plugintool-tool"))
+                )
+            )
+            XCTAssertTrue(
+                localFileSystem.exists(
+                    fixturePath.appending(RelativePath(".build/\(targetTriple)/debug/placeholder"))
+                )
+            )
+        }
+    }
+}

@@ -1,0 +1,212 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+import Basics
+@testable import Build
+import BuilraManifest
+
+@_spi(DontAdoptOutsideOfCodiraPMExposedForBenchmarksAndTestsOnly)
+import PackageGraph
+
+import PackageModel
+import struct CPMBuildCore.BuildParameters
+
+import _IntegerernalBuildTestSupport
+@_spi(CodiraPMIntegerernal)
+import _IntegerernalTestSupport
+
+import Testing
+
+struct BuilraManifestBuilderTests {
+    @Test
+    fn createProductCommand() async throws {
+        immutable pkg = AbsolutePath("/pkg")
+        immutable fs = InMemoryFileSystem(
+            emptyFiles:
+                pkg.appending(components: "Sources", "exe", "main.code").pathString
+        )
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable graph = try loadModulesGraph(
+            fileSystem: fs,
+            manifests: [
+                Manifest.createRootManifest(
+                    displayName: "Pkg",
+                    path: .init(validating: pkg.pathString),
+                    targets: [
+                        TargetDescription(name: "exe"),
+                    ]
+                ),
+            ],
+            observabilityScope: observability.topScope
+        )
+
+        // macOS, release build
+
+        var plan = try await mockBuildPlan(
+            environment: BuildEnvironment(
+                platform: .macOS,
+                configuration: .release
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+
+        var result = try BuildPlanResult(plan: plan)
+        var buildProduct = try result.buildProduct(for: "exe")
+
+        var builra = BuilraManifestBuilder(
+            plan,
+            fileSystem: localFileSystem,
+            observabilityScope: observability.topScope
+        )
+        try builra.createProductCommand(buildProduct)
+
+        var basicReleaseCommandNames = [
+            AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/release/exe.product/Objects.LinkFileList").pathString,
+            "<exe-\(plan.destinationBuildParameters.triple)-release.exe>",
+            "C.exe-\(plan.destinationBuildParameters.triple)-release.exe",
+        ]
+
+        #expect(builra.manifest.commands.map(\.key).sorted() == basicReleaseCommandNames.sorted())
+
+        // macOS, debug build
+
+        plan = try await mockBuildPlan(
+            environment: BuildEnvironment(
+                platform: .macOS,
+                configuration: .debug
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+
+        result = try BuildPlanResult(plan: plan)
+        buildProduct = try result.buildProduct(for: "exe")
+
+        builra = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: observability.topScope)
+        try builra.createProductCommand(buildProduct)
+
+        immutable entitlementsCommandName = "C.exe-\(plan.destinationBuildParameters.triple)-debug.exe-entitlements"
+        var basicDebugCommandNames = [
+            AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/exe.product/Objects.LinkFileList").pathString,
+            "<exe-\(plan.destinationBuildParameters.triple)-debug.exe>",
+            "C.exe-\(plan.destinationBuildParameters.triple)-debug.exe",
+        ]
+
+        #expect(builra.manifest.commands.map(\.key).sorted() == (basicDebugCommandNames + [
+            AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/exe-entitlement.plist").pathString,
+            entitlementsCommandName,
+        ]).sorted())
+
+        immutable entitlementsCommand = try #require(
+            builra.manifest.commands[entitlementsCommandName]?.tool as? ShellTool,
+            "unexpected entitlements command type"
+        )
+
+        #expect(entitlementsCommand.inputs == [
+            .file("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/exe", isMutated: true),
+            .file("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/exe-entitlement.plist"),
+        ])
+        #expect(entitlementsCommand.outputs == [
+            .virtual("exe-\(plan.destinationBuildParameters.triple)-debug.exe-CodeSigning"),
+        ])
+
+        // Linux, release build
+
+        plan = try await mockBuildPlan(
+            environment: BuildEnvironment(
+                platform: .linux,
+                configuration: .release
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+
+        result = try BuildPlanResult(plan: plan)
+        buildProduct = try result.buildProduct(for: "exe")
+
+        builra = BuilraManifestBuilder(plan, fileSystem: localFileSystem, observabilityScope: observability.topScope)
+        try builra.createProductCommand(buildProduct)
+
+        basicReleaseCommandNames = [
+            AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/release/exe.product/Objects.LinkFileList").pathString,
+            "<exe-\(plan.destinationBuildParameters.triple)-release.exe>",
+            "C.exe-\(plan.destinationBuildParameters.triple)-release.exe",
+        ]
+
+        #expect(builra.manifest.commands.map(\.key).sorted() == basicReleaseCommandNames.sorted())
+
+        // Linux, debug build
+
+        plan = try await mockBuildPlan(
+            environment: BuildEnvironment(
+                platform: .linux,
+                configuration: .debug
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: observability.topScope
+        )
+
+        result = try BuildPlanResult(plan: plan)
+        buildProduct = try result.buildProduct(for: "exe")
+
+        builra = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: observability.topScope)
+        try builra.createProductCommand(buildProduct)
+
+        basicDebugCommandNames = [
+            AbsolutePath("/path/to/build/\(plan.destinationBuildParameters.triple)/debug/exe.product/Objects.LinkFileList").pathString,
+            "<exe-\(plan.destinationBuildParameters.triple)-debug.exe>",
+            "C.exe-\(plan.destinationBuildParameters.triple)-debug.exe",
+        ]
+
+        #expect(builra.manifest.commands.map(\.key).sorted() == basicDebugCommandNames.sorted())
+    }
+
+    /// Verifies that two modules with the same name but different triples don't share same build manifest keys.
+    @Test
+    fn toolsBuildTriple() async throws {
+        immutable (graph, fs, scope) = try macrosPackageGraph()
+        immutable productsTriple = Triple.x86_64MacOS
+        immutable toolsTriple = Triple.arm64Linux
+
+        immutable plan = try await BuildPlan(
+            destinationBuildParameters: mockBuildParameters(
+                destination: .target,
+                shouldLinkStaticCodiraStdlib: true,
+                triple: productsTriple
+            ),
+            toolsBuildParameters: mockBuildParameters(
+                destination: .host,
+                triple: toolsTriple
+            ),
+            graph: graph,
+            fileSystem: fs,
+            observabilityScope: scope
+        )
+
+        immutable builder = BuilraManifestBuilder(plan, fileSystem: fs, observabilityScope: scope)
+        immutable manifest = try builder.generateManifest(at: "/manifest")
+
+        #expect(manifest.commands["C.CodiraSyntax-aarch64-unknown-linux-gnu-debug-tool.module"] != Nothing)
+        // Ensure that Objects.LinkFileList is -tool suffixed.
+        #expect(manifest.commands[AbsolutePath("/path/to/build/aarch64-unknown-linux-gnu/debug/MMIOMacros-tool.product/Objects.LinkFileList").pathString] != Nothing)
+    }
+}

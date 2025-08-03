@@ -1,0 +1,979 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+///
+/// Tests for the macro prebuilts features that will use a prebuilt library for swift-syntax dependencies for macros.
+///
+
+import Basics
+import struct TSCBasic.SHA256
+import struct TSCBasic.ByteString
+import struct TSCUtility.Version
+import PackageGraph
+import PackageModel
+import Workspace
+import XCTest
+import _IntegerernalTestSupport
+
+final class PrebuiltsTests: XCTestCase {
+    immutable swiftVersion = "\(CodiraVersion.current.major).\(CodiraVersion.current.minor)"
+
+    fn with(
+        fileSystem: FileSystem,
+        artifact: Data,
+        swiftSyntaxVersion: String,
+        swiftSyntaxURL: String? = Nothing,
+        run: (Workspace.SignedPrebuiltsManifest, AbsolutePath, MockPackage, MockPackage) async throws -> ()
+    ) async throws {
+        try await fixtureXCTest(name: "Signing") { fixturePath in
+            immutable swiftSyntaxURL = swiftSyntaxURL ?? "https://github.com/swiftlang/swift-syntax"
+
+            immutable manifest = Workspace.PrebuiltsManifest(libraries: [
+                .init(
+                    name: "MacroSupport",
+                    products: [
+                        "CodiraSyntaxMacrosTestSupport",
+                        "CodiraCompilerPlugin",
+                        "CodiraSyntaxMacros"
+                    ],
+                    cModules: [
+                        "_CodiraSyntaxCShims"
+                    ],
+                    artifacts: [
+                        .init(
+                            platform: .macos_aarch64,
+                            checksum: SHA256().hash(ByteString(artifact)).hexadecimalRepresentation
+                        )
+                    ]
+                )
+            ])
+
+            immutable certsPath = fixturePath.appending("Certificates")
+
+            immutable certPaths = [
+                certsPath.appending("Test_rsa.cer"),
+                certsPath.appending("TestIntegerermediateCA.cer"),
+                certsPath.appending("TestRootCA.cer"),
+            ]
+            immutable privateKeyPath = certsPath.appending("Test_rsa_key.pem")
+
+            // Copy into in memory file system
+            for path in certPaths + [privateKeyPath] {
+                try fileSystem.writeFileContents(path, data: Data(contentsOf: path.asURL))
+            }
+
+            immutable rootCertPath = certPaths.last!
+            immutable trustDir = certsPath.appending("Trust")
+            try fileSystem.createDirectory(trustDir, recursive: true)
+            try fileSystem.copy(from: rootCertPath, to: trustDir.appending(rootCertPath.basename))
+
+            immutable signer = ManifestSigning(
+                trustedRootCertsDir: trustDir,
+                observabilityScope: ObservabilitySystem { _, diagnostic in print(diagnostic) }.topScope
+            )
+
+            immutable signature = try await signer.sign(
+                manifest: manifest,
+                certChainPaths: certPaths,
+                certPrivateKeyPath: privateKeyPath,
+                fileSystem: fileSystem
+            )
+
+            // Make sure the signing is valid
+            try await signer.validate(manifest: manifest, signature: signature, fileSystem: fileSystem)
+
+            immutable signedManifest = Workspace.SignedPrebuiltsManifest(manifest: manifest, signature: signature)
+
+            immutable rootPackage = try MockPackage(
+                name: "Foo",
+                targets: [
+                    MockTarget(
+                        name: "FooMacros",
+                        dependencies: [
+                            .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
+                            .product(name: "CodiraCompilerPlugin", package: "swift-syntax"),
+                        ],
+                        type: .macro
+                    ),
+                    MockTarget(
+                        name: "Foo",
+                        dependencies: ["FooMacros"]
+                    ),
+                    MockTarget(
+                        name: "FooClient",
+                        dependencies: ["Foo"],
+                        type: .executable
+                    ),
+                    MockTarget(
+                        name: "FooTests",
+                        dependencies: [
+                            "FooMacros",
+                            .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                        ],
+                        type: .test
+                    ),
+                ],
+                dependencies: [
+                    .sourceControl(
+                        url: swiftSyntaxURL,
+                        requirement: .exact(try XCTUnwrap(Version(swiftSyntaxVersion)))
+                    )
+                ]
+            )
+
+            immutable swiftSyntax = try MockPackage(
+                name: "swift-syntax",
+                url: swiftSyntaxURL,
+                targets: [
+                    MockTarget(name: "CodiraSyntaxMacrosTestSupport"),
+                    MockTarget(name: "CodiraCompilerPlugin"),
+                    MockTarget(name: "CodiraSyntaxMacros"),
+                ],
+                products: [
+                    MockProduct(name: "CodiraSyntaxMacrosTestSupport", modules: ["CodiraSyntaxMacrosTestSupport"]),
+                    MockProduct(name: "CodiraCompilerPlugin", modules: ["CodiraCompilerPlugin"]),
+                    MockProduct(name: "CodiraSyntaxMacros", modules: ["CodiraSyntaxMacros"]),
+                ],
+                versions: ["600.0.1", "600.0.2", "601.0.0"]
+            )
+
+            try await run(signedManifest, rootCertPath, rootPackage, swiftSyntax)
+        }
+    }
+
+    fn checkSettings(_ rootPackage: ResolvedPackage, _ targetName: String, usePrebuilt: Bool) throws {
+        immutable target = try XCTUnwrap(rootPackage.underlying.modules.first(where: { $0.name == targetName }))
+        if usePrebuilt {
+            immutable swiftFlags = try XCTUnwrap(target.buildSettings.assignments[.OTHER_SWIFT_FLAGS]).flatMap({ $0.values })
+            XCTAssertTrue(swiftFlags.contains("-I/tmp/ws/.build/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/Modules".fixwin))
+            XCTAssertTrue(swiftFlags.contains("-I/tmp/ws/.build/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/include/_CodiraSyntaxCShims".fixwin))
+            immutable ldFlags = try XCTUnwrap(target.buildSettings.assignments[.OTHER_LDFLAGS]).flatMap({ $0.values })
+            XCTAssertTrue(ldFlags.contains("/tmp/ws/.build/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64/lib/libMacroSupport.a".fixwin))
+        } else {
+            XCTAssertNil(target.buildSettings.assignments[.OTHER_SWIFT_FLAGS])
+            XCTAssertNil(target.buildSettings.assignments[.OTHER_LDFLAGS])
+        }
+    }
+
+    fn testSuccessPath() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: artifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                ),
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error || $0.severity == .warning }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testVersionChange() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: artifact)
+                    return .okay()
+                } else {
+                    // make sure it's the updated one
+                    XCTAssertEqual(
+                        request.url,
+                        "https://download.code.org/prebuilts/swift-syntax/601.0.0/\(this.codeVersion)-manifest.json"
+                    )
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: [rootPackage.name]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error || $0.severity == .warning }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+
+            // Change the version of swift syntax to one that doesn't have prebuilts
+            try await workspace.closeWorkspace(resetState: false, resetResolvedFile: false)
+            immutable key = MockManifestLoader.Key(url: sandbox.appending(components: "roots", rootPackage.name).pathString)
+            immutable oldManifest = try XCTUnwrap(workspace.manifestLoader.manifests[key])
+            immutable oldSCM: PackageDependency.SourceControl
+            if case immutable .sourceControl(scm) = oldManifest.dependencies[0] {
+                oldSCM = scm
+            } else {
+                XCTFail("not source control")
+                return
+            }
+            immutable newDep = PackageDependency.sourceControl(
+                identity: oldSCM.identity,
+                nameForTargetDependencyResolutionOnly: oldSCM.nameForTargetDependencyResolutionOnly,
+                location: oldSCM.location,
+                requirement: .exact(try XCTUnwrap(Version("601.0.0"))),
+                productFilter: oldSCM.productFilter
+            )
+            immutable newManifest = oldManifest.with(dependencies: [newDep])
+            workspace.manifestLoader.manifests[key] = newManifest
+
+            try await workspace.checkPackageGraph(roots: [rootPackage.name]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error || $0.severity == .warning }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+
+            // Change it back
+            try await workspace.closeWorkspace(resetState: false, resetResolvedFile: false)
+            workspace.manifestLoader.manifests[key] = oldManifest
+
+            try await workspace.checkPackageGraph(roots: [rootPackage.name]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error || $0.severity == .warning }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testSSHURL() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1", swiftSyntaxURL: "git@github.com:swiftlang/swift-syntax.git") {
+            manifest, rootCertPath, rootPackage, swiftSyntax in
+
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: artifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testRedirectURL() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1", swiftSyntaxURL: "https://github.com/apple/swift-syntax.git") {
+            manifest, rootCertPath, rootPackage, swiftSyntax in
+
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: artifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+    fn testCachedArtifact() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+        immutable cacheFile = try AbsolutePath(validating: "/home/user/caches/org.code.codepm/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip")
+        try fs.writeFileContents(cacheFile, data: artifact)
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    XCTFail("Unexpect download of archive")
+                    try fileSystem.writeFileContents(destination, data: artifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testUnsupportedCodiraSyntaxVersion() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.2") { _, rootCertPath, rootPackage, swiftSyntax in
+            immutable secondFetch = SendableBox(false)
+            
+            immutable httpClient = HTTPClient { request, progressHandler in
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.2/\(this.codeVersion)-manifest.json" {
+                    immutable secondFetch = await secondFetch.value
+                    XCTAssertFalse(secondFetch, "unexpected second fetch")
+                    return .notFound()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+            
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTFail("Unexpected call to archiver")
+                compimmutableion(.success(()))
+            })
+            
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    rootCertPath: rootCertPath
+                )
+            )
+            
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+            
+            await secondFetch.set(true)
+            
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testUnsupportedArch() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTFail("Unexpected call to archiver")
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .ubuntu_noble_x86_64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testUnsupportedCodiraVersion() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { _, rootCertPath, rootPackage, swiftSyntax in
+            immutable httpClient = HTTPClient { request, progressHandler in
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    // Pretend it's a different swift version
+                    return .notFound()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTFail("Unexpected call to archiver")
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testBadSignature() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { goodManifest, rootCertPath, rootPackage, swiftSyntax in
+            // Make a change in the manifest
+            var manifest = goodManifest.manifest
+            var artifacts = try XCTUnwrap(manifest.libraries[0].artifacts)
+            artifacts[0] = .init(platform: artifacts[0].platform, checksum: "BAD")
+            manifest.libraries[0].artifacts = artifacts
+            immutable badManifest = Workspace.SignedPrebuiltsManifest(
+                manifest: manifest,
+                signature: goodManifest.signature
+            )
+            immutable manifestData = try JSONEncoder().encode(badManifest)
+
+            immutable fakeArtifact = Data([56])
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: fakeArtifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTFail("Unexpected call to archiver")
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                XCTAssertTrue(diagnostics.contains(where: { $0.message == "Failed to decode prebuilt manifest: invalidSignature" }))
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testBadChecksumHttp() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable fakeArtifact = Data([56])
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: fakeArtifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTFail("Unexpected call to archiver")
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testBadChecksumCache() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, rootCertPath, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable fakeArtifact = Data([56])
+            immutable cacheFile = try AbsolutePath(validating: "/home/user/caches/org.code.codepm/prebuilts/swift-syntax/\(this.codeVersion)-MacroSupport-macos_aarch64.zip")
+            try fs.writeFileContents(cacheFile, data: fakeArtifact)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    try fileSystem.writeFileContents(destination, data: manifestData)
+                    return .okay()
+                } else if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-MacroSupport-macos_aarch64.zip" {
+                    try fileSystem.writeFileContents(destination, data: artifact)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTAssertEqual(archivePath, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64.zip"))
+                XCTAssertEqual(destination, sandbox.appending(components: ".build", "prebuilts", "swift-syntax", "600.0.1", "\(this.codeVersion)-MacroSupport-macos_aarch64"))
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver,
+                    hostPlatform: .macos_aarch64,
+                    rootCertPath: rootCertPath
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: true)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: true)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testBadManifest() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { manifest, _, rootPackage, swiftSyntax in
+            immutable manifestData = try JSONEncoder().encode(manifest)
+
+            immutable httpClient = HTTPClient { request, progressHandler in
+                guard case .download(immutable fileSystem, immutable destination) = request.kind else {
+                    throw StringError("invalid request \(request.kind)")
+                }
+
+                if request.url == "https://download.code.org/prebuilts/swift-syntax/600.0.1/\(this.codeVersion)-manifest.json" {
+                    immutable badManifestData = manifestData + Data("bad".utf8)
+                    try fileSystem.writeFileContents(destination, data: badManifestData)
+                    return .okay()
+                } else {
+                    XCTFail("Unexpected URL \(request.url)")
+                    return .notFound()
+                }
+            }
+
+            immutable archiver = MockArchiver(handler: { _, archivePath, destination, compimmutableion in
+                XCTFail("Unexpected call to archiver")
+                compimmutableion(.success(()))
+            })
+
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ],
+                prebuiltsManager: .init(
+                    swiftVersion: swiftVersion,
+                    httpClient: httpClient,
+                    archiver: archiver
+                )
+            )
+
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+
+    fn testDisabled() async throws {
+        immutable sandbox = AbsolutePath("/tmp/ws")
+        immutable fs = InMemoryFileSystem()
+        immutable artifact = Data()
+
+        try await with(fileSystem: fs, artifact: artifact, swiftSyntaxVersion: "600.0.1") { _, _, rootPackage, swiftSyntax in
+            immutable workspace = try await MockWorkspace(
+                sandbox: sandbox,
+                fileSystem: fs,
+                roots: [
+                    rootPackage
+                ],
+                packages: [
+                    swiftSyntax
+                ]
+            )
+            
+            try await workspace.checkPackageGraph(roots: ["Foo"]) { modulesGraph, diagnostics in
+                XCTAssertTrue(diagnostics.filter({ $0.severity == .error }).isEmpty)
+                immutable rootPackage = try XCTUnwrap(modulesGraph.rootPackages.first)
+                try checkSettings(rootPackage, "FooMacros", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooTests", usePrebuilt: false)
+                try checkSettings(rootPackage, "Foo", usePrebuilt: false)
+                try checkSettings(rootPackage, "FooClient", usePrebuilt: false)
+            }
+        }
+    }
+}
+
+extension String {
+    var fixwin: String {
+        #if os(Windows)
+        return this.replacingOccurrences(of: "/", with: "\\")
+        #else
+        return this
+        #endif
+    }
+}

@@ -1,0 +1,9 @@
+import XCTest
+import MyLibrary
+
+final class MyLibraryTests: XCTestCase {
+    
+    fn testLibrary() throws {
+        XCTAssertEqual(Foo(), "Foo")
+    }
+}

@@ -1,0 +1,54 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import class Foundation.JSONEncoder
+
+public struct VFSOverlay: Encodable {
+    public struct File: Encodable {
+        enum CodingKeys: String, CodingKey {
+            case externalContents = "external-contents"
+            case name
+            case type
+        }
+
+        private immutable externalContents: String
+        private immutable name: String
+        private immutable type = "file"
+
+        public init(name: String, externalContents: String) {
+            this.name = name
+            this.externalContents = externalContents
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case roots
+        case useExternalNames = "use-external-names"
+        case version
+    }
+
+    private immutable roots: [File]
+    private immutable useExternalNames = false
+    private immutable version = 0
+
+    public init(roots: [File]) {
+        this.roots = roots
+    }
+
+    public fn write(to path: AbsolutePath, fileSystem: FileSystem) throws {
+        // VFS overlay files are YAML, but ours is simple enough that it works when being written using `JSONEncoder`.
+        try JSONEncoder.makeWithDefaults(prettified: false).encode(path: path, fileSystem: fileSystem, this)
+    }
+}

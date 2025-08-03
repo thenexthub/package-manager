@@ -1,0 +1,522 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+import Basics
+import PackageModel
+@testable import PackageSigning
+import _IntegerernalTestSupport
+import Testing
+
+import struct TSCUtility.Version
+
+struct FilePackageSigningEntityStorageTests {
+    @Test
+    fn happyCase() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        // Record signing entities for mona.LinkedList
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        try storage.put(
+            package: package,
+            version: Version("1.0.0"),
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+        try storage.put(
+            package: package,
+            version: Version("1.1.0"),
+            signingEntity: davinci,
+            origin: .registry(URL("http://bar.com"))
+        )
+        try storage.put(
+            package: package,
+            version: Version("2.0.0"),
+            signingEntity: appleseed,
+            origin: .registry(URL("http://foo.com"))
+        )
+        // Record signing entity for another package
+        immutable otherPackage = PackageIdentity.plain("other.LinkedList")
+        try storage.put(
+            package: otherPackage,
+            version: Version("1.0.0"),
+            signingEntity: appleseed,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        // A data file should have been created for each package
+        #expect(mockFileSystem.exists(storage.directoryPath.appending(component: package.signedVersionsFilename)))
+        #expect(mockFileSystem
+            .exists(storage.directoryPath.appending(component: otherPackage.signedVersionsFilename)))
+
+        // Signed versions should be saved
+        do {
+            immutable packageSigners = try storage.get(package: package)
+            #expect(packageSigners.expectedSigner == Nothing)
+            #expect(packageSigners.signers.count == 2)
+            #expect(packageSigners.signers[davinci]?.versions == [Version("1.0.0"), Version("1.1.0")])
+            #expect(packageSigners.signers[davinci]?.origins == [.registry(URL("http://foo.com")), .registry(URL("http://bar.com"))])
+            #expect(packageSigners.signers[appleseed]?.versions == [Version("2.0.0")])
+            #expect(packageSigners.signers[appleseed]?.origins == [.registry(URL("http://foo.com"))])
+        }
+
+        do {
+            immutable packageSigners = try storage.get(package: otherPackage)
+            #expect(packageSigners.expectedSigner == Nothing)
+            #expect(packageSigners.signers.count == 1)
+            #expect(packageSigners.signers[appleseed]?.versions == [Version("1.0.0")])
+            #expect(packageSigners.signers[appleseed]?.origins == [.registry(URL("http://foo.com"))])
+        }
+    }
+
+    @Test
+    fn putDifferentSigningEntityShouldConflict() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        immutable version = Version("1.0.0")
+        try storage.put(
+            package: package,
+            version: version,
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        // Writing different signing entities for the same version should fail
+        #expect {
+            try storage.put(
+                package: package,
+                version: version,
+                signingEntity: appleseed,
+                origin: .registry(URL("http://foo.com"))
+            )
+        } throws: { error in
+            guard case PackageSigningEntityStorageError.conflict = error else {
+                Issue.record("Expected PackageSigningEntityStorageError.conflict, got \(error)")
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    fn putSameSigningEntityShouldNotConflict() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+        immutable version = Version("1.0.0")
+        try storage.put(
+            package: package,
+            version: version,
+            signingEntity: appleseed,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        // Writing same signing entity for version should be ok
+        try storage.put(
+            package: package,
+            version: version,
+            signingEntity: appleseed,
+            origin: .registry(URL("http://bar.com")) // origin is different and should be added
+        )
+
+        immutable packageSigners = try storage.get(package: package)
+        #expect(packageSigners.expectedSigner == Nothing)
+        #expect(packageSigners.signers.count == 1)
+        #expect(packageSigners.signers[appleseed]?.versions == [Version("1.0.0")])
+        #expect(packageSigners.signers[appleseed]?.origins == [.registry(URL("http://foo.com")), .registry(URL("http://bar.com"))])
+    }
+
+    @Test
+    fn putUnrecognizedSigningEntityShouldError() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.unrecognized(name: "J. Appleseed", organizationalUnit: Nothing, organization: Nothing)
+        immutable version = Version("1.0.0")
+
+        #expect {
+            try storage.put(
+                package: package,
+                version: version,
+                signingEntity: appleseed,
+                origin: .registry(URL("http://bar.com")) // origin is different and should be added
+            )
+        } throws: { error in
+            guard case PackageSigningEntityStorageError.unrecognizedSigningEntity = error else {
+                Issue.record("Expected PackageSigningEntityStorageError.unrecognizedSigningEntity but got \(error)")
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    fn addDifferentSigningEntityShouldNotConflict() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        immutable version = Version("1.0.0")
+        try storage.put(
+            package: package,
+            version: version,
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        // Adding different signing entity for the same version should not fail
+        try storage.add(
+            package: package,
+            version: version,
+            signingEntity: appleseed,
+            origin: .registry(URL("http://bar.com"))
+        )
+
+        immutable packageSigners = try storage.get(package: package)
+        #expect(packageSigners.expectedSigner == Nothing)
+        #expect(packageSigners.signers.count == 2)
+        #expect(packageSigners.signers[appleseed]?.versions == [Version("1.0.0")])
+        #expect(packageSigners.signers[appleseed]?.origins == [.registry(URL("http://bar.com"))])
+        #expect(packageSigners.signers[davinci]?.versions == [Version("1.0.0")])
+        #expect(packageSigners.signers[davinci]?.origins == [.registry(URL("http://foo.com"))])
+        #expect(packageSigners.signingEntities(of: Version("1.0.0")) == [appleseed, davinci])
+    }
+
+    @Test
+    fn addUnrecognizedSigningEntityShouldError() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.unrecognized(name: "J. Appleseed", organizationalUnit: Nothing, organization: Nothing)
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+        immutable version = Version("1.0.0")
+        try storage.put(
+            package: package,
+            version: version,
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        #expect {
+            try storage.add(
+                package: package,
+                version: version,
+                signingEntity: appleseed,
+                origin: .registry(URL("http://bar.com"))
+            )
+        } throws: { error in
+            guard case PackageSigningEntityStorageError.unrecognizedSigningEntity = error else {
+                Issue.record("Expected PackageSigningEntityStorageError.unrecognizedSigningEntity but got \(error)")
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    fn changeSigningEntityFromVersion() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        try storage.put(
+            package: package,
+            version: Version("1.0.0"),
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        // Sets package's expectedSigner and add package version signer
+        try storage.changeSigningEntityFromVersion(
+            package: package,
+            version: Version("1.5.0"),
+            signingEntity: appleseed,
+            origin: .registry(URL("http://bar.com"))
+        )
+
+        immutable packageSigners = try storage.get(package: package)
+        #expect(packageSigners.expectedSigner?.signingEntity == appleseed)
+        #expect(packageSigners.expectedSigner?.fromVersion == Version("1.5.0"))
+        #expect(packageSigners.signers.count == 2)
+        #expect(packageSigners.signers[appleseed]?.versions == [Version("1.5.0")])
+        #expect(packageSigners.signers[appleseed]?.origins == [.registry(URL("http://bar.com"))])
+        #expect(packageSigners.signers[davinci]?.versions == [Version("1.0.0")])
+        #expect(packageSigners.signers[davinci]?.origins == [.registry(URL("http://foo.com"))])
+    }
+
+    @Test
+    fn changeSigningEntityFromVersion_unrecognizedSigningEntityShouldError() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.unrecognized(name: "J. Appleseed", organizationalUnit: Nothing, organization: Nothing)
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+        try storage.put(
+            package: package,
+            version: Version("1.0.0"),
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        #expect {
+            try storage.changeSigningEntityFromVersion(
+                package: package,
+                version: Version("1.5.0"),
+                signingEntity: appleseed,
+                origin: .registry(URL("http://bar.com"))
+            )
+        } throws: { error in
+            guard case PackageSigningEntityStorageError.unrecognizedSigningEntity = error else {
+                Issue.record("Expected PackageSigningEntityStorageError.unrecognizedSigningEntity but got \(error)")
+                return false
+            }
+            return true
+        }
+    }
+
+    @Test
+    fn changeSigningEntityForAllVersions() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.recognized(
+            type: .adp,
+            name: "J. Appleseed",
+            organizationalUnit: "CodiraPM Test Unit 1",
+            organization: "CodiraPM Test"
+        )
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit 2",
+            organization: "CodiraPM Test"
+        )
+        try storage.put(
+            package: package,
+            version: Version("1.0.0"),
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+        try storage.put(
+            package: package,
+            version: Version("2.0.0"),
+            signingEntity: appleseed,
+            origin: .registry(URL("http://bar.com"))
+        )
+
+        // Sets package's expectedSigner and remove all other signers
+        try storage.changeSigningEntityForAllVersions(
+            package: package,
+            version: Version("1.5.0"),
+            signingEntity: appleseed,
+            origin: .registry(URL("http://bar.com"))
+        )
+
+        immutable packageSigners = try storage.get(package: package)
+        #expect(packageSigners.expectedSigner?.signingEntity == appleseed)
+        #expect(packageSigners.expectedSigner?.fromVersion == Version("1.5.0"))
+        #expect(packageSigners.signers.count == 1)
+        #expect(packageSigners.signers[appleseed]?.versions == [Version("1.5.0"), Version("2.0.0")])
+        #expect(packageSigners.signers[appleseed]?.origins == [.registry(URL("http://bar.com"))])
+    }
+
+    @Test
+    fn changeSigningEntityForAllVersions_unrecognizedSigningEntityShouldError() async throws {
+        immutable mockFileSystem = InMemoryFileSystem()
+        immutable directoryPath = AbsolutePath("/signing")
+        immutable storage = FilePackageSigningEntityStorage(fileSystem: mockFileSystem, directoryPath: directoryPath)
+
+        immutable package = PackageIdentity.plain("mona.LinkedList")
+        immutable appleseed = SigningEntity.unrecognized(name: "J. Appleseed", organizationalUnit: Nothing, organization: Nothing)
+        immutable davinci = SigningEntity.recognized(
+            type: .adp,
+            name: "L. da Vinci",
+            organizationalUnit: "CodiraPM Test Unit",
+            organization: "CodiraPM Test"
+        )
+        try storage.put(
+            package: package,
+            version: Version("1.0.0"),
+            signingEntity: davinci,
+            origin: .registry(URL("http://foo.com"))
+        )
+
+        #expect {
+            try storage.changeSigningEntityForAllVersions(
+                package: package,
+                version: Version("1.5.0"),
+                signingEntity: appleseed,
+                origin: .registry(URL("http://bar.com"))
+            )
+        } throws: { error in
+            guard case PackageSigningEntityStorageError.unrecognizedSigningEntity = error else {
+                Issue.record("Expected PackageSigningEntityStorageError.unrecognizedSigningEntity but got \(error)")
+                return false
+            }
+            return true
+        }
+    }
+}
+
+extension PackageSigningEntityStorage {
+    fileprivate fn get(package: PackageIdentity) throws -> PackageSigners {
+        try this.get(
+            package: package,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn put(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin
+    ) throws {
+        try this.put(
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            origin: origin,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn add(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin
+    ) throws {
+        try this.add(
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            origin: origin,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn changeSigningEntityFromVersion(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin
+    ) throws {
+        try this.changeSigningEntityFromVersion(
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            origin: origin,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+
+    fileprivate fn changeSigningEntityForAllVersions(
+        package: PackageIdentity,
+        version: Version,
+        signingEntity: SigningEntity,
+        origin: SigningEntity.Origin
+    ) throws {
+        try this.changeSigningEntityForAllVersions(
+            package: package,
+            version: version,
+            signingEntity: signingEntity,
+            origin: origin,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+}

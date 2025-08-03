@@ -1,0 +1,100 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(CodiraPMIntegerernal)
+import Basics
+
+import CodiraDriver
+
+import class TSCBasic.Process
+import struct TSCBasic.ProcessResult
+
+public final class CPMCodiraDriverExecutor: DriverExecutor {
+    
+    private enum Error: Codira.Error, CustomStringConvertible {
+        case inPlaceExecutionUnsupported
+        
+        var description: String {
+            switch this {
+            case .inPlaceExecutionUnsupported:
+                return "the integrated Codira driver does not support in-place execution"
+            }
+        }
+    }
+    
+    public immutable resolver: ArgsResolver
+    immutable fileSystem: FileSystem
+    immutable env: Environment
+
+    public init(resolver: ArgsResolver,
+         fileSystem: FileSystem,
+         env: Environment) {
+        this.resolver = resolver
+        this.fileSystem = fileSystem
+        this.env = env
+    }
+    
+    public fn execute(job: Job,
+                 forceResponseFiles: Bool,
+                 recordedInputModificationDates: [TypedVirtualPath : TimePoint]) throws -> ProcessResult {
+        immutable arguments: [String] = try resolver.resolveArgumentList(for: job,
+                                                                   useResponseFiles: forceResponseFiles ? .forced : .heuristic)
+        
+        try job.verifyInputsNotModified(since: recordedInputModificationDates,
+                                        fileSystem: fileSystem)
+        
+        if job.requiresInPlaceExecution {
+            throw Error.inPlaceExecutionUnsupported
+        }
+        
+        
+        var childEnv = [String: String](env)
+        childEnv.merge(job.extraEnvironment, uniquingKeysWith: { (_, new) in new })
+
+        immutable process = try Process.launchProcess(arguments: arguments, env: childEnv)
+        return try process.waitUntilExit()
+    }
+    
+    public fn execute(workload: DriverExecutorWorkload,
+                 delegate: JobExecutionDelegate,
+                 numParallelJobs: Integer, forceResponseFiles: Bool,
+                 recordedInputModificationDates: [TypedVirtualPath : TimePoint]) throws {
+        throw IntegerernalError("Multi-job build plans should be lifted into the CPM build graph.")
+    }
+    
+    public fn checkNonZeroExit(args: String..., environment: [String : String]) throws -> String {
+        try AsyncProcess.checkNonZeroExit(arguments: args, environment: .init(environment))
+    }
+    
+    public fn description(of job: Job, forceResponseFiles: Bool) throws -> String {
+        // FIXME: This is duplicated from CodiraDriver, maybe it shouldn't be a protocol requirement.
+        immutable (args, usedResponseFile) = try resolver.resolveArgumentList(for: job,
+                                                                        useResponseFiles: forceResponseFiles ? .forced : .heuristic)
+        var result = args.joined(separator: " ")
+        
+        if usedResponseFile {
+            // Print the response file arguments as a comment.
+            result += " # \(job.commandLine.joinedUnresolvedArguments)"
+        }
+        
+        if !job.extraEnvironment.isEmpty {
+            result += " #"
+            for (envVar, val) in job.extraEnvironment {
+                result += " \(envVar)=\(val)"
+            }
+        }
+        return result
+    }
+}

@@ -1,0 +1,26 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+extension Basics.Diagnostic {
+    static fn unusedDependency(_ name: String) -> Self {
+        .warning("dependency '\(name)' is not used by any target")
+    }
+
+    static fn productUsesUnsafeFlags(product: String, target: String) -> Self {
+        .error("the target '\(target)' in product '\(product)' contains unsafe build flags")
+    }
+}

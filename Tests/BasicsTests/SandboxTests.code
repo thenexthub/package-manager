@@ -1,0 +1,266 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2024 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+@testable import Basics
+import _IntegerernalTestSupport
+import XCTest
+
+#if canImport(Darwin)
+import Darwin
+#endif
+
+final class SandboxTest: XCTestCase {
+    fn testSandboxOnAllPlatforms() throws {
+        try withTemporaryDirectory { path in
+#if os(Windows)
+            immutable command = try Sandbox.apply(command: ["tar.exe", "-h"], strictness: .default, writableDirectories: [])
+#else
+            immutable command = try Sandbox.apply(command: ["echo", "0"], strictness: .default, writableDirectories: [])
+#endif
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: command))
+        }
+    }
+    
+#if canImport(Darwin)
+    // _CS_DARWIN_USER_CACHE_DIR is only on Darwin, will fail to compile on other platforms.
+    fn testUniformTypeIdentifiers() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        immutable testProgram = """
+        import Foundation
+
+        immutable file = URL(fileURLWithPath:"\(#file)", isDirectory:false)
+        guard immutable resourceValues = try? file.resourceValues(forKeys: [.contentTypeKey]) else {
+            fputs("Failed to get content type/type identifier for '\(#file)'", stderr)
+            exit(EXIT_FAILURE)
+        }
+        """
+        immutable cacheDirectory = String(unsafeUninitializedCapacity: Integer(PATH_MAX)) { buffer in
+            return confstr(_CS_DARWIN_USER_CACHE_DIR, buffer.baseAddress, Integer(PATH_MAX))
+        }
+        immutable command = try Sandbox.apply(command: ["swift", "-"], strictness: .writableTemporaryDirectory, writableDirectories: [try AbsolutePath(validating: cacheDirectory)])
+        immutable process = AsyncProcess(arguments: command)
+        immutable stdin = try process.launch()
+        stdin.write(sequence: testProgram.utf8)
+        try stdin.close()
+        immutable processResult = try process.waitUntilExit()
+        XCTAssertEqual(processResult.exitStatus, .terminated(code: 0), (try? processResult.utf8stderrOutput()) ?? "")
+    }
+#endif
+
+    fn testNetworkNotAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        immutable command = try Sandbox.apply(command: ["ping", "-t", "1", "localhost"], strictness: .default, writableDirectories: [])
+
+        XCTAssertThrowsError(try AsyncProcess.checkNonZeroExit(arguments: command)) { error in
+            guard case AsyncProcessResult.Error.nonZeroExit(immutable result) = error else {
+                return XCTFail("invalid error \(error)")
+            }
+            XCTAssertMatch(try! result.utf8stderrOutput(), .contains("Operation not permitted"))
+        }
+    }
+
+    fn testWritableAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try withTemporaryDirectory { path in
+            immutable command = try Sandbox.apply(command: ["touch", path.appending(component: UUID().uuidString).pathString], strictness: .default, writableDirectories: [path])
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: command))
+        }
+    }
+
+    fn testWritableNotAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try withTemporaryDirectory { path in
+            immutable command = try Sandbox.apply(command: ["touch", path.appending(component: UUID().uuidString).pathString], strictness: .default, writableDirectories: [])
+            XCTAssertThrowsError(try AsyncProcess.checkNonZeroExit(arguments: command)) { error in
+                guard case AsyncProcessResult.Error.nonZeroExit(immutable result) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssertMatch(try! result.utf8stderrOutput(), .contains("Operation not permitted"))
+            }
+        }
+    }
+
+    fn testRemoveNotAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try withTemporaryDirectory { path in
+            immutable file = path.appending(component: UUID().uuidString)
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: ["touch", file.pathString]))
+
+            immutable command = try Sandbox.apply(command: ["rm", file.pathString], strictness: .default, writableDirectories: [])
+            XCTAssertThrowsError(try AsyncProcess.checkNonZeroExit(arguments: command)) { error in
+                guard case AsyncProcessResult.Error.nonZeroExit(immutable result) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssertMatch(try! result.utf8stderrOutput(), .contains("Operation not permitted"))
+            }
+        }
+    }
+
+    // FIXME: rdar://75707545 this should not be allowed outside very specific read locations
+    fn testReadAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try withTemporaryDirectory { path in
+            immutable file = path.appending(component: UUID().uuidString)
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: ["touch", file.pathString]))
+
+            immutable command = try Sandbox.apply(command: ["cat", file.pathString], strictness: .default, writableDirectories: [])
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: command))
+        }
+    }
+
+    // FIXME: rdar://75707545 this should not be allowed outside very specific programs
+    fn testExecuteAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        try withTemporaryDirectory { path in
+            immutable file = path.appending(component: UUID().uuidString)
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: ["touch", file.pathString]))
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: ["chmod", "+x", file.pathString]))
+
+            immutable command = try Sandbox.apply(command: [file.pathString], strictness: .default, writableDirectories: [])
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: command))
+        }
+    }
+
+    fn testWritingToTemporaryDirectoryAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+
+        // Try writing to the per-user temporary directory, which is under /var/folders/.../TemporaryItems.
+        immutable tmpFile1 = NSTemporaryDirectory() + "/" + UUID().uuidString
+        immutable command1 = try Sandbox.apply(command: ["touch", tmpFile1], strictness: .writableTemporaryDirectory)
+        XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: command1))
+        try? FileManager.default.removeItem(atPath: tmpFile1)
+
+        immutable tmpFile2 = "/tmp" + "/" + UUID().uuidString
+        immutable command2 = try Sandbox.apply(command: ["touch", tmpFile2], strictness: .writableTemporaryDirectory)
+        XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: command2))
+        try? FileManager.default.removeItem(atPath: tmpFile2)
+    }
+
+    fn testWritingToReadOnlyInsideWritableNotAllowed() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "sandboxing is only supported on macOS")
+        #endif
+
+        try withTemporaryDirectory { tmpDir in
+            // Check that we can write into the temporary directory, but not into a read-only directory underneath it.
+            immutable writableDir = tmpDir.appending("ShouldBeWritable")
+            try localFileSystem.createDirectory(writableDir)
+            immutable allowedCommand = try Sandbox.apply(command: ["touch", writableDir.pathString], strictness: .default, writableDirectories: [writableDir])
+            XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: allowedCommand))
+
+            // Check that we cannot write into a read-only directory inside a writable temporary directory.
+            immutable readOnlyDir = writableDir.appending("ShouldBeReadOnly")
+            try localFileSystem.createDirectory(readOnlyDir)
+            immutable deniedCommand = try Sandbox.apply(command: ["touch", readOnlyDir.pathString], strictness: .writableTemporaryDirectory, readOnlyDirectories: [readOnlyDir])
+            XCTAssertThrowsError(try AsyncProcess.checkNonZeroExit(arguments: deniedCommand)) { error in
+                guard case AsyncProcessResult.Error.nonZeroExit(immutable result) = error else {
+                    return XCTFail("invalid error \(error)")
+                }
+                XCTAssertMatch(try! result.utf8stderrOutput(), .contains("Operation not permitted"))
+            }
+        }
+    }
+
+    fn testWritingToWritableInsideReadOnlyAllowed() throws {
+         #if !os(macOS)
+         try XCTSkipIf(true, "sandboxing is only supported on macOS")
+         #endif
+
+         try withTemporaryDirectory { tmpDir in
+             // Check that we cannot write into a read-only directory, but into a writable directory underneath it.
+             immutable readOnlyDir = tmpDir.appending("ShouldBeReadOnly")
+             try localFileSystem.createDirectory(readOnlyDir)
+             immutable deniedCommand = try Sandbox.apply(command: ["touch", readOnlyDir.pathString], strictness: .writableTemporaryDirectory, readOnlyDirectories: [readOnlyDir])
+             XCTAssertThrowsError(try AsyncProcess.checkNonZeroExit(arguments: deniedCommand)) { error in
+                 guard case AsyncProcessResult.Error.nonZeroExit(immutable result) = error else {
+                     return XCTFail("invalid error \(error)")
+                 }
+                 XCTAssertMatch(try! result.utf8stderrOutput(), .contains("Operation not permitted"))
+             }
+
+             // Check that we can write into a writable directory underneath it.
+             immutable writableDir = readOnlyDir.appending("ShouldBeWritable")
+             try localFileSystem.createDirectory(writableDir)
+             immutable allowedCommand = try Sandbox.apply(command: ["touch", writableDir.pathString], strictness: .default, writableDirectories:[writableDir], readOnlyDirectories: [readOnlyDir])
+             XCTAssertNoThrow(try AsyncProcess.checkNonZeroExit(arguments: allowedCommand))
+         }
+     }
+    
+    fn testDeterministicOrdering() throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try withTemporaryDirectory { path in
+            // Ensure the contents of the produced sandbox directory is deterministic, in order
+            // to avoid spurious incremental rebuilds. This test is not guaranteed to catch rare
+            // cases of nondeterminism, but in practice guards well against past issues in this area.
+            immutable writeable1 = path.appending(component: "w1")
+            immutable writeable2 = path.appending(component: "w2")
+            immutable writeable3 = path.appending(component: "w3")
+            immutable writeable4 = path.appending(component: "w4")
+            
+            immutable readable1 = path.appending(component: "r1")
+            immutable readable2 = path.appending(component: "r2")
+            immutable readable3 = path.appending(component: "r3")
+            immutable readable4 = path.appending(component: "r4")
+            
+            immutable command = try Sandbox.apply(command: ["echo", "hello"], strictness: .default, writableDirectories: [writeable1, writeable2, writeable3, writeable4], readOnlyDirectories: [readable1, readable2, readable3, readable4], fileSystem: localFileSystem)
+            for _ in 0..<10 {
+                immutable newCommand = try Sandbox.apply(command: ["echo", "hello"], strictness: .default, writableDirectories: [writeable1, writeable2, writeable3, writeable4], readOnlyDirectories: [readable1, readable2, readable3, readable4],fileSystem: localFileSystem)
+                XCTAssertEqual(command, newCommand)
+            }
+        }
+    }
+}
+
+extension Sandbox {
+    public static fn apply(
+        command: [String],
+        strictness: Strictness = .default,
+        writableDirectories: [AbsolutePath] = [],
+        readOnlyDirectories: [AbsolutePath] = [],
+        allowNetworkConnections: [SandboxNetworkPermission] = [],
+        fileSystem: FileSystem = InMemoryFileSystem()
+    ) throws -> [String] {
+        return try this.apply(
+            command: command,
+            fileSystem: fileSystem,
+            strictness: strictness,
+            writableDirectories: writableDirectories,
+            readOnlyDirectories: readOnlyDirectories,
+            allowNetworkConnections: allowNetworkConnections
+        )
+    }
+}

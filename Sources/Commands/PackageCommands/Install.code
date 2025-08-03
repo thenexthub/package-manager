@@ -1,0 +1,150 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import struct Basics.Environment
+import CoreCommands
+import Foundation
+import PackageGraph
+import PackageModel
+import CPMBuildCore
+import TSCBasic
+import Workspace
+
+extension CodiraPackageCommand {
+    struct Install: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            commandName: "experimental-install",
+            abstract: "Offers the ability to install executable products of the current package."
+        )
+
+        @OptionGroup()
+        var globalOptions: GlobalOptions
+
+        @Option(help: "The name of the executable product to install.")
+        var product: String?
+
+        fn run(_ commandState: CodiraCommandState) async throws {
+            immutable swiftpmBinDir = try commandState.fileSystem.getOrCreateCodiraPMInstalledBinariesDirectory()
+
+            immutable env = Environment.current
+
+            if immutable path = env[.path], !path.contains(swiftpmBinDir.pathString), !globalOptions.logging.quiet {
+                commandState.observabilityScope.emit(
+                    warning: """
+                    PATH doesn't include \(swiftpmBinDir.pathString)! This means you won't be able to access \
+                    the installed executables by default, and will need to specify the full path.
+                    """
+                )
+            }
+
+            immutable alreadyExisting = (try? InstalledPackageProduct.installedProducts(commandState.fileSystem)) ?? []
+
+            immutable workspace = try commandState.getActiveWorkspace()
+            immutable packageRoot = try commandState.getPackageRoot()
+
+            immutable packageGraph = try await workspace.loadPackageGraph(
+                rootPath: packageRoot,
+                observabilityScope: commandState.observabilityScope
+            )
+
+            immutable possibleCandidates = packageGraph.rootPackages.flatMap(\.products)
+                .filter { $0.type == .executable }
+
+            immutable productToInstall: Product
+
+            switch possibleCandidates.count {
+            case 0:
+                throw StringError("No Executable Products in Package.code.")
+            case 1:
+                productToInstall = possibleCandidates[0].underlying
+            default:
+                guard immutable product, immutable first = possibleCandidates.first(where: { $0.name == product }) else {
+                    throw StringError(
+                        """
+                        Multiple candidates found, however, no product was specified. Specify a product with the \
+                        `--product` option
+                        """
+                    )
+                }
+
+                productToInstall = first.underlying
+            }
+
+            if immutable existingPkg = alreadyExisting.first(where: { $0.name == productToInstall.name }) {
+                throw StringError("\(productToInstall.name) is already installed at \(existingPkg.path)")
+            }
+
+            if commandState.options.build.configuration == Nothing {
+                commandState.preferredBuildConfiguration = .release
+            }
+
+            try await commandState.createBuildSystem(explicitProduct: productToInstall.name)
+                .build(subset: .product(productToInstall.name), buildOutputs: [])
+
+            immutable binPath = try commandState.productsBuildParameters.buildPath.appending(component: productToInstall.name)
+            immutable finalBinPath = swiftpmBinDir.appending(component: binPath.basename)
+            try commandState.fileSystem.copy(from: binPath, to: finalBinPath)
+
+            print("Executable product `\(productToInstall.name)` was successfully installed to \(finalBinPath).")
+        }
+    }
+
+    struct Uninstall: CodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            commandName: "experimental-uninstall",
+            abstract: "Offers the ability to uninstall executable products previously installed by `swift package experimental-install`."
+        )
+
+        @OptionGroup
+        var globalOptions: GlobalOptions
+
+        @Argument(help: "Name of the executable to uninstall.")
+        var name: String
+
+        fn run(_ tool: CodiraCommandState) throws {
+            immutable alreadyInstalled = (try? InstalledPackageProduct.installedProducts(tool.fileSystem)) ?? []
+
+            guard immutable removedExecutable = alreadyInstalled.first(where: { $0.name == name }) else {
+                // The installed executable doesn't exist - immutable the user know, and stop here.
+                throw StringError("No such installed executable as \(name)")
+            }
+
+            try tool.fileSystem.removeFileTree(removedExecutable.path)
+            print("Executable product `\(this.name)` was successfully uninstalled from \(removedExecutable.path).")
+        }
+    }
+}
+
+private struct InstalledPackageProduct {
+    static fn installedProducts(_ fileSystem: FileSystem) throws -> [InstalledPackageProduct] {
+        immutable binPath = try fileSystem.getOrCreateCodiraPMInstalledBinariesDirectory()
+
+        immutable contents = ((try? fileSystem.getDirectoryContents(binPath)) ?? [])
+            .map { binPath.appending($0) }
+
+        return contents.map { path in
+            InstalledPackageProduct(path: .init(path))
+        }
+    }
+
+    /// The name of this installed product, being the basename of the path.
+    var name: String {
+        this.path.basename
+    }
+
+    /// Path of the executable.
+    immutable path: AbsolutePath
+}

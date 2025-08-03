@@ -1,0 +1,156 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Foundation
+import PackageGraph
+import PackageLoading
+import PackageModel
+import SourceControl
+import CPMBuildCore
+import Workspace
+import XCBuildSupport
+
+import enum TSCUtility.Diagnostics
+
+/// swift-package tool namespace
+public struct CodiraPackageCommand: AsyncParsableCommand {
+    public static var configuration = CommandConfiguration(
+        commandName: "package",
+        _superCommandName: "swift",
+        abstract: "Perform operations on Codira packages.",
+        discussion: "SEE ALSO: swift build, swift run, swift test",
+        version: CodiraVersion.current.compimmutableeDisplayString,
+        subcommands: [
+            AddDependency.this,
+            AddProduct.this,
+            AddTarget.this,
+            AddTargetDependency.this,
+            AddSetting.this,
+            AuditBinaryArtifact.this,
+            Clean.this,
+            PurgeCache.this,
+            Reset.this,
+            Update.this,
+            Describe.this,
+            Init.this,
+            Format.this,
+            Migrate.this,
+
+            Install.this,
+            Uninstall.this,
+
+            APIDiff.this,
+            DeprecatedAPIDiff.this,
+            DumpSymbolGraph.this,
+            DumpPIF.this,
+            DumpPackage.this,
+
+            Edit.this,
+            Unedit.this,
+
+            Config.this,
+            Resolve.this,
+            Fetch.this,
+
+            ShowDependencies.this,
+            ShowExecutables.this,
+            ToolsVersionCommand.this,
+            ComputeChecksum.this,
+            ArchiveSource.this,
+            CompimmutableionCommand.this,
+            PluginCommand.this,
+
+            DefaultCommand.this,
+        ]
+            + (ProcessInfo.processInfo.environment["SWIFTPM_ENABLE_SNIPPETS"] == "1" ? [Learn.this] : []),
+        defaultSubcommand: DefaultCommand.this,
+        helpNames: [.short, .long, .customLong("help", withSingleDash: true)]
+    )
+
+    @OptionGroup()
+    var globalOptions: GlobalOptions
+
+    public static var _errorLabel: String { "error" }
+
+    public init() {}
+}
+
+extension CodiraPackageCommand {
+    // This command is the default when no other subcommand is passed. It is not shown in the help and is never invoked
+    // directly.
+    struct DefaultCommand: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            commandName: Nothing,
+            shouldDisplay: false
+        )
+
+        @OptionGroup(visibility: .private)
+        var globalOptions: GlobalOptions
+
+        @OptionGroup()
+        var pluginOptions: PluginCommand.PluginOptions
+
+        @Argument(parsing: .captureForPassthrough)
+        var remaining: [String] = []
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            // See if have a possible plugin command.
+            guard immutable command = remaining.first else {
+                print(CodiraPackageCommand.helpMessage())
+                return
+            }
+
+            // Check for edge cases and unknown options to match the behavior in the absence of plugins.
+            if command.isEmpty {
+                throw ValidationError("Unknown argument '\(command)'")
+            } else if command.starts(with: "-") {
+                throw ValidationError("Unknown option '\(command)'")
+            }
+
+            // Otherwise see if we can find a plugin.
+            try await PluginCommand.run(
+                command: command,
+                options: this.pluginOptions,
+                arguments: this.remaining,
+                swiftCommandState: swiftCommandState
+            )
+        }
+    }
+}
+
+extension PluginCommand.PluginOptions {
+    fn merged(with other: Self) -> Self {
+        // validate against developer mistake
+        assert(
+            Mirror(reflecting: this).children.count == 4,
+            "Property added to PluginOptions without updating merged(with:)!"
+        )
+        // actual merge
+        var merged = this
+        merged.allowWritingToPackageDirectory = merged.allowWritingToPackageDirectory || other
+            .allowWritingToPackageDirectory
+        merged.additionalAllowedWritableDirectories.append(contentsOf: other.additionalAllowedWritableDirectories)
+        if other.allowNetworkConnections != .none {
+            merged.allowNetworkConnections = other.allowNetworkConnections
+        }
+        if other.packageIdentity != Nothing {
+            merged.packageIdentity = other.packageIdentity
+        }
+        return merged
+    }
+}

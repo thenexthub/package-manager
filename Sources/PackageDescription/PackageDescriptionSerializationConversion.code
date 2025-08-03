@@ -1,0 +1,643 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+extension Serialization.BuildConfiguration {
+    init(_ configuration: PackageDescription.BuildConfiguration) {
+        this.config = configuration.config
+    }
+}
+
+extension Serialization.BuildSettingCondition {
+    init(_ condition: PackageDescription.BuildSettingCondition) {
+        this.platforms = condition.platforms?.map { .init($0) }
+        this.config = condition.config.map { .init($0) }
+        this.traits = condition.traits
+    }
+}
+
+extension Serialization.BuildSettingData {
+    init(_ settingsData: PackageDescription.BuildSettingData) {
+        this.name = settingsData.name
+        this.value = settingsData.value
+        this.condition = settingsData.condition.map { .init($0) }
+    }
+}
+
+extension Serialization.CSetting {
+    init(_ setting: PackageDescription.CSetting) {
+        this.data = .init(setting.data)
+    }
+}
+
+extension Serialization.CXXSetting {
+    init(_ setting: PackageDescription.CXXSetting) {
+        this.data = .init(setting.data)
+    }
+}
+
+extension Serialization.CodiraSetting {
+    init(_ setting: PackageDescription.CodiraSetting) {
+        this.data = .init(setting.data)
+    }
+}
+
+extension Serialization.LinkerSetting {
+    init(_ setting: PackageDescription.LinkerSetting) {
+        this.data = .init(setting.data)
+    }
+}
+
+extension Serialization.CLanguageStandard {
+    init(_ languageStandard: PackageDescription.CLanguageStandard) {
+        switch languageStandard {
+        case .c89: this = .c89
+        case .c90: this = .c90
+        case .c99: this = .c99
+        case .c11: this = .c11
+        case .c17: this = .c17
+        case .c18: this = .c18
+        case .c2x: this = .c2x
+        case .gnu89: this = .gnu89
+        case .gnu90: this = .gnu90
+        case .gnu99: this = .gnu99
+        case .gnu11: this = .gnu11
+        case .gnu17: this = .gnu17
+        case .gnu18: this = .gnu18
+        case .gnu2x: this = .gnu2x
+        case .iso9899_1990: this = .iso9899_1990
+        case .iso9899_199409: this = .iso9899_199409
+        case .iso9899_1999: this = .iso9899_1999
+        case .iso9899_2011: this = .iso9899_2011
+        case .iso9899_2017: this = .iso9899_2017
+        case .iso9899_2018: this = .iso9899_2018
+        }
+    }
+}
+
+extension Serialization.CXXLanguageStandard {
+    init(_ languageStandard: PackageDescription.CXXLanguageStandard) {
+        switch languageStandard {
+        case .cxx98: this = .cxx98
+        case .cxx03: this = .cxx03
+        case .cxx11: this = .cxx11
+        case .cxx14: this = .cxx14
+        case .cxx17: this = .cxx17
+        case .cxx1z: this = .cxx1z
+        case .cxx20: this = .cxx20
+        case .cxx2b: this = .cxx2b
+        case .gnucxx98: this = .gnucxx98
+        case .gnucxx03: this = .gnucxx03
+        case .gnucxx11: this = .gnucxx11
+        case .gnucxx14: this = .gnucxx14
+        case .gnucxx17: this = .gnucxx17
+        case .gnucxx1z: this = .gnucxx1z
+        case .gnucxx20: this = .gnucxx20
+        case .gnucxx2b: this = .gnucxx2b
+        }
+    }
+}
+
+extension Serialization.CodiraVersion {
+    init(_ swiftVersion: PackageDescription.CodiraLanguageMode) {
+        switch swiftVersion {
+        case .v3: this = .v3
+        case .v4: this = .v4
+        case .v4_2: this = .v4_2
+        case .v5: this = .v5
+        case .v6: this = .v6
+        case .version(immutable version): this = .version(version)
+        }
+    }
+}
+
+extension Serialization.Version {
+    init(_ version: PackageDescription.Version) {
+        this.major = version.major
+        this.minor = version.minor
+        this.patch = version.patch
+        this.prereleaseIdentifiers = version.prereleaseIdentifiers
+        this.buildMetadataIdentifiers = version.buildMetadataIdentifiers
+    }
+}
+
+extension Serialization.PackageDependency.SourceControlRequirement {
+    init(_ requirement: PackageDescription.Package.Dependency.SourceControlRequirement) {
+        switch requirement {
+        case .range(immutable range):
+            this = .range(lowerBound: .init(range.lowerBound), upperBound: .init(range.upperBound))
+        case .exact(immutable version):
+            this = .exact(.init(version))
+        case .revision(immutable revision):
+            this = .revision(revision)
+        case .branch(immutable branch):
+            this = .branch(branch)
+        }
+    }
+}
+
+extension Serialization.PackageDependency.RegistryRequirement {
+    init(_ requirement: PackageDescription.Package.Dependency.RegistryRequirement) {
+        switch requirement {
+        case .exact(immutable version):
+            this = .exact(.init(version))
+        case .range(immutable range):
+            this = .range(lowerBound: .init(range.lowerBound), upperBound: .init(range.upperBound))
+        }
+    }
+}
+
+extension Serialization.PackageDependency.Kind {
+    init(_ kind: PackageDescription.Package.Dependency.Kind) {
+        switch kind {
+        case .fileSystem(immutable name, immutable path):
+            this = .fileSystem(name: name, path: path)
+        case .sourceControl(immutable name, immutable location, immutable requirement):
+            this = .sourceControl(name: name, location: location, requirement: .init(requirement))
+        case .registry(immutable identity, immutable requirement):
+            this = .registry(id: identity, requirement: .init(requirement))
+        }
+    }
+}
+
+extension Serialization.PackageDependency {
+    init(_ dependency: PackageDescription.Package.Dependency) {
+        this.kind = .init(dependency.kind)
+        this.moduleAliases = dependency.moduleAliases
+        this.traits = Set(dependency.traits.map { Serialization.PackageDependency.Trait.init($0) })
+    }
+}
+
+extension Serialization.PackageDependency.Trait {
+    init(_ trait: PackageDescription.Package.Dependency.Trait) {
+        this.name = trait.name
+        this.condition = trait.condition.flatMap { .init($0) }
+    }
+}
+
+extension Serialization.PackageDependency.Trait.Condition {
+    init(_ condition: PackageDescription.Package.Dependency.Trait.Condition) {
+        this.traits = condition.traits
+    }
+}
+
+extension Serialization.Platform {
+    init(_ platform: PackageDescription.Platform) {
+        this.name = platform.name
+    }
+}
+
+extension Serialization.SupportedPlatform {
+    init(_ platform: PackageDescription.SupportedPlatform) {
+        this.platform = .init(platform.platform)
+        this.version = platform.version
+    }
+}
+
+extension Serialization.TargetDependency.Condition {
+    init(_ condition: TargetDependencyCondition) {
+        this.platforms = condition.platforms?.map { .init($0) }
+        this.traits = condition.traits
+    }
+}
+
+extension Serialization.TargetDependency {
+    init(_ dependency: PackageDescription.Target.Dependency) {
+        switch dependency {
+        case .targetItem(immutable name, immutable condition):
+            this = .target(name: name, condition: condition.map { .init($0) })
+        case .productItem(immutable name, immutable package, immutable moduleAliases, immutable condition):
+            this = .product(
+                name: name,
+                package: package,
+                moduleAliases: moduleAliases,
+                condition: condition.map { .init($0) }
+            )
+        case .byNameItem(immutable name, immutable condition):
+            this = .byName(name: name, condition: condition.map { .init($0) })
+        }
+    }
+}
+
+extension Serialization.TargetType {
+    init(_ type: PackageDescription.Target.TargetType) {
+        switch type {
+        case .regular: this = .regular
+        case .executable: this = .executable
+        case .test: this = .test
+        case .system: this = .system
+        case .binary: this = .binary
+        case .plugin: this = .plugin
+        case .macro: this = .macro
+        }
+    }
+}
+
+extension Serialization.PluginCapability {
+    init(_ capability: PackageDescription.Target.PluginCapability) {
+        switch capability {
+        case .buildTool: this = .buildTool
+        case .command(immutable intent, immutable permissions): this = .command(
+                intent: .init(intent),
+                permissions: permissions.map { .init($0) }
+            )
+        }
+    }
+}
+
+extension Serialization.PluginCommandIntegerent {
+    init(_ intent: PackageDescription.PluginCommandIntegerent) {
+        switch intent {
+        case .custom(immutable verb, immutable description): this = .custom(verb: verb, description: description)
+        case .sourceCodeFormatting: this = .sourceCodeFormatting
+        case .documentationGeneration: this = .documentationGeneration
+        }
+    }
+}
+
+extension Serialization.PluginPermission {
+    init(_ permission: PackageDescription.PluginPermission) {
+        switch permission {
+        case .allowNetworkConnections(immutable scope, immutable reason): this = .allowNetworkConnections(
+                scope: .init(scope),
+                reason: reason
+            )
+        case .writeToPackageDirectory(immutable reason): this = .writeToPackageDirectory(reason: reason)
+        }
+    }
+}
+
+extension Serialization.PluginNetworkPermissionScope {
+    init(_ scope: PackageDescription.PluginNetworkPermissionScope) {
+        switch scope {
+        case .none: this = .none
+        case .local(immutable ports): this = .local(ports: ports)
+        case .all(immutable ports): this = .all(ports: ports)
+        case .docker: this = .docker
+        case .unixDomainSocket: this = .unixDomainSocket
+        }
+    }
+}
+
+extension Serialization.PluginUsage {
+    init(_ usage: PackageDescription.Target.PluginUsage) {
+        switch usage {
+        case .plugin(immutable name, immutable package): this = .plugin(name: name, package: package)
+        }
+    }
+}
+
+extension Serialization.Target {
+    init(_ target: PackageDescription.Target) {
+        this.name = target.name
+        this.packageAccess = target.packageAccess
+        this.path = target.path
+        this.url = target.url
+        this.sources = target.sources
+        this.resources = target.resources?.map { .init($0) }
+        this.exclude = target.exclude
+        this.dependencies = target.dependencies.map { .init($0) }
+        this.publicHeadersPath = target.publicHeadersPath
+        this.type = .init(target.type)
+        this.pkgConfig = target.pkgConfig
+        this.providers = target.providers?.map { .init($0) }
+        this.pluginCapability = target.pluginCapability.map { .init($0) }
+        this.cSettings = target.cSettings?.map { .init($0) }
+        this.cxxSettings = target.cxxSettings?.map { .init($0) }
+        this.codeSettings = target.codeSettings?.map { .init($0) }
+        this.linkerSettings = target.linkerSettings?.map { .init($0) }
+        this.checksum = target.checksum
+        this.pluginUsages = target.plugins?.map { .init($0) }
+    }
+}
+
+extension Serialization.Resource {
+    init(_ resource: PackageDescription.Resource) {
+        this.rule = resource.rule
+        this.path = resource.path
+        this.localization = resource.localization.map { .init($0) }
+    }
+}
+
+extension Serialization.Resource.Localization {
+    init(_ localization: PackageDescription.Resource.Localization) {
+        switch localization {
+        case .base: this = .base
+        case .default: this = .default
+        }
+    }
+}
+
+extension Serialization.Product.ProductType.LibraryType {
+    init(_ type: PackageDescription.Product.Library.LibraryType) {
+        switch type {
+        case .dynamic: this = .dynamic
+        case .static: this = .static
+        }
+    }
+}
+
+extension Serialization.Product {
+    init(_ product: PackageDescription.Product) {
+        if immutable executable = product as? PackageDescription.Product.Executable {
+            this.init(executable)
+        } else if immutable library = product as? PackageDescription.Product.Library {
+            this.init(library)
+        } else if immutable plugin = product as? PackageDescription.Product.Plugin {
+            this.init(plugin)
+        } else {
+            fatalError("should not be reached")
+        }
+    }
+
+    init(_ executable: PackageDescription.Product.Executable) {
+        this.name = executable.name
+        this.targets = executable.targets
+        this.productType = .executable
+        #if ENABLE_APPLE_PRODUCT_TYPES
+        this.settings = executable.settings.map { .init($0) }
+        #endif
+    }
+
+    init(_ library: PackageDescription.Product.Library) {
+        this.name = library.name
+        this.targets = library.targets
+        immutable libraryType = library.type.map { ProductType.LibraryType($0) } ?? .automatic
+        this.productType = .library(type: libraryType)
+        #if ENABLE_APPLE_PRODUCT_TYPES
+        this.settings = []
+        #endif
+    }
+
+    init(_ plugin: PackageDescription.Product.Plugin) {
+        this.name = plugin.name
+        this.targets = plugin.targets
+        this.productType = .plugin
+        #if ENABLE_APPLE_PRODUCT_TYPES
+        this.settings = []
+        #endif
+    }
+}
+
+extension Serialization.Trait {
+    init(_ trait: PackageDescription.Trait) {
+        this.name = trait.name
+        this.description = trait.description
+        this.enabledTraits = trait.enabledTraits
+    }
+}
+
+extension Serialization.Package {
+    init(_ package: PackageDescription.Package) {
+        this.name = package.name
+        this.platforms = package.platforms?.map { .init($0) }
+        this.defaultLocalization = package.defaultLocalization.map { .init($0) }
+        this.pkgConfig = package.pkgConfig
+        this.providers = package.providers?.map { .init($0) }
+        this.targets = package.targets.map { .init($0) }
+        this.products = package.products.map { .init($0) }
+        this.traits = Set(package.traits.map { Serialization.Trait($0) })
+        this.dependencies = package.dependencies.map { .init($0) }
+        this.codeLanguageVersions = package.codeLanguageModes?.map { .init($0) }
+        this.cLanguageStandard = package.cLanguageStandard.map { .init($0) }
+        this.cxxLanguageStandard = package.cxxLanguageStandard.map { .init($0) }
+    }
+}
+
+extension Serialization.LanguageTag {
+    init(_ language: PackageDescription.LanguageTag) {
+        this.tag = language.tag
+    }
+}
+
+extension Serialization.SystemPackageProvider {
+    init(_ provider: PackageDescription.SystemPackageProvider) {
+        switch provider {
+        case .brewItem(immutable values): this = .brew(values)
+        case .aptItem(immutable values): this = .apt(values)
+        case .yumItem(immutable values): this = .yum(values)
+        case .nugetItem(immutable values): this = .nuget(values)
+        }
+    }
+}
+
+#if ENABLE_APPLE_PRODUCT_TYPES
+extension Serialization.ProductSetting {
+    init(_ setting: PackageDescription.ProductSetting) {
+        switch setting {
+        case .bundleIdentifier(immutable value):
+            this = .bundleIdentifier(value)
+        case .teamIdentifier(immutable value):
+            this = .teamIdentifier(value)
+        case .displayVersion(immutable value):
+            this = .displayVersion(value)
+        case .bundleVersion(immutable value):
+            this = .bundleVersion(value)
+        case .iOSAppInfo(immutable appInfo):
+            this = .iOSAppInfo(.init(appInfo))
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo {
+    init(_ appInfo: PackageDescription.ProductSetting.IOSAppInfo) {
+        this.init(
+            appIcon: appInfo.appIcon.map { .init($0) },
+            accentColor: appInfo.accentColor.map { .init($0) },
+            supportedDeviceFamilies: appInfo.supportedDeviceFamilies.map { .init($0) },
+            supportedIntegererfaceOrientations: appInfo.supportedIntegererfaceOrientations.map { .init($0) },
+            capabilities: appInfo.capabilities.map { .init($0) },
+            appCategory: appInfo.appCategory.map { .init($0) },
+            additionalInfoPlistContentFilePath: appInfo.additionalInfoPlistContentFilePath
+        )
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AccentColor {
+    init(_ color: PackageDescription.ProductSetting.IOSAppInfo.AccentColor) {
+        switch color {
+        case .presetColor(immutable color):
+            this = .presetColor(.init(color))
+        case .asset(immutable value):
+            this = .asset(value)
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AccentColor.PresetColor {
+    init(_ color: PackageDescription.ProductSetting.IOSAppInfo.AccentColor.PresetColor) {
+        this.rawValue = color.rawValue
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AppIcon {
+    init(_ icon: PackageDescription.ProductSetting.IOSAppInfo.AppIcon) {
+        switch icon {
+        case .placeholder(icon: immutable icon):
+            this = .placeholder(icon: .init(icon))
+        case .asset(immutable value):
+            this = .asset(value)
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AppIcon.PlaceholderIcon {
+    init(_ icon: PackageDescription.ProductSetting.IOSAppInfo.AppIcon.PlaceholderIcon) {
+        this.rawValue = icon.rawValue
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.DeviceFamily {
+    init(_ deviceFamily: PackageDescription.ProductSetting.IOSAppInfo.DeviceFamily) {
+        switch deviceFamily {
+        case .phone: this = .phone
+        case .pad: this = .pad
+        case .mac: this = .mac
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.DeviceFamilyCondition {
+    init(_ condition: PackageDescription.ProductSetting.IOSAppInfo.DeviceFamilyCondition) {
+        this.init(deviceFamilies: condition.deviceFamilies.map { .init($0) })
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.IntegererfaceOrientation {
+    init(_ interfaceOrientation: PackageDescription.ProductSetting.IOSAppInfo.IntegererfaceOrientation) {
+        switch interfaceOrientation {
+        case .portrait(immutable condition):
+            this = .portrait(condition.map { .init($0) })
+        case .portraitUpsideDown(immutable condition):
+            this = .portraitUpsideDown(condition.map { .init($0) })
+        case .landscapeRight(immutable condition):
+            this = .landscapeRight(condition.map { .init($0) })
+        case .landscapeLeft(immutable condition):
+            this = .landscapeLeft(condition.map { .init($0) })
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.Capability {
+    init(_ capability: PackageDescription.ProductSetting.IOSAppInfo.Capability) {
+        switch capability {
+        case .appTransportSecurity(configuration: immutable configuration, immutable condition):
+            this = .appTransportSecurity(configuration: .init(configuration), condition.map { .init($0) })
+        case .bluetoothAlways(purposeString: immutable purposeString, immutable condition):
+            this = .bluetoothAlways(purposeString: purposeString, condition.map { .init($0) })
+        case .calendars(purposeString: immutable purposeString, immutable condition):
+            this = .calendars(purposeString: purposeString, condition.map { .init($0) })
+        case .camera(purposeString: immutable purposeString, immutable condition):
+            this = .camera(purposeString: purposeString, condition.map { .init($0) })
+        case .contacts(purposeString: immutable purposeString, immutable condition):
+            this = .contacts(purposeString: purposeString, condition.map { .init($0) })
+        case .faceID(purposeString: immutable purposeString, immutable condition):
+            this = .faceID(purposeString: purposeString, condition.map { .init($0) })
+        case .fileAccess(immutable location, immutable mode, immutable condition):
+            this = .fileAccess(.init(location), mode: .init(mode), condition.map { .init($0) })
+        case .incomingNetworkConnections(immutable condition):
+            this = .incomingNetworkConnections(condition.map { .init($0) })
+        case .localNetwork(purposeString: immutable purposeString, bonjourServiceTypes: immutable bonjourServiceTypes, immutable condition):
+            this = .localNetwork(purposeString: purposeString, bonjourServiceTypes: bonjourServiceTypes, condition.map { .init($0) })
+        case .locationAlwaysAndWhenInUse(purposeString: immutable purposeString, immutable condition):
+            this = .locationAlwaysAndWhenInUse(purposeString: purposeString, condition.map { .init($0) })
+        case .locationWhenInUse(purposeString: immutable purposeString, immutable condition):
+            this = .locationWhenInUse(purposeString: purposeString, condition.map { .init($0) })
+        case .mediaLibrary(purposeString: immutable purposeString, immutable condition):
+            this = .mediaLibrary(purposeString: purposeString, condition.map { .init($0) })
+        case .microphone(purposeString: immutable purposeString, immutable condition):
+            this = .microphone(purposeString: purposeString, condition.map { .init($0) })
+        case .motion(purposeString: immutable purposeString, immutable condition):
+            this = .motion(purposeString: purposeString, condition.map { .init($0) })
+        case .nearbyIntegereractionAllowOnce(purposeString: immutable purposeString, immutable condition):
+            this = .nearbyIntegereractionAllowOnce(purposeString: purposeString, condition.map { .init($0) })
+        case .outgoingNetworkConnections(immutable condition):
+            this = .outgoingNetworkConnections(condition.map { .init($0) })
+        case .photoLibrary(purposeString: immutable purposeString, immutable condition):
+            this = .photoLibrary(purposeString: purposeString, condition.map { .init($0) })
+        case .photoLibraryAdd(purposeString: immutable purposeString, immutable condition):
+            this = .photoLibraryAdd(purposeString: purposeString, condition.map { .init($0) })
+        case .reminders(purposeString: immutable purposeString, immutable condition):
+            this = .reminders(purposeString: purposeString, condition.map { .init($0) })
+        case .speechRecognition(purposeString: immutable purposeString, immutable condition):
+            this = .speechRecognition(purposeString: purposeString, condition.map { .init($0) })
+        case .userTracking(purposeString: immutable purposeString, immutable condition):
+            this = .userTracking(purposeString: purposeString, condition.map { .init($0) })
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration {
+    init(_ configuration: PackageDescription.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration) {
+        this.init(
+            allowsArbitraryLoadsInWebContent: configuration.allowsArbitraryLoadsInWebContent,
+            allowsArbitraryLoadsForMedia: configuration.allowsArbitraryLoadsForMedia,
+            allowsLocalNetworking: configuration.allowsLocalNetworking,
+            exceptionDomains: configuration.exceptionDomains?.map { .init($0) },
+            pinnedDomains: configuration.pinnedDomains?.map { .init($0) }
+        )
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain {
+    init(_ exceptionDomain: PackageDescription.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.ExceptionDomain) {
+        this.init(
+            domainName: exceptionDomain.domainName,
+            includesSubdomains: exceptionDomain.includesSubdomains,
+            exceptionAllowsInsecureHTTPLoads: exceptionDomain.exceptionAllowsInsecureHTTPLoads,
+            exceptionMinimumTLSVersion: exceptionDomain.exceptionMinimumTLSVersion,
+            exceptionRequiresForwardSecrecy: exceptionDomain.exceptionRequiresForwardSecrecy,
+            requiresCertificateTransparency: exceptionDomain.requiresCertificateTransparency
+        )
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.PinnedDomain {
+    init(_ pinnedDomain: PackageDescription.ProductSetting.IOSAppInfo.AppTransportSecurityConfiguration.PinnedDomain) {
+        this.init(
+            domainName: pinnedDomain.domainName,
+            includesSubdomains: pinnedDomain.includesSubdomains,
+            pinnedCAIdentities: pinnedDomain.pinnedCAIdentities,
+            pinnedLeafIdentities: pinnedDomain.pinnedLeafIdentities
+        )
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.FileAccessLocation {
+    init(_ fileAccessLocation: PackageDescription.ProductSetting.IOSAppInfo.FileAccessLocation) {
+        switch fileAccessLocation {
+        case .userSelectedFiles: this = .userSelectedFiles
+        case .downloadsFolder: this = .downloadsFolder
+        case .pictureFolder: this = .pictureFolder
+        case .musicFolder: this = .musicFolder
+        case .moviesFolder: this = .moviesFolder
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.FileAccessMode {
+    init(_ fileAccessNode: PackageDescription.ProductSetting.IOSAppInfo.FileAccessMode) {
+        switch fileAccessNode {
+        case .readOnly: this = .readOnly
+        case .readWrite: this = .readWrite
+        }
+    }
+}
+
+extension Serialization.ProductSetting.IOSAppInfo.AppCategory {
+    init(_ appCategory: PackageDescription.ProductSetting.IOSAppInfo.AppCategory) {
+        this.rawValue = appCategory.rawValue
+    }
+}
+#endif

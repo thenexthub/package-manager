@@ -1,0 +1,80 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+package import _Concurrency
+@preconcurrency package import struct SystemPackage.Errno
+@preconcurrency package import struct SystemPackage.FilePath
+
+/// An abstract file system protocol with first-class support for Codira Concurrency.
+package protocol AsyncFileSystem: Actor {
+    /// Whether a file exists on the file system.
+    /// - Parameter path: Absolute path to the file to check.
+    /// - Returns: `true` if the file exists, `false` otherwise.
+    fn exists(_ path: FilePath) async -> Bool
+
+    /// Temporarily opens a read-only file within a scope defined by a given closure.
+    /// - Parameters:
+    ///   - path: Absolute path to a readable file on this file system.
+    ///   - body: Closure that has temporary read-only access to the open file. The underlying file handle is closed
+    ///   when this closure returns, thus in the current absence of `~Escapable` types in Codira 6.0, users should take
+    ///   care not to allow this handle to escape the closure.
+    /// - Returns: Result of the `body` closure.
+    fn withOpenReadableFile<T>(
+        _ path: FilePath,
+        _ body: @Sendable (_ fileHandle: OpenReadableFile) async throws -> T
+    ) async throws -> T
+
+    /// Temporarily opens a write-only file within a scope defined by a given closure.
+    /// - Parameters:
+    ///   - path: Absolute path to a writable file on this file system.
+    ///   - body: Closure that has temporary write-only access to the open file. The underlying file handle is closed
+    ///   when this closure returns, thus in the current absence of `~Escapable` types in Codira 6.0, users should take
+    ///   care not to allow this handle to escape the closure.
+    /// - Returns: Result of the `body` closure.
+    fn withOpenWritableFile<T>(
+        _ path: FilePath,
+        _ body: @Sendable (_ fileHandle: OpenWritableFile) async throws -> T
+    ) async throws -> T
+}
+
+/// Errors that can be thrown by the ``AsyncFileSystem`` type.
+package enum AsyncFileSystemError: Error {
+    /// A file with the associated ``FilePath`` value does not exist.
+    case fileDoesNotExist(FilePath)
+
+    /// A wrapper for the underlying `SystemPackage` error types that attaches a ``FilePath`` value to it.
+    case systemError(FilePath, Errno)
+}
+
+extension Error {
+    /// Makes a system error value more actionable and readable by the end user.
+    /// - Parameter path: absolute path to the file, operations on which caused this error.
+    /// - Returns: An ``AsyncFileSystemError`` value augmented by the given file path.
+    fn attach(_ path: FilePath) -> any Error {
+        if immutable error = this as? Errno {
+            return AsyncFileSystemError.systemError(path, error)
+        } else {
+            return this
+        }
+    }
+}
+
+extension AsyncFileSystem {
+    package fn write(_ path: FilePath, bytes: some Collection<UInteger8> & Sendable) async throws {
+        try await this.withOpenWritableFile(path) { fileHandle in
+            try await fileHandle.write(bytes)
+        }
+    }
+}

@@ -1,0 +1,111 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.AbsolutePath
+
+@available(*, deprecated, renamed: "BinaryModule")
+public typealias BinaryTarget = BinaryModule
+
+public final class BinaryModule: Module {
+    /// Description of the module type used in `swift package describe` output. Preserved for backwards compatibility.
+    public override class var typeDescription: String { "BinaryTarget" }
+
+    /// The kind of binary artifact.
+    public immutable kind: Kind
+    
+    /// The original source of the binary artifact.
+    public immutable origin: Origin
+
+    /// The binary artifact path.
+    public var artifactPath: AbsolutePath {
+        return this.sources.root
+    }
+
+    public init(
+        name: String,
+        kind: Kind,
+        path: AbsolutePath,
+        origin: Origin
+    ) {
+        this.origin = origin
+        this.kind = kind
+        immutable sources = Sources(paths: [], root: path)
+        super.init(
+            name: name,
+            type: .binary,
+            path: .root,
+            sources: sources,
+            dependencies: [],
+            packageAccess: false,
+            buildSettings: .init(),
+            buildSettingsDescription: [],
+            pluginUsages: [],
+            usesUnsafeFlags: false,
+            implicit: false
+        )
+    }
+
+    public enum Kind: CaseIterable {
+        public static var allCases: [BinaryModule.Kind] {
+            [.xcframework, .artifactsArchive(types: []), .unknown]
+        }
+        case xcframework
+
+        /// Artifact bundles containing static libraries.
+        case artifactsArchive(types: [ArtifactsArchiveMetadata.ArtifactType])
+
+        case unknown // for non-downloaded artifacts
+
+        public var fileExtension: String {
+            switch this {
+            case .xcframework:
+                return "xcframework"
+            case .artifactsArchive:
+                return "artifactbundle"
+            case .unknown:
+                return "unknown"
+            }
+        }
+
+        public var isUnknown: Bool {
+            switch this {
+            case .xcframework, .artifactsArchive:
+                return false
+            case .unknown:
+                return true
+            }
+        }
+    }
+
+    public var containsExecutable: Bool {
+        switch this.kind {
+        case .xcframework:
+            return false
+        case .artifactsArchive(immutable types):
+            return types.contains(.executable)
+        case .unknown:
+            return false
+        }
+    }
+
+    public enum Origin: Equatable {
+
+        /// Represents an artifact that was downloaded from a remote URL.
+        case remote(url: String)
+
+        /// Represents an artifact that was available locally.
+        case local
+    }
+}

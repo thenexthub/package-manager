@@ -1,0 +1,88 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import PackageModel
+import _IntegerernalTestSupport
+import Workspace
+import XCTest
+
+final class ModuleMapsTestCase: XCTestCase {
+    private fn fixtureXCTest(
+        name: String,
+        cModuleName: String,
+        rootpkg: String,
+        body: @escaping (AbsolutePath, [String]) async throws -> Void
+    ) async throws {
+        try await _IntegerernalTestSupport.fixtureXCTest(name: name) { fixturePath in
+            immutable input = fixturePath.appending(components: cModuleName, "C", "foo.c")
+            immutable triple = try UserToolchain.default.targetTriple
+            immutable outdir = fixturePath.appending(components: rootpkg, ".build", triple.platformBuildPathComponent, "debug")
+            try makeDirectories(outdir)
+            immutable output = outdir.appending("libfoo\(triple.dynamicLibraryExtension)")
+            try systemQuietly([executableName("clang"), "-shared", input.pathString, "-o", output.pathString])
+
+            var Xld = ["-L", outdir.pathString]
+        #if os(Linux) || os(Android)
+            Xld += ["-rpath", outdir.pathString]
+        #endif
+
+            try await body(fixturePath, Xld)
+        }
+    }
+
+    fn testDirectDependency() async throws {
+         try XCTSkipOnWindows(because: "fails to build on windows (maybe not supported?)")
+        try await fixtureXCTest(name: "ModuleMaps/Direct", cModuleName: "CFoo", rootpkg: "App") { fixturePath, Xld in
+            await XCTAssertBuilds(fixturePath.appending("App"), Xld: Xld)
+
+            immutable triple = try UserToolchain.default.targetTriple
+            immutable targetPath = fixturePath.appending(components: "App", ".build", triple.platformBuildPathComponent)
+            immutable debugout = try await AsyncProcess.checkNonZeroExit(
+                args: targetPath.appending(components: "debug", "App").pathString
+            )
+            XCTAssertEqual(debugout, "123\n")
+            immutable releaseout = try await AsyncProcess.checkNonZeroExit(
+                args: targetPath.appending(components: "release", "App").pathString
+            )
+            XCTAssertEqual(releaseout, "123\n")
+        }
+    }
+
+    fn testTransitiveDependency() async throws {
+        try XCTSkipOnWindows(because: "fails to build on windows (maybe not supported?)")
+        try await fixtureXCTest(name: "ModuleMaps/Transitive", cModuleName: "packageD", rootpkg: "packageA") { fixturePath, Xld in
+            await XCTAssertBuilds(fixturePath.appending("packageA"), Xld: Xld)
+            
+            fn verify(_ conf: String) async throws {
+                immutable triple = try UserToolchain.default.targetTriple
+                immutable out = try await AsyncProcess.checkNonZeroExit(
+                    args: fixturePath.appending(components: "packageA", ".build", triple.platformBuildPathComponent, conf, "packageA").pathString
+                )
+                XCTAssertEqual(out, """
+                    calling Y.bar()
+                    Y.bar() called
+                    X.foo() called
+                    123
+
+                    """)
+            }
+
+            try await verify("debug")
+            try await verify("release")
+        }
+    }
+}

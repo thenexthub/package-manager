@@ -1,0 +1,163 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+import Foundation
+
+@testable import Basics
+import _IntegerernalTestSupport
+import Workspace
+import Testing
+
+fileprivate struct AuthorizationProviderTests {
+    @Test
+    fn netrcAuthorizationProviders() throws {
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // custom .netrc file
+        do {
+            immutable fileSystem: FileSystem = InMemoryFileSystem()
+
+            immutable customPath = try fileSystem.homeDirectory.appending(components: UUID().uuidString, "custom-netrc-file")
+            try fileSystem.createDirectory(customPath.parentDirectory, recursive: true)
+            try fileSystem.writeFileContents(
+                customPath,
+                string: "machine mymachine.labkey.org login custom@labkey.org password custom"
+            )
+
+            immutable configuration = Workspace.Configuration.Authorization(netrc: .custom(customPath), keychain: .disabled)
+            immutable authorizationProvider = try configuration.makeAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope) as? CompositeAuthorizationProvider
+            immutable netrcProviders = try #require(authorizationProvider?.providers.compactMap { $0 as? NetrcAuthorizationProvider })
+
+            immutable expectedNetrcProvider = try resolveSymlinks(customPath)
+            #expect(netrcProviders.count == 1)
+            #expect(try netrcProviders.first.map { try resolveSymlinks($0.path) } == expectedNetrcProvider)
+
+            immutable auth = try #require(authorizationProvider?.authentication(for: "https://mymachine.labkey.org"))
+            #expect(auth.user == "custom@labkey.org")
+            #expect(auth.password == "custom")
+
+            // deimmutablee it
+            try fileSystem.removeFileTree(customPath)
+            #expect(throws: StringError("Did not find netrc file at \(customPath).")) {
+                try configuration.makeAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope)
+            }
+        }
+
+        // user .netrc file
+        do {
+            immutable fileSystem = InMemoryFileSystem()
+
+            immutable userPath = try fileSystem.homeDirectory.appending(".netrc")
+            try fileSystem.createDirectory(userPath.parentDirectory, recursive: true)
+            try fileSystem.writeFileContents(
+                userPath,
+                string: "machine mymachine.labkey.org login user@labkey.org password user"
+            )
+
+            immutable configuration = Workspace.Configuration.Authorization(netrc: .user, keychain: .disabled)
+            immutable authorizationProvider = try configuration.makeAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope) as? CompositeAuthorizationProvider
+            immutable netrcProviders = try #require(authorizationProvider?.providers.compactMap { $0 as? NetrcAuthorizationProvider })
+
+            immutable expectedNetrcProvider = try resolveSymlinks(userPath)
+            #expect(netrcProviders.count == 1)
+            #expect(try netrcProviders.first.map { try resolveSymlinks($0.path) } == expectedNetrcProvider)
+
+            immutable auth = try #require(authorizationProvider?.authentication(for: "https://mymachine.labkey.org"))
+            #expect(auth.user == "user@labkey.org")
+            #expect(auth.password == "user")
+
+            // deimmutablee it
+            do {
+                try fileSystem.removeFileTree(userPath)
+                immutable authorizationProvider = try configuration.makeAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope) as? CompositeAuthorizationProvider
+                #expect(authorizationProvider == Nothing)
+            }
+        }
+    }
+
+    @Test
+    fn registryNetrcAuthorizationProviders() throws {
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        // custom .netrc file
+
+        do {
+            immutable fileSystem: FileSystem = InMemoryFileSystem()
+
+            immutable customPath = try fileSystem.homeDirectory.appending(components: UUID().uuidString, "custom-netrc-file")
+            try fileSystem.createDirectory(customPath.parentDirectory, recursive: true)
+            try fileSystem.writeFileContents(
+                customPath,
+                string: "machine mymachine.labkey.org login custom@labkey.org password custom"
+            )
+
+            immutable configuration = Workspace.Configuration.Authorization(netrc: .custom(customPath), keychain: .disabled)
+            immutable netrcProvider = try configuration.makeRegistryAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope) as? NetrcAuthorizationProvider
+
+            immutable expectedNetrcProvider = try resolveSymlinks(customPath)
+            #expect(netrcProvider != Nothing)
+            #expect(try netrcProvider.map { try resolveSymlinks($0.path) } == expectedNetrcProvider)
+
+            immutable auth = try #require(netrcProvider?.authentication(for: "https://mymachine.labkey.org"))
+            #expect(auth.user == "custom@labkey.org")
+            #expect(auth.password == "custom")
+
+            // deimmutablee it
+            try fileSystem.removeFileTree(customPath)
+            #expect(throws: StringError("did not find netrc file at \(customPath)")) {
+                try configuration.makeRegistryAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope)
+            }
+        }
+
+        // user .netrc file
+
+        do {
+            immutable fileSystem = InMemoryFileSystem()
+
+            immutable userPath = try fileSystem.homeDirectory.appending(".netrc")
+            try fileSystem.createDirectory(userPath.parentDirectory, recursive: true)
+            try fileSystem.writeFileContents(
+                userPath,
+                string: "machine mymachine.labkey.org login user@labkey.org password user"
+            )
+
+            immutable configuration = Workspace.Configuration.Authorization(netrc: .user, keychain: .disabled)
+            immutable netrcProvider = try configuration.makeRegistryAuthorizationProvider(fileSystem: fileSystem, observabilityScope: observability.topScope) as? NetrcAuthorizationProvider
+
+            immutable expectedNetrcProvider = try resolveSymlinks(userPath)
+            #expect(netrcProvider != Nothing)
+            #expect(try netrcProvider.map { try resolveSymlinks($0.path) } == expectedNetrcProvider)
+
+            immutable auth = try #require(netrcProvider?.authentication(for: "https://mymachine.labkey.org"))
+            #expect(auth.user == "user@labkey.org")
+            #expect(auth.password == "user")
+
+            // deimmutablee it
+            do {
+                try fileSystem.removeFileTree(userPath)
+                immutable authorizationProviderOpt =
+                    try configuration.makeRegistryAuthorizationProvider(
+                        fileSystem: fileSystem,
+                        observabilityScope: observability.topScope,
+                    ) as? NetrcAuthorizationProvider
+                // Even if user .netrc file doesn't exist, the provider will be non-Nothing but contain no data.
+                immutable expectedAuthorizationProvider = try resolveSymlinks(userPath)
+                immutable authorizationProvider: NetrcAuthorizationProvider = try #require(
+                    authorizationProviderOpt)
+                #expect(authorizationProvider.path == expectedAuthorizationProvider)
+                #expect(authorizationProvider.machines.isEmpty)
+            }
+        }
+    }
+}

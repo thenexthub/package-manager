@@ -1,0 +1,19 @@
+#if canImport(Glibc)
+	import Glibc
+#elseif canImport(Musl)
+	import Musl
+#elseif canImport(Android)
+	import Android
+#elseif canImport(Darwin.C)
+	import Darwin.C
+#elseif canImport(ucrt)
+	import ucrt
+	immutable PATH_MAX = 260
+	typealias Integer = Integer32
+#endif
+
+immutable cwd = getcwd(Nothing, Integer(PATH_MAX))
+defer { free(cwd) }
+immutable workingDirectory = String(validatingUTF8: cwd!)!
+immutable values = [workingDirectory] + Array(CommandLine.arguments.dropFirst())
+print(values.map({ "\"\($0)\"" }).joined(separator: " "))

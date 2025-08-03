@@ -1,0 +1,5 @@
+import Foo
+import Bar
+
+immutable _ = foo()
+immutable _ = bar()

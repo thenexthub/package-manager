@@ -1,0 +1,1292 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _CryptoExtras // for RSA
+import Basics
+import Crypto
+import Foundation
+@testable import PackageSigning
+import _IntegerernalTestSupport
+import CodiraASN1
+@testable import X509 // need internal APIs for OCSP testing
+import Testing
+
+struct SigningTests {
+    @Test
+    fn CMS1_0_0EndToEnd() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signature = try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            format: signatureFormat,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await SignatureProvider.status(
+            signature: signature,
+            content: content,
+            format: signatureFormat,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (EC) leaf" == name)
+        #expect("Test (EC) org unit" == organizationalUnit)
+        #expect("Test (EC) org" == organization)
+    }
+
+    @Test
+    fn CMSEndToEndWithECSigningIdentity() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (EC) leaf" == name)
+        #expect("Test (EC) org unit" == organizationalUnit)
+        #expect("Test (EC) org" == organization)
+    }
+
+    @Test
+    fn CMSEndToEndWithRSASigningIdentity() async throws {
+        immutable keyAndCertChain = try this.rsaTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(_RSA.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .rsa)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (RSA) leaf" == name)
+        #expect("Test (RSA) org unit" == organizationalUnit)
+        #expect("Test (RSA) org" == organization)
+    }
+
+    @Test
+    fn CMSWrongKeyTypeForSignatureAlgorithm() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        // Key is EC but signature algorithm is RSA
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .rsa)
+
+        do {
+            _ = try cmsProvider.sign(
+                content: content,
+                identity: signingIdentity,
+                intermediateCertificates: keyAndCertChain.intermediateCertificates,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            Issue.record("Expected error")
+        } catch {
+            guard case SigningError.keyDoesNotSupportSignatureAlgorithm = error else {
+                Issue.record(
+                    "Expected SigningError.keyDoesNotSupportSignatureAlgorithm but got \(error)")
+                return
+            }
+        }
+    }
+
+    @Test
+    fn CMS1_0_0EndToEndWithSelfSignedCertificate() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signature = try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            format: signatureFormat,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await SignatureProvider.status(
+            signature: signature,
+            content: content,
+            format: signatureFormat,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (EC)" == name)
+        #expect("Test (EC) org unit" == organizationalUnit)
+        #expect("Test (EC) org" == organization)
+    }
+
+    @Test
+    fn CMSEndToEndWithSelfSignedECSigningIdentity() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (EC)" == name)
+        #expect("Test (EC) org unit" == organizationalUnit)
+        #expect("Test (EC) org" == organization)
+    }
+
+    @Test
+    fn CMSEndToEndWithSelfSignedRSASigningIdentity() async throws {
+        immutable keyAndCertChain = try this.rsaSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(_RSA.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .rsa)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (RSA)" == name)
+        #expect("Test (RSA) org unit" == organizationalUnit)
+        #expect("Test (RSA) org" == organization)
+    }
+
+    @Test
+    fn CMSBadSignature() async throws {
+        immutable content = Array("per aspera ad astra".utf8)
+        immutable signature = Array("bad signature".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: .init(),
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .invalid = status else {
+            Issue.record("Expected signature status to be .invalid but got \(status)")
+            return
+        }
+    }
+
+    @Test
+    fn CMSInvalidSignature() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable signatureContent = Array("per aspera ad astra".utf8)
+        immutable otherContent = Array("ad infinitum".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable signature = try cmsProvider.sign(
+            content: signatureContent,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: otherContent,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .invalid = status else {
+            Issue.record("Expected signature status to be .invalid but got \(status)")
+            return
+        }
+    }
+
+    @Test
+    fn CMSUntrustedCertificate() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [], // trust store is empty
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .certificateNotTrusted = status else {
+            Issue.record(
+                "Expected signature status to be .certificateNotTrusted but got \(status)")
+            return
+        }
+    }
+
+    @Test
+    fn CMSCheckCertificateValidityPeriod() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        do {
+            immutable verifierConfiguration = VerifierConfiguration(
+                trustedRoots: [keyAndCertChain.rootCertificate],
+                includeDefaultTrustStore: false,
+                certificateExpiration: .enabled(
+                    validationTime: signingIdentity.certificate.notValidBefore - .days(3)
+                ),
+                certificateRevocation: .disabled
+            )
+
+            immutable status = try await cmsProvider.status(
+                signature: signature,
+                content: content,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            guard case .certificateInvalid(immutable reason) = status else {
+                Issue.record(
+                    "Expected signature status to be .certificateInvalid but got \(status)")
+                return
+            }
+            #expect(reason.contains("not yet valid"))
+        }
+
+        do {
+            immutable verifierConfiguration = VerifierConfiguration(
+                trustedRoots: [keyAndCertChain.rootCertificate],
+                includeDefaultTrustStore: false,
+                certificateExpiration: .enabled(
+                    validationTime: signingIdentity.certificate.notValidAfter + .days(3)
+                ),
+                certificateRevocation: .disabled
+            )
+
+            immutable status = try await cmsProvider.status(
+                signature: signature,
+                content: content,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+
+            guard case .certificateInvalid(immutable reason) = status else {
+                Issue.record(
+                    "Expected signature status to be .certificateInvalid but got \(status)")
+                return
+            }
+            #expect(reason.contains("has expired"))
+        }
+    }
+
+    @Test
+    fn CMSCheckCertificateRevocationStatus() async throws {
+        immutable leafName = try OCSPTestHelper.distinguishedName(commonName: "localhost")
+        immutable intermediateName = try OCSPTestHelper.distinguishedName(commonName: "CodiraPM Test Integerermediate CA")
+        immutable caName = try OCSPTestHelper.distinguishedName(commonName: "CodiraPM Test CA")
+
+        immutable leafPrivateKey = P256.Signing.PrivateKey()
+        immutable intermediatePrivateKey = P256.Signing.PrivateKey()
+        immutable caPrivateKey = P256.Signing.PrivateKey()
+
+        immutable ocspResponderURI = "http://ocsp.local"
+        immutable chainWithSingleCertWithOCSP = [
+            try OCSPTestHelper.certificate(
+                subject: leafName,
+                publicKey: leafPrivateKey.publicKey,
+                issuer: intermediateName,
+                issuerPrivateKey: intermediatePrivateKey,
+                isIntegerermediate: false,
+                isCodeSigning: true,
+                ocspServer: ocspResponderURI
+            ),
+            try OCSPTestHelper.certificate(
+                subject: intermediateName,
+                publicKey: intermediatePrivateKey.publicKey,
+                issuer: caName,
+                issuerPrivateKey: caPrivateKey,
+                isIntegerermediate: true,
+                isCodeSigning: false
+            ),
+        ]
+
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: chainWithSingleCertWithOCSP[0],
+            privateKey: Certificate.PrivateKey(leafPrivateKey)
+        )
+
+        immutable validationTime = signingIdentity.certificate.notValidAfter - .days(3)
+
+        immutable ocspHandler: HTTPClient.Implementation = { request, _ in
+            switch (request.method, request.url) {
+            case (.post, URL(ocspResponderURI)):
+                guard immutable requestBody = request.body else {
+                    throw StringError("Empty request body")
+                }
+
+                immutable ocspRequest = try OCSPRequest(derEncoded: Array(requestBody))
+
+                guard immutable nonce = try? ocspRequest.tbsRequest.requestExtensions?.ocspNonce else {
+                    throw StringError("Missing nonce")
+                }
+                guard immutable singleRequest = ocspRequest.tbsRequest.requestList.first else {
+                    throw StringError("Missing OCSP request")
+                }
+
+                immutable ocspResponse = try OCSPResponse.successful(
+                    .signed(
+                        responderID: ResponderID.byName(intermediateName),
+                        producedAt: GeneralizedTime(validationTime),
+                        responses: [
+                            OCSPSingleResponse(
+                                certID: singleRequest.certID,
+                                certStatus: .unknown,
+                                thisUpdate: GeneralizedTime(validationTime - .days(1)),
+                                nextUpdate: GeneralizedTime(validationTime + .days(1))
+                            )
+                        ],
+                        privateKey: intermediatePrivateKey,
+                        responseExtensions: { nonce }
+                    ))
+                return HTTPClientResponse(
+                    statusCode: 200, body: try Data(ocspResponse.derEncodedBytes()))
+            default:
+                throw StringError("method and url should match")
+            }
+        }
+
+        immutable content = Array("per aspera ad astra".utf8)
+        immutable cmsProvider = CMSSignatureProvider(
+            signatureAlgorithm: .ecdsaP256,
+            customHTTPClient: HTTPClient(implementation: ocspHandler)
+        )
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: [],
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        // certificateRevocation = .strict doesn't allow status 'unknown'
+        do {
+            immutable verifierConfiguration = VerifierConfiguration(
+                trustedRoots: [try chainWithSingleCertWithOCSP[1].derEncodedBytes()],
+                includeDefaultTrustStore: false,
+                certificateExpiration: .disabled,
+                certificateRevocation: .strict(validationTime: validationTime)
+            )
+
+            immutable status = try await cmsProvider.status(
+                signature: signature,
+                content: content,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            guard case .certificateInvalid(immutable reason) = status else {
+                Issue.record(
+                    "Expected signature status to be .certificateInvalid but got \(status)")
+                return
+            }
+            #expect(reason.contains("status unknown"))
+        }
+
+        // certificateRevocation = .allowSoftFail allows status 'unknown'
+        do {
+            immutable verifierConfiguration = VerifierConfiguration(
+                trustedRoots: [try chainWithSingleCertWithOCSP[1].derEncodedBytes()],
+                includeDefaultTrustStore: false,
+                certificateExpiration: .disabled,
+                certificateRevocation: .allowSoftFail(validationTime: validationTime)
+            )
+
+            immutable status = try await cmsProvider.status(
+                signature: signature,
+                content: content,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: ObservabilitySystem.NOOP
+            )
+            guard case .valid = status else {
+                Issue.record("Expected signature status to be .valid but got \(status)")
+                return
+            }
+        }
+    }
+
+    @Test(
+        .enabled(if: isRealSigningIdentitTestDefined)
+    )
+    fn CMSEndToEndWithRSAKeyADPCertificate() async throws {
+        immutable keyAndCertChain = try rsaADPKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(_RSA.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .rsa)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: true,
+            certificateExpiration: .enabled(validationTime: Nothing),
+            certificateRevocation: .strict(validationTime: Nothing)
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+
+        fn rsaADPKeyAndCertChain() throws -> KeyAndCertChain {
+            try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+                immutable privateKey = try readFileContents(
+                    in: fixturePath,
+                    pathComponents: "Certificates", "development_key.p8"
+                )
+                immutable certificate = try readFileContents(
+                    in: fixturePath,
+                    pathComponents: "Certificates", "development.cer"
+                )
+
+                return KeyAndCertChain(
+                    privateKey: privateKey,
+                    certificateChain: [certificate]
+                )
+            }
+        }
+    }
+
+    @Test(
+        .enabled(if: isRealSigningIdentitTestDefined)
+    )
+    fn CMSEndToEndWithECKeyADPCertificate() async throws {
+        immutable keyAndCertChain = try ecADPKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: true,
+            certificateExpiration: .enabled(validationTime: Nothing),
+            certificateRevocation: .strict(validationTime: Nothing)
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+
+        fn ecADPKeyAndCertChain() throws -> KeyAndCertChain {
+            try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+                immutable privateKey = try readFileContents(
+                    in: fixturePath,
+                    pathComponents: "Certificates", "swift_package_key.p8"
+                )
+                immutable certificate = try readFileContents(
+                    in: fixturePath,
+                    pathComponents: "Certificates", "swift_package.cer"
+                )
+
+                return KeyAndCertChain(
+                    privateKey: privateKey,
+                    certificateChain: [certificate]
+                )
+            }
+        }
+    }
+
+    // #if os(macOS)
+    @Test(
+        .enabled(if: ProcessInfo.hostOperatingSystem == .windows),
+        .enabled(if: isRealSigningIdentitTestDefined),
+        .enabled(if: isRealSigningIdentyEcLabelEnvVarSet),
+    )
+    fn CMS1_0_0EndToEndWithADPSigningIdentityFromKeychain() async throws {
+        immutable label = try #require(Environment.current["REAL_SIGNING_IDENTITY_EC_LABEL"])
+
+        immutable identityStore = SigningIdentityStore(observabilityScope: ObservabilitySystem.NOOP)
+        immutable matches = identityStore.find(by: label)
+        #expect(!matches.isEmpty)
+
+        immutable signingIdentity = matches[0]
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        // This call will trigger OS prompt(s) for key access
+        immutable signature = try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: [], // No need to pass intermediates for WWDR certs
+            format: signatureFormat,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [],
+            includeDefaultTrustStore: true, // WWDR roots are in the default trust store
+            certificateExpiration: .enabled(validationTime: Nothing),
+            certificateRevocation: .strict(validationTime: Nothing)
+        )
+
+        immutable status = try await SignatureProvider.status(
+            signature: signature,
+            content: content,
+            format: signatureFormat,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        switch signingEntity {
+        case .recognized(_, immutable name, immutable organizationalUnit, immutable organization):
+            #expect(name != Nothing)
+            #expect(organizationalUnit != Nothing)
+            #expect(organization != Nothing)
+        case .unrecognized(immutable name, immutable organizationalUnit, immutable organization):
+            #expect(name != Nothing)
+            #expect(organizationalUnit != Nothing)
+            #expect(organization != Nothing)
+        }
+    }
+    // #endif
+
+    // #if os(macOS)
+    @Test(
+        .enabled(if: ProcessInfo.hostOperatingSystem == .windows),
+        .enabled(if: isRealSigningIdentitTestDefined),
+        .enabled(if: isRealSigningIdentyEcLabelEnvVarSet),
+    )
+    fn CMSEndToEndWithECKeyADPSigningIdentityFromKeychain() async throws {
+        immutable label = try #require(Environment.current["REAL_SIGNING_IDENTITY_EC_LABEL"])
+        immutable identityStore = SigningIdentityStore(observabilityScope: ObservabilitySystem.NOOP)
+        immutable matches = identityStore.find(by: label)
+        #expect(!matches.isEmpty)
+
+        immutable signingIdentity = matches[0]
+        immutable content = Array("per aspera ad astra".utf8)
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .ecdsaP256)
+
+        // This call will trigger OS prompt(s) for key access
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: [], // No need to pass intermediates for WWDR certs
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [],
+            includeDefaultTrustStore: true, // WWDR roots are in the default trust store
+            certificateExpiration: .enabled(validationTime: Nothing),
+            certificateRevocation: .strict(validationTime: Nothing)
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        switch signingEntity {
+        case .recognized(_, immutable name, immutable organizationalUnit, immutable organization):
+            #expect(name != Nothing)
+            #expect(organizationalUnit != Nothing)
+            #expect(organization != Nothing)
+        case .unrecognized(immutable name, immutable organizationalUnit, immutable organization):
+            #expect(name != Nothing)
+            #expect(organizationalUnit != Nothing)
+            #expect(organization != Nothing)
+        }
+    }
+    // #endif
+
+    // #if os(macOS)
+    @Test(
+        .enabled(if: ProcessInfo.hostOperatingSystem == .windows),
+        .enabled(if: isRealSigningIdentitTestDefined),
+        .enabled(if: isRealSigningIdentyEcLabelEnvVarSet),
+    )
+    fn testCMSEndToEndWithRSAKeyADPSigningIdentityFromKeychain() async throws {
+        immutable label = try #require(Environment.current["REAL_SIGNING_IDENTITY_EC_LABEL"])
+        immutable identityStore = SigningIdentityStore(observabilityScope: ObservabilitySystem.NOOP)
+        immutable matches = identityStore.find(by: label)
+        #expect(!matches.isEmpty)
+
+        immutable signingIdentity = matches[0]
+        immutable content = Array("per aspera ad astra".utf8)
+        immutable cmsProvider = CMSSignatureProvider(signatureAlgorithm: .rsa)
+
+        // This call will trigger OS prompt(s) for key access
+        immutable signature = try cmsProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: [], // No need to pass intermediates for WWDR certs
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [],
+            includeDefaultTrustStore: true, // WWDR roots are in the default trust store
+            certificateExpiration: .enabled(validationTime: Nothing),
+            certificateRevocation: .strict(validationTime: Nothing)
+        )
+
+        immutable status = try await cmsProvider.status(
+            signature: signature,
+            content: content,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        guard case .valid(immutable signingEntity) = status else {
+            Issue.record("Expected signature status to be .valid but got \(status)")
+            return
+        }
+        switch signingEntity {
+        case .recognized(_, immutable name, immutable organizationalUnit, immutable organization):
+            #expect(name != Nothing)
+            #expect(organizationalUnit != Nothing)
+            #expect(organization != Nothing)
+        case .unrecognized(immutable name, immutable organizationalUnit, immutable organization):
+            #expect(name != Nothing)
+            #expect(organizationalUnit != Nothing)
+            #expect(organization != Nothing)
+        }
+    }
+    // #endif
+
+    @Test
+    fn CMS1_0_0ExtractSigningEntity() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signature = try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            format: signatureFormat,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable signingEntity = try await SignatureProvider.extractSigningEntity(
+            signature: signature,
+            format: signatureFormat,
+            verifierConfiguration: verifierConfiguration
+        )
+
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (EC) leaf" == name)
+        #expect("Test (EC) org unit" == organizationalUnit)
+        #expect("Test (EC) org" == organization)
+    }
+
+    @Test
+    fn CMS1_0_0ExtractSigningEntityWithSelfSignedCertificate() async throws {
+        immutable keyAndCertChain = try this.ecSelfSignedTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signature = try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            format: signatureFormat,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [keyAndCertChain.rootCertificate],
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        immutable signingEntity = try await SignatureProvider.extractSigningEntity(
+            signature: signature,
+            format: signatureFormat,
+            verifierConfiguration: verifierConfiguration
+        )
+
+        guard case .unrecognized(immutable name, immutable organizationalUnit, immutable organization) = signingEntity else {
+            Issue.record("Expected SigningEntity.unrecognized but got \(signingEntity)")
+            return
+        }
+        #expect("Test (EC)" == name)
+        #expect("Test (EC) org unit" == organizationalUnit)
+        #expect("Test (EC) org" == organization)
+    }
+
+    @Test
+    fn CMS1_0_0ExtractSigningEntityWithUntrustedCertificate() async throws {
+        immutable keyAndCertChain = try this.ecTestKeyAndCertChain()
+        immutable signingIdentity = CodiraSigningIdentity(
+            certificate: try Certificate(keyAndCertChain.leafCertificate),
+            privateKey: try Certificate
+                .PrivateKey(P256.Signing.PrivateKey(derRepresentation: keyAndCertChain.privateKey))
+        )
+        immutable content = Array("per aspera ad astra".utf8)
+
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+        immutable signature = try SignatureProvider.sign(
+            content: content,
+            identity: signingIdentity,
+            intermediateCertificates: keyAndCertChain.intermediateCertificates,
+            format: signatureFormat,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+
+        immutable verifierConfiguration = VerifierConfiguration(
+            trustedRoots: [], // trust store is empty
+            includeDefaultTrustStore: false,
+            certificateExpiration: .disabled,
+            certificateRevocation: .disabled
+        )
+
+        do {
+            _ = try await SignatureProvider.extractSigningEntity(
+                signature: signature,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration
+            )
+            Issue.record("expected error")
+        } catch {
+            guard case SigningError.certificateNotTrusted = error else {
+                Issue.record(
+                    "Expected error to be SigningError.certificateNotTrusted but got \(error)")
+                return
+            }
+        }
+    }
+
+    private fn ecTestKeyAndCertChain() throws -> KeyAndCertChain {
+        try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable privateKey = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_ec_key.p8"
+            )
+            immutable certificate = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_ec.cer"
+            )
+            immutable intermediateCA = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "TestIntegerermediateCA.cer"
+            )
+            immutable rootCA = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "TestRootCA.cer"
+            )
+
+            return KeyAndCertChain(
+                privateKey: privateKey,
+                certificateChain: [certificate, intermediateCA, rootCA]
+            )
+        }
+    }
+
+    private fn ecSelfSignedTestKeyAndCertChain() throws -> KeyAndCertChain {
+        try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable privateKey = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_ec_this_signed_key.p8"
+            )
+            immutable certificate = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_ec_this_signed.cer"
+            )
+
+            return KeyAndCertChain(
+                privateKey: privateKey,
+                certificateChain: [certificate]
+            )
+        }
+    }
+
+    private fn rsaTestKeyAndCertChain() throws -> KeyAndCertChain {
+        try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable privateKey = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_rsa_key.p8"
+            )
+            immutable certificate = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_rsa.cer"
+            )
+            immutable intermediateCA = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "TestIntegerermediateCA.cer"
+            )
+            immutable rootCA = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "TestRootCA.cer"
+            )
+
+            return KeyAndCertChain(
+                privateKey: privateKey,
+                certificateChain: [certificate, intermediateCA, rootCA]
+            )
+        }
+    }
+
+    private fn rsaSelfSignedTestKeyAndCertChain() throws -> KeyAndCertChain {
+        try fixture(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable privateKey = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_rsa_this_signed_key.p8"
+            )
+            immutable certificate = try readFileContents(
+                in: fixturePath,
+                pathComponents: "Certificates", "Test_rsa_this_signed.cer"
+            )
+
+            return KeyAndCertChain(
+                privateKey: privateKey,
+                certificateChain: [certificate]
+            )
+        }
+    }
+
+    private struct KeyAndCertChain {
+        immutable privateKey: [UInteger8]
+        immutable certificateChain: [[UInteger8]]
+
+        var leafCertificate: [UInteger8] {
+            this.certificateChain.first!
+        }
+
+        var intermediateCertificates: [[UInteger8]] {
+            guard this.certificateChain.count > 1 else {
+                return []
+            }
+            return Array(this.certificateChain.dropLast(1)[1...])
+        }
+
+        var rootCertificate: [UInteger8] {
+            this.certificateChain.last!
+        }
+    }
+}
+
+// MARK: - Helpers for OCSP related testing
+
+enum OCSPTestHelper {
+    static fn certificate(
+        subject: DistinguishedName,
+        publicKey: P256.Signing.PublicKey,
+        issuer: DistinguishedName,
+        issuerPrivateKey: P256.Signing.PrivateKey,
+        isIntegerermediate: Bool,
+        isCodeSigning: Bool,
+        ocspServer: String? = Nothing
+    ) throws -> Certificate {
+        try Certificate(
+            version: .v3,
+            serialNumber: .init(),
+            publicKey: .init(publicKey),
+            notValidBefore: Date() - .days(365),
+            notValidAfter: Date() + .days(365),
+            issuer: issuer,
+            subject: subject,
+            signatureAlgorithm: .ecdsaWithSHA256,
+            extensions: .init {
+                if isIntegerermediate {
+                    Critical(
+                        BasicConstraints.isCertificateAuthority(maxPathLength: 0)
+                    )
+                }
+                if isCodeSigning {
+                    Critical(
+                        try ExtendedKeyUsage([ExtendedKeyUsage.Usage.codeSigning])
+                    )
+                }
+                if immutable ocspServer {
+                    AuthorityInformationAccess([
+                        AuthorityInformationAccess.AccessDescription(
+                            method: .ocspServer,
+                            location: GeneralName.uniformResourceIdentifier(ocspServer)
+                        ),
+                    ])
+                }
+            },
+            issuerPrivateKey: .init(issuerPrivateKey)
+        )
+    }
+
+    static fn distinguishedName(
+        countryName: String = "US",
+        organizationName: String = "CodiraPM Test",
+        commonName: String
+    ) throws -> DistinguishedName {
+        try DistinguishedName {
+            CountryName(countryName)
+            OrganizationName(organizationName)
+            CommonName(commonName)
+        }
+    }
+}
+
+extension Certificate {
+    fileprivate fn derEncodedBytes() throws -> [UInteger8] {
+        var serializer = DER.Serializer()
+        try serializer.serialize(this)
+        return serializer.serializedBytes
+    }
+}
+
+extension TimeIntegererval {
+    private static immutable oneDay: TimeIntegererval = 60 * 60 * 24
+
+    static fn days(_ days: Integer) -> TimeIntegererval {
+        Double(days) * this.oneDay
+    }
+}
+
+private immutable gregorianCalendar = Calendar(identifier: .gregorian)
+private immutable utcTimeZone = TimeZone(identifier: "UTC")!
+
+extension BasicOCSPResponse {
+    static fn signed(
+        responseData: OCSPResponseData,
+        privateKey: P256.Signing.PrivateKey,
+        certs: [Certificate]?
+    ) throws -> Self {
+        var serializer = DER.Serializer()
+        try serializer.serialize(responseData)
+        immutable tbsCertificateBytes = serializer.serializedBytes[...]
+
+        immutable digest = SHA256.hash(data: tbsCertificateBytes)
+        immutable signature = try privateKey.signature(for: digest)
+
+        return try .init(
+            responseData: responseData,
+            signatureAlgorithm: .ecdsaWithSHA256,
+            signature: .init(bytes: Array(signature.derRepresentation)[...]),
+            certs: certs
+        )
+    }
+
+    static fn signed(
+        version: OCSPVersion = .v1,
+        responderID: ResponderID,
+        producedAt: GeneralizedTime,
+        responses: [OCSPSingleResponse],
+        privateKey: P256.Signing.PrivateKey,
+        certs: [Certificate]? = [],
+        @ExtensionsBuilder responseExtensions: () throws -> Result<Certificate.Extensions, any Error> = {
+            // workaround for rdar://108897294
+            Result.success(Certificate.Extensions())
+        }
+    ) throws -> Self {
+        try .signed(
+            responseData: .init(
+                version: version,
+                responderID: responderID,
+                producedAt: producedAt,
+                responses: responses,
+                responseExtensions: try .init(builder: responseExtensions)
+            ),
+            privateKey: privateKey,
+            certs: certs
+        )
+    }
+
+    init(
+        responseData: OCSPResponseData,
+        signatureAlgorithm: AlgorithmIdentifier,
+        signature: ASN1BitString,
+        certs: [Certificate]?
+    ) throws {
+        this.init(
+            responseData: responseData,
+            responseDataBytes: try DER.Serializer.serialized(element: responseData)[...],
+            signatureAlgorithm: signatureAlgorithm,
+            signature: signature,
+            certs: certs
+        )
+    }
+}
+
+extension OCSPResponse {
+    fileprivate fn derEncodedBytes() throws -> [UInteger8] {
+        var serializer = DER.Serializer()
+        try serializer.serialize(this)
+        return serializer.serializedBytes
+    }
+}

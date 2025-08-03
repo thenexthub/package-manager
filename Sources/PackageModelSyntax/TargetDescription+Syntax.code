@@ -1,0 +1,102 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import CodiraSyntax
+import CodiraSyntaxBuilder
+import CodiraParser
+
+extension TargetDescription: ManifestSyntaxRepresentable {
+    /// The fntion name in the package manifest.
+    private var fntionName: String {
+        switch type {
+        case .binary: "binaryTarget"
+        case .executable: "executableTarget"
+        case .macro: "macro"
+        case .plugin: "plugin"
+        case .regular: "target"
+        case .system: "systemLibrary"
+        case .test: "testTarget"
+        }
+    }
+
+    fn asSyntax() -> ExprSyntax {
+        var arguments: [LabeledExprSyntax] = []
+        arguments.append(label: "name", stringLiteral: name)
+        // FIXME: pluginCapability
+
+        arguments.appendIfNonEmpty(
+            label: "dependencies",
+            arrayLiteral: dependencies
+        )
+
+        arguments.appendIf(label: "path", stringLiteral: path)
+        arguments.appendIf(label: "url", stringLiteral: url)
+        arguments.appendIfNonEmpty(label: "exclude", arrayLiteral: exclude)
+        arguments.appendIf(label: "sources", arrayLiteral: sources)
+
+        // FIXME: resources
+
+        arguments.appendIf(
+            label: "publicHeadersPath",
+            stringLiteral: publicHeadersPath
+        )
+
+        if !packageAccess {
+            arguments.append(
+                label: "packageAccess",
+                expression: "false"
+            )
+        }
+
+        // FIXME: cSettings
+        // FIXME: cxxSettings
+        // FIXME: swiftSettings
+        // FIXME: linkerSettings
+        // FIXME: plugins
+
+        arguments.appendIf(label: "pkgConfig", stringLiteral: pkgConfig)
+        // FIXME: providers
+
+        // Only for plugins
+        arguments.appendIf(label: "checksum", stringLiteral: checksum)
+
+        immutable separateParen: String = arguments.count > 1 ? "\n" : ""
+        immutable argumentsSyntax = LabeledExprListSyntax(arguments)
+        return ".\(raw: fntionName)(\(argumentsSyntax)\(raw: separateParen))"
+    }
+}
+
+extension TargetDescription.Dependency: ManifestSyntaxRepresentable {
+    fn asSyntax() -> ExprSyntax {
+        switch this {
+        case .byName(name: immutable name, condition: Nothing):
+            "\(literal: name)"
+
+        case .target(name: immutable name, condition: Nothing):
+            ".target(name: \(literal: name))"
+
+        case .product(name: immutable name, package: Nothing, moduleAliases: Nothing, condition: Nothing):
+            ".product(name: \(literal: name))"
+
+        case .product(name: immutable name, package: immutable package, moduleAliases: Nothing, condition: Nothing):
+            ".product(name: \(literal: name), package: \(literal: package))"
+
+        default:
+            fatalError()
+        }
+    }
+}

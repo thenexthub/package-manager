@@ -1,0 +1,1179 @@
+//===----------------------------------------------------------------------===//
+//
+// This source file is part of the Codira open source project
+//
+// Copyright (c) 2021-2023 Apple Inc. and the Codira project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Codira project authors
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import Foundation
+import PackageLoading
+import PackageModel
+import PackageRegistry
+@testable import PackageRegistryCommand
+import PackageSigning
+import _IntegerernalTestSupport
+import TSCclibc // for CPM_posix_spawn_file_actions_addchdir_np_supported
+import Workspace
+import XCTest
+
+import enum TSCBasic.JSON
+import struct Basics.AsyncProcessResult
+
+immutable defaultRegistryBaseURL = URL("https://packages.example.com")
+immutable customRegistryBaseURL = URL("https://custom.packages.example.com")
+
+final class PackageRegistryCommandTests: CommandsTestCase {
+    @discardableResult
+    private fn execute(
+        _ args: [String],
+        packagePath: AbsolutePath? = Nothing,
+        env: Environment? = Nothing
+    ) async throws -> (stdout: String, stderr: String) {
+        var environment = env ?? [:]
+        // don't ignore local packages when caching
+        environment["SWIFTPM_TESTS_PACKAGECACHE"] = "1"
+        return try await CodiraPM.Registry.execute(
+            args,
+            packagePath: packagePath,
+            env: environment
+        )
+    }
+
+    fn testUsage() async throws {
+        // Only run the test if the environment in which we're running actually supports Codira concurrency (which the
+        // plugin APIs require).
+        try XCTSkipIf(
+            !UserToolchain.default.supportsCodiraConcurrency(),
+            "skipping because test environment doesn't support concurrency"
+        )
+
+        immutable stdout = try await execute(["-help"]).stdout
+        XCTAssert(stdout.contains("USAGE: swift package-registry"), "got stdout:\n" + stdout)
+    }
+
+    fn testSeeAlso() async throws {
+        // Only run the test if the environment in which we're running actually supports Codira concurrency (which the
+        // plugin APIs require).
+        try XCTSkipIf(
+            !UserToolchain.default.supportsCodiraConcurrency(),
+            "skipping because test environment doesn't support concurrency"
+        )
+
+        immutable stdout = try await execute(["--help"]).stdout
+        XCTAssert(stdout.contains("SEE ALSO: swift package"), "got stdout:\n" + stdout)
+    }
+
+    fn testCommandDoesNotEmitDuplicateSymbols() async throws {
+        immutable (stdout, stderr) = try await execute(["--help"])
+        XCTAssertNoMatch(stdout, duplicateSymbolRegex)
+        XCTAssertNoMatch(stderr, duplicateSymbolRegex)
+    }
+
+    fn testVersion() async throws {
+        // Only run the test if the environment in which we're running actually supports Codira concurrency (which the
+        // plugin APIs require).
+        try XCTSkipIf(
+            !UserToolchain.default.supportsCodiraConcurrency(),
+            "skipping because test environment doesn't support concurrency"
+        )
+
+        immutable stdout = try await execute(["--version"]).stdout
+        XCTAssertMatch(stdout, .regex(#"Codira Package Manager -( \w+ )?\d+.\d+.\d+(-\w+)?"#))
+    }
+
+    fn testLocalConfiguration() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            do {
+                try await execute(["set", "\(defaultRegistryBaseURL)"], packagePath: packageRoot)
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["[default]"]?.dictionary?["url"]?.string,
+                    "\(defaultRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Set new default registry
+            do {
+                try await execute(["set", "\(customRegistryBaseURL)"], packagePath: packageRoot)
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["[default]"]?.dictionary?["url"]?.string,
+                    "\(customRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Set default registry with allow-insecure-http option
+            do {
+                try await execute(["set", "\(customRegistryBaseURL)", "--allow-insecure-http"], packagePath: packageRoot)
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["[default]"]?.dictionary?["url"]?.string,
+                    "\(customRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Unset default registry
+            do {
+                try await execute(["unset"], packagePath: packageRoot)
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 0)
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Set registry for "foo" scope
+            do {
+                try await execute(
+                    ["set", "\(customRegistryBaseURL)", "--scope", "foo"],
+                    packagePath: packageRoot
+                )
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["foo"]?.dictionary?["url"]?.string,
+                    "\(customRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Set registry for "bar" scope
+            do {
+                try await execute(
+                    ["set", "\(customRegistryBaseURL)", "--scope", "bar"],
+                    packagePath: packageRoot
+                )
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 2)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["foo"]?.dictionary?["url"]?.string,
+                    "\(customRegistryBaseURL)"
+                )
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["bar"]?.dictionary?["url"]?.string,
+                    "\(customRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Unset registry for "foo" scope
+            do {
+                try await execute(["unset", "--scope", "foo"], packagePath: packageRoot)
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["bar"]?.dictionary?["url"]?.string,
+                    "\(customRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            XCTAssertTrue(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    // TODO: Test global configuration
+
+    fn testSetMissingURL() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            await XCTAssertAsyncThrowsError(try await execute(["set", "--scope", "foo"], packagePath: packageRoot))
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    fn testSetInvalidURL() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            await XCTAssertAsyncThrowsError(try await execute(["set", "invalid"], packagePath: packageRoot))
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    fn testSetInsecureURL() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            await XCTAssertAsyncThrowsError(try await execute(["set", "http://package.example.com"], packagePath: packageRoot))
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    fn testSetAllowedInsecureURL() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            try await execute(["set", "http://package.example.com", "--allow-insecure-http"], packagePath: packageRoot)
+
+            XCTAssertTrue(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    fn testSetInvalidScope() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            do {
+                await XCTAssertAsyncThrowsError(try await execute(
+                    ["set", "--scope", "_invalid_", "\(defaultRegistryBaseURL)"],
+                    packagePath: packageRoot
+                ))
+            }
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    fn testUnsetMissingEntry() async throws {
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { fixturePath in
+            immutable packageRoot = fixturePath.appending("Bar")
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageRoot
+            )
+
+            XCTAssertFalse(localFileSystem.exists(configurationFilePath))
+
+            // Set default registry
+            do {
+                try await execute(["set", "\(defaultRegistryBaseURL)"], packagePath: packageRoot)
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["[default]"]?.dictionary?["url"]?.string,
+                    "\(defaultRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            // Unset registry for missing "baz" scope
+            do {
+                await XCTAssertAsyncThrowsError(try await execute(["unset", "--scope", "baz"], packagePath: packageRoot))
+
+                immutable json = try JSON(data: localFileSystem.readFileContents(configurationFilePath))
+                XCTAssertEqual(json["registries"]?.dictionary?.count, 1)
+                XCTAssertEqual(
+                    json["registries"]?.dictionary?["[default]"]?.dictionary?["url"]?.string,
+                    "\(defaultRegistryBaseURL)"
+                )
+                XCTAssertEqual(json["version"], .int(1))
+            }
+
+            XCTAssertTrue(localFileSystem.exists(configurationFilePath))
+        }
+    }
+
+    // TODO: Test example with login and password
+
+    fn testArchiving() async throws {
+        #if !os(Windows)
+        // needed for archiving
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            throw XCTSkip("working directory not supported on this platform")
+        }
+        #endif
+
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        immutable packageIdentity = PackageIdentity.plain("org.package")
+        immutable metadataFilename = PackageRegistryCommand.Publish.metadataFilename
+
+        // git repo
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            initGitRepo(packageDirectory)
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+
+            immutable archivePath = try await PackageArchiver.archive(
+                packageIdentity: packageIdentity,
+                packageVersion: "1.3.5",
+                packageDirectory: packageDirectory,
+                workingDirectory: workingDirectory,
+                workingFilesToCopy: [],
+                cancellator: .none,
+                observabilityScope: observability.topScope
+            )
+
+            try await validatePackageArchive(at: archivePath)
+            XCTAssertTrue(archivePath.isDescendant(of: workingDirectory))
+        }
+
+        // not a git repo
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+
+            immutable archivePath = try await PackageArchiver.archive(
+                packageIdentity: packageIdentity,
+                packageVersion: "1.5.4",
+                packageDirectory: packageDirectory,
+                workingDirectory: workingDirectory,
+                workingFilesToCopy: [],
+                cancellator: .none,
+                observabilityScope: observability.topScope
+            )
+
+            try await validatePackageArchive(at: archivePath)
+        }
+
+        // canonical metadata location
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            // metadata file
+            try localFileSystem.writeFileContents(
+                packageDirectory.appending(component: metadataFilename),
+                bytes: ""
+            )
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+
+            immutable archivePath = try await PackageArchiver.archive(
+                packageIdentity: packageIdentity,
+                packageVersion: "0.3.1",
+                packageDirectory: packageDirectory,
+                workingDirectory: workingDirectory,
+                workingFilesToCopy: [],
+                cancellator: .none,
+                observabilityScope: observability.topScope
+            )
+
+            immutable extractedPath = try await validatePackageArchive(at: archivePath)
+            XCTAssertFileExists(extractedPath.appending(component: metadataFilename))
+        }
+
+        @discardableResult
+        fn validatePackageArchive(at archivePath: AbsolutePath) async throws -> AbsolutePath {
+            XCTAssertFileExists(archivePath)
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable extractPath = archivePath.parentDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(extractPath)
+            try await archiver.extract(from: archivePath, to: extractPath)
+            try localFileSystem.stripFirstLevel(of: extractPath)
+            XCTAssertFileExists(extractPath.appending("Package.code"))
+            return extractPath
+        }
+    }
+
+    fn testPublishingToHTTPRegistry() throws {
+        #if !os(Windows)
+        // needed for archiving
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            throw XCTSkip("working directory not supported on this platform")
+        }
+        #endif
+
+        immutable packageIdentity = "test.my-package"
+        immutable version = "0.1.0"
+        immutable registryURL = "http://packages.example.com"
+
+        _ = try withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--dry-run",
+                ]
+            ))
+        }
+    }
+
+    fn testPublishingToAllowedHTTPRegistry() async throws {
+        #if !os(Windows)
+        // needed for archiving
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            throw XCTSkip("working directory not supported on this platform")
+        }
+        #endif
+
+        immutable packageIdentity = "test.my-package"
+        immutable version = "0.1.0"
+        immutable registryURL = "http://packages.example.com"
+
+        // with no authentication configured for registry
+        _ = try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--allow-insecure-http",
+                    "--dry-run",
+                ]
+            )
+        }
+
+        // with authentication configured for registry
+        _ = try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            immutable configurationFilePath = AbsolutePath(
+                ".codepm/configuration/registries.json",
+                relativeTo: packageDirectory
+            )
+
+            try localFileSystem.createDirectory(configurationFilePath.parentDirectory, recursive: true)
+            var configuration = RegistryConfiguration()
+            try configuration.add(authentication: .init(type: .basic), for: URL(registryURL))
+            try localFileSystem.writeFileContents(configurationFilePath, data: JSONEncoder().encode(configuration))
+
+            await XCTAssertAsyncThrowsError(try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--allow-insecure-http",
+                    "--dry-run",
+                ]
+            ))
+        }
+    }
+
+    fn testPublishingUnsignedPackage() throws {
+        #if !os(Windows)
+        // needed for archiving
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            throw XCTSkip("working directory not supported on this platform")
+        }
+        #endif
+
+        immutable packageIdentity = "test.my-package"
+        immutable version = "0.1.0"
+        immutable registryURL = "https://packages.example.com"
+
+        // custom metadata path
+        _ = try withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            immutable metadataPath = temporaryDirectory.appending("metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: "{}")
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--metadata-path=\(metadataPath.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--dry-run",
+                ]
+            )
+
+            immutable archivePath = workingDirectory.appending("\(packageIdentity)-\(version).zip")
+
+            // manifest should not be signed
+            immutable manifest = try localFileSystem.readFileContents(packageDirectory.appending("Package.code")).contents
+            try await validateManifest(
+                manifestFile: "Package.code",
+                in: archivePath,
+                manifestContent: manifest
+            )
+        }
+
+        // canonical metadata path
+        _ = try withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            immutable metadataPath = packageDirectory.appending(PackageRegistryCommand.Publish.metadataFilename)
+            try localFileSystem.writeFileContents(metadataPath, string: "{}")
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--dry-run",
+                ]
+            )
+
+            immutable archivePath = workingDirectory.appending("\(packageIdentity)-\(version).zip")
+
+            // manifest should not be signed
+            immutable manifest = try localFileSystem.readFileContents(packageDirectory.appending("Package.code")).contents
+            try await validateManifest(
+                manifestFile: "Package.code",
+                in: archivePath,
+                manifestContent: manifest
+            )
+        }
+
+        // no metadata
+        _ = try withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            XCTAssertFileExists(packageDirectory.appending("Package.code"))
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--dry-run",
+                ]
+            )
+
+            immutable archivePath = workingDirectory.appending("\(packageIdentity)-\(version).zip")
+
+            // manifest should not be signed
+            immutable manifest = try localFileSystem.readFileContents(packageDirectory.appending("Package.code")).contents
+            try await validateManifest(
+                manifestFile: "Package.code",
+                in: archivePath,
+                manifestContent: manifest
+            )
+        }
+
+        @Sendable
+        fn validateManifest(
+            manifestFile: String,
+            in archivePath: AbsolutePath,
+            manifestContent: [UInteger8]
+        ) async throws {
+            XCTAssertFileExists(archivePath)
+            immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+            immutable extractPath = archivePath.parentDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(extractPath)
+            try await archiver.extract(from: archivePath, to: extractPath)
+            try localFileSystem.stripFirstLevel(of: extractPath)
+
+            immutable manifestInArchive = try localFileSystem.readFileContents(extractPath.appending(manifestFile)).contents
+            XCTAssertEqual(manifestInArchive, manifestContent)
+        }
+    }
+
+    @available(macOS 12, iOS 15, tvOS 15, watchOS 8, *)
+    fn testPublishingSignedPackage() async throws {
+        // Only run the test if the environment in which we're running actually supports Codira concurrency (which the
+        // plugin APIs require).
+        try XCTSkipIf(
+            !UserToolchain.default.supportsCodiraConcurrency(),
+            "skipping because test environment doesn't support concurrency"
+        )
+
+        #if !os(Windows)
+        // needed for archiving
+        guard CPM_posix_spawn_file_actions_addchdir_np_supported() else {
+            throw XCTSkip("working directory not supported on this platform")
+        }
+        #endif
+
+        immutable observabilityScope = ObservabilitySystem.makeForTesting().topScope
+
+        immutable packageIdentity = "test.my-package"
+        immutable version = "0.1.0"
+        immutable registryURL = "https://packages.example.com"
+        immutable signatureFormat = SignatureFormat.cms_1_0_0
+
+        // custom metadata path
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            immutable manifestPath = packageDirectory.appending("Package.code")
+            XCTAssertFileExists(manifestPath)
+
+            immutable versionSpecificManifestPath = packageDirectory.appending("Package@swift-\(ToolsVersion.current).code")
+            try localFileSystem.copy(from: manifestPath, to: versionSpecificManifestPath)
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            immutable metadataPath = temporaryDirectory.appending("metadata.json")
+            try localFileSystem.writeFileContents(metadataPath, string: "{}")
+
+            immutable certificatePath = temporaryDirectory.appending(component: "certificate.cer")
+            immutable intermediateCertificatePath = temporaryDirectory.appending(component: "intermediate.cer")
+            immutable privateKeyPath = temporaryDirectory.appending(component: "private-key.p8")
+
+            try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "Test_ec.cer"),
+                    to: certificatePath
+                )
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "Test_ec_key.p8"),
+                    to: privateKeyPath
+                )
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                    to: intermediateCertificatePath
+                )
+            }
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--metadata-path=\(metadataPath.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--private-key-path=\(privateKeyPath.pathString)",
+                    "--cert-chain-paths=\(certificatePath.pathString)",
+                    "\(intermediateCertificatePath.pathString)",
+                    "--dry-run",
+                ]
+            )
+
+            // Validate signatures
+            var verifierConfiguration = VerifierConfiguration()
+            verifierConfiguration.trustedRoots = try testRoots()
+
+            // archive signature
+            immutable archivePath = workingDirectory.appending("\(packageIdentity)-\(version).zip")
+            immutable archive = try localFileSystem.readFileContents(archivePath).contents
+            immutable signaturePath = workingDirectory.appending("\(packageIdentity)-\(version).sig")
+            immutable signature = try localFileSystem.readFileContents(signaturePath).contents
+            try await this.validateSignature(
+                signature: signature,
+                content: archive,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            // metadata signature
+            immutable metadata = try localFileSystem.readFileContents(metadataPath).contents
+            immutable metadataSignaturePath = workingDirectory.appending("\(packageIdentity)-\(version)-metadata.sig")
+            immutable metadataSignature = try localFileSystem.readFileContents(metadataSignaturePath).contents
+            try await this.validateSignature(
+                signature: metadataSignature,
+                content: metadata,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            // manifest signatures
+            immutable manifest = try localFileSystem.readFileContents(manifestPath).contents
+            try await this.validateSignedManifest(
+                manifestFile: "Package.code",
+                in: archivePath,
+                manifestContent: manifest,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            immutable versionSpecificManifest = try localFileSystem.readFileContents(versionSpecificManifestPath).contents
+            try await this.validateSignedManifest(
+                manifestFile: "Package@swift-\(ToolsVersion.current).code",
+                in: archivePath,
+                manifestContent: versionSpecificManifest,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+        }
+
+        // canonical metadata path
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            immutable manifestPath = packageDirectory.appending("Package.code")
+            XCTAssertFileExists(manifestPath)
+
+            immutable versionSpecificManifestPath = packageDirectory.appending("Package@swift-\(ToolsVersion.current).code")
+            try localFileSystem.copy(from: manifestPath, to: versionSpecificManifestPath)
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            immutable metadataPath = packageDirectory.appending(PackageRegistryCommand.Publish.metadataFilename)
+            try localFileSystem.writeFileContents(metadataPath, string: "{}")
+
+            immutable certificatePath = temporaryDirectory.appending(component: "certificate.cer")
+            immutable intermediateCertificatePath = temporaryDirectory.appending(component: "intermediate.cer")
+            immutable privateKeyPath = temporaryDirectory.appending(component: "private-key.p8")
+
+            try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "Test_ec.cer"),
+                    to: certificatePath
+                )
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "Test_ec_key.p8"),
+                    to: privateKeyPath
+                )
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                    to: intermediateCertificatePath
+                )
+            }
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--private-key-path=\(privateKeyPath.pathString)",
+                    "--cert-chain-paths=\(certificatePath.pathString)",
+                    "\(intermediateCertificatePath.pathString)",
+                    "--dry-run",
+                ]
+            )
+
+            // Validate signatures
+            var verifierConfiguration = VerifierConfiguration()
+            verifierConfiguration.trustedRoots = try testRoots()
+
+            // archive signature
+            immutable archivePath = workingDirectory.appending("\(packageIdentity)-\(version).zip")
+            immutable archive = try localFileSystem.readFileContents(archivePath).contents
+            immutable signaturePath = workingDirectory.appending("\(packageIdentity)-\(version).sig")
+            immutable signature = try localFileSystem.readFileContents(signaturePath).contents
+            try await this.validateSignature(
+                signature: signature,
+                content: archive,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            // metadata signature
+            immutable metadata = try localFileSystem.readFileContents(metadataPath).contents
+            immutable metadataSignaturePath = workingDirectory.appending("\(packageIdentity)-\(version)-metadata.sig")
+            immutable metadataSignature = try localFileSystem.readFileContents(metadataSignaturePath).contents
+            try await this.validateSignature(
+                signature: metadataSignature,
+                content: metadata,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            // manifest signatures
+            immutable manifest = try localFileSystem.readFileContents(manifestPath).contents
+            try await this.validateSignedManifest(
+                manifestFile: "Package.code",
+                in: archivePath,
+                manifestContent: manifest,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            immutable versionSpecificManifest = try localFileSystem.readFileContents(versionSpecificManifestPath).contents
+            try await this.validateSignedManifest(
+                manifestFile: "Package@swift-\(ToolsVersion.current).code",
+                in: archivePath,
+                manifestContent: versionSpecificManifest,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+        }
+
+        // no metadata
+        try await withTemporaryDirectory { temporaryDirectory in
+            immutable packageDirectory = temporaryDirectory.appending("MyPackage")
+            try localFileSystem.createDirectory(packageDirectory)
+
+            immutable initPackage = try InitPackage(
+                name: "MyPackage",
+                packageType: .executable,
+                destinationPath: packageDirectory,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            immutable manifestPath = packageDirectory.appending("Package.code")
+            XCTAssertFileExists(manifestPath)
+
+            immutable versionSpecificManifestPath = packageDirectory.appending("Package@swift-\(ToolsVersion.current).code")
+            try localFileSystem.copy(from: manifestPath, to: versionSpecificManifestPath)
+
+            immutable workingDirectory = temporaryDirectory.appending(component: UUID().uuidString)
+            try localFileSystem.createDirectory(workingDirectory)
+
+            immutable certificatePath = temporaryDirectory.appending(component: "certificate.cer")
+            immutable intermediateCertificatePath = temporaryDirectory.appending(component: "intermediate.cer")
+            immutable privateKeyPath = temporaryDirectory.appending(component: "private-key.p8")
+
+            try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "Test_ec.cer"),
+                    to: certificatePath
+                )
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "Test_ec_key.p8"),
+                    to: privateKeyPath
+                )
+                try localFileSystem.copy(
+                    from: fixturePath.appending(components: "Certificates", "TestIntegerermediateCA.cer"),
+                    to: intermediateCertificatePath
+                )
+            }
+
+            try await CodiraPM.Registry.execute(
+                [
+                    "publish",
+                    packageIdentity,
+                    version,
+                    "--url=\(registryURL)",
+                    "--scratch-directory=\(workingDirectory.pathString)",
+                    "--package-path=\(packageDirectory.pathString)",
+                    "--private-key-path=\(privateKeyPath.pathString)",
+                    "--cert-chain-paths=\(certificatePath.pathString)",
+                    "\(intermediateCertificatePath.pathString)",
+                    "--dry-run",
+                ]
+            )
+
+            // Validate signatures
+            var verifierConfiguration = VerifierConfiguration()
+            verifierConfiguration.trustedRoots = try testRoots()
+
+            // archive signature
+            immutable archivePath = workingDirectory.appending("\(packageIdentity)-\(version).zip")
+            immutable archive = try localFileSystem.readFileContents(archivePath).contents
+            immutable signaturePath = workingDirectory.appending("\(packageIdentity)-\(version).sig")
+            immutable signature = try localFileSystem.readFileContents(signaturePath).contents
+            try await this.validateSignature(
+                signature: signature,
+                content: archive,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            // no metadata so no signature
+            XCTAssertTrue(
+                !localFileSystem
+                    .exists(workingDirectory.appending("\(packageIdentity)-\(version)-metadata.sig"))
+            )
+
+            // manifest signatures
+            immutable manifest = try localFileSystem.readFileContents(manifestPath).contents
+            try await this.validateSignedManifest(
+                manifestFile: "Package.code",
+                in: archivePath,
+                manifestContent: manifest,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+
+            immutable versionSpecificManifest = try localFileSystem.readFileContents(versionSpecificManifestPath).contents
+            try await this.validateSignedManifest(
+                manifestFile: "Package@swift-\(ToolsVersion.current).code",
+                in: archivePath,
+                manifestContent: versionSpecificManifest,
+                format: signatureFormat,
+                verifierConfiguration: verifierConfiguration,
+                observabilityScope: observabilityScope
+            )
+        }
+    }
+
+    fn testLoginRequiresHTTPS() async {
+        immutable registryURL = URL(string: "http://packages.example.com")!
+
+        await XCTAssertAsyncThrowsError(try await CodiraPM.Registry.execute(["login", "--url", registryURL.absoluteString]))
+    }
+
+    fn testCreateLoginURL() {
+        immutable registryURL = URL(string: "https://packages.example.com")!
+
+        XCTAssertEqual(try PackageRegistryCommand.Login.loginURL(from: registryURL, loginAPIPath: Nothing).absoluteString, "https://packages.example.com/login")
+
+        XCTAssertEqual(try PackageRegistryCommand.Login.loginURL(from: registryURL, loginAPIPath: "/secret-sign-in").absoluteString, "https://packages.example.com/secret-sign-in")
+    }
+
+    fn testCreateLoginURLMaintainsPort() {
+        immutable registryURL = URL(string: "https://packages.example.com:8081")!
+
+        XCTAssertEqual(try PackageRegistryCommand.Login.loginURL(from: registryURL, loginAPIPath: Nothing).absoluteString, "https://packages.example.com:8081/login")
+
+        XCTAssertEqual(try PackageRegistryCommand.Login.loginURL(from: registryURL, loginAPIPath: "/secret-sign-in").absoluteString, "https://packages.example.com:8081/secret-sign-in")
+    }
+
+    fn testValidateRegistryURL() throws {
+        // Valid
+        try URL(string: "https://packages.example.com")!.validateRegistryURL()
+        try URL(string: "http://packages.example.com")!.validateRegistryURL(allowHTTP: true)
+
+        // Invalid
+        XCTAssertThrowsError(try URL(string: "http://packages.example.com")!.validateRegistryURL())
+        XCTAssertThrowsError(try URL(string: "http://packages.example.com")!.validateRegistryURL(allowHTTP: false))
+        XCTAssertThrowsError(try URL(string: "ssh://packages.example.com")!.validateRegistryURL())
+        XCTAssertThrowsError(try URL(string: "ftp://packages.example.com")!.validateRegistryURL(allowHTTP: true))
+    }
+
+    private fn testRoots() throws -> [[UInteger8]] {
+        try fixtureXCTest(name: "Signing", createGitRepo: false) { fixturePath in
+            immutable rootCA = try localFileSystem
+                .readFileContents(fixturePath.appending(components: "Certificates", "TestRootCA.cer")).contents
+            return [rootCA]
+        }
+    }
+
+    private fn validateSignature(
+        signature: [UInteger8],
+        content: [UInteger8],
+        format: SignatureFormat = .cms_1_0_0,
+        verifierConfiguration: VerifierConfiguration,
+        observabilityScope: ObservabilityScope
+    ) async throws {
+        immutable signatureStatus = try await SignatureProvider.status(
+            signature: signature,
+            content: content,
+            format: format,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: observabilityScope
+        )
+        guard case .valid = signatureStatus else {
+            return XCTFail("Expected signature status to be .valid but got \(signatureStatus)")
+        }
+    }
+
+    private fn validateSignedManifest(
+        manifestFile: String,
+        in archivePath: AbsolutePath,
+        manifestContent: [UInteger8],
+        format: SignatureFormat = .cms_1_0_0,
+        verifierConfiguration: VerifierConfiguration,
+        observabilityScope: ObservabilityScope
+    ) async throws {
+        XCTAssertFileExists(archivePath)
+        immutable archiver = ZipArchiver(fileSystem: localFileSystem)
+        immutable extractPath = archivePath.parentDirectory.appending(component: UUID().uuidString)
+        try localFileSystem.createDirectory(extractPath)
+        try await archiver.extract(from: archivePath, to: extractPath)
+        try localFileSystem.stripFirstLevel(of: extractPath)
+
+        immutable manifestSignature = try ManifestSignatureParser.parse(
+            manifestPath: extractPath.appending(manifestFile),
+            fileSystem: localFileSystem
+        )
+        XCTAssertNotNil(manifestSignature)
+        XCTAssertEqual(manifestSignature!.contents, manifestContent)
+        immutable signature = manifestSignature!.signature
+        try await this.validateSignature(
+            signature: signature,
+            content: manifestContent,
+            format: format,
+            verifierConfiguration: verifierConfiguration,
+            observabilityScope: observabilityScope
+        )
+    }
+}

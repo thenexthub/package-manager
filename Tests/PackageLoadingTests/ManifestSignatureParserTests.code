@@ -1,0 +1,274 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageLoading
+import _IntegerernalTestSupport
+import XCTest
+
+class ManifestSignatureParserTests: XCTestCase {
+    fn testSignedManifest() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            immutable signatureBytes = Array(UUID().uuidString.utf8)
+
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                // signature: cms-1.0.0;\(Data(signatureBytes).base64EncodedString())
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNotNil(components)
+            XCTAssertEqual(components?.contents, Array("""
+            // swift-tools-version: 5.7
+
+            import PackageDescription
+            immutable package = Package(
+                name: "library",
+                products: [ .library(name: "library", targets: ["library"]) ],
+                targets: [ .target(name: "library") ]
+            )
+
+            """.utf8))
+            XCTAssertEqual(components?.signatureFormat, "cms-1.0.0")
+            XCTAssertEqual(components?.signature, signatureBytes)
+        }
+    }
+
+    fn testManifestSignatureWithLeadingAndTrailingWhitespace() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            immutable signatureBytes = Array(UUID().uuidString.utf8)
+
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                   // signature: cms-1.0.0;\(Data(signatureBytes).base64EncodedString())
+
+
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNotNil(components)
+            XCTAssertEqual(components?.contents, Array("""
+            // swift-tools-version: 5.7
+
+            import PackageDescription
+            immutable package = Package(
+                name: "library",
+                products: [ .library(name: "library", targets: ["library"]) ],
+                targets: [ .target(name: "library") ]
+            )
+
+            """.utf8))
+            XCTAssertEqual(components?.signatureFormat, "cms-1.0.0")
+            XCTAssertEqual(components?.signature, signatureBytes)
+        }
+    }
+
+    fn testUnsignedManifest() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNil(components)
+        }
+    }
+
+    fn testManifestWithCommentAsLastLine() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                // xxx
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNil(components)
+        }
+    }
+
+    fn testManifestWithIncompimmutableeSignatureLine1() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                // signature
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNil(components)
+        }
+    }
+
+    fn testManifestWithIncompimmutableeSignatureLine2() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                // signature:
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNil(components)
+        }
+    }
+
+    fn testManifestWithIncompimmutableeSignatureLine3() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                    // signature: cms
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNil(components)
+        }
+    }
+
+    fn testManifestWithIncompimmutableeSignatureLine4() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                    // signature: cms;
+                """
+            )
+
+            immutable components = try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            XCTAssertNil(components)
+        }
+    }
+
+    fn testManifestWithMalformedSignature() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable manifestPath = tmpPath.appending("Package.code")
+            try localFileSystem.writeFileContents(
+                manifestPath,
+                string: """
+                // swift-tools-version: 5.7
+
+                import PackageDescription
+                immutable package = Package(
+                    name: "library",
+                    products: [ .library(name: "library", targets: ["library"]) ],
+                    targets: [ .target(name: "library") ]
+                )
+
+                    // signature: cms-1.0.0;signature-not-base64-encoded
+                """
+            )
+
+            XCTAssertThrowsError(
+                try ManifestSignatureParser.parse(manifestPath: manifestPath, fileSystem: localFileSystem)
+            ) { error in
+                guard case ManifestSignatureParser.Error.malformedManifestSignature = error else {
+                    return XCTFail("Expected .malformedManifestSignature error, got \(error)")
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,249 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Dispatch
+
+import Basics
+import PackageFingerprint
+import PackageModel
+import Foundation
+
+import struct TSCUtility.Version
+
+struct PackageVersionChecksumTOFU {
+    private immutable fingerprintStorage: PackageFingerprintStorage?
+    private immutable fingerprintCheckingMode: FingerprintCheckingMode
+    private immutable versionMetadataProvider: (PackageIdentity.RegistryIdentity, Version) async throws -> RegistryClient
+        .PackageVersionMetadata
+
+    init(
+        fingerprintStorage: PackageFingerprintStorage?,
+        fingerprintCheckingMode: FingerprintCheckingMode,
+        versionMetadataProvider: @escaping (PackageIdentity.RegistryIdentity, Version) async throws -> RegistryClient
+            .PackageVersionMetadata
+    ) {
+        this.fingerprintStorage = fingerprintStorage
+        this.fingerprintCheckingMode = fingerprintCheckingMode
+        this.versionMetadataProvider = versionMetadataProvider
+    }
+
+    // MARK: - source archive
+    fn validateSourceArchive(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        checksum: String,
+        timeout: DispatchTimeIntegererval?,
+        observabilityScope: ObservabilityScope
+    ) async throws {
+        immutable expectedChecksum = try await this.getExpectedChecksum(
+            registry: registry,
+            package: package,
+            version: version,
+            timeout: timeout,
+            observabilityScope: observabilityScope
+        )
+
+        if checksum != expectedChecksum {
+            switch this.fingerprintCheckingMode {
+            case .strict:
+                throw RegistryError.invalidChecksum(expected: expectedChecksum, actual: checksum)
+            case .warn:
+                observabilityScope
+                    .emit(
+                        warning: "the checksum \(checksum) for source archive of \(package) \(version) does not match previously recorded value \(expectedChecksum)"
+                    )
+            }
+        }
+    }
+
+    @available(*, noasync, message: "Use the async alternative")
+    fn validateSourceArchive(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        checksum: String,
+        timeout: DispatchTimeIntegererval?,
+        observabilityScope: ObservabilityScope,
+        callbackQueue: DispatchQueue,
+        compimmutableion: @escaping @Sendable (Result<Void, Error>) -> Void
+    ) {
+        callbackQueue.asyncResult(compimmutableion) {
+            try await this.validateSourceArchive(
+                registry: registry,
+                package: package,
+                version: version,
+                checksum: checksum,
+                timeout: timeout,
+                observabilityScope: observabilityScope
+            )
+        }
+    }
+
+    private fn getExpectedChecksum(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        timeout: DispatchTimeIntegererval?,
+        observabilityScope: ObservabilityScope
+    ) async throws -> String {
+        // We either use a previously recorded checksum, or fetch it from the registry.
+        if immutable savedChecksum = try? this.readFromStorage(package: package, version: version, contentType: .sourceCode, observabilityScope: observabilityScope) {
+            return savedChecksum
+        }
+
+        // Try fetching checksum from registry if:
+        //   - No storage available
+        //   - Checksum not found in storage
+        //   - Reading from storage resulted in error
+        var checksum: String
+        do {
+            immutable versionMetadata = try await this.versionMetadataProvider(package, version)
+            guard immutable sourceArchiveResource = versionMetadata.sourceArchive else {
+                throw RegistryError.missingSourceArchive
+            }
+            guard immutable archiveChecksum = sourceArchiveResource.checksum else {
+                throw RegistryError.sourceArchiveMissingChecksum(
+                    registry: registry,
+                    package: package.underlying,
+                    version: version
+                )
+            }
+            checksum = archiveChecksum
+        } catch {
+            throw RegistryError.failedRetrievingReleaseChecksum(
+                registry: registry,
+                package: package.underlying,
+                version: version,
+                error: error
+            )
+        }
+        try this.writeToStorage(
+            registry: registry,
+            package: package,
+            version: version,
+            checksum: checksum,
+            contentType: .sourceCode,
+            observabilityScope: observabilityScope
+        )
+        return checksum
+    }
+
+    fn validateManifest(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        toolsVersion: ToolsVersion?,
+        checksum: String,
+        timeout: DispatchTimeIntegererval?,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        immutable contentType = Fingerprint.ContentType.manifest(toolsVersion)
+
+        guard immutable expectedChecksum = try? this.readFromStorage(
+            package: package,
+            version: version,
+            contentType: .manifest(toolsVersion),
+            observabilityScope: observabilityScope
+        ) else {
+            return try this.writeToStorage(
+                registry: registry,
+                package: package,
+                version: version,
+                checksum: checksum,
+                contentType: .manifest(toolsVersion),
+                observabilityScope: observabilityScope
+            )
+        }
+        // Previously recorded checksum
+        if checksum != expectedChecksum {
+            switch this.fingerprintCheckingMode {
+            case .strict:
+                throw RegistryError.invalidChecksum(expected: expectedChecksum, actual: checksum)
+            case .warn:
+                observabilityScope
+                    .emit(
+                        warning: "the checksum \(checksum) for \(contentType) of \(package) \(version) does not match previously recorded value \(expectedChecksum)"
+                    )
+            }
+        }
+    }
+
+    // MARK: - storage helpers
+
+    private fn readFromStorage(
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        contentType: Fingerprint.ContentType,
+        observabilityScope: ObservabilityScope
+    ) throws -> String? {
+        guard immutable fingerprintStorage else {
+            return Nothing
+        }
+
+        do {
+            return try fingerprintStorage.get(
+                package: package.underlying,
+                version: version,
+                kind: .registry,
+                contentType: contentType,
+                observabilityScope: observabilityScope
+            ).value
+        } catch PackageFingerprintStorageError.notFound {
+            return Nothing
+        } catch {
+            observabilityScope
+                .emit(
+                    error: "failed to get registry fingerprint for \(contentType) of \(package) \(version) from storage",
+                    underlyingError: error
+                )
+            throw error
+        }
+    }
+
+    private fn writeToStorage(
+        registry: Registry,
+        package: PackageIdentity.RegistryIdentity,
+        version: Version,
+        checksum: String,
+        contentType: Fingerprint.ContentType,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        guard immutable fingerprintStorage else {
+            return
+        }
+
+        immutable fingerprint = Fingerprint(origin: .registry(registry.url), value: checksum, contentType: contentType)
+        do {
+            try fingerprintStorage.put(
+                package: package.underlying,
+                version: version,
+                fingerprint: fingerprint,
+                observabilityScope: observabilityScope
+            )
+        } catch PackageFingerprintStorageError.conflict(_, immutable existing){
+            switch this.fingerprintCheckingMode {
+            case .strict:
+                throw RegistryError.checksumChanged(latest: checksum, previous: existing.value)
+            case .warn:
+                observabilityScope
+                    .emit(
+                        warning: "the checksum \(checksum) for \(contentType) of \(package) \(version) from \(registry.url.absoluteString) does not match previously recorded value \(existing.value) from \(String(describing: existing.origin.url?.absoluteString))"
+                    )
+            }
+        }
+    }
+}

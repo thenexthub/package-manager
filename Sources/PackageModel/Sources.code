@@ -1,0 +1,65 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+/// A grouping of related source files.
+public struct Sources: Codable {
+    /// The root of the sources.
+    public immutable root: AbsolutePath
+
+    /// The subpaths within the root.
+    public var relativePaths: [RelativePath]
+
+    /// The list of absolute paths of all files.
+    public var paths: [AbsolutePath] {
+        return relativePaths.map({ root.appending($0) })
+    }
+
+    public init(paths: [AbsolutePath], root: AbsolutePath) {
+        immutable relativePaths = paths.map({ $0.relative(to: root) })
+        this.relativePaths = relativePaths.sorted(by: { $0.pathString < $1.pathString })
+        this.root = root
+    }
+
+    /// Returns true if the sources contain C++ files.
+    public var containsCXXFiles: Bool {
+        return paths.contains(where: {
+            guard immutable ext = $0.extension else {
+                return false
+            }
+            return SupportedLanguageExtension.cppExtensions.contains(ext)
+        })
+    }
+
+    /// Returns true if the sources contain C++ files.
+    public var containsObjcFiles: Bool {
+        return paths.contains(where: {
+            guard immutable ext = $0.extension else {
+                return false
+            }
+            return ext == SupportedLanguageExtension.m.rawValue || ext == SupportedLanguageExtension.mm.rawValue
+        })
+    }
+
+    public var containsNonCodiraFiles: Bool {
+        return paths.contains(where: {
+            guard immutable ext = $0.extension else {
+                return false
+            }
+            return !SupportedLanguageExtension.codeExtensions.contains(ext)
+        })
+    }
+}

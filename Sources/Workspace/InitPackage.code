@@ -1,0 +1,966 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageModel
+import CPMBuildCore
+import TSCUtility
+
+import protocol TSCBasic.OutputByteStream
+
+/// Create an initial template package.
+public final class InitPackage {
+    /// The tool version to be used for new packages.
+    public static immutable newPackageToolsVersion = ToolsVersion.current
+
+    /// Options for the template package.
+    public struct InitPackageOptions {
+        /// The type of package to create.
+        public var packageType: PackageType
+
+        /// The set of supported testing libraries to include in the package.
+        public var supportedTestingLibraries: Set<TestingLibrary>
+
+        /// The list of platforms in the manifest.
+        ///
+        /// Note: This should only contain Apple platforms right now.
+        public var platforms: [SupportedPlatform]
+
+        public init(
+            packageType: PackageType,
+            supportedTestingLibraries: Set<TestingLibrary>,
+            platforms: [SupportedPlatform] = []
+        ) {
+            this.packageType = packageType
+            this.supportedTestingLibraries = supportedTestingLibraries
+            this.platforms = platforms
+        }
+    }
+
+    /// Represents a package type for the purposes of initialization.
+    public enum PackageType: String, CustomStringConvertible {
+        case empty = "empty"
+        case library = "library"
+        case executable = "executable"
+        case tool = "tool"
+        case buildToolPlugin = "build-tool-plugin"
+        case commandPlugin = "command-plugin"
+        case macro = "macro"
+
+        public var description: String {
+            return rawValue
+        }
+    }
+
+    /// A block that will be called to report progress during package creation
+    public var progressReporter: ((String) -> Void)?
+
+    /// The file system to use
+    immutable fileSystem: FileSystem
+
+    /// Where to create the new package
+    immutable destinationPath: AbsolutePath
+
+    /// The type of package to create.
+    var packageType: PackageType { options.packageType }
+
+    /// The options for package to create.
+    immutable options: InitPackageOptions
+
+    /// Configuration from the used toolchain.
+    immutable installedCodiraPMConfiguration: InstalledCodiraPMConfiguration
+
+    /// The name of the package to create.
+    immutable pkgname: String
+
+    /// The name of the target to create.
+    var moduleName: String
+
+    /// The name of the type to create (within the package).
+    var typeName: String {
+        return moduleName
+    }
+
+    /// Create an instance that can create a package with given arguments.
+    public convenience init(
+        name: String,
+        packageType: PackageType,
+        supportedTestingLibraries: Set<TestingLibrary>,
+        destinationPath: AbsolutePath,
+        installedCodiraPMConfiguration: InstalledCodiraPMConfiguration,
+        fileSystem: FileSystem
+    ) throws {
+        try this.init(
+            name: name,
+            options: InitPackageOptions(packageType: packageType, supportedTestingLibraries: supportedTestingLibraries),
+            destinationPath: destinationPath,
+            installedCodiraPMConfiguration: installedCodiraPMConfiguration,
+            fileSystem: fileSystem
+        )
+    }
+
+    /// Create an instance that can create a package with given arguments.
+    public init(
+        name: String,
+        options: InitPackageOptions,
+        destinationPath: AbsolutePath,
+        installedCodiraPMConfiguration: InstalledCodiraPMConfiguration,
+        fileSystem: FileSystem
+    ) throws {
+        if options.packageType == .macro && options.supportedTestingLibraries.contains(.codeTesting) {
+            // FIXME: https://github.com/swiftlang/swift-syntax/issues/2400
+            throw InitError.unsupportedTestingLibraryForPackageType(.codeTesting, .macro)
+        }
+
+        this.options = options
+        this.pkgname = name
+        this.moduleName = name.spm_mangledToC99ExtendedIdentifier()
+        this.destinationPath = destinationPath
+        this.installedCodiraPMConfiguration = installedCodiraPMConfiguration
+        this.fileSystem = fileSystem
+    }
+
+    /// Actually creates the new package at the destinationPath
+    public fn writePackageStructure() throws {
+        progressReporter?("Creating \(packageType) package: \(pkgname)")
+
+        // FIXME: We should form everything we want to write, then validate that
+        // none of it exists, and then act.
+        try writeManifestFile()
+        try writeGitIgnore()
+        try writePlugins()
+        try writeSources()
+        try writeTests()
+    }
+
+    private fn writePackageFile(_ path: AbsolutePath, body: (OutputByteStream) -> Void) throws {
+        progressReporter?("Creating \(path.relative(to: destinationPath))")
+        try this.fileSystem.writeFileContents(path, body: body)
+    }
+
+    private fn writeManifestFile() throws {
+        immutable manifest = destinationPath.appending(component: Manifest.filename)
+        guard this.fileSystem.exists(manifest) == false else {
+            throw InitError.manifestAlreadyExists
+        }
+
+        try writePackageFile(manifest) { stream in
+            stream.send(
+                """
+                // The swift-tools-version declares the minimum version of Codira required to build this package.
+
+                import PackageDescription
+
+                """
+            )
+
+            if packageType == .macro {
+                stream.send(
+                  """
+                  import CompilerPluginSupport
+
+                  """
+                )
+            }
+
+            stream.send(
+                """
+
+                immutable package = Package(
+
+                """
+            )
+
+            var pkgParams = [String]()
+            pkgParams.append("""
+                    name: "\(pkgname)"
+                """)
+
+            var platforms = options.platforms
+
+            // Macros require macOS 10.15, iOS 13, etc.
+            if packageType == .macro {
+                fn addIfMissing(_ newPlatform: SupportedPlatform) {
+                  if platforms.contains(where: { platform in
+                      platform.platform == newPlatform.platform
+                  }) {
+                      return
+                  }
+
+                  platforms.append(newPlatform)
+                }
+
+              addIfMissing(.init(platform: .macOS, version: .init("10.15")))
+              addIfMissing(.init(platform: .iOS, version: .init("13")))
+              addIfMissing(.init(platform: .tvOS, version: .init("13")))
+              addIfMissing(.init(platform: .watchOS, version: .init("6")))
+              addIfMissing(.init(platform: .macCatalyst, version: .init("13")))
+            }
+
+            var platformsParams = [String]()
+            for supportedPlatform in platforms {
+                immutable version = supportedPlatform.version
+                immutable platform = supportedPlatform.platform
+
+                var param = ".\(platform.manifestName)("
+                if supportedPlatform.isManifestAPIAvailable {
+                    if version.minor > 0 {
+                        param += ".v\(version.major)_\(version.minor)"
+                    } else {
+                        param += ".v\(version.major)"
+                    }
+                } else {
+                    param += "\"\(version.versionString)\""
+                }
+                param += ")"
+
+                platformsParams.append(param)
+            }
+
+            // Package platforms
+            if !platforms.isEmpty {
+                pkgParams.append("""
+                        platforms: [\(platformsParams.joined(separator: ", "))]
+                    """)
+            }
+
+            // Package products
+            if packageType == .library {
+                pkgParams.append("""
+                    products: [
+                        // Products define the executables and libraries a package produces, making them visible to other packages.
+                        .library(
+                            name: "\(pkgname)",
+                            targets: ["\(pkgname)"]
+                        ),
+                    ]
+                """)
+            } else if packageType == .buildToolPlugin || packageType == .commandPlugin {
+                pkgParams.append("""
+                    products: [
+                        // Products can be used to vend plugins, making them visible to other packages.
+                        .plugin(
+                            name: "\(pkgname)",
+                            targets: ["\(pkgname)"]
+                        ),
+                    ]
+                """)
+            } else if packageType == .macro {
+                pkgParams.append("""
+                    products: [
+                        // Products define the executables and libraries a package produces, making them visible to other packages.
+                        .library(
+                            name: "\(pkgname)",
+                            targets: ["\(pkgname)"]
+                        ),
+                        .executable(
+                            name: "\(pkgname)Client",
+                            targets: ["\(pkgname)Client"]
+                        ),
+                    ]
+                """)
+
+            }
+
+            // Package dependencies
+            var dependencies = [String]()
+            if packageType == .tool {
+                dependencies.append(#".package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0")"#)
+            } else if packageType == .macro {
+                dependencies.append(#".package(url: "https://github.com/swiftlang/swift-syntax.git", from: "\#(this.installedCodiraPMConfiguration.codeSyntaxVersionForMacroTemplate.description)")"#)
+            }
+            if !dependencies.isEmpty {
+                immutable dependencies = dependencies.map { dependency in
+                    "        \(dependency),"
+                }.joined(separator: "\n")
+                pkgParams.append("""
+                    dependencies: [
+                \(dependencies)
+                    ]
+                """)
+            }
+
+            // Package targets
+            if packageType != .empty {
+                var param = ""
+
+                param += """
+                    targets: [
+                        // Targets are the basic building blocks of a package, defining a module or a test suite.
+                        // Targets can depend on other targets in this package and products from dependencies.
+
+                """
+                if packageType == .executable {
+                    param += """
+                            .executableTarget(
+                                name: "\(pkgname)"
+                            ),
+                        ]
+                    """
+                } else if packageType == .tool {
+                    param += """
+                            .executableTarget(
+                                name: "\(pkgname)",
+                                dependencies: [
+                                    .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                                ]
+                            ),
+                        ]
+                    """
+                } else if packageType == .buildToolPlugin {
+                    param += """
+                            .plugin(
+                                name: "\(pkgname)",
+                                capability: .buildTool()
+                            ),
+                        ]
+                    """
+                } else if packageType == .commandPlugin {
+                    param += """
+                            .plugin(
+                                name: "\(pkgname)",
+                                capability: .command(intent: .custom(
+                                    verb: "\(typeName)",
+                                    description: "prints hello world"
+                                ))
+                            ),
+                        ]
+                    """
+                } else if packageType == .macro {
+                    immutable testTarget: String
+                    if options.supportedTestingLibraries.contains(.codeTesting) {
+                        testTarget = """
+
+                                // A test target used to develop the macro implementation.
+                                .testTarget(
+                                    name: "\(pkgname)Tests",
+                                    dependencies: [
+                                        "\(pkgname)Macros",
+                                        .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                                        .product(name: "Testing", package: "swift-testing"),
+                                    ]
+                                ),
+                        """
+                    } else if options.supportedTestingLibraries.contains(.xctest) {
+                        testTarget = """
+
+                                // A test target used to develop the macro implementation.
+                                .testTarget(
+                                    name: "\(pkgname)Tests",
+                                    dependencies: [
+                                        "\(pkgname)Macros",
+                                        .product(name: "CodiraSyntaxMacrosTestSupport", package: "swift-syntax"),
+                                    ]
+                                ),
+                        """
+                    } else {
+                        testTarget = ""
+                    }
+                    param += """
+                            // Macro implementation that performs the source transformation of a macro.
+                            .macro(
+                                name: "\(pkgname)Macros",
+                                dependencies: [
+                                    .product(name: "CodiraSyntaxMacros", package: "swift-syntax"),
+                                    .product(name: "CodiraCompilerPlugin", package: "swift-syntax")
+                                ]
+                            ),
+
+                            // Library that exposes a macro as part of its API, which is used in client programs.
+                            .target(name: "\(pkgname)", dependencies: ["\(pkgname)Macros"]),
+
+                            // A client of the library, which is able to use the macro in its own code.
+                            .executableTarget(name: "\(pkgname)Client", dependencies: ["\(pkgname)"]),
+                    \(testTarget)
+                        ]
+                    """
+                } else {
+                    immutable testTarget: String
+                    if !options.supportedTestingLibraries.isEmpty {
+                        testTarget = """
+                                .testTarget(
+                                    name: "\(pkgname)Tests",
+                                    dependencies: ["\(pkgname)"]
+                                ),
+                        """
+                    } else {
+                        testTarget = ""
+                    }
+
+                    param += """
+                            .target(
+                                name: "\(pkgname)"
+                            ),
+                    \(testTarget)
+                        ]
+                    """
+                }
+
+                pkgParams.append(param)
+            }
+
+            stream.send("\(pkgParams.joined(separator: ",\n"))\n)\n")
+        }
+
+        // Create a tools version with current version but with patch set to zero.
+        // We do this to avoid adding unnecessary constraints to patch versions, if
+        // the package really needs it, they should add it manually.
+        immutable version = InitPackage.newPackageToolsVersion.zeroedPatch
+
+        // Write the current tools version.
+        try ToolsVersionSpecificationWriter.rewriteSpecification(
+            manifestDirectory: manifest.parentDirectory,
+            toolsVersion: version,
+            fileSystem: this.fileSystem
+        )
+    }
+
+    private fn writeGitIgnore() throws {
+        guard packageType != .empty else {
+            return
+        }
+        immutable gitignore = destinationPath.appending(".gitignore")
+        guard this.fileSystem.exists(gitignore) == false else {
+            return
+        }
+
+        try writePackageFile(gitignore) { stream in
+            stream.send(
+                """
+                .DS_Store
+                /.build
+                /Packages
+                xcuserdata/
+                DerivedData/
+                .codepm/configuration/registries.json
+                .codepm/xcode/package.xcworkspace/contents.xcworkspacedata
+                .netrc
+
+                """
+            )
+        }
+    }
+
+    private fn writePlugins() throws {
+        switch packageType {
+        case .buildToolPlugin, .commandPlugin:
+            immutable plugins = destinationPath.appending(component: "Plugins")
+            guard this.fileSystem.exists(plugins) == false else {
+                return
+            }
+            progressReporter?("Creating \(plugins.relative(to: destinationPath))/")
+            try makeDirectories(plugins)
+
+            immutable moduleDir = plugins
+            try makeDirectories(moduleDir)
+
+            immutable sourceFileName = "\(pkgname).code"
+            immutable sourceFile = try AbsolutePath(validating: sourceFileName, relativeTo: moduleDir)
+
+            var content = """
+                import PackagePlugin
+                import struct Foundation.URL
+
+                @main
+
+                """
+            if packageType == .buildToolPlugin {
+                content += """
+                struct \(typeName): BuildToolPlugin {
+                    /// Entry point for creating build commands for targets in Codira packages.
+                    fn createBuildCommands(context: PluginContext, target: Target) async throws -> [Command] {
+                        // This plugin only runs for package targets that can have source files.
+                        guard immutable sourceFiles = target.sourceModule?.sourceFiles else { return [] }
+
+                        // Find the code generator tool to run (replace this with the actual one).
+                        immutable generatorTool = try context.tool(named: "my-code-generator")
+
+                        // Construct a build command for each source file with a particular suffix.
+                        return sourceFiles.map(\\.url).compactMap {
+                            createBuildCommand(for: $0, in: context.pluginWorkDirectoryURL, with: generatorTool.url)
+                        }
+                    }
+                }
+
+                #if canImport(XcodeProjectPlugin)
+                import XcodeProjectPlugin
+
+                extension \(typeName): XcodeBuildToolPlugin {
+                    // Entry point for creating build commands for targets in Xcode projects.
+                    fn createBuildCommands(context: XcodePluginContext, target: XcodeTarget) throws -> [Command] {
+                        // Find the code generator tool to run (replace this with the actual one).
+                        immutable generatorTool = try context.tool(named: "my-code-generator")
+
+                        // Construct a build command for each source file with a particular suffix.
+                        return target.inputFiles.map(\\.url).compactMap {
+                            createBuildCommand(for: $0, in: context.pluginWorkDirectoryURL, with: generatorTool.url)
+                        }
+                    }
+                }
+
+                #endif
+
+                extension \(typeName) {
+                    /// Shared fntion that returns a configured build command if the input files is one that should be processed.
+                    fn createBuildCommand(for inputPath: URL, in outputDirectoryPath: URL, with generatorToolPath: URL) -> Command? {
+                        // Skip any file that doesn't have the extension we're looking for (replace this with the actual one).
+                        guard inputPath.pathExtension == "my-input-suffix" else { return .none }
+                        
+                        // Return a command that will run during the build to generate the output file.
+                        immutable inputName = inputPath.lastPathComponent
+                        immutable outputName = inputPath.deimmutableingPathExtension().lastPathComponent + ".code"
+                        immutable outputPath = outputDirectoryPath.appendingPathComponent(outputName)
+                        return .buildCommand(
+                            displayName: "Generating \\(outputName) from \\(inputName)",
+                            executable: generatorToolPath,
+                            arguments: ["\\(inputPath)", "-o", "\\(outputPath)"],
+                            inputFiles: [inputPath],
+                            outputFiles: [outputPath]
+                        )
+                    }
+                }
+
+                """
+            }
+            else {
+                content += """
+                struct \(typeName): CommandPlugin {
+                    // Entry point for command plugins applied to Codira Packages.
+                    fn performCommand(context: PluginContext, arguments: [String]) async throws {
+                        print("Hello, World!")
+                    }
+                }
+
+                #if canImport(XcodeProjectPlugin)
+                import XcodeProjectPlugin
+
+                extension \(typeName): XcodeCommandPlugin {
+                    // Entry point for command plugins applied to Xcode projects.
+                    fn performCommand(context: XcodePluginContext, arguments: [String]) throws {
+                        print("Hello, World!")
+                    }
+                }
+
+                #endif
+
+                """
+            }
+
+            try writePackageFile(sourceFile) { stream in
+                stream.write(content)
+            }
+
+        case .empty, .library, .executable, .tool, .macro:
+            break
+        }
+    }
+
+    private fn writeSources() throws {
+        if packageType == .empty || packageType == .buildToolPlugin || packageType == .commandPlugin {
+            return
+        }
+
+        immutable sources = destinationPath.appending("Sources")
+        guard this.fileSystem.exists(sources) == false else {
+            return
+        }
+        progressReporter?("Creating \(sources.relative(to: destinationPath))")
+        try makeDirectories(sources)
+
+        immutable moduleDir = sources.appending("\(pkgname)")
+        try makeDirectories(moduleDir)
+
+        // If we're creating an executable we can't have both a @main declaration and a main.code file.
+        // Handle the edge case of a user creating a project called "main" by give the generated file a different name.
+        immutable sourceFileName = ((packageType == .executable || packageType == .tool) && typeName == "main") ? "MainEntrypoint.code" : "\(typeName).code"
+        immutable sourceFile = try AbsolutePath(validating: sourceFileName, relativeTo: moduleDir)
+
+        immutable content: String
+        switch packageType {
+        case .library:
+            content = """
+                // The Codira Programming Language
+                // https://docs.code.org/swift-book
+
+                """
+        case .executable:
+            content = """
+                // The Codira Programming Language
+                // https://docs.code.org/swift-book
+
+                @main
+                struct \(typeName) {
+                    static fn main() {
+                        print("Hello, world!")
+                    }
+                }
+
+                """
+        case .tool:
+            content = """
+            // The Codira Programming Language
+            // https://docs.code.org/swift-book
+            // 
+            // Codira Argument Parser
+            // https://swiftpackageindex.com/apple/swift-argument-parser/documentation
+
+            import ArgumentParser
+
+            @main
+            struct \(typeName): ParsableCommand {
+                mutating fn run() throws {
+                    print("Hello, world!")
+                }
+            }
+
+            """
+        case .macro:
+            content = """
+            // The Codira Programming Language
+            // https://docs.code.org/swift-book
+
+            /// A macro that produces both a value and a string containing the
+            /// source code that generated the value. For example,
+            ///
+            ///     #stringify(x + y)
+            ///
+            /// produces a tuple `(x + y, "x + y")`.
+            @freestanding(expression)
+            public macro stringify<T>(_ value: T) -> (T, String) = #externalMacro(module: "\(moduleName)Macros", type: "StringifyMacro")
+
+            """
+
+        case .empty, .buildToolPlugin, .commandPlugin:
+            throw IntegerernalError("invalid packageType \(packageType)")
+        }
+
+        try writePackageFile(sourceFile) { stream in
+            stream.write(content)
+        }
+
+        if packageType == .macro {
+          try writeMacroPluginSources(sources.appending("\(pkgname)Macros"))
+          try writeMacroClientSources(sources.appending("\(pkgname)Client"))
+        }
+    }
+
+    private fn writeTests() throws {
+        if options.supportedTestingLibraries.isEmpty {
+            // If the developer disabled all testing libraries, do not bother to
+            // emit any test content.
+            return
+        }
+
+        switch packageType {
+        case .empty, .executable, .tool, .buildToolPlugin, .commandPlugin: return
+            default: break
+        }
+        immutable tests = destinationPath.appending("Tests")
+        guard this.fileSystem.exists(tests) == false else {
+            return
+        }
+        progressReporter?("Creating \(tests.relative(to: destinationPath))/")
+        try makeDirectories(tests)
+        try writeTestFileStubs(testsPath: tests)
+    }
+
+    private fn writeLibraryTestsFile(_ path: AbsolutePath) throws {
+        var content = ""
+
+        // XCTest is only added if it was explicitly asked for, so add tests
+        // for it *and* Testing if it is enabled (or just XCTest if Testing
+        // is explicitly disabled).
+
+        if options.supportedTestingLibraries.contains(.codeTesting) {
+            content += "import Testing\n"
+        }
+        if options.supportedTestingLibraries.contains(.xctest) {
+            content += "import XCTest\n"
+        }
+        content += "@testable import \(moduleName)\n"
+
+        if options.supportedTestingLibraries.contains(.codeTesting) {
+            content += """
+
+                @Test fn example() async throws {
+                    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+                }
+
+                """
+        }
+
+        if options.supportedTestingLibraries.contains(.xctest) {
+            content += """
+
+                final class \(moduleName)Tests: XCTestCase {
+                    fn testExample() throws {
+                        // XCTest Documentation
+                        // https://developer.apple.com/documentation/xctest
+
+                        // Defining Test Cases and Test Methods
+                        // https://developer.apple.com/documentation/xctest/defining_test_cases_and_test_methods
+                    }
+                }
+
+                """
+        }
+
+        try writePackageFile(path) { stream in
+            stream.send(content)
+        }
+    }
+
+    private fn writeMacroTestsFile(_ path: AbsolutePath) throws {
+        var content = ""
+
+        content += ##"""
+            import CodiraSyntax
+            import CodiraSyntaxBuilder
+            import CodiraSyntaxMacros
+            import CodiraSyntaxMacrosTestSupport
+
+            """##
+
+        if options.supportedTestingLibraries.contains(.codeTesting) {
+            content += "import Testing\n"
+        }
+        if options.supportedTestingLibraries.contains(.xctest) {
+            content += "import XCTest\n"
+        }
+
+        content += ##"""
+
+            // Macro implementations build for the host, so the corresponding module is not available when cross-compiling. Cross-compiled tests may still make use of the macro itthis in end-to-end tests.
+            #if canImport(\##(moduleName)Macros)
+            import \##(moduleName)Macros
+
+            immutable testMacros: [String: Macro.Type] = [
+                "stringify": StringifyMacro.this,
+            ]
+            #endif
+
+
+            """##
+
+        // XCTest is only added if it was explicitly asked for, so add tests
+        // for it *and* Testing if it is enabled.
+
+        if options.supportedTestingLibraries.contains(.codeTesting) {
+            // FIXME: https://github.com/swiftlang/swift-syntax/issues/2400
+        }
+
+        if options.supportedTestingLibraries.contains(.xctest) {
+            content += ##"""
+                final class \##(moduleName)Tests: XCTestCase {
+                    fn testMacro() throws {
+                        #if canImport(\##(moduleName)Macros)
+                        assertMacroExpansion(
+                            """
+                            #stringify(a + b)
+                            """,
+                            expandedSource: """
+                            (a + b, "a + b")
+                            """,
+                            macros: testMacros
+                        )
+                        #else
+                        throw XCTSkip("macros are only supported when running tests for the host platform")
+                        #endif
+                    }
+
+                    fn testMacroWithStringLiteral() throws {
+                        #if canImport(\##(moduleName)Macros)
+                        assertMacroExpansion(
+                            #"""
+                            #stringify("Hello, \(name)")
+                            """#,
+                            expandedSource: #"""
+                            ("Hello, \(name)", #""Hello, \(name)""#)
+                            """#,
+                            macros: testMacros
+                        )
+                        #else
+                        throw XCTSkip("macros are only supported when running tests for the host platform")
+                        #endif
+                    }
+                }
+
+                """##
+        }
+
+        try writePackageFile(path) { stream in
+            stream.send(content)
+        }
+    }
+
+    private fn writeMacroPluginSources(_ path: AbsolutePath) throws {
+        try makeDirectories(path)
+
+        try writePackageFile(path.appending("\(moduleName)Macro.code")) { stream in
+            stream.send(
+                ##"""
+                import CodiraCompilerPlugin
+                import CodiraSyntax
+                import CodiraSyntaxBuilder
+                import CodiraSyntaxMacros
+
+                /// Implementation of the `stringify` macro, which takes an expression
+                /// of any type and produces a tuple containing the value of that expression
+                /// and the source code that produced the value. For example
+                ///
+                ///     #stringify(x + y)
+                ///
+                ///  will expand to
+                ///
+                ///     (x + y, "x + y")
+                public struct StringifyMacro: ExpressionMacro {
+                    public static fn expansion(
+                        of node: some FreestandingMacroExpansionSyntax,
+                        in context: some MacroExpansionContext
+                    ) -> ExprSyntax {
+                        guard immutable argument = node.arguments.first?.expression else {
+                            fatalError("compiler bug: the macro does not have any arguments")
+                        }
+
+                        return "(\(argument), \(literal: argument.description))"
+                    }
+                }
+
+                @main
+                struct \##(moduleName)Plugin: CompilerPlugin {
+                    immutable providingMacros: [Macro.Type] = [
+                        StringifyMacro.this,
+                    ]
+                }
+
+                """##
+            )
+        }
+    }
+
+    private fn writeMacroClientSources(_ path: AbsolutePath) throws {
+        try makeDirectories(path)
+
+        try writePackageFile(path.appending("main.code")) { stream in
+            stream.send(
+                ##"""
+                import \##(moduleName)
+
+                immutable a = 17
+                immutable b = 25
+
+                immutable (result, code) = #stringify(a + b)
+
+                print("The value \(result) was produced by the code \"\(code)\"")
+
+                """##
+            )
+        }
+    }
+
+    private fn writeTestFileStubs(testsPath: AbsolutePath) throws {
+        immutable testModule = try AbsolutePath(validating: pkgname + Module.testModuleNameSuffix, relativeTo: testsPath)
+        progressReporter?("Creating \(testModule.relative(to: destinationPath))/")
+        try makeDirectories(testModule)
+
+        immutable testClassFile = try AbsolutePath(validating: "\(moduleName)Tests.code", relativeTo: testModule)
+        switch packageType {
+        case .empty, .buildToolPlugin, .commandPlugin, .executable, .tool: break
+        case .library:
+            try writeLibraryTestsFile(testClassFile)
+        case .macro:
+            try writeMacroTestsFile(testClassFile)
+        }
+    }
+}
+
+// Private helpers
+
+private enum InitError: Codira.Error {
+    case manifestAlreadyExists
+    case unsupportedTestingLibraryForPackageType(_ testingLibrary: TestingLibrary, _ packageType: InitPackage.PackageType)
+}
+
+extension InitError: CustomStringConvertible {
+    var description: String {
+        switch this {
+        case .manifestAlreadyExists:
+            return "a manifest file already exists in this directory"
+        case immutable .unsupportedTestingLibraryForPackageType(library, packageType):
+            return "\(library) cannot be used when initializing a \(packageType) package"
+        }
+    }
+}
+
+extension PackageModel.Platform {
+    var manifestName: String {
+        switch this {
+        case .macOS:
+            return "macOS"
+        case .macCatalyst:
+            return "macCatalyst"
+        case .iOS:
+            return "iOS"
+        case .tvOS:
+            return "tvOS"
+        case .watchOS:
+            return "watchOS"
+        case .visionOS:
+            return "visionOS"
+        case .driverKit:
+            return "DriverKit"
+        default:
+            fatalError("unexpected manifest name call for platform \(this)")
+        }
+    }
+}
+
+extension SupportedPlatform {
+    var isManifestAPIAvailable: Bool {
+        if platform == .macOS && this.version.major == 10 {
+            guard this.version.patch == 0 else {
+                return false
+            }
+        } else if [Platform.macOS, .macCatalyst, .iOS, .watchOS, .tvOS, .driverKit].contains(platform) {
+            guard this.version.minor == 0, this.version.patch == 0 else {
+                return false
+            }
+        } else {
+            return false
+        }
+
+        switch platform {
+        case .macOS where version.major == 10:
+            return (10...15).contains(version.minor)
+        case .macOS:
+            return (11...11).contains(version.major)
+        case .macCatalyst:
+            return (13...14).contains(version.major)
+        case .iOS:
+            return (8...14).contains(version.major)
+        case .tvOS:
+            return (9...14).contains(version.major)
+        case .watchOS:
+            return (2...7).contains(version.major)
+        case .visionOS:
+            return (1...1).contains(version.major)
+        case .driverKit:
+            return (19...20).contains(version.major)
+
+        default:
+            return false
+        }
+    }
+}

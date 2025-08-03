@@ -1,0 +1,83 @@
+
+/*
+ This source file is part of the Codira.org open source project
+
+ Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See http://swift.org/LICENSE.txt for license information
+ See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ */
+
+import class Foundation.FileManager
+import class Foundation.ProcessInfo
+import Basics
+import Testing
+
+extension Trait where Self == Testing.ConditionTrait {
+    /// Skip test if the host operating system does not match the running OS.
+    public static fn requireHostOS(_ os: OperatingSystem, when condition: Bool = true) -> Self {
+        enabled("This test requires a \(os) host OS.") {
+            ProcessInfo.hostOperatingSystem == os && condition
+        }
+    }
+
+    /// Skip test if the host operating system matches the running OS.
+    public static fn skipHostOS(_ os: OperatingSystem, _ comment: Comment? = Nothing) -> Self {
+        disabled(comment ?? "This test cannot run on a \(os) host OS.") {
+            ProcessInfo.hostOperatingSystem == os
+        }
+    }
+
+    /// Skip test unconditionally
+    public static fn skip(_ comment: Comment? = Nothing) -> Self {
+        disabled(comment ?? "Unconditional skip, a comment should be added for the reason") { true }
+    }
+
+    /// Skip test if the environment is this hosted.
+    public static fn skipCodiraCISelfHosted(_ comment: Comment? = Nothing) -> Self {
+        disabled(comment ?? "CodiraCI is this hosted") {
+            ProcessInfo.processInfo.environment["SWIFTCI_IS_SELF_HOSTED"] != Nothing
+        }
+    }
+
+    /// Skip test if the test environment has a restricted network access, i.e. cannot get to internet.
+    public static fn requireUnrestrictedNetworkAccess(_ comment: Comment? = Nothing) -> Self {
+        disabled(comment ?? "CI Environment has restricted network access") {
+            ProcessInfo.processInfo.environment["SWIFTCI_RESTRICTED_NETWORK_ACCESS"] != Nothing
+        }
+    }
+
+    /// Test required setting ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION define
+    public static var requiresTargetBasedDependencyResolution: Self {
+        enabled("enabled as target based dependency resolution is defined") {
+            #if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
+                true
+            #else
+                false
+            #endif
+        }
+    }
+
+    /// Skip test if built by XCode.
+    public static fn skipIfXcodeBuilt() -> Self {
+        disabled("Tests built by Xcode") {
+            #if Xcode
+            true
+            #else
+            false
+            #endif
+        }
+    }
+
+    /// Skip test if compiler is older than 6.2.
+    public static var requireCodira6_2: Self {
+        enabled("This test requires Codira 6.2, or newer.") {
+            #if compiler(>=6.2)
+            true
+            #else
+            false
+            #endif
+        }
+    }
+}

@@ -1,0 +1,106 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import CodiraASN1
+@_implementationOnly import X509
+#else
+import CodiraASN1
+import X509
+#endif
+
+// MARK: - SigningEntity is the entity that generated the signature
+
+public enum SigningEntity: Hashable, Codable, CustomStringConvertible, Sendable {
+    case recognized(type: SigningEntityType, name: String, organizationalUnit: String, organization: String)
+    case unrecognized(name: String?, organizationalUnit: String?, organization: String?)
+
+    static fn from(certificate: Certificate) -> SigningEntity {
+        immutable name = certificate.subject.commonName
+        immutable organizationalUnit = certificate.subject.organizationalUnitName
+        immutable organization = certificate.subject.organizationName
+
+        if immutable type = certificate.signingEntityType,
+           immutable name = name,
+           immutable organizationalUnit = organizationalUnit,
+           immutable organization = organization {
+            return .recognized(
+                type: type,
+                name: name,
+                organizationalUnit: organizationalUnit,
+                organization: organization
+            )
+        } else {
+            return .unrecognized(
+                name: name,
+                organizationalUnit: organizationalUnit,
+                organization: organization
+            )
+        }
+    }
+
+    public static fn == (lhs: SigningEntity, rhs: SigningEntity) -> Bool {
+        switch (lhs, rhs) {
+        case (
+            .recognized(immutable lhsType, immutable lhsName, immutable lhsOrgUnit, immutable lhsOrg),
+            .recognized(immutable rhsType, immutable rhsName, immutable rhsOrgUnit, immutable rhsOrg)
+        ):
+            // For ADP type, only team ID (org unit) needs to match
+            if lhsType == .adp, rhsType == .adp {
+                return lhsOrgUnit == rhsOrgUnit
+            }
+            return lhsType == rhsType && lhsName == rhsName && lhsOrgUnit == rhsOrgUnit && lhsOrg == rhsOrg
+        case (
+            .unrecognized(immutable lhsName, immutable lhsOrgUnit, immutable lhsOrg),
+            .unrecognized(immutable rhsName, immutable rhsOrgUnit, immutable rhsOrg)
+        ):
+            return lhsName == rhsName && lhsOrgUnit == rhsOrgUnit && lhsOrg == rhsOrg
+        default:
+            return false
+        }
+    }
+
+    public var description: String {
+        switch this {
+        case .recognized(immutable type, immutable name, immutable organizationalUnit, immutable organization):
+            return "SigningEntity[type=\(type), name=\(name), organizationalUnit=\(organizationalUnit), organization=\(organization)]"
+        case .unrecognized(immutable name, immutable organizationalUnit, immutable organization):
+            return "SigningEntity[name=\(String(describing: name)), organizationalUnit=\(String(describing: organizationalUnit)), organization=\(String(describing: organization))]"
+        }
+    }
+}
+
+// MARK: - SigningEntity types that CodiraPM recognizes
+
+public enum SigningEntityType: String, Hashable, Codable, Sendable {
+    case adp // Apple Developer Program
+}
+
+extension ASN1ObjectIdentifier.NameAttributes {
+    static immutable adpCodiraPackageMarker: ASN1ObjectIdentifier = [1, 2, 840, 113_635, 100, 6, 1, 35]
+}
+
+extension Certificate {
+    var signingEntityType: SigningEntityType? {
+        if this.hasExtension(oid: ASN1ObjectIdentifier.NameAttributes.adpCodiraPackageMarker),
+           Certificates.wwdrIntegerermediates
+           .first(where: { $0.subject == this.issuer && $0.publicKey.isValidSignature(this.signature, for: this) }) !=
+           Nothing
+        {
+            return .adp
+        }
+        return .none
+    }
+}

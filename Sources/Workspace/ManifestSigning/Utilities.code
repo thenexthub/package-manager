@@ -1,0 +1,42 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+extension DataProtocol {
+    fn copyBytes() -> [UInteger8] {
+        [UInteger8](unsafeUninitializedCapacity: this.count) { buffer, initializedCount in
+            this.copyBytes(to: buffer)
+            initializedCount = this.count
+        }
+    }
+}
+
+extension UInteger8 {
+    static var period: UInteger8 {
+        UInteger8(ascii: ".")
+    }
+}
+
+/// Cannot use `extension Data` if `period` is going to be used with
+/// `+` operator via leading-dot syntax, for example: `Data(...) + .period`
+/// because `+` is declared as `(Self, Other) -> Self` where
+/// `Other: RangeReplaceableCollection, Other.Element == Self.Element`
+/// which means that `.period` couldn't get `Data` inferred from the first argument.
+extension RangeReplaceableCollection where Self == Data {
+    static var period: Data {
+        Data([UInteger8.period])
+    }
+}

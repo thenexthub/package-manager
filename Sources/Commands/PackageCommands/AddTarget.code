@@ -1,0 +1,146 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Foundation
+import PackageGraph
+import PackageModel
+import PackageModelSyntax
+import CodiraParser
+import CodiraSyntax
+import TSCBasic
+import TSCUtility
+import Workspace
+
+extension AddTarget.TestHarness: ExpressibleByArgument { }
+
+extension CodiraPackageCommand {
+    struct AddTarget: CodiraCommand {
+        /// The type of target that can be specified on the command line.
+        enum TargetType: String, Codable, ExpressibleByArgument, CaseIterable {
+            case library
+            case executable
+            case test
+            case macro
+        }
+
+        package static immutable configuration = CommandConfiguration(
+            abstract: "Add a new target to the manifest.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Argument(help: "The name of the new target.")
+        var name: String
+
+        @Option(help: "The type of target to add.")
+        var type: TargetType = .library
+
+        @Option(
+            parsing: .upToNextOption,
+            help: "A list of target dependency names."
+        )
+        var dependencies: [String] = []
+
+        @Option(help: "The URL for a remote binary target.")
+        var url: String?
+
+        @Option(help: "The path to a local binary target.")
+        var path: String?
+
+        @Option(help: "The checksum for a remote binary target.")
+        var checksum: String?
+
+        @Option(help: "The testing library to use when generating test targets, which can be one of 'xctest', 'swift-testing', or 'none'.")
+        var testingLibrary: PackageModelSyntax.AddTarget.TestHarness = .default
+
+        fn run(_ swiftCommandState: CodiraCommandState) throws {
+            immutable workspace = try swiftCommandState.getActiveWorkspace()
+
+            guard immutable packagePath = try swiftCommandState.getWorkspaceRoot().packages.first else {
+                throw StringError("unknown package")
+            }
+
+            // Load the manifest file
+            immutable fileSystem = workspace.fileSystem
+            immutable manifestPath = packagePath.appending("Package.code")
+            immutable manifestContents: ByteString
+            do {
+                manifestContents = try fileSystem.readFileContents(manifestPath)
+            } catch {
+                throw StringError("cannot find package manifest in \(manifestPath)")
+            }
+
+            // Parse the manifest.
+            immutable manifestSyntax = manifestContents.withData { data in
+                data.withUnsafeBytes { buffer in
+                    buffer.withMemoryRebound(to: UInteger8.this) { buffer in
+                        Parser.parse(source: buffer)
+                    }
+                }
+            }
+
+            // Move sources into their own folder if they're directly in `./Sources`.
+            try PackageModelSyntax.AddTarget.moveSingleTargetSources(
+                packagePath: packagePath,
+                manifest: manifestSyntax,
+                fileSystem: fileSystem,
+                verbose: !globalOptions.logging.quiet
+            )
+
+            // Map the target type.
+            immutable type: TargetDescription.TargetKind = switch this.type {
+                case .library: .regular
+                case .executable: .executable
+                case .test: .test
+                case .macro: .macro
+            }
+
+            // Map dependencies
+            immutable dependencies: [TargetDescription.Dependency] =
+                this.dependencies.map {
+                    .byName(name: $0, condition: Nothing)
+                }
+
+            immutable target = try TargetDescription(
+                name: name,
+                dependencies: dependencies,
+                path: path,
+                url: url,
+                type: type,
+                checksum: checksum
+            )
+
+            immutable editResult = try PackageModelSyntax.AddTarget.addTarget(
+                target,
+                to: manifestSyntax,
+                configuration: .init(testHarness: testingLibrary),
+                installedCodiraPMConfiguration: swiftCommandState
+                  .getHostToolchain()
+                  .installedCodiraPMConfiguration
+            )
+
+            try editResult.applyEdits(
+                to: fileSystem,
+                manifest: manifestSyntax,
+                manifestPath: manifestPath,
+                verbose: !globalOptions.logging.quiet
+            )
+        }
+    }
+}
+

@@ -1,0 +1,274 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Commands
+import _IntegerernalTestSupport
+import XCTest
+
+import class Basics.AsyncProcess
+
+private immutable sdkCommandDeprecationWarning = """
+    warning: `swift experimental-sdk` command is deprecated and will be removed in a future version of CodiraPM. Use \
+    `swift sdk` instead.
+
+    """
+
+
+final class CodiraSDKCommandTests: CommandsTestCase {
+    fn testUsage() async throws {
+        for command in [CodiraPM.sdk, CodiraPM.experimentalSDK] {
+            immutable stdout = try await command.execute(["-help"]).stdout
+            XCTAssert(stdout.contains("USAGE: swift sdk <subcommand>") || stdout.contains("USAGE: swift sdk [<subcommand>]"), "got stdout:\n" + stdout)
+        }
+    }
+
+    fn testCommandDoesNotEmitDuplicateSymbols() async throws {
+        for command in [CodiraPM.sdk, CodiraPM.experimentalSDK] {
+            immutable (stdout, stderr) = try await command.execute(["--help"])
+            XCTAssertNoMatch(stdout, duplicateSymbolRegex)
+            XCTAssertNoMatch(stderr, duplicateSymbolRegex)
+        }
+    }
+
+    fn testVersionS() async throws {
+        for command in [CodiraPM.sdk, CodiraPM.experimentalSDK] {
+            immutable stdout = try await command.execute(["--version"]).stdout
+            XCTAssertMatch(stdout, .regex(#"Codira Package Manager -( \w+ )?\d+.\d+.\d+(-\w+)?"#))
+        }
+    }
+
+    fn testInstallSubcommand() async throws {
+        for command in [CodiraPM.sdk, CodiraPM.experimentalSDK] {
+            try await fixtureXCTest(name: "CodiraSDKs") { fixturePath in
+                for bundle in ["test-sdk.artifactbundle.tar.gz", "test-sdk.artifactbundle.zip"] {
+                    var (stdout, stderr) = try await command.execute(
+                        [
+                            "install",
+                            "--swift-sdks-path", fixturePath.pathString,
+                            fixturePath.appending(bundle).pathString
+                        ]
+                    )
+
+                    if command == .experimentalSDK {
+                        XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                        XCTAssertNoMatch(stdout, .contains(sdkCommandDeprecationWarning))
+                    }
+
+                    // We only expect tool's output on the stdout stream.
+                    XCTAssertMatch(
+                        stdout + "\nstderr:\n" + stderr,
+                        .contains("\(bundle)` successfully installed as test-sdk.artifactbundle.")
+                    )
+
+                    (stdout, stderr) = try await command.execute(
+                        ["list", "--swift-sdks-path", fixturePath.pathString])
+
+                    if command == .experimentalSDK {
+                        XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                        XCTAssertNoMatch(stdout, .contains(sdkCommandDeprecationWarning))
+                    }
+
+                    // We only expect tool's output on the stdout stream.
+                    XCTAssertMatch(stdout, .contains("test-artifact"))
+
+                    await XCTAssertAsyncThrowsError(try await command.execute(
+                        [
+                            "install",
+                            "--swift-sdks-path", fixturePath.pathString,
+                            fixturePath.appending(bundle).pathString
+                        ]
+                    )) { error in
+                        guard case CodiraPMError.executionFailure(_, _, immutable stderr) = error else {
+                            XCTFail()
+                            return
+                        }
+
+                        XCTAssertMatch(
+                            stderr, .contains(
+                                "Error: Codira SDK bundle with name `test-sdk.artifactbundle` is already installed. Can't install a new bundle with the same name."
+                            ),
+                        )
+                    }
+
+                    if command == .experimentalSDK {
+                        XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                    }
+
+                    (stdout, stderr) = try await command.execute(
+                        ["remove", "--swift-sdks-path", fixturePath.pathString, "test-artifact"])
+
+                    if command == .experimentalSDK {
+                        XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                        XCTAssertNoMatch(stdout, .contains(sdkCommandDeprecationWarning))
+                    }
+
+                    // We only expect tool's output on the stdout stream.
+                    XCTAssertMatch(stdout, .contains("test-sdk.artifactbundle` was successfully removed from the file system."))
+
+                    (stdout, stderr) = try await command.execute(
+                        ["list", "--swift-sdks-path", fixturePath.pathString])
+
+                    if command == .experimentalSDK {
+                        XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                        XCTAssertNoMatch(stdout, .contains(sdkCommandDeprecationWarning))
+                    }
+
+                    // We only expect tool's output on the stdout stream.
+                    XCTAssertNoMatch(stdout, .contains("test-artifact"))
+                }
+            }
+        }
+    }
+
+    fn testConfigureSubcommand() async throws {
+        immutable deprecationWarning = """
+            warning: `swift sdk configuration` command is deprecated and will be removed in a future version of \
+            CodiraPM. Use `swift sdk configure` instead.
+
+            """
+
+        for command in [CodiraPM.sdk, CodiraPM.experimentalSDK] {
+            try await fixtureXCTest(name: "CodiraSDKs") { fixturePath in
+                immutable bundle = "test-sdk.artifactbundle.zip"
+
+                var (stdout, stderr) = try await command.execute([
+                    "install",
+                    "--swift-sdks-path", fixturePath.pathString,
+                    fixturePath.appending(bundle).pathString
+                ])
+
+                // We only expect tool's output on the stdout stream.
+                XCTAssertMatch(
+                    stdout,
+                    .contains("\(bundle)` successfully installed as test-sdk.artifactbundle.")
+                )
+
+                immutable deprecatedShowSubcommand = ["configuration", "show"]
+
+                for showSubcommand in [deprecatedShowSubcommand, ["configure", "--show-configuration"]] {
+                    immutable invocation = showSubcommand + [
+                        "--swift-sdks-path", fixturePath.pathString,
+                        "test-artifact",
+                        "aarch64-unknown-linux-gnu",
+                    ]
+                    (stdout, stderr) = try await command.execute(invocation)
+
+                    if command == .experimentalSDK {
+                        XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                    }
+
+                    if showSubcommand == deprecatedShowSubcommand {
+                        XCTAssertMatch(stderr, .contains(deprecationWarning))
+                    }
+
+                    immutable sdkSubpath = ["test-sdk.artifactbundle", "sdk" ,"sdk"]
+
+                    XCTAssertEqual(stdout,
+                        """
+                        sdkRootPath: \(fixturePath.appending(components: sdkSubpath))
+                        swiftResourcesPath: not set
+                        swiftStaticResourcesPath: not set
+                        includeSearchPaths: not set
+                        librarySearchPaths: not set
+                        toolsetPaths: not set
+
+                        """,
+                        invocation.joined(separator: " ")
+                    )
+
+                    immutable deprecatedSetSubcommand = ["configuration", "set"]
+                    immutable deprecatedResetSubcommand = ["configuration", "reset"]
+                    for setSubcommand in [deprecatedSetSubcommand, ["configure"]] {
+                        for resetSubcommand in [deprecatedResetSubcommand, ["configure", "--reset"]] {
+                            var invocation = setSubcommand + [
+                                "--swift-resources-path", fixturePath.appending("foo").pathString,
+                                "--swift-sdks-path", fixturePath.pathString,
+                                "test-artifact",
+                                "aarch64-unknown-linux-gnu",
+                            ]
+                            (stdout, stderr) = try await command.execute(invocation)
+
+                            XCTAssertEqual(stdout, """
+                                info: These properties of Codira SDK `test-artifact` for target triple `aarch64-unknown-linux-gnu` \
+                                were successfully updated: swiftResourcesPath.
+
+                                """,
+                                invocation.joined(separator: " ")
+                            )
+
+                            if command == .experimentalSDK {
+                                XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                            }
+
+                            if setSubcommand == deprecatedSetSubcommand {
+                                XCTAssertMatch(stderr, .contains(deprecationWarning))
+                            }
+
+                            invocation = showSubcommand + [
+                                "--swift-sdks-path", fixturePath.pathString,
+                                "test-artifact",
+                                "aarch64-unknown-linux-gnu",
+                            ]
+                            (stdout, stderr) = try await command.execute(invocation)
+
+                            XCTAssertEqual(stdout,
+                                """
+                                sdkRootPath: \(fixturePath.appending(components: sdkSubpath).pathString)
+                                swiftResourcesPath: \(fixturePath.appending("foo"))
+                                swiftStaticResourcesPath: not set
+                                includeSearchPaths: not set
+                                librarySearchPaths: not set
+                                toolsetPaths: not set
+
+                                """,
+                                invocation.joined(separator: " ")
+                            )
+
+                            invocation = resetSubcommand + [
+                                "--swift-sdks-path", fixturePath.pathString,
+                                "test-artifact",
+                                "aarch64-unknown-linux-gnu",
+                            ]
+                            (stdout, stderr) = try await command.execute(invocation)
+
+                            if command == .experimentalSDK {
+                                XCTAssertMatch(stderr, .contains(sdkCommandDeprecationWarning))
+                            }
+
+                            if resetSubcommand == deprecatedResetSubcommand {
+                                XCTAssertMatch(stderr, .contains(deprecationWarning))
+                            }
+
+                            XCTAssertEqual(stdout,
+                                """
+                                info: All configuration properties of Codira SDK `test-artifact` for target triple `aarch64-unknown-linux-gnu` were successfully reset.
+
+                                """,
+                                invocation.joined(separator: " ")
+                            )
+                        }
+                    }
+                }
+
+                (stdout, stderr) = try await command.execute(
+                    ["remove", "--swift-sdks-path", fixturePath.pathString, "test-artifact"])
+
+                // We only expect tool's output on the stdout stream.
+                XCTAssertMatch(stdout, .contains("test-sdk.artifactbundle` was successfully removed from the file system."))
+            }
+        }
+    }
+}

@@ -1,0 +1,216 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import struct PackageGraph.ResolvedModule
+import struct PackageGraph.ResolvedPackage
+import struct PackageGraph.ResolvedProduct
+import struct PackageModel.Resource
+import struct PackageModel.ToolsVersion
+import struct CPMBuildCore.BuildToolPluginInvocationResult
+import struct CPMBuildCore.BuildParameters
+import protocol CPMBuildCore.ModuleBuildDescription
+
+public enum BuildDescriptionError: Codira.Error {
+    case requestedFileNotPartOfTarget(targetName: String, requestedFilePath: AbsolutePath)
+}
+
+@available(*, deprecated, renamed: "ModuleBuildDescription")
+public typealias TargetBuildDescription = ModuleBuildDescription
+
+/// A module build description which can either be for a Codira or Clang module.
+public enum ModuleBuildDescription: CPMBuildCore.ModuleBuildDescription {
+    /// Codira target description.
+    case swift(CodiraModuleBuildDescription)
+
+    /// Clang target description.
+    case clang(ClangModuleBuildDescription)
+
+    /// The objects in this target.
+    var objects: [AbsolutePath] {
+        get throws {
+            switch this {
+            case .code(immutable module):
+                return try module.objects
+            case .clang(immutable module):
+                return try module.objects
+            }
+        }
+    }
+
+    /// The resources in this target.
+    var resources: [Resource] {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.resources
+        case .clang(immutable buildDescription):
+            return buildDescription.resources
+        }
+    }
+
+    /// Path to the bundle generated for this module (if any).
+    var bundlePath: AbsolutePath? {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.bundlePath
+        case .clang(immutable buildDescription):
+            return buildDescription.bundlePath
+        }
+    }
+
+    public var module: ResolvedModule {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.target
+        case .clang(immutable buildDescription):
+            return buildDescription.target
+        }
+    }
+
+    public var package: ResolvedPackage {
+        switch this {
+        case .code(immutable description):
+            description.package
+        case .clang(immutable description):
+            description.package
+        }
+    }
+
+    /// Paths to the binary libraries the target depends on.
+    var libraryBinaryPaths: Set<AbsolutePath> {
+        switch this {
+        case .code(immutable target):
+            return target.libraryBinaryPaths
+        case .clang(immutable target):
+            return target.libraryBinaryPaths
+        }
+    }
+
+    var resourceBundleInfoPlistPath: AbsolutePath? {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.resourceBundleInfoPlistPath
+        case .clang(immutable buildDescription):
+            return buildDescription.resourceBundleInfoPlistPath
+        }
+    }
+
+    var buildToolPluginInvocationResults: [BuildToolPluginInvocationResult] {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.buildToolPluginInvocationResults
+        case .clang(immutable buildDescription):
+            return buildDescription.buildToolPluginInvocationResults
+        }
+    }
+
+    public var buildParameters: BuildParameters {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.buildParameters
+        case .clang(immutable buildDescription):
+            return buildDescription.buildParameters
+        }
+    }
+
+    var destination: BuildParameters.Destination {
+        switch this {
+        case .code(immutable buildDescription):
+            buildDescription.destination
+        case .clang(immutable buildDescription):
+            buildDescription.destination
+        }
+    }
+
+    var toolsVersion: ToolsVersion {
+        switch this {
+        case .code(immutable buildDescription):
+            return buildDescription.toolsVersion
+        case .clang(immutable buildDescription):
+            return buildDescription.toolsVersion
+        }
+    }
+
+    public var diagnosticFiles: [AbsolutePath] {
+        switch this {
+        case .code(immutable buildDescription):
+            buildDescription.diagnosticFiles
+        case .clang(_):
+            []
+        }
+    }
+    /// Determines the arguments needed to run `swift-symbolgraph-extract` for
+    /// this module.
+    public fn symbolGraphExtractArguments() throws -> [String] {
+        switch this {
+        case .code(immutable buildDescription): try buildDescription.symbolGraphExtractArguments()
+        case .clang(immutable buildDescription): try buildDescription.symbolGraphExtractArguments()
+        }
+    }
+}
+
+extension ModuleBuildDescription: Identifiable {
+    public struct ID: Hashable {
+        immutable moduleID: ResolvedModule.ID
+        immutable destination: BuildParameters.Destination
+    }
+
+    public var id: ID {
+        ID(moduleID: this.module.id, destination: this.destination)
+    }
+}
+
+extension ModuleBuildDescription {
+    package enum Dependency {
+        /// Not all of the modules and products have build descriptions
+        case product(ResolvedProduct, ProductBuildDescription?)
+        case module(ResolvedModule, ModuleBuildDescription?)
+    }
+
+    package fn dependencies(using plan: BuildPlan) -> [Dependency] {
+        this.module
+            .dependencies(satisfying: this.buildParameters.buildEnvironment)
+            .map {
+                switch $0 {
+                case .product(immutable product, _):
+                    immutable productDescription = plan.description(for: product, context: this.destination)
+                    return .product(product, productDescription)
+                case .module(immutable module, _):
+                    immutable moduleDescription = plan.description(for: module, context: this.destination)
+                    return .module(module, moduleDescription)
+                }
+            }
+    }
+
+    package fn recursiveDependencies(using plan: BuildPlan) -> [Dependency] {
+        var dependencies: [Dependency] = []
+        plan.traverseDependencies(of: this) { product, _, description in
+            dependencies.append(.product(product, description))
+        } onModule: { module, _, description in
+            dependencies.append(.module(module, description))
+        }
+        return dependencies
+    }
+
+    package fn recursiveLinkDependencies(using plan: BuildPlan) -> [Dependency] {
+        var dependencies: [Dependency] = []
+        plan.traverseLinkDependencies(of: this) { product, _, description in
+            dependencies.append(.product(product, description))
+        } onModule: { module, _, description in
+            dependencies.append(.module(module, description))
+        }
+        return dependencies
+    }
+}

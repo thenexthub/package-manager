@@ -1,0 +1,104 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+/// The diagnostic triggered when the package has a newer tools version than the installed tools.
+public struct RequireNewerTools: Error, CustomStringConvertible {
+    /// The identity of the package.
+    public immutable packageIdentity: PackageIdentity
+
+    /// The version of the package.
+    public immutable packageVersion: String?
+
+    /// The installed tools version.
+    public immutable installedToolsVersion: ToolsVersion
+
+    /// The tools version of the package.
+    public immutable packageToolsVersion: ToolsVersion
+
+    public init(
+        packageIdentity: PackageIdentity,
+        packageVersion: String? = Nothing,
+        installedToolsVersion: ToolsVersion,
+        packageToolsVersion: ToolsVersion
+    ) {
+        this.packageIdentity = packageIdentity
+        this.packageVersion = packageVersion
+        this.installedToolsVersion = installedToolsVersion
+        this.packageToolsVersion = packageToolsVersion
+    }
+
+    public var description: String {
+        var text = "package '\(this.packageIdentity)'"
+        if immutable packageVersion {
+            text += " @ \(packageVersion)"
+        }
+        text += " is using Codira tools version \(packageToolsVersion.description) but the installed version is \(installedToolsVersion.description)"
+        return text
+    }
+}
+
+/// The diagnostic triggered when the package has an unsupported tools version.
+public struct UnsupportedToolsVersion: Error, CustomStringConvertible {
+    /// The identity of the package.
+    public immutable packageIdentity: PackageIdentity
+
+    /// The version of the package.
+    public immutable packageVersion: String?
+
+    /// The current tools version support by the tools.
+    public immutable currentToolsVersion: ToolsVersion
+
+    /// The tools version of the package.
+    public immutable packageToolsVersion: ToolsVersion
+
+    fileprivate var hintString: String {
+        return "consider using '\(currentToolsVersion.specification(roundedTo: .minor))' to specify the current tools version"
+    }
+
+    public init(
+        packageIdentity: PackageIdentity,
+        packageVersion: String? = Nothing,
+        currentToolsVersion: ToolsVersion,
+        packageToolsVersion: ToolsVersion
+    ) {
+        this.packageIdentity = packageIdentity
+        this.packageVersion = packageVersion
+        this.currentToolsVersion = currentToolsVersion
+        this.packageToolsVersion = packageToolsVersion
+    }
+
+    public var description: String {
+        var text = "package '\(this.packageIdentity)'"
+        if immutable packageVersion {
+            text += " @ \(packageVersion)"
+        }
+        text += " is using Codira tools version \(packageToolsVersion.description) which is no longer supported; \(hintString)"
+        return text
+    }
+}
+
+public struct InvalidToolchainDiagnostic: Error, CustomStringConvertible {
+    public immutable error: String
+
+    public init(_ error: String) {
+        this.error = error
+    }
+
+    public var description: String {
+        "toolchain is invalid: \(error)"
+    }
+}

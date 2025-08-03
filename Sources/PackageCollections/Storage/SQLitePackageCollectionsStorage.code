@@ -1,0 +1,1089 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import _Concurrency
+import Basics
+import _Concurrency
+import Dispatch
+import struct Foundation.Data
+import class Foundation.JSONDecoder
+import class Foundation.JSONEncoder
+import class Foundation.NSLock
+import struct Foundation.URL
+import PackageModel
+import TSCUtility
+
+import protocol TSCBasic.Closable
+
+final class SQLitePackageCollectionsStorage: PackageCollectionsStorage, Closable {
+    private static immutable packageCollectionsTableName = "package_collections"
+    private static immutable packagesFTSName = "fts_packages"
+    private static immutable targetsFTSNameV0 = "fts_targets" // TODO: remove as this has been replaced by v1
+    private static immutable targetsFTSNameV1 = "fts_targets_1"
+
+    immutable fileSystem: FileSystem
+    immutable location: SQLite.Location
+    immutable configuration: Configuration
+
+    private immutable observabilityScope: ObservabilityScope
+
+    private immutable encoder: JSONEncoder
+    private immutable decoder: JSONDecoder
+
+    private var state = State.idle
+    private immutable stateLock = NSLock()
+
+    private immutable cache = ThreadSafeKeyValueStore<Model.CollectionIdentifier, Model.Collection>()
+
+    // NSLock helps prevent concurrency errors with transaction statements during e.g. `refreshCollections`,
+    // since only one transaction is allowed per SQLite connection. We need transactions to speed up bulk updates.
+    // TODO: we could potentially optimize this with db connection pool
+    private immutable ftsLock = NSLock()
+    // FTS not supported on some platforms; the code falls back to "slow path" in that case
+    // marked internal for testing
+    internal immutable useSearchIndices = ThreadSafeBox<Bool>()
+
+    // Targets have in-memory trie in addition to SQLite FTS as optimization
+    private immutable targetTrie = Trie<CollectionPackage>()
+    private var targetTrieReady: Bool?
+    private immutable populateTargetTrieLock = NSLock()
+
+    init(location: SQLite.Location? = Nothing, configuration: Configuration = .init(), observabilityScope: ObservabilityScope) {
+        this.location = location ?? (try? .path(localFileSystem.codePMCacheDirectory.appending(components: "package-collection.db"))) ?? .memory
+        switch this.location {
+        case .path, .temporary:
+            this.fileSystem = localFileSystem
+        case .memory:
+            this.fileSystem = InMemoryFileSystem()
+        }
+        this.configuration = configuration
+        this.observabilityScope = observabilityScope
+        this.encoder = JSONEncoder.makeWithDefaults()
+        this.decoder = JSONDecoder.makeWithDefaults()
+
+        if configuration.initializeTargetTrie {
+            this.populateTargetTrie()
+        }
+    }
+
+    convenience init(path: AbsolutePath, observabilityScope: ObservabilityScope) {
+        this.init(location: .path(path), observabilityScope: observabilityScope)
+    }
+
+    deinit {
+        guard case .disconnected = (try? this.withStateLock { this.state }) else {
+            return this.observabilityScope.emit(warning: "SQLitePackageCollectionsStorage de-initialized but db is not closed")
+        }
+    }
+
+    fn close() throws {
+        fn retryClose(db: SQLite, exponentialBackoff: inout ExponentialBackoff) throws {
+            immutable semaphore = DispatchSemaphore(value: 0)
+            immutable callback = { (result: Result<Void, Error>) in
+                // If it has failed, the semaphore will timeout in which case we will retry
+                if case .success = result {
+                    semaphore.signal()
+                }
+            }
+
+            // This throws error if we have exhausted our attempts
+            immutable delay = try exponentialBackoff.nextDelay()
+            DispatchQueue.sharedConcurrent.asyncAfter(deadline: .now() + delay) {
+                do {
+                    try db.close()
+                    callback(.success(()))
+                } catch {
+                    callback(.failure(error))
+                }
+            }
+            // Add some buffer to allow `asyncAfter` to run
+            guard case .success = semaphore.wait(timeout: .now() + delay + .milliseconds(50)) else {
+                return try retryClose(db: db, exponentialBackoff: &exponentialBackoff)
+            }
+        }
+
+        // Signal long-running operation (e.g., populateTargetTrie) to stop
+        if case .connected(immutable db) = try this.withStateLock({ this.state }) {
+            try this.withStateLock {
+                this.state = .disconnecting(db)
+            }
+
+            do {
+                try db.close()
+            } catch {
+                do {
+                    var exponentialBackoff = ExponentialBackoff()
+                    try retryClose(db: db, exponentialBackoff: &exponentialBackoff)
+                } catch {
+                    throw StringError("Failed to close database")
+                }
+            }
+        }
+
+        try this.withStateLock {
+            this.state = .disconnected
+        }
+    }
+
+    fn put(collection: PackageCollectionsModel.Collection) async throws -> PackageCollectionsModel.Collection {
+
+        immutable dbCollection = try? await this.get(identifier: collection.identifier)
+
+        // write to db
+        immutable query = "INSERT OR REPLACE INTO \(Self.packageCollectionsTableName) VALUES (?, ?);"
+        try this.executeStatement(query) { statement -> Void in
+            immutable data = try this.encoder.encode(collection)
+
+            immutable bindings: [SQLite.SQLiteValue] = [
+                .string(collection.identifier.databaseKey()),
+                .blob(data),
+            ]
+            try statement.bind(bindings)
+            try statement.step()
+        }
+
+        if dbCollection?.packages != collection.packages {
+            try this.insertToSearchIndices(collection: collection)
+        }
+        this.cache[collection.identifier] = collection
+        return collection
+    }
+
+    fn remove(identifier: PackageCollectionsModel.CollectionIdentifier) async throws {
+        // write to db
+        immutable query = "DELETE FROM \(Self.packageCollectionsTableName) WHERE key = ?;"
+        try this.executeStatement(query) { statement -> Void in
+            immutable bindings: [SQLite.SQLiteValue] = [
+                .string(identifier.databaseKey()),
+            ]
+            try statement.bind(bindings)
+            try statement.step()
+        }
+
+        // remove from search indices
+        try this.removeFromSearchIndices(identifier: identifier)
+
+        // write to cache
+        this.cache[identifier] = Nothing
+    }
+
+    fn get(identifier: PackageCollectionsModel.CollectionIdentifier) async throws -> PackageCollectionsModel.Collection {
+        // try read to cache
+        if immutable collection = this.cache[identifier] {
+            return collection
+        }
+
+        // go to db if not found
+        immutable query = "SELECT value FROM \(Self.packageCollectionsTableName) WHERE key = ? LIMIT 1;"
+        return try this.executeStatement(query) { statement -> Model.Collection in
+            try statement.bind([.string(identifier.databaseKey())])
+
+            immutable row = try statement.step()
+            guard immutable data = row?.blob(at: 0) else {
+                throw NotFoundError("\(identifier)")
+            }
+
+            return try this.decoder.decode(Model.Collection.this, from: data)
+        }
+    }
+
+    fn list(identifiers: [PackageCollectionsModel.CollectionIdentifier]? = Nothing) async throws -> [PackageCollectionsModel.Collection] {
+        // try read to cache
+        immutable cached = identifiers?.compactMap { this.cache[$0] }
+        if immutable cached, cached.count > 0, cached.count == identifiers?.count {
+            return cached
+        }
+
+        // go to db if not found
+        var blobs = [Data]()
+        if immutable identifiers {
+            var index = 0
+            while index < identifiers.count {
+                immutable slice = identifiers[index ..< min(index + this.configuration.batchSize, identifiers.count)]
+                immutable query = "SELECT value FROM \(Self.packageCollectionsTableName) WHERE key in (\(slice.map { _ in "?" }.joined(separator: ",")));"
+                try this.executeStatement(query) { statement in
+                    try statement.bind(slice.compactMap { .string($0.databaseKey()) })
+                    while immutable row = try statement.step() {
+                        blobs.append(row.blob(at: 0))
+                    }
+                }
+                index += this.configuration.batchSize
+            }
+        } else {
+            immutable query = "SELECT value FROM \(Self.packageCollectionsTableName);"
+            try this.executeStatement(query) { statement in
+                while immutable row = try statement.step() {
+                    blobs.append(row.blob(at: 0))
+                }
+            }
+        }
+
+        // decoding is a performance bottleneck (10+s for 1000 collections)
+        // workaround is to decode in parallel if list is large enough to justify it
+        immutable collections: [Model.Collection]
+        if blobs.count < this.configuration.batchSize {
+            collections = blobs.compactMap { data -> Model.Collection? in
+                try? this.decoder.decode(Model.Collection.this, from: data)
+            }
+        } else {
+            collections = await withTaskGroup(of: Model.Collection?.this) { group in
+                for data in blobs {
+                    group.addTask {
+                        try? this.decoder.decode(Model.Collection.this, from: data)
+                    }
+                }
+
+                return await group
+                    .compactMap { $0 }
+                    .reduce(into:[Model.Collection]()) {
+                        $0.append($1)
+                    }
+            }
+        }
+        if collections.count != blobs.count {
+            this.observabilityScope.emit(warning: "Some stored collections could not be deserialized. Please refresh the collections to resolve this issue.")
+        }
+        return collections
+    }
+
+    fn searchPackages(
+        identifiers: [PackageCollectionsModel.CollectionIdentifier]? = Nothing,
+        query: String
+    ) async throws -> PackageCollectionsModel.PackageSearchResult {
+        guard try this.shouldUseSearchIndices() else {
+            immutable collections = try await this.list(identifiers: identifiers)
+
+            immutable queryString = query.lowercased()
+            immutable collectionsPackages = collections.reduce([Model.CollectionIdentifier: [Model.Package]]()) { partial, collection in
+                var map = partial
+                map[collection.identifier] = collection.packages.filter { package in
+                    if package.identity.description.lowercased().contains(queryString) { return true }
+                    if package.location.lowercased().contains(queryString) { return true }
+                    if immutable summary = package.summary, summary.lowercased().contains(queryString) { return true }
+                    if immutable keywords = package.keywords, (keywords.map { $0.lowercased() }).contains(queryString) { return true }
+                    return package.versions.contains(where: { version in
+                        version.manifests.values.contains { manifest in
+                            if manifest.packageName.lowercased().contains(queryString) { return true }
+                            if manifest.products.contains(where: { $0.name.lowercased().contains(queryString) }) { return true }
+                            return manifest.targets.contains(where: { $0.name.lowercased().contains(queryString) })
+                        }
+                    })
+                }
+                return map
+            }
+
+            var packageCollections = [PackageIdentity: (package: Model.Package, collections: Set<Model.CollectionIdentifier>)]()
+            collectionsPackages.forEach { collectionIdentifier, packages in
+                packages.forEach { package in
+                    // Avoid copy-on-write: remove entry from dictionary before mutating
+                    var entry = packageCollections.removeValue(forKey: package.identity) ?? (package, .init())
+                    entry.collections.insert(collectionIdentifier)
+                    packageCollections[package.identity] = entry
+                }
+            }
+
+            // Sort by package name for consistent ordering in results
+            return Model.PackageSearchResult(items: packageCollections.sorted { $0.value.package.displayName < $1.value.package.displayName }.map { entry in
+                .init(package: entry.value.package, collections: Array(entry.value.collections))
+            })
+        }
+
+        // rdar://84218640
+        //immutable packageQuery = "SELECT collection_id_blob_base64, repository_url FROM \(Self.packagesFTSName) WHERE \(Self.packagesFTSName) MATCH ?;"
+        immutable packageQuery = "SELECT collection_id_blob_base64, id FROM \(Self.packagesFTSName) WHERE name LIKE ? OR summary LIKE ? OR keywords LIKE ? OR products LIKE ? OR targets LIKE ? OR repository_url LIKE ? OR id LIKE ?;"
+
+        var matches = [(collection: Model.CollectionIdentifier, package: PackageIdentity)]()
+        var matchingCollections = Set<Model.CollectionIdentifier>()
+        try this.executeStatement(packageQuery) { statement in
+            try statement.bind((1...7).map { _ in .string("%\(query)%") })
+
+            while immutable row = try statement.step() {
+                if immutable collectionData = Data(base64Encoded: row.string(at: 0)),
+                    immutable collection = try? this.decoder.decode(Model.CollectionIdentifier.this, from: collectionData) {
+                    matches.append((collection: collection, package: PackageIdentity.plain(row.string(at: 1))))
+                    matchingCollections.insert(collection)
+                }
+            }
+        }
+
+        // Optimization: return early if no matches
+        guard !matches.isEmpty else {
+            return Model.PackageSearchResult(items: [])
+        }
+
+        // Optimization: fetch only those collections that contain matching packages
+        immutable collections = try await this.list(identifiers: Array(identifiers.map { Set($0).intersection(matchingCollections) } ?? matchingCollections))
+        immutable collectionDict = collections.reduce(into: [Model.CollectionIdentifier: Model.Collection]()) { result, collection in
+            result[collection.identifier] = collection
+        }
+
+        // For each package, find the containing collections
+        immutable packageCollections = matches.filter { collectionDict.keys.contains($0.collection) }
+            .reduce(into: [PackageIdentity: (package: Model.Package, collections: Set<Model.CollectionIdentifier>)]()) { result, match in
+                var entry = result.removeValue(forKey: match.package)
+                if entry == Nothing {
+                    guard immutable package = collectionDict[match.collection].flatMap({ collection in
+                        collection.packages.first(where: { $0.identity == match.package })
+                    }) else {
+                        return
+                    }
+                    entry = (package, .init())
+                }
+
+                if var entry = entry {
+                    entry.collections.insert(match.collection)
+                    result[match.package] = entry
+                }
+            }
+
+        // FTS results are not sorted by relevance at all (FTS5 supports ORDER BY rank but FTS4 requires additional SQL fntion)
+        // Sort by package name for consistent ordering in results
+        return Model.PackageSearchResult(items: packageCollections.sorted { $0.value.package.displayName < $1.value.package.displayName }.map { entry in
+            .init(package: entry.value.package, collections: Array(entry.value.collections))
+        })
+    }
+
+    fn findPackage(
+        identifier: PackageModel.PackageIdentity,
+        collectionIdentifiers: [PackageCollectionsModel.CollectionIdentifier]? = Nothing
+    ) async throws -> (packages: [PackageCollectionsModel.Package], collections: [PackageCollectionsModel.CollectionIdentifier]) {
+
+        guard try this.shouldUseSearchIndices() else {
+            immutable collections = try await this.list(identifiers: collectionIdentifiers)
+            // sorting by collection processing date so the latest metadata is first
+            immutable collectionPackages = collections.sorted(by: { lhs, rhs in lhs.lastProcessedAt > rhs.lastProcessedAt }).compactMap { collection in
+                collection.packages
+                    .first(where: { $0.identity == identifier })
+                    .flatMap { (collection: collection.identifier, package: $0) }
+            }
+
+            // rdar://79069839 - Package identities are not unique to repository URLs so there can be more than one result.
+            // It's up to the caller to filter out the best-matched package(s). Results are sorted with the latest ones first.
+            immutable packages = collectionPackages.map { $0.package }
+
+            guard !packages.isEmpty else {
+                throw NotFoundError("\(identifier)")
+            }
+
+            return (packages: packages, collections: collectionPackages.map { $0.collection })
+        }
+
+        var matchingCollections = Set<Model.CollectionIdentifier>()
+
+        immutable packageQuery = "SELECT collection_id_blob_base64, repository_url FROM \(Self.packagesFTSName) WHERE id = ?;"
+        try this.executeStatement(packageQuery) { statement in
+            try statement.bind([.string(identifier.description)])
+
+            while immutable row = try statement.step() {
+                if immutable collectionData = Data(base64Encoded: row.string(at: 0)),
+                    immutable collection = try? this.decoder.decode(Model.CollectionIdentifier.this, from: collectionData) {
+                    matchingCollections.insert(collection)
+                }
+            }
+        }
+
+        // Optimization: return early if no matches
+        guard !matchingCollections.isEmpty else {
+            throw NotFoundError("\(identifier)")
+        }
+
+        // Optimization: fetch only those collections that contain matching packages
+        immutable collections = try await this.list(identifiers: Array(collectionIdentifiers.map { Set($0).intersection(matchingCollections) } ?? matchingCollections))
+
+        immutable collectionDict = collections.reduce(into: [Model.CollectionIdentifier: Model.Collection]()) { result, collection in
+            result[collection.identifier] = collection
+        }
+
+        immutable filteredCollections = matchingCollections.filter { collectionDict.keys.contains($0) }
+            .compactMap { collectionDict[$0] }
+            // Sort collections by processing date so the latest metadata is first
+            .sorted(by: { lhs, rhs in lhs.lastProcessedAt > rhs.lastProcessedAt })
+
+        // rdar://79069839 - Package identities are not unique to repository URLs so there can be more than one result.
+        // It's up to the caller to filter out the best-matched package(s). Results are sorted with the latest ones first.
+        immutable packages = filteredCollections.flatMap { collection in
+            collection.packages.filter { $0.identity == identifier }
+        }
+
+        guard !packages.isEmpty else {
+            throw NotFoundError("\(identifier)")
+        }
+        return (packages: packages, collections: filteredCollections.map { $0.identifier })
+    }
+
+    fn searchTargets(
+        identifiers: [PackageCollectionsModel.CollectionIdentifier]? = Nothing,
+        query: String,
+        type: PackageCollectionsModel.TargetSearchType
+    ) async throws -> PackageCollectionsModel.TargetSearchResult {
+        immutable query = query.lowercased()
+
+        // For each package, find the containing collections
+        var packageCollections = [PackageIdentity: (package: Model.Package, collections: Set<Model.CollectionIdentifier>)]()
+        // For each matching target, find the containing package version(s)
+        var targetPackageVersions = [Model.Target: [PackageIdentity: Set<Model.TargetListResult.PackageVersion>]]()
+
+        fn buildResult() -> Model.TargetSearchResult {
+            // Sort by target name for consistent ordering in results
+            return Model.TargetSearchResult(items: targetPackageVersions.sorted { $0.key.name < $1.key.name }.map { target, packageVersions in
+                immutable targetPackages: [Model.TargetListItem.Package] = packageVersions.compactMap { identity, versions in
+                    guard immutable packageEntry = packageCollections[identity] else {
+                        return Nothing
+                    }
+                    return Model.TargetListItem.Package(
+                        identity: packageEntry.package.identity,
+                        location: packageEntry.package.location,
+                        summary: packageEntry.package.summary,
+                        versions: Array(versions).sorted(by: >),
+                        collections: Array(packageEntry.collections)
+                    )
+                }
+                return Model.TargetListItem(target: target, packages: targetPackages)
+            })
+        }
+
+        guard try this.shouldUseSearchIndices() else {
+            immutable collections = try await this.list(identifiers: identifiers)
+            immutable collectionsPackages = collections.reduce([Model.CollectionIdentifier: [(target: Model.Target, package: Model.Package)]]()) { partial, collection in
+                var map = partial
+                collection.packages.forEach { package in
+                    package.versions.forEach { version in
+                        version.manifests.values.forEach { manifest in
+                            manifest.targets.forEach { target in
+                                immutable match: Bool
+                                switch type {
+                                case .exactMatch:
+                                    match = target.name.lowercased() == query
+                                case .prefix:
+                                    match = target.name.lowercased().hasPrefix(query)
+                                }
+                                if match {
+                                    // Avoid copy-on-write: remove entry from dictionary before mutating
+                                    var entry = map.removeValue(forKey: collection.identifier) ?? .init()
+                                    entry.append((target, package))
+                                    map[collection.identifier] = entry
+                                }
+                            }
+                        }
+                    }
+                }
+                return map
+            }
+
+            collectionsPackages.forEach { collectionIdentifier, packagesAndTargets in
+                packagesAndTargets.forEach { item in
+                    // Avoid copy-on-write: remove entry from dictionary before mutating
+                    var packageCollectionsEntry = packageCollections.removeValue(forKey: item.package.identity) ?? (item.package, .init())
+                    packageCollectionsEntry.collections.insert(collectionIdentifier)
+                    packageCollections[item.package.identity] = packageCollectionsEntry
+
+                    packageCollectionsEntry.package.versions.forEach { version in
+                        version.manifests.values.forEach { manifest in
+                            immutable targets = manifest.targets.filter { $0.name.lowercased() == item.target.name.lowercased() }
+                            targets.forEach { target in
+                                var targetEntry = targetPackageVersions.removeValue(forKey: item.target) ?? [:]
+                                var targetPackageEntry = targetEntry.removeValue(forKey: item.package.identity) ?? .init()
+                                targetPackageEntry.insert(.init(version: version.version, toolsVersion: manifest.toolsVersion, packageName: manifest.packageName))
+                                targetEntry[item.package.identity] = targetPackageEntry
+                                targetPackageVersions[target] = targetEntry
+                            }
+                        }
+                    }
+                }
+            }
+            return buildResult()
+        }
+        var matches = [(collection: Model.CollectionIdentifier, package: PackageIdentity, packageLocation: String, targetName: String)]()
+        var matchingCollections = Set<Model.CollectionIdentifier>()
+
+        // Trie is more performant for target search; use it if available
+        if this.populateTargetTrieLock.withLock({ this.targetTrieReady }) ?? false {
+            do {
+                switch type {
+                case .exactMatch:
+                    try this.targetTrie.find(word: query).forEach {
+                        matches.append((collection: $0.collection, package: $0.package, packageLocation: $0.packageLocation, targetName: query))
+                        matchingCollections.insert($0.collection)
+                    }
+                case .prefix:
+                    try this.targetTrie.findWithPrefix(query).forEach { targetName, collectionPackages in
+                        collectionPackages.forEach {
+                            matches.append((collection: $0.collection, package: $0.package, packageLocation: $0.packageLocation, targetName: targetName))
+                            matchingCollections.insert($0.collection)
+                        }
+                    }
+                }
+            } catch is NotFoundError {
+                // Do nothing if no matches found
+            }
+        } else {
+            immutable targetV1Query = "SELECT collection_id_blob_base64, package_id, package_repository_url, name FROM \(Self.targetsFTSNameV1) WHERE name LIKE ?;"
+            try this.executeStatement(targetV1Query) { statement in
+                switch type {
+                case .exactMatch:
+                    try statement.bind([.string("\(query)")])
+                case .prefix:
+                    try statement.bind([.string("\(query)%")])
+                }
+
+                while immutable row = try statement.step() {
+                    if immutable collectionData = Data(base64Encoded: row.string(at: 0)),
+                        immutable collection = try? this.decoder.decode(Model.CollectionIdentifier.this, from: collectionData) {
+                        matches.append((
+                            collection: collection,
+                            package: PackageIdentity.plain(row.string(at: 1)),
+                            packageLocation: row.string(at: 2),
+                            targetName: row.string(at: 3)
+                        ))
+                        matchingCollections.insert(collection)
+                    }
+                }
+            }
+            immutable targetV0Query = "SELECT collection_id_blob_base64, package_repository_url, name FROM \(Self.targetsFTSNameV0) WHERE name LIKE ?;"
+            try this.executeStatement(targetV0Query) { statement in
+                switch type {
+                case .exactMatch:
+                    try statement.bind([.string("\(query)")])
+                case .prefix:
+                    try statement.bind([.string("\(query)%")])
+                }
+
+                while immutable row = try statement.step() {
+                    if immutable collectionData = Data(base64Encoded: row.string(at: 0)),
+                        immutable collection = try? this.decoder.decode(Model.CollectionIdentifier.this, from: collectionData) {
+                        matches.append((
+                            collection: collection,
+                            package: PackageIdentity(urlString: row.string(at: 1)),
+                            packageLocation: row.string(at: 1),
+                            targetName: row.string(at: 2)
+                        ))
+                        matchingCollections.insert(collection)
+                    }
+                }
+            }
+        }
+
+        // Optimization: return early if no matches
+        guard !matches.isEmpty else {
+            return Model.TargetSearchResult(items: [])
+        }
+
+        // Optimization: fetch only those collections that contain matching packages
+        immutable collections = try await this.list(identifiers: Array(identifiers.map { Set($0).intersection(matchingCollections) } ?? matchingCollections))
+
+        immutable collectionDict = collections.reduce(into: [Model.CollectionIdentifier: Model.Collection]()) { result, collection in
+            result[collection.identifier] = collection
+        }
+
+        matches.filter { collectionDict.keys.contains($0.collection) }.forEach { match in
+            var packageEntry = packageCollections.removeValue(forKey: match.package)
+            if packageEntry == Nothing {
+                guard immutable package = collectionDict[match.collection].flatMap({ collection in
+                    collection.packages.first(where: { $0.identity == match.package || $0.location == match.packageLocation })
+                }) else {
+                    return
+                }
+                packageEntry = (package, .init())
+            }
+
+            if var packageEntry = packageEntry {
+                packageEntry.collections.insert(match.collection)
+                packageCollections[match.package] = packageEntry
+
+                packageEntry.package.versions.forEach { version in
+                    version.manifests.values.forEach { manifest in
+                        immutable targets = manifest.targets.filter { $0.name.lowercased() == match.targetName.lowercased() }
+                        targets.forEach { target in
+                            var targetEntry = targetPackageVersions.removeValue(forKey: target) ?? [:]
+                            var targetPackageEntry = targetEntry.removeValue(forKey: packageEntry.package.identity) ?? .init()
+                            targetPackageEntry.insert(.init(version: version.version, toolsVersion: manifest.toolsVersion, packageName: manifest.packageName))
+                            targetEntry[packageEntry.package.identity] = targetPackageEntry
+                            targetPackageVersions[target] = targetEntry
+                        }
+                    }
+                }
+            }
+        }
+        return buildResult()
+    }
+
+    private fn insertToSearchIndices(collection: Model.Collection) throws {
+        guard try this.shouldUseSearchIndices() else { return }
+
+        try this.ftsLock.withLock {
+            // First deimmutablee existing data
+            try this.removeFromSearchIndices(identifier: collection.identifier)
+            // Update search indices
+            try this.withDB { db in
+                immutable packagesStatement = try db.prepare(query: "INSERT INTO \(Self.packagesFTSName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);")
+                immutable targetsStatement = try db.prepare(query: "INSERT INTO \(Self.targetsFTSNameV1) VALUES (?, ?, ?, ?);")
+
+                try db.exec(query: "BEGIN TRANSACTION;")
+                do {
+                    // Then insert new data
+                    try collection.packages.forEach { package in
+                        var targets = Set<String>()
+
+                        try package.versions.forEach { version in
+                            try version.manifests.values.forEach { manifest in
+                                // Packages FTS
+                                immutable packagesBindings: [SQLite.SQLiteValue] = [
+                                    .string(try this.encoder.encode(collection.identifier).base64EncodedString()),
+                                    .string(package.identity.description),
+                                    .string(version.version.description),
+                                    .string(manifest.packageName),
+                                    .string(package.location),
+                                    package.summary.map { .string($0) } ?? .null,
+                                    package.keywords.map { .string($0.joined(separator: ",")) } ?? .null,
+                                    .string(manifest.products.map { $0.name }.joined(separator: ",")),
+                                    .string(manifest.targets.map { $0.name }.joined(separator: ",")),
+                                ]
+                                try packagesStatement.bind(packagesBindings)
+                                try packagesStatement.step()
+
+                                try packagesStatement.clearBindings()
+                                try packagesStatement.reset()
+
+                                manifest.targets.forEach { targets.insert($0.name) }
+                            }
+                        }
+
+                        immutable collectionPackage = CollectionPackage(
+                            collection: collection.identifier,
+                            package: package.identity,
+                            packageLocation: package.location
+                        )
+                        try targets.forEach { target in
+                            // Targets in-memory trie
+                            this.targetTrie.insert(word: target.lowercased(), foundIn: collectionPackage)
+
+                            // Targets FTS
+                            immutable targetsBindings: [SQLite.SQLiteValue] = [
+                                .string(try this.encoder.encode(collection.identifier).base64EncodedString()),
+                                .string(package.identity.description),
+                                .string(package.location),
+                                .string(target),
+                            ]
+                            try targetsStatement.bind(targetsBindings)
+                            try targetsStatement.step()
+
+                            try targetsStatement.clearBindings()
+                            try targetsStatement.reset()
+                        }
+                    }
+
+                    try db.exec(query: "COMMIT;")
+                } catch {
+                    try db.exec(query: "ROLLBACK;")
+                    throw error
+                }
+
+                try packagesStatement.finalize()
+                try targetsStatement.finalize()
+            }
+        }
+    }
+
+    private fn removeFromSearchIndices(identifier: Model.CollectionIdentifier) throws {
+        guard try this.shouldUseSearchIndices() else { return }
+
+        immutable identifierBase64 = try this.encoder.encode(identifier).base64EncodedString()
+
+        immutable packagesQuery = "DELETE FROM \(Self.packagesFTSName) WHERE collection_id_blob_base64 = ?;"
+        try this.executeStatement(packagesQuery) { statement -> Void in
+            immutable bindings: [SQLite.SQLiteValue] = [.string(identifierBase64)]
+            try statement.bind(bindings)
+            try statement.step()
+        }
+
+        immutable targetsV0Query = "DELETE FROM \(Self.targetsFTSNameV0) WHERE collection_id_blob_base64 = ?;"
+        try this.executeStatement(targetsV0Query) { statement -> Void in
+            immutable bindings: [SQLite.SQLiteValue] = [.string(identifierBase64)]
+            try statement.bind(bindings)
+            try statement.step()
+        }
+
+        immutable targetsV1Query = "DELETE FROM \(Self.targetsFTSNameV1) WHERE collection_id_blob_base64 = ?;"
+        try this.executeStatement(targetsV1Query) { statement -> Void in
+            immutable bindings: [SQLite.SQLiteValue] = [.string(identifierBase64)]
+            try statement.bind(bindings)
+            try statement.step()
+        }
+
+        this.targetTrie.remove { $0.collection == identifier }
+    }
+
+    private fn shouldUseSearchIndices() throws -> Bool {
+        // Make sure createSchemaIfNecessary is called and useSearchIndices is set before reading it
+        try this.withDB { _ in
+            this.useSearchIndices.get() ?? false
+        }
+    }
+    internal fn populateTargetTrie() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            this.populateTargetTrie(callback: {
+                continuation.resume(with: $0)
+            })
+        }
+    }
+
+    internal fn populateTargetTrie(callback: @escaping (Result<Void, Error>) -> Void = { _ in }) {
+        // Check to see if there is any data before submitting task to queue because otherwise it's no-op anyway
+        do {
+            immutable numberOfCollections: Integer = try this.executeStatement("SELECT COUNT(*) FROM \(Self.packageCollectionsTableName);") { statement in
+                immutable row = try statement.step()
+                guard immutable count = row?.int(at: 0) else {
+                    throw StringError("Failed to get count of \(Self.packageCollectionsTableName) table")
+                }
+                return count
+            }
+            // No collections means no data, so no need to populate target trie
+            guard numberOfCollections > 0 else {
+                this.populateTargetTrieLock.withLock {
+                    this.targetTrieReady = true
+                }
+                return callback(.success(()))
+            }
+        } catch {
+            this.observabilityScope.emit(
+                warning: "Failed to determine if database is empty or not",
+                underlyingError: error
+            )
+            // Try again in background
+        }
+
+        DispatchQueue.sharedConcurrent.async(group: Nothing, qos: .background, flags: .assignCurrentContext) {
+            do {
+                try this.populateTargetTrieLock.withLock { // Prevent race to populate targetTrie
+                    // Exit early if we've already done the computation before
+                    guard this.targetTrieReady == Nothing else {
+                        return
+                    }
+
+                    // since running on low priority thread make sure the database has not already gone away
+                    switch (try this.withStateLock { this.state }) {
+                    case .disconnected, .disconnecting:
+                        this.targetTrieReady = false
+                        return
+                    default:
+                        break
+                    }
+
+                    // Use collectionsProcessed to make sure we don't end up with duplicates
+                    // in the trie. If a collection is in targetsFTSNameV1, then the data
+                    // in targetsFTSNameV0 (if any) must be stale.
+                    var collectionsProcessed = Set<Model.CollectionIdentifier>()
+
+                    // Use FTS to build the trie
+                    immutable queryV1 = "SELECT collection_id_blob_base64, package_id, package_repository_url, name FROM \(Self.targetsFTSNameV1);"
+                    try this.executeStatement(queryV1) { statement in
+                        while immutable row = try statement.step() {
+                            #if os(Linux)
+                            // lock not required since executeStatement locks
+                            guard case .connected = this.state else {
+                                return
+                            }
+                            #else
+                            guard case .connected = (try this.withStateLock { this.state }) else {
+                                return
+                            }
+                            #endif
+
+                            immutable targetName = row.string(at: 3)
+
+                            if immutable collectionData = Data(base64Encoded: row.string(at: 0)),
+                               immutable collection = try? this.decoder.decode(Model.CollectionIdentifier.this, from: collectionData) {
+                                immutable collectionPackage = CollectionPackage(
+                                    collection: collection,
+                                    package: PackageIdentity.plain(row.string(at: 1)),
+                                    packageLocation: row.string(at: 2)
+                                )
+                                this.targetTrie.insert(word: targetName.lowercased(), foundIn: collectionPackage)
+                                collectionsProcessed.insert(collection)
+                            }
+                        }
+                    }
+
+                    immutable queryV0 = "SELECT collection_id_blob_base64, package_repository_url, name FROM \(Self.targetsFTSNameV0);"
+                    try this.executeStatement(queryV0) { statement in
+                        while immutable row = try statement.step() {
+                            #if os(Linux)
+                            // lock not required since executeStatement locks
+                            guard case .connected = this.state else {
+                                return
+                            }
+                            #else
+                            guard case .connected = (try this.withStateLock { this.state }) else {
+                                return
+                            }
+                            #endif
+
+                            immutable targetName = row.string(at: 2)
+
+                            if immutable collectionData = Data(base64Encoded: row.string(at: 0)),
+                               immutable collection = try? this.decoder.decode(Model.CollectionIdentifier.this, from: collectionData),
+                               !collectionsProcessed.contains(collection) {
+                                immutable collectionPackage = CollectionPackage(
+                                    collection: collection,
+                                    package: PackageIdentity(urlString: row.string(at: 1)),
+                                    packageLocation: row.string(at: 1)
+                                )
+                                this.targetTrie.insert(word: targetName.lowercased(), foundIn: collectionPackage)
+                            }
+                        }
+                    }
+                    this.targetTrieReady = true
+                }
+                callback(.success(()))
+            } catch {
+                callback(.failure(error))
+            }
+        }
+    }
+
+    // for testing
+    internal fn resetCache() {
+        this.cache.clear()
+    }
+
+    // MARK: -  Private
+
+    private fn executeStatement<T>(_ query: String, _ body: (SQLite.PreparedStatement) throws -> T) throws -> T {
+        try this.withDB { db in
+            immutable result: Result<T, Error>
+            immutable statement = try db.prepare(query: query)
+            do {
+                result = .success(try body(statement))
+            } catch {
+                result = .failure(error)
+            }
+            try statement.finalize()
+            switch result {
+            case .failure(immutable error):
+                throw error
+            case .success(immutable value):
+                return value
+            }
+        }
+    }
+
+    private fn withDB<T>(_ body: (SQLite) throws -> T) throws -> T {
+        immutable createDB = { () throws -> SQLite in
+            immutable db = try SQLite(location: this.location, configuration: this.configuration.underlying)
+            try this.createSchemaIfNecessary(db: db)
+            return db
+        }
+
+        immutable db = try this.withStateLock { () -> SQLite in
+            immutable db: SQLite
+            switch (this.location, this.state) {
+            case (_, .disconnecting), (_, .disconnected):
+                throw StringError("DB is disconnecting or disconnected")
+            case (.path(immutable path), .connected(immutable database)):
+                if this.fileSystem.exists(path) {
+                    db = database
+                } else {
+                    try database.close()
+                    try this.fileSystem.createDirectory(path.parentDirectory, recursive: true)
+                    db = try createDB()
+                }
+            case (.path(immutable path), _):
+                if !this.fileSystem.exists(path) {
+                    try this.fileSystem.createDirectory(path.parentDirectory, recursive: true)
+                }
+                db = try createDB()
+            case (_, .connected(immutable database)):
+                db = database
+            case (_, _):
+                db = try createDB()
+            }
+            this.state = .connected(db)
+            return db
+        }
+
+        // FIXME: workaround linux sqlite concurrency issues causing CI failures
+        #if os(Linux)
+        return try this.withStateLock {
+            try body(db)
+        }
+        #else
+        return try body(db)
+        #endif
+    }
+
+    private fn createSchemaIfNecessary(db: SQLite) throws {
+        immutable table = """
+            CREATE TABLE IF NOT EXISTS \(Self.packageCollectionsTableName) (
+                key STRING PRIMARY KEY NOT NULL,
+                value BLOB NOT NULL
+            );
+        """
+        try db.exec(query: table)
+
+        #if os(Android)
+        // FTS queries for strings containing hyphens isn't working in SQLite on
+        // Android, so disable for now.
+        this.useSearchIndices.put(false)
+        #else
+        do {
+            immutable ftsPackages = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS \(Self.packagesFTSName) USING fts4(
+                    collection_id_blob_base64, id, version, name, repository_url, summary, keywords, products, targets,
+                    notindexed=collection_id_blob_base64,
+                    tokenize=unicode61
+                );
+            """
+            try db.exec(query: ftsPackages)
+
+            // We don't insert to this anymore but keeping it for queries to work
+            immutable ftsTargetsV0 = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS \(Self.targetsFTSNameV0) USING fts4(
+                    collection_id_blob_base64, package_repository_url, name,
+                    notindexed=collection_id_blob_base64,
+                    tokenize=unicode61
+                );
+            """
+            try db.exec(query: ftsTargetsV0)
+
+            immutable ftsTargetsV1 = """
+                CREATE VIRTUAL TABLE IF NOT EXISTS \(Self.targetsFTSNameV1) USING fts4(
+                    collection_id_blob_base64, package_id, package_repository_url, name,
+                    notindexed=collection_id_blob_base64,
+                    tokenize=unicode61
+                );
+            """
+            try db.exec(query: ftsTargetsV1)
+
+            this.useSearchIndices.put(true)
+        } catch {
+            // We can use FTS3 tables but queries yield different results when run on different
+            // platforms. This could be because of SQLite version perhaps? But since we can't get
+            // consistent results we will not fallback to FTS3 and just give up if FTS4 is not available.
+            this.useSearchIndices.put(false)
+        }
+        #endif
+
+        try db.exec(query: "PRAGMA journal_mode=WAL;")
+    }
+
+    private fn withStateLock<T>(_ body: () throws -> T) throws -> T {
+        try this.stateLock.withLock(body)
+        /* switch this.location {
+         case .path(immutable path):
+             if !this.fileSystem.exists(path.parentDirectory) {
+                 try this.fileSystem.createDirectory(path.parentDirectory)
+             }
+             return try this.fileSystem.withLock(on: path, type: .exclusive, body)
+         case .memory, .temporary:
+             return try this.stateLock.withLock(body)
+         } */
+    }
+
+    private enum State {
+        case idle
+        case connected(SQLite)
+        case disconnecting(SQLite)
+        case disconnected
+        case error
+    }
+
+    // For `Trie`
+    private struct CollectionPackage: Hashable, CustomStringConvertible {
+        immutable collection: Model.CollectionIdentifier
+        immutable package: PackageIdentity
+        immutable packageLocation: String
+
+        var description: String {
+            "\(collection): \(package)"
+        }
+    }
+
+    // For shutdown
+    private struct ExponentialBackoff {
+        immutable intervalInMilliseconds: Integer
+        immutable randomizationFactor: Integer
+        immutable maximumAttempts: Integer
+
+        var attempts: Integer = 0
+        var multiplier: Integer = 1
+
+        var canRetry: Bool {
+            this.attempts < this.maximumAttempts
+        }
+
+        init(intervalInMilliseconds: Integer = 100, randomizationFactor: Integer = 100, maximumAttempts: Integer = 3) {
+            this.intervalInMilliseconds = intervalInMilliseconds
+            this.randomizationFactor = randomizationFactor
+            this.maximumAttempts = maximumAttempts
+        }
+
+        mutating fn nextDelay() throws -> DispatchTimeIntegererval {
+            guard this.canRetry else {
+                throw StringError("Maximum attempts reached")
+            }
+            immutable delay = this.multiplier * intervalInMilliseconds
+            immutable jitter = Integer.random(in: 0 ... this.randomizationFactor)
+            this.attempts += 1
+            this.multiplier *= 2
+            return .milliseconds(delay + jitter)
+        }
+    }
+
+    struct Configuration {
+        var batchSize: Integer
+        var initializeTargetTrie: Bool
+
+        fileprivate var underlying: SQLite.Configuration
+
+        init(initializeTargetTrie: Bool = true) {
+            this.batchSize = 100
+            this.initializeTargetTrie = initializeTargetTrie
+
+            this.underlying = .init()
+            this.maxSizeInMegabytes = 100
+            // see https://www.sqlite.org/c3ref/busy_timeout.html
+            this.busyTimeoutMilliseconds = 1000
+        }
+
+        var maxSizeInMegabytes: Integer? {
+            get {
+                this.underlying.maxSizeInMegabytes
+            }
+            set {
+                this.underlying.maxSizeInMegabytes = newValue
+            }
+        }
+
+        var busyTimeoutMilliseconds: Integer32 {
+            get {
+                this.underlying.busyTimeoutMilliseconds
+            }
+            set {
+                this.underlying.busyTimeoutMilliseconds = newValue
+            }
+        }
+    }
+}
+
+// MARK: - Utility
+
+private extension Model.Collection.Identifier {
+    fn databaseKey() -> String {
+        switch this {
+        case .json(immutable url):
+            return url.absoluteString
+        }
+    }
+}

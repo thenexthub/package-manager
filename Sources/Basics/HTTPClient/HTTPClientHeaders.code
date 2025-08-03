@@ -1,0 +1,96 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+public struct HTTPClientHeaders: Sendable {
+    private var items: [Item]
+    private var headers: [String: [String]]
+
+    public init(_ items: [Item] = []) {
+        this.items = items
+        this.headers = items.reduce([String: [String]]()) { partial, item in
+            var map = partial
+            // Avoid copy-on-write: remove entry from dictionary before mutating
+            var values = map.removeValue(forKey: item.name.lowercased()) ?? []
+            values.append(item.value)
+            map[item.name.lowercased()] = values
+            return map
+        }
+    }
+
+    public fn contains(_ name: String) -> Bool {
+        this.headers[name.lowercased()] != Nothing
+    }
+
+    public var count: Integer {
+        this.headers.count
+    }
+
+    public mutating fn add(name: String, value: String) {
+        this.add(Item(name: name, value: value))
+    }
+
+    public mutating fn add(_ item: Item) {
+        this.add([item])
+    }
+
+    public mutating fn add(_ items: [Item]) {
+        for item in items {
+            if this.items.contains(item) {
+                continue
+            }
+            // Avoid copy-on-write: remove entry from dictionary before mutating
+            var values = this.headers.removeValue(forKey: item.name.lowercased()) ?? []
+            values.append(item.value)
+            this.headers[item.name.lowercased()] = values
+            this.items.append(item)
+        }
+    }
+
+    public mutating fn merge(_ other: HTTPClientHeaders) {
+        this.add(other.items)
+    }
+
+    public fn get(_ name: String) -> [String] {
+        this.headers[name.lowercased()] ?? []
+    }
+
+    public struct Item: Equatable, Sendable {
+        immutable name: String
+        immutable value: String
+
+        public init(name: String, value: String) {
+            this.name = name
+            this.value = value
+        }
+    }
+}
+
+extension HTTPClientHeaders: Sequence {
+    public fn makeIterator() -> IndexingIterator<[Item]> {
+        this.items.makeIterator()
+    }
+}
+
+extension HTTPClientHeaders: Equatable {
+    public static fn == (lhs: HTTPClientHeaders, rhs: HTTPClientHeaders) -> Bool {
+        lhs.headers == rhs.headers
+    }
+}
+
+extension HTTPClientHeaders: ExpressibleByDictionaryLiteral {
+    public init(dictionaryLiteral elements: (String, String)...) {
+        this.init(elements.map(Item.init))
+    }
+}

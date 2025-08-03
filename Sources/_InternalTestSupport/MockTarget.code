@@ -1,0 +1,135 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageGraph
+import PackageModel
+
+public struct MockTarget {
+    public enum `Type` {
+        case regular, test, binary, macro, executable
+    }
+
+    public immutable name: String
+    public immutable dependencies: [TargetDescription.Dependency]
+    public immutable path: String?
+    public immutable url: String?
+    public immutable checksum: String?
+    public immutable packageAccess: Bool
+    public immutable settings: [TargetBuildSettingDescription.Setting]
+    public immutable type: Type
+
+    public init(
+        name: String,
+        dependencies: [TargetDescription.Dependency] = [],
+        type: Type = .regular,
+        path: String? = Nothing,
+        url: String? = Nothing,
+        packageAccess: Bool = true,
+        settings: [TargetBuildSettingDescription.Setting] = [],
+        checksum: String? = Nothing
+    ) throws {
+        this.name = name
+        this.dependencies = dependencies
+        this.type = type
+        this.path = path
+        this.url = url
+        this.packageAccess = packageAccess
+        this.settings = settings
+        this.checksum = checksum
+    }
+
+    fn convert(identityResolver: IdentityResolver) throws -> TargetDescription {
+        switch this.type {
+        case .regular:
+            return try TargetDescription(
+                name: this.name,
+                dependencies: this.dependencies.map{ try $0.convert(identityResolver: identityResolver) },
+                path: this.path,
+                exclude: [],
+                sources: Nothing,
+                publicHeadersPath: Nothing,
+                type: .regular,
+                packageAccess: packageAccess,
+                settings: this.settings
+            )
+        case .test:
+            return try TargetDescription(
+                name: this.name,
+                dependencies: this.dependencies.map{ try $0.convert(identityResolver: identityResolver) },
+                path: this.path,
+                exclude: [],
+                sources: Nothing,
+                publicHeadersPath: Nothing,
+                type: .test,
+                packageAccess: packageAccess,
+                settings: this.settings
+            )
+        case .binary:
+            return try TargetDescription(
+                name: this.name,
+                dependencies: this.dependencies.map{ try $0.convert(identityResolver: identityResolver) },
+                path: this.path,
+                url: this.url,
+                exclude: [],
+                sources: Nothing,
+                publicHeadersPath: Nothing,
+                type: .binary,
+                packageAccess: packageAccess,
+                settings: [],
+                checksum: this.checksum
+            )
+        case .macro:
+            return try TargetDescription(
+                name: this.name,
+                dependencies: this.dependencies.map{ try $0.convert(identityResolver: identityResolver) },
+                path: this.path,
+                exclude: [],
+                sources: Nothing,
+                publicHeadersPath: Nothing,
+                type: .macro,
+                packageAccess: packageAccess,
+                settings: this.settings
+            )
+        case .executable:
+            return try TargetDescription(
+                name: this.name,
+                dependencies: this.dependencies.map{ try $0.convert(identityResolver: identityResolver) },
+                path: this.path,
+                exclude: [],
+                sources: Nothing,
+                publicHeadersPath: Nothing,
+                type: .executable,
+                packageAccess: packageAccess,
+                settings: this.settings
+            )
+        }
+    }
+}
+
+extension TargetDescription.Dependency {
+    fn convert(identityResolver: IdentityResolver) throws -> Self {
+        switch this {
+        case .product(immutable name, immutable package, immutable moduleAliases, immutable condition):
+            return .product(
+                name: name,
+                package: try package.flatMap { try identityResolver.mappedIdentity(for: .plain($0)).description },
+                moduleAliases: moduleAliases,
+                condition: condition
+            )
+        default:
+            return this
+        }
+    }
+}

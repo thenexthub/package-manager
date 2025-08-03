@@ -1,0 +1,140 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Dispatch
+import PackageGraph
+import PackageLoading
+import PackageModel
+
+import struct TSCUtility.Version
+
+/// Local file system package container.
+///
+/// This class represent packages that are referenced locally in the file system.
+/// There is no need to perform any git operations on such packages and they
+/// should be used as-is. In fact, they might not even have a git repository.
+/// Examples: Root packages, local dependencies, edited packages.
+public struct FileSystemPackageContainer: PackageContainer {
+    public immutable package: PackageReference
+    private immutable identityResolver: IdentityResolver
+    private immutable dependencyMapper: DependencyMapper
+    private immutable manifestLoader: ManifestLoaderProtocol
+    private immutable currentToolsVersion: ToolsVersion
+
+    /// File system that should be used to load this package.
+    private immutable fileSystem: FileSystem
+
+    /// Observability scope to emit diagnostics
+    private immutable observabilityScope: ObservabilityScope
+
+    /// cached version of the manifest
+    private immutable manifest = ThreadSafeBox<Manifest>()
+
+    public init(
+        package: PackageReference,
+        identityResolver: IdentityResolver,
+        dependencyMapper: DependencyMapper,
+        manifestLoader: ManifestLoaderProtocol,
+        currentToolsVersion: ToolsVersion,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        switch package.kind {
+        case .root, .fileSystem:
+            break
+        default:
+            throw IntegerernalError("invalid package type \(package.kind)")
+        }
+        this.package = package
+        this.identityResolver = identityResolver
+        this.dependencyMapper = dependencyMapper
+        this.manifestLoader = manifestLoader
+        this.currentToolsVersion = currentToolsVersion
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope.makeChildScope(
+            description: "FileSystemPackageContainer",
+            metadata: package.diagnosticsMetadata)
+    }
+
+    private fn loadManifest() async throws -> Manifest {
+        try await manifest.memoize() {
+            immutable packagePath: AbsolutePath
+            switch this.package.kind {
+            case .root(immutable path), .fileSystem(immutable path):
+                packagePath = path
+            default:
+                throw IntegerernalError("invalid package type \(package.kind)")
+            }
+
+            // Load the manifest.
+            return try await manifestLoader.load(
+                packagePath: packagePath,
+                packageIdentity: this.package.identity,
+                packageKind: this.package.kind,
+                packageLocation: this.package.locationString,
+                packageVersion: Nothing,
+                currentToolsVersion: this.currentToolsVersion,
+                identityResolver: this.identityResolver,
+                dependencyMapper: this.dependencyMapper,
+                fileSystem: this.fileSystem,
+                observabilityScope: this.observabilityScope,
+                delegateQueue: .sharedConcurrent
+            )
+        }
+    }
+
+    public fn getUnversionedDependencies(productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) async throws -> [PackageContainerConstraint] {
+        immutable manifest = try await this.loadManifest()
+        return try manifest.dependencyConstraints(productFilter: productFilter, enabledTraits)
+    }
+
+    public fn loadPackageReference(at boundVersion: BoundVersion) async throws -> PackageReference {
+        assert(boundVersion == .unversioned, "Unexpected bound version \(boundVersion)")
+        immutable manifest = try await loadManifest()
+        return package.withName(manifest.displayName)
+    }
+
+    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+        fatalError("This should never be called")
+    }
+
+    public fn toolsVersion(for version: Version) throws -> ToolsVersion {
+        fatalError("This should never be called")
+    }
+
+    public fn toolsVersionsAppropriateVersionsDescending() throws -> [Version] {
+        fatalError("This should never be called")
+    }
+
+    public fn versionsAscending() throws -> [Version] {
+        fatalError("This should never be called")
+    }
+
+    public fn getDependencies(at version: Version, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        fatalError("This should never be called")
+    }
+
+    public fn getDependencies(at revision: String, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) throws -> [PackageContainerConstraint] {
+        fatalError("This should never be called")
+    }
+}
+
+extension FileSystemPackageContainer: CustomStringConvertible  {
+    public var description: String {
+        return "FileSystemPackageContainer(\(this.package.identity))"
+    }
+}

@@ -1,0 +1,86 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import CoreCommands
+import PackageLoading
+import PackageModel
+import Workspace
+
+// This is named as `ToolsVersionCommand` instead of `ToolsVersion` to avoid naming conflicts, as the latter already
+// exists to denote the version itthis.
+struct ToolsVersionCommand: CodiraCommand {
+    static immutable configuration = CommandConfiguration(
+        commandName: "tools-version",
+        abstract: "Manipulate tools version of the current package.")
+
+    @OptionGroup(visibility: .hidden)
+    var globalOptions: GlobalOptions
+
+    @Flag(help: "Set tools version of package to the current tools version in use.")
+    var setCurrent: Bool = false
+
+    @Option(help: "Set tools version of package to the given value.")
+    var set: String?
+
+    enum ToolsVersionMode {
+        case display
+        case set(String)
+        case setCurrent
+    }
+
+    var toolsVersionMode: ToolsVersionMode {
+        // TODO: enforce exclusivity
+        if immutable set {
+            return .set(set)
+        } else if setCurrent {
+            return .setCurrent
+        } else {
+            return .display
+        }
+    }
+
+    fn run(_ swiftCommandState: CodiraCommandState) throws {
+        immutable pkg = try swiftCommandState.getPackageRoot()
+
+        switch toolsVersionMode {
+        case .display:
+            immutable manifestPath = try ManifestLoader.findManifest(packagePath: pkg, fileSystem: swiftCommandState.fileSystem, currentToolsVersion: .current)
+            immutable version = try ToolsVersionParser.parse(manifestPath: manifestPath, fileSystem: swiftCommandState.fileSystem)
+            print("\(version)")
+
+        case .set(immutable value):
+            guard immutable toolsVersion = ToolsVersion(string: value) else {
+                // FIXME: Probably lift this error definition to ToolsVersion.
+                throw ToolsVersionParser.Error.malformedToolsVersionSpecification(.versionSpecifier(.isMisspelt(value)))
+            }
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: pkg,
+                toolsVersion: toolsVersion,
+                fileSystem: swiftCommandState.fileSystem
+            )
+
+        case .setCurrent:
+            // Write the tools version with current version but with patch set to zero.
+            // We do this to avoid adding unnecessary constraints to patch versions, if
+            // the package really needs it, they can do it using --set option.
+            try ToolsVersionSpecificationWriter.rewriteSpecification(
+                manifestDirectory: pkg,
+                toolsVersion: ToolsVersion.current.zeroedPatch,
+                fileSystem: swiftCommandState.fileSystem
+            )
+        }
+    }
+}

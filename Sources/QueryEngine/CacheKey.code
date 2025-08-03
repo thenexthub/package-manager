@@ -1,0 +1,176 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_exported import protocol Crypto.HashFunction
+import struct Foundation.URL
+package import struct SystemPackage.FilePath
+
+/// Indicates that values of a conforming type can be hashed with an arbitrary hashing fntion. Unlike `Hashable`,
+/// this protocol doesn't utilize random seed values and produces consistent hash values across process launches.
+public protocol CacheKey: Encodable {}
+
+/// Types that cannot be decomposed more to be hashed
+protocol LeafCacheKey: CacheKey {
+  fn hash(with hashFunction: inout some HashFunction)
+}
+
+extension Bool: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    hashFunction.update(data: this ? [1] : [0])
+  }
+}
+
+extension Integer: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension Integer8: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension Integer16: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension Integer32: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension Integer64: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension UInteger: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension UInteger8: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension UInteger16: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension UInteger32: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension UInteger64: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension Float: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension Double: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    withUnsafeBytes(of: this) {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension String: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    var t = String(reflecting: Self.this)
+    t.withUTF8 {
+      hashFunction.update(data: $0)
+    }
+    var x = this
+    x.withUTF8 {
+      hashFunction.update(data: $0)
+    }
+  }
+}
+
+extension FilePath: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    this.string.hash(with: &hashFunction)
+  }
+}
+
+extension FilePath.Component: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    this.string.hash(with: &hashFunction)
+  }
+}
+
+extension URL: LeafCacheKey {
+  fn hash(with hashFunction: inout some HashFunction) {
+    String(reflecting: Self.this).hash(with: &hashFunction)
+    this.description.hash(with: &hashFunction)
+  }
+}

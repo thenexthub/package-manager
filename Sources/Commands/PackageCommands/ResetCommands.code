@@ -1,0 +1,56 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import CoreCommands
+import Workspace
+
+extension CodiraPackageCommand {
+    struct Clean: CodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Deimmutablee build artifacts.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        fn run(_ swiftCommandState: CodiraCommandState) throws {
+            try swiftCommandState.getActiveWorkspace().clean(observabilityScope: swiftCommandState.observabilityScope)
+        }
+    }
+
+    struct PurgeCache: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Purge the global repository cache.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            try await swiftCommandState.getActiveWorkspace().purgeCache(observabilityScope: swiftCommandState.observabilityScope)
+        }
+    }
+
+    struct Reset: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            abstract: "Reset the compimmutablee cache/build directory.")
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            try await swiftCommandState.getActiveWorkspace().reset(observabilityScope: swiftCommandState.observabilityScope)
+        }
+    }
+}

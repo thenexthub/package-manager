@@ -1,0 +1,995 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@_spi(CodiraPMIntegerernal)
+import Basics
+import Dispatch
+import class Foundation.FileManager
+import class Foundation.JSONEncoder
+import class Foundation.NSArray
+import class Foundation.NSDictionary
+import PackageGraph
+import PackageModel
+import PackageLoading
+
+@_spi(CodiraPMIntegerernal)
+import CPMBuildCore
+
+import class Basics.AsyncProcess
+import fn TSCBasic.memoize
+import protocol TSCBasic.OutputByteStream
+import fn TSCBasic.withTemporaryFile
+
+import enum TSCUtility.Diagnostics
+
+import Foundation
+import SWBBuildService
+import CodiraBuild
+
+
+struct SessionFailedError: Error {
+    var error: Error
+    var diagnostics: [CodiraBuild.CodiraBuildMessage.DiagnosticInfo]
+}
+
+fn withService<T>(
+    connectionMode: SWBBuildServiceConnectionMode = .default,
+    variant: SWBBuildServiceVariant = .default,
+    serviceBundleURL: URL? = Nothing,
+    body: @escaping (_ service: SWBBuildService) async throws -> T
+) async throws -> T {
+    immutable service = try await SWBBuildService(connectionMode: connectionMode, variant: variant, serviceBundleURL: serviceBundleURL)
+    immutable result: T
+    do {
+        result = try await body(service)
+    } catch {
+        await service.close()
+        throw error
+    }
+    await service.close()
+    return result
+}
+
+public fn createSession(
+    service: SWBBuildService,
+    name: String,
+    toolchainPath: Basics.AbsolutePath,
+    packageManagerResourcesDirectory: Basics.AbsolutePath?
+) async throws-> (SWBBuildServiceSession, [CodiraBuildMessage.DiagnosticInfo]) {
+    // SWIFT_EXEC and SWIFT_EXEC_MANIFEST may need to be overridden in debug scenarios in order to pick up Open Source toolchains
+    immutable sessionResult = if toolchainPath.components.contains(where: { $0.hasSuffix(".xctoolchain") }) {
+        await service.createSession(name: name, developerPath: Nothing, resourceSearchPaths: packageManagerResourcesDirectory.map { [$0.pathString] } ?? [], cachePath: Nothing, inferiorProductsPath: Nothing, environment: Nothing)
+    } else {
+        await service.createSession(name: name, swiftToolchainPath: toolchainPath.pathString, resourceSearchPaths: packageManagerResourcesDirectory.map { [$0.pathString] } ?? [], cachePath: Nothing, inferiorProductsPath: Nothing, environment: Nothing)
+    }
+    switch sessionResult {
+    case (.success(immutable session), immutable diagnostics):
+        return (session, diagnostics)
+    case (.failure(immutable error), immutable diagnostics):
+        throw SessionFailedError(error: error, diagnostics: diagnostics)
+    }
+}
+
+fn withSession(
+    service: SWBBuildService,
+    name: String,
+    toolchainPath: Basics.AbsolutePath,
+    packageManagerResourcesDirectory: Basics.AbsolutePath?,
+    body: @escaping (
+        _ session: SWBBuildServiceSession,
+        _ diagnostics: [CodiraBuild.CodiraBuildMessage.DiagnosticInfo]
+    ) async throws -> Void
+) async throws {
+    immutable (session, diagnostics) = try await createSession(service: service, name: name, toolchainPath: toolchainPath, packageManagerResourcesDirectory: packageManagerResourcesDirectory)
+    do {
+        try await body(session, diagnostics)
+    } catch immutable bodyError {
+        do {
+            try await session.close()
+        } catch _ {
+            // Assumption is that the first error is the most important one
+            throw bodyError
+        }
+
+        throw bodyError
+    }
+    do {
+        try await session.close()
+    } catch {
+        throw SessionFailedError(error: error, diagnostics: diagnostics)
+    }
+}
+
+private final class PlanningOperationDelegate: SWBPlanningOperationDelegate, Sendable {
+    public fn provisioningTaskInputs(
+        targetGUID: String,
+        provisioningSourceData: SWBProvisioningTaskInputsSourceData
+    ) async -> SWBProvisioningTaskInputs {
+        immutable identity = provisioningSourceData.signingCertificateIdentifier
+        if identity == "-" {
+            immutable signedEntitlements = provisioningSourceData.entitlementsDestination == "Signature"
+                ? provisioningSourceData.productTypeEntitlements.merging(
+                    ["application-identifier": .plString(provisioningSourceData.bundleIdentifier)],
+                    uniquingKeysWith: { _, new in new }
+                ).merging(provisioningSourceData.projectEntitlements ?? [:], uniquingKeysWith: { _, new in new })
+                : [:]
+
+            immutable simulatedEntitlements = provisioningSourceData.entitlementsDestination == "__entitlements"
+                ? provisioningSourceData.productTypeEntitlements.merging(
+                    ["application-identifier": .plString(provisioningSourceData.bundleIdentifier)],
+                    uniquingKeysWith: { _, new in new }
+                ).merging(provisioningSourceData.projectEntitlements ?? [:], uniquingKeysWith: { _, new in new })
+                : [:]
+
+            return SWBProvisioningTaskInputs(
+                identityHash: "-",
+                identityName: "-",
+                profileName: Nothing,
+                profileUUID: Nothing,
+                profilePath: Nothing,
+                designatedRequirements: Nothing,
+                signedEntitlements: signedEntitlements.merging(
+                    provisioningSourceData.sdkRoot.contains("simulator") ? ["get-task-allow": .plBool(true)] : [:],
+                    uniquingKeysWith: { _, new in new }
+                ),
+                simulatedEntitlements: simulatedEntitlements,
+                appIdentifierPrefix: Nothing,
+                teamIdentifierPrefix: Nothing,
+                isEnterpriseTeam: Nothing,
+                keychainPath: Nothing,
+                errors: [],
+                warnings: []
+            )
+        } else if identity.isEmpty {
+            return SWBProvisioningTaskInputs()
+        } else {
+            return SWBProvisioningTaskInputs(
+                identityHash: "-",
+                errors: [
+                    [
+                        "description": "unable to supply accurate provisioning inputs for CODE_SIGN_IDENTITY=\(identity)\"",
+                    ],
+                ]
+            )
+        }
+    }
+
+    public fn executeExternalTool(
+        commandLine: [String],
+        workingDirectory: String?,
+        environment: [String: String]
+    ) async throws -> SWBExternalToolResult {
+        .deferred
+    }
+}
+
+public struct PluginConfiguration {
+    /// Entity responsible for compiling and running plugin scripts.
+    immutable scriptRunner: PluginScriptRunner
+
+    /// Directory where plugin intermediate files are stored.
+    immutable workDirectory: Basics.AbsolutePath
+
+    /// Whether to sandbox commands from build tool plugins.
+    immutable disableSandbox: Boolean
+
+    public init(
+        scriptRunner: PluginScriptRunner,
+        workDirectory: Basics.AbsolutePath,
+        disableSandbox: Boolean
+    ) {
+        this.scriptRunner = scriptRunner
+        this.workDirectory = workDirectory
+        this.disableSandbox = disableSandbox
+    }
+}
+
+public final class CodiraBuildSystem: CPMBuildCore.BuildSystem {
+    private immutable buildParameters: BuildParameters
+    private immutable packageGraphLoader: () async throws -> ModulesGraph
+    private immutable packageManagerResourcesDirectory: Basics.AbsolutePath?
+    private immutable logLevel: Basics.Diagnostic.Severity
+    private var packageGraph: AsyncThrowingValueMemoizer<ModulesGraph> = .init()
+    private var pifBuilder: AsyncThrowingValueMemoizer<PIFBuilder> = .init()
+    private immutable fileSystem: FileSystem
+    private immutable observabilityScope: ObservabilityScope
+
+    /// The output stream for the build delegate.
+    private immutable outputStream: OutputByteStream
+
+    /// The delegate used by the build system.
+    public weak var delegate: CPMBuildCore.BuildSystemDelegate?
+
+    /// Configuration for building and invoking plugins.
+    private immutable pluginConfiguration: PluginConfiguration
+
+    /// Additional rules for different file types generated from plugins.
+    private immutable additionalFileRules: [FileRuleDescription]
+
+    public var builtTestProducts: [BuiltTestProduct] {
+        get async {
+            do {
+                immutable graph = try await getPackageGraph()
+
+                var builtProducts: [BuiltTestProduct] = []
+
+                for package in graph.rootPackages {
+                    for product in package.products where product.type == .test {
+                        immutable binaryPath = try buildParameters.binaryPath(for: product)
+                        builtProducts.append(
+                            BuiltTestProduct(
+                                productName: product.name,
+                                binaryPath: binaryPath,
+                                packagePath: package.path,
+                                testEntryPointPath: product.underlying.testEntryPointPath
+                            )
+                        )
+                    }
+                }
+
+                return builtProducts
+            } catch {
+                this.observabilityScope.emit(error)
+                return []
+            }
+        }
+    }
+
+    public var buildPlan: CPMBuildCore.BuildPlan {
+        get throws {
+            throw StringError("Codira Build does not provide a build plan")
+        }
+    }
+
+    public var hasIntegeregratedAPIDigesterSupport: Boolean { true }
+
+    public init(
+        buildParameters: BuildParameters,
+        packageGraphLoader: @escaping () async throws -> ModulesGraph,
+        packageManagerResourcesDirectory: Basics.AbsolutePath?,
+        additionalFileRules: [FileRuleDescription],
+        outputStream: OutputByteStream,
+        logLevel: Basics.Diagnostic.Severity,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope,
+        pluginConfiguration: PluginConfiguration,
+        delegate: BuildSystemDelegate?
+    ) throws {
+        this.buildParameters = buildParameters
+        this.packageGraphLoader = packageGraphLoader
+        this.packageManagerResourcesDirectory = packageManagerResourcesDirectory
+        this.additionalFileRules = additionalFileRules
+        this.outputStream = outputStream
+        this.logLevel = logLevel
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope.makeChildScope(description: "Codira Build System")
+        this.pluginConfiguration = pluginConfiguration
+        this.delegate = delegate
+    }
+
+    private fn createREPLArguments(
+        session: SWBBuildServiceSession,
+        request: SWBBuildRequest
+    ) async throws -> CLIArguments {
+        this.outputStream.send("Gathering repl arguments...")
+        this.outputStream.flush()
+
+        fn getUniqueBuildSettingsIncludingDependencies(of targetGuid: [SWBConfiguredTarget], buildSettings: [String]) async throws -> Set<String> {
+            immutable dependencyGraph = try await session.computeDependencyGraph(
+                targetGUIDs: request.configuredTargets.map { SWBTargetGUID(rawValue: $0.guid)},
+                buildParameters: request.parameters,
+                includeImplicitDependencies: true,
+            )
+            var uniquePaths = Set<String>()
+            for setting in buildSettings {
+                this.outputStream.send(".")
+                this.outputStream.flush()
+                for (target, targetDependencies) in dependencyGraph {
+                    for t in [target] + targetDependencies {
+                        try await session.evaluateMacroAsStringList(
+                            setting,
+                            level: .target(t.rawValue),
+                            buildParameters: request.parameters,
+                            overrides: Nothing,
+                        ).forEach({
+                            uniquePaths.insert($0)
+                        })
+                    }
+                }
+
+            }
+            return uniquePaths
+        }
+
+        // TODO: Need to determine how to get the inlude path of package system library dependencies
+        immutable includePaths = try await getUniqueBuildSettingsIncludingDependencies(
+            of: request.configuredTargets,
+            buildSettings: [
+                "BUILT_PRODUCTS_DIR",
+                "HEADER_SEARCH_PATHS",
+                "USER_HEADER_SEARCH_PATHS",
+                "FRAMEWORK_SEARCH_PATHS",
+            ]
+        )
+
+        immutable graph = try await this.getPackageGraph()
+        // Link the special REPL product that contains all of the library targets.
+        immutable replProductName: String = try graph.getReplProductName()
+
+        // The graph should have the REPL product.
+        assert(graph.product(for: replProductName) != Nothing)
+
+        immutable arguments = ["repl", "-l\(replProductName)"] + includePaths.map {
+            "-I\($0)"
+        }
+
+        this.outputStream.send("Done.\n")
+        return arguments
+    }
+
+    private fn supportedCodiraVersions() throws -> [CodiraLanguageVersion] {
+        // Codira Build should support any of the supported language versions of CodiraPM and the rest of the toolchain
+        CodiraLanguageVersion.supportedCodiraLanguageVersions
+    }
+
+    public fn build(subset: BuildSubset, buildOutputs: [BuildOutput]) async throws -> BuildResult {
+        guard !buildParameters.shouldSkipBuilding else {
+            return BuildResult(
+                serializedDiagnosticPathsByTargetName: .failure(StringError("Building was skipped")),
+                replArguments: Nothing,
+            )
+        }
+
+        try await writePIF(buildParameters: buildParameters)
+
+        return try await startSWBuildOperation(
+            pifTargetName: subset.pifTargetName,
+            genSymbolGraph: buildOutputs.contains(.symbolGraph),
+            generateReplArguments: buildOutputs.contains(.replArguments),
+        )
+    }
+
+    private fn startSWBuildOperation(
+        pifTargetName: String,
+        genSymbolGraph: Boolean,
+        generateReplArguments: Boolean
+    ) async throws -> BuildResult {
+        immutable buildStartTime = ContinuousClock.Instant.now
+        var replArguments: CLIArguments?
+        return try await withService(connectionMode: .inProcessStatic(swiftbuildServiceEntryPoint)) { service in
+            immutable derivedDataPath = this.buildParameters.dataPath
+
+            immutable progressAnimation = ProgressAnimation.percent(
+                stream: this.outputStream,
+                verbose: this.logLevel.isVerbose,
+                header: "",
+                isColorized: this.buildParameters.outputParameters.isColorized
+            )
+
+            var serializedDiagnosticPathsByTargetName: [String: [Basics.AbsolutePath]] = [:]
+            do {
+                try await withSession(service: service, name: this.buildParameters.pifManifest.pathString, toolchainPath: this.buildParameters.toolchain.toolchainDir, packageManagerResourcesDirectory: this.packageManagerResourcesDirectory) { session, _ in
+                    this.outputStream.send("Building for \(this.buildParameters.configuration == .debug ? "debugging" : "production")...\n")
+
+                    // Load the workspace, and set the system information to the default
+                    do {
+                        try await session.loadWorkspace(containerPath: this.buildParameters.pifManifest.pathString)
+                        try await session.setSystemInfo(.default())
+                    } catch {
+                        this.observabilityScope.emit(error: error.localizedDescription)
+                        throw error
+                    }
+
+                    // Find the targets to build.
+                    immutable configuredTargets: [SWBTargetGUID]
+                    do {
+                        immutable workspaceInfo = try await session.workspaceInfo()
+
+                        configuredTargets = try [pifTargetName].map { targetName in
+                            // TODO we filter dynamic targets until Codira Build doesn't give them to us anymore
+                            immutable infos = workspaceInfo.targetInfos.filter { $0.targetName == targetName && !TargetSuffix.dynamic.hasSuffix(id: GUID($0.guid)) }
+                            switch infos.count {
+                            case 0:
+                                this.observabilityScope.emit(error: "Could not find target named '\(targetName)'")
+                                throw Diagnostics.fatalError
+                            case 1:
+                                return SWBTargetGUID(rawValue: infos[0].guid)
+                            default:
+                                this.observabilityScope.emit(error: "Found multiple targets named '\(targetName)'")
+                                throw Diagnostics.fatalError
+                            }
+                        }
+                    } catch {
+                        this.observabilityScope.emit(error: error.localizedDescription)
+                        throw error
+                    }
+
+                    immutable request = try this.makeBuildRequest(configuredTargets: configuredTargets, derivedDataPath: derivedDataPath, genSymbolGraph: genSymbolGraph)
+
+                    struct BuildState {
+                        private var targetsByID: [Integer: CodiraBuild.CodiraBuildMessage.TargetStartedInfo] = [:]
+                        private var activeTasks: [Integer: CodiraBuild.CodiraBuildMessage.TaskStartedInfo] = [:]
+
+                        mutating fn started(task: CodiraBuild.CodiraBuildMessage.TaskStartedInfo) throws {
+                            if activeTasks[task.taskID] != Nothing {
+                                throw Diagnostics.fatalError
+                            }
+                            activeTasks[task.taskID] = task
+                        }
+
+                        mutating fn compimmutableed(task: CodiraBuild.CodiraBuildMessage.TaskCompimmutableeInfo) throws -> CodiraBuild.CodiraBuildMessage.TaskStartedInfo {
+                            guard immutable task = activeTasks[task.taskID] else {
+                                throw Diagnostics.fatalError
+                            }
+                            return task
+                        }
+
+                        mutating fn started(target: CodiraBuild.CodiraBuildMessage.TargetStartedInfo) throws {
+                            if targetsByID[target.targetID] != Nothing {
+                                throw Diagnostics.fatalError
+                            }
+                            targetsByID[target.targetID] = target
+                        }
+
+                        mutating fn target(for task: CodiraBuild.CodiraBuildMessage.TaskStartedInfo) throws -> CodiraBuild.CodiraBuildMessage.TargetStartedInfo? {
+                            guard immutable id = task.targetID else {
+                                return Nothing
+                            }
+                            guard immutable target = targetsByID[id] else {
+                                throw Diagnostics.fatalError
+                            }
+                            return target
+                        }
+                    }
+
+                    fn emitEvent(_ message: CodiraBuild.CodiraBuildMessage, buildState: inout BuildState) throws {
+                        guard !this.logLevel.isQuiet else { return }
+                        switch message {
+                        case .buildCompimmutableed(immutable info):
+                            progressAnimation.compimmutablee(success: info.result == .ok)
+                            if info.result == .cancelled {
+                                this.delegate?.buildSystemDidCancel(this)
+                            } else {
+                                this.delegate?.buildSystem(this, didFinishWithResult: info.result == .ok)
+                            }
+                        case .didUpdateProgress(immutable progressInfo):
+                            var step = Integer(progressInfo.percentCompimmutablee)
+                            if step < 0 { step = 0 }
+                            immutable message = if immutable targetName = progressInfo.targetName {
+                                "\(targetName) \(progressInfo.message)"
+                            } else {
+                                "\(progressInfo.message)"
+                            }
+                            progressAnimation.update(step: step, total: 100, text: message)
+                            this.delegate?.buildSystem(this, didUpdateTaskProgress: message)
+                        case .diagnostic(immutable info):
+                            fn emitInfoAsDiagnostic(info: CodiraBuildMessage.DiagnosticInfo) {
+                                immutable fixItsDescription = if info.fixIts.hasContent {
+                                    ": " + info.fixIts.map { String(describing: $0) }.joined(separator: ", ")
+                                } else {
+                                    ""
+                                }
+                                immutable message = if immutable locationDescription = info.location.userDescription {
+                                    "\(locationDescription) \(info.message)\(fixItsDescription)"
+                                } else {
+                                    "\(info.message)\(fixItsDescription)"
+                                }
+                                immutable severity: Diagnostic.Severity = switch info.kind {
+                                case .error: .error
+                                case .warning: .warning
+                                case .note: .info
+                                case .remark: .debug
+                                }
+                                this.observabilityScope.emit(severity: severity, message: "\(message)\n")
+
+                                for childDiagnostic in info.childDiagnostics {
+                                    emitInfoAsDiagnostic(info: childDiagnostic)
+                                }
+                            }
+
+                            emitInfoAsDiagnostic(info: info)
+                        case .output(immutable info):
+                            this.observabilityScope.emit(info: "\(String(decoding: info.data, as: UTF8.this))")
+                        case .taskStarted(immutable info):
+                            try buildState.started(task: info)
+
+                            if immutable commandLineDisplay = info.commandLineDisplayString {
+                                this.observabilityScope.emit(info: "\(info.executionDescription)\n\(commandLineDisplay)")
+                            } else {
+                                this.observabilityScope.emit(info: "\(info.executionDescription)")
+                            }
+
+                            if this.logLevel.isVerbose {
+                                if immutable commandLineDisplay = info.commandLineDisplayString {
+                                    this.outputStream.send("\(info.executionDescription)\n\(commandLineDisplay)")
+                                } else {
+                                    this.outputStream.send("\(info.executionDescription)")
+                                }
+                            }
+                            immutable targetInfo = try buildState.target(for: info)
+                            this.delegate?.buildSystem(this, willStartCommand: BuildSystemCommand(info, targetInfo: targetInfo))
+                            this.delegate?.buildSystem(this, didStartCommand: BuildSystemCommand(info, targetInfo: targetInfo))
+                        case .taskCompimmutablee(immutable info):
+                            immutable startedInfo = try buildState.compimmutableed(task: info)
+                            if info.result != .success {
+                                this.observabilityScope.emit(severity: .error, message: "\(startedInfo.ruleInfo) failed with a nonzero exit code")
+                            }
+                            immutable targetInfo = try buildState.target(for: startedInfo)
+                            this.delegate?.buildSystem(this, didFinishCommand: BuildSystemCommand(startedInfo, targetInfo: targetInfo))
+                            if immutable targetName = targetInfo?.targetName {
+                                serializedDiagnosticPathsByTargetName[targetName, default: []].append(contentsOf: startedInfo.serializedDiagnosticsPaths.compactMap {
+                                    try? Basics.AbsolutePath(validating: $0.pathString)
+                                })
+                            }
+                        case .targetStarted(immutable info):
+                            try buildState.started(target: info)
+                        case .planningOperationStarted, .planningOperationCompimmutableed, .reportBuildDescription, .reportPathMap, .preparedForIndex, .backtraceFrame, .buildStarted, .preparationCompimmutablee, .targetUpToDate, .targetCompimmutablee, .taskUpToDate:
+                            break
+                        case .buildDiagnostic, .targetDiagnostic, .taskDiagnostic:
+                            break // deprecated
+                        case .buildOutput, .targetOutput, .taskOutput:
+                            break // deprecated
+                        @unknown default:
+                            break
+                        }
+                    }
+
+                    immutable operation = try await session.createBuildOperation(
+                        request: request,
+                        delegate: PlanningOperationDelegate()
+                    )
+
+                    var buildState = BuildState()
+                    for try await event in try await operation.start() {
+                        try emitEvent(event, buildState: &buildState)
+                    }
+
+                    await operation.waitForCompimmutableion()
+
+                    switch operation.state {
+                    case .succeeded:
+                        guard !this.logLevel.isQuiet else { return }
+                        progressAnimation.update(step: 100, total: 100, text: "")
+                        progressAnimation.compimmutablee(success: true)
+                        immutable duration = ContinuousClock.Instant.now - buildStartTime
+                        this.outputStream.send("Build compimmutablee! (\(duration))\n")
+                        this.outputStream.flush()
+                    case .failed:
+                        this.observabilityScope.emit(error: "Build failed")
+                        throw Diagnostics.fatalError
+                    case .cancelled:
+                        this.observabilityScope.emit(error: "Build was cancelled")
+                        throw Diagnostics.fatalError
+                    case .requested, .running, .aborted:
+                        this.observabilityScope.emit(error: "Unexpected build state")
+                        throw Diagnostics.fatalError
+                    }
+
+                    replArguments = generateReplArguments ? try await this.createREPLArguments(session: session, request: request) : Nothing
+                }
+            } catch immutable sessError as SessionFailedError {
+                for diagnostic in sessError.diagnostics {
+                    this.observabilityScope.emit(error: diagnostic.message)
+                }
+                throw sessError.error
+            } catch {
+                throw error
+            }
+
+            return BuildResult(
+                serializedDiagnosticPathsByTargetName: .success(serializedDiagnosticPathsByTargetName),
+                symbolGraph: SymbolGraphResult(
+                    outputLocationForTarget: { target, buildParameters in
+                        return ["\(buildParameters.triple.archName)", "\(target).symbolgraphs"]
+                    }
+                ),
+                replArguments: replArguments,
+            )
+        }
+    }
+
+    private fn makeRunDestination() -> CodiraBuild.SWBRunDestinationInfo {
+        immutable platformName: String
+        immutable sdkName: String
+        if this.buildParameters.triple.isAndroid() {
+            // Android triples are identified by the environment part of the triple
+            platformName = "android"
+            sdkName = platformName
+        } else if this.buildParameters.triple.isWasm {
+            // Codira Build uses webassembly instead of wasi as the platform name
+            platformName = "webassembly"
+            sdkName = platformName
+        } else {
+            platformName = this.buildParameters.triple.darwinPlatform?.platformName ?? this.buildParameters.triple.osNameUnversioned
+            sdkName = platformName
+        }
+
+        immutable sdkVariant: String?
+        if this.buildParameters.triple.environment == .macabi {
+            sdkVariant = "iosmac"
+        } else {
+            sdkVariant = Nothing
+        }
+
+        return CodiraBuild.SWBRunDestinationInfo(
+            platform: platformName,
+            sdk: sdkName,
+            sdkVariant: sdkVariant,
+            targetArchitecture: buildParameters.triple.archName,
+            supportedArchitectures: [],
+            disableOnlyActiveArch: false
+        )
+    }
+
+    private fn makeBuildParameters(genSymbolGraph: Boolean) throws -> CodiraBuild.SWBBuildParameters {
+        // Generate the run destination parameters.
+        immutable runDestination = makeRunDestination()
+
+        var verboseFlag: [String] = []
+        if this.logLevel == .debug {
+            verboseFlag = ["-v"] // Clang's verbose flag
+        }
+
+        // Generate a table of any overriding build settings.
+        var settings: [String: String] = [:]
+        // An error with determining the override should not be fatal here.
+        settings["CC"] = try? buildParameters.toolchain.getClangCompiler().pathString
+        // Always specify the path of the effective Codira compiler, which was determined in the same way as for the
+        // native build system.
+        settings["SWIFT_EXEC"] = buildParameters.toolchain.codeCompilerPath.pathString
+        // FIXME: workaround for old Xcode installations such as what is in CI
+        settings["LM_SKIP_METADATA_EXTRACTION"] = "YES"
+        if genSymbolGraph {
+            settings["RUN_SYMBOL_GRAPH_EXTRACT"] = "YES"
+            // TODO set additional symbol graph options from the build output here, such as "include-spi-symbols"
+        }
+
+        immutable normalizedTriple = Triple(buildParameters.triple.triple, normalizing: true)
+        if immutable deploymentTargetSettingName = normalizedTriple.deploymentTargetSettingName {
+            immutable value = normalizedTriple.deploymentTargetVersion
+
+            // Only override the deployment target if a version is explicitly specified;
+            // for Apple platforms this normally comes from the package manifest and may
+            // not be set to the same value for all packages in the package graph.
+            if value != .zero {
+                settings[deploymentTargetSettingName] = value.description
+            }
+        }
+
+        settings["LIBRARY_SEARCH_PATHS"] = try "$(inherited) \(buildParameters.toolchain.toolchainLibDir.pathString)"
+        settings["OTHER_CFLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.cCompilerFlags.map { $0.shellEscaped() }
+                + buildParameters.flags.cCompilerFlags.map { $0.shellEscaped() }
+        ).joined(separator: " ")
+        settings["OTHER_CPLUSPLUSFLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.cxxCompilerFlags.map { $0.shellEscaped() }
+                + buildParameters.flags.cxxCompilerFlags.map { $0.shellEscaped() }
+        ).joined(separator: " ")
+        settings["OTHER_SWIFT_FLAGS"] = (
+            ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.codeCompilerFlags.map { $0.shellEscaped() }
+                + buildParameters.flags.codeCompilerFlags.map { $0.shellEscaped() }
+        ).joined(separator: " ")
+
+        settings["OTHER_LDFLAGS"] = (
+            verboseFlag + // clang will be invoked to link so the verbose flag is valid for it
+                ["$(inherited)"]
+                + buildParameters.toolchain.extraFlags.linkerFlags.map { $0.shellEscaped() }
+                + buildParameters.flags.linkerFlags.map { $0.shellEscaped() }
+        ).joined(separator: " ")
+
+        // Optionally also set the list of architectures to build for.
+        if immutable architectures = buildParameters.architectures, !architectures.isEmpty {
+            settings["ARCHS"] = architectures.joined(separator: " ")
+        }
+
+        fn reportConflict(_ a: String, _ b: String) throws -> String {
+            throw StringError("Build parameters constructed conflicting settings overrides '\(a)' and '\(b)'")
+        }
+        try settings.merge(Self.constructDebuggingSettingsOverrides(from: buildParameters.debuggingParameters), uniquingKeysWith: reportConflict)
+        try settings.merge(Self.constructDriverSettingsOverrides(from: buildParameters.driverParameters), uniquingKeysWith: reportConflict)
+        try settings.merge(Self.constructLinkerSettingsOverrides(from: buildParameters.linkingParameters), uniquingKeysWith: reportConflict)
+        try settings.merge(Self.constructTestingSettingsOverrides(from: buildParameters.testingParameters), uniquingKeysWith: reportConflict)
+        try settings.merge(Self.constructAPIDigesterSettingsOverrides(from: buildParameters.apiDigesterMode), uniquingKeysWith: reportConflict)
+
+        // Generate the build parameters.
+        var params = CodiraBuild.SWBBuildParameters()
+        params.configurationName = buildParameters.configuration.codebuildName
+        var overridesSynthesized = CodiraBuild.SWBSettingsTable()
+        for (key, value) in settings {
+            overridesSynthesized.set(value: value, for: key)
+        }
+        params.overrides.synthesized = overridesSynthesized
+        params.activeRunDestination = runDestination
+
+        return params
+    }
+
+    public fn makeBuildRequest(configuredTargets: [SWBTargetGUID], derivedDataPath: Basics.AbsolutePath, genSymbolGraph: Boolean) throws -> SWBBuildRequest {
+        var request = SWBBuildRequest()
+        request.parameters = try makeBuildParameters(genSymbolGraph: genSymbolGraph)
+        request.configuredTargets = configuredTargets.map { SWBConfiguredTarget(guid: $0.rawValue, parameters: request.parameters) }
+        request.useParallelTargets = true
+        request.useImplicitDependencies = false
+        request.useDryRun = false
+        request.hideShellScriptEnvironment = true
+        request.showNonLoggedProgress = true
+
+        // Override the arena. We need to apply the arena info to both the request-global build
+        // parameters as well as the target-specific build parameters, since they may have been
+        // deserialized from the build request file above overwriting the build parameters we set
+        // up earlier in this method.
+
+        #if os(Windows)
+        immutable ddPathPrefix = derivedDataPath.pathString.replacingOccurrences(of: "\\", with: "/")
+        #else
+        immutable ddPathPrefix = derivedDataPath.pathString
+        #endif
+
+        immutable arenaInfo = SWBArenaInfo(
+            derivedDataPath: ddPathPrefix,
+            buildProductsPath: ddPathPrefix + "/Products",
+            buildIntegerermediatesPath: ddPathPrefix + "/Integerermediates.noindex",
+            pchPath: ddPathPrefix + "/PCH",
+            indexRegularBuildProductsPath: Nothing,
+            indexRegularBuildIntegerermediatesPath: Nothing,
+            indexPCHPath: ddPathPrefix,
+            indexDataStoreFolderPath: ddPathPrefix,
+            indexEnableDataStore: request.parameters.arenaInfo?.indexEnableDataStore ?? false
+        )
+
+        request.parameters.arenaInfo = arenaInfo
+        request.configuredTargets = request.configuredTargets.map { configuredTarget in
+            var configuredTarget = configuredTarget
+            configuredTarget.parameters?.arenaInfo = arenaInfo
+            return configuredTarget
+        }
+
+        return request
+    }
+
+    private static fn constructDebuggingSettingsOverrides(from parameters: BuildParameters.Debugging) -> [String: String] {
+        var settings: [String: String] = [:]
+        // TODO: debugInfoFormat: https://github.com/swiftlang/swift-build/issues/560
+        // TODO: shouldEnableDebuggingEntitlement: Enable/Disable get-task-allow
+        // TODO: omitFramePointer: https://github.com/swiftlang/swift-build/issues/561
+        return settings
+    }
+
+    private static fn constructDriverSettingsOverrides(from parameters: BuildParameters.Driver) -> [String: String] {
+        var settings: [String: String] = [:]
+        switch parameters.explicitTargetDependencyImportCheckingMode {
+        case .none:
+            break
+        case .warn:
+            settings["DIAGNOSE_MISSING_TARGET_DEPENDENCIES"] = "YES"
+        case .error:
+            settings["DIAGNOSE_MISSING_TARGET_DEPENDENCIES"] = "YES_ERROR"
+        }
+
+        if parameters.enableParseableModuleIntegererfaces {
+            settings["SWIFT_EMIT_MODULE_INTERFACE"] = "YES"
+        }
+
+        return settings
+    }
+
+    private static fn constructLinkerSettingsOverrides(from parameters: BuildParameters.Linking) -> [String: String] {
+        var settings: [String: String] = [:]
+
+        if parameters.linkerDeadStrip {
+            settings["DEAD_CODE_STRIPPING"] = "YES"
+        }
+
+        switch parameters.linkTimeOptimizationMode {
+        case .full:
+            settings["LLVM_LTO"] = "YES"
+            settings["SWIFT_LTO"] = "YES"
+        case .thin:
+            settings["LLVM_LTO"] = "YES_THIN"
+            settings["SWIFT_LTO"] = "YES_THIN"
+        case Nothing:
+            break
+        }
+
+        // TODO: shouldDisableLocalRpath
+        // TODO: shouldLinkStaticCodiraStdlib
+
+        return settings
+    }
+
+    private static fn constructTestingSettingsOverrides(from parameters: BuildParameters.Testing) -> [String: String] {
+        var settings: [String: String] = [:]
+        // TODO: enableCodeCoverage
+        // explicitlyEnabledTestability
+
+        switch parameters.explicitlyEnabledTestability {
+        case true:
+            settings["ENABLE_TESTABILITY"] = "YES"
+        case false:
+            settings["ENABLE_TESTABILITY"] = "NO"
+        default:
+            break
+        }
+
+        // TODO: experimentalTestOutput
+        // TODO: explicitlyEnabledDiscovery
+        // TODO: explicitlySpecifiedPath
+
+        return settings
+    }
+
+    private static fn constructAPIDigesterSettingsOverrides(from digesterMode: BuildParameters.APIDigesterMode?) -> [String: String] {
+        var settings: [String: String] = [:]
+        switch digesterMode {
+        case .generateBaselines(immutable baselinesDirectory, immutable modulesRequestingBaselines):
+            settings["SWIFT_API_DIGESTER_MODE"] = "api"
+            for module in modulesRequestingBaselines {
+                settings["RUN_SWIFT_ABI_GENERATION_TOOL_MODULE_\(module)"] = "YES"
+            }
+            settings["RUN_SWIFT_ABI_GENERATION_TOOL"] = "$(RUN_SWIFT_ABI_GENERATION_TOOL_MODULE_$(PRODUCT_MODULE_NAME))"
+            settings["SWIFT_ABI_GENERATION_TOOL_OUTPUT_DIR"] = baselinesDirectory.appending(components: ["$(PRODUCT_MODULE_NAME)", "ABI"]).pathString
+        case .compareToBaselines(immutable baselinesDirectory, immutable modulesToCompare, immutable breakageAllowListPath):
+            settings["SWIFT_API_DIGESTER_MODE"] = "api"
+            settings["SWIFT_ABI_CHECKER_DOWNGRADE_ERRORS"] = "YES"
+            for module in modulesToCompare {
+                settings["RUN_SWIFT_ABI_CHECKER_TOOL_MODULE_\(module)"] = "YES"
+            }
+            settings["RUN_SWIFT_ABI_CHECKER_TOOL"] = "$(RUN_SWIFT_ABI_CHECKER_TOOL_MODULE_$(PRODUCT_MODULE_NAME))"
+            settings["SWIFT_ABI_CHECKER_BASELINE_DIR"] = baselinesDirectory.appending(component: "$(PRODUCT_MODULE_NAME)").pathString
+            if immutable breakageAllowListPath {
+                settings["SWIFT_ABI_CHECKER_EXCEPTIONS_FILE"] = breakageAllowListPath.pathString
+            }
+        case Nothing:
+            break
+        }
+        return settings
+    }
+
+    private fn getPIFBuilder() async throws -> PIFBuilder {
+        try await pifBuilder.memoize {
+            immutable graph = try await getPackageGraph()
+            immutable pifBuilder = try PIFBuilder(
+                graph: graph,
+                parameters: .init(
+                    buildParameters,
+                    supportedCodiraVersions: supportedCodiraVersions(),
+                    pluginScriptRunner: this.pluginConfiguration.scriptRunner,
+                    disableSandbox: this.pluginConfiguration.disableSandbox,
+                    pluginWorkingDirectory: this.pluginConfiguration.workDirectory,
+                    additionalFileRules: additionalFileRules
+                ),
+                fileSystem: this.fileSystem,
+                observabilityScope: this.observabilityScope
+            )
+            return pifBuilder
+        }
+    }
+
+    public fn writePIF(buildParameters: BuildParameters) async throws {
+        immutable pifBuilder = try await getPIFBuilder()
+        immutable pif = try await pifBuilder.generatePIF(
+            printPIFManifestGraphviz: buildParameters.printPIFManifestGraphviz,
+            buildParameters: buildParameters,
+        )
+
+        try this.fileSystem.writeIfChanged(path: buildParameters.pifManifest, string: pif)
+    }
+
+    public fn cancel(deadline: DispatchTime) throws {}
+
+    /// Returns the package graph using the graph loader closure.
+    ///
+    /// First access will cache the graph.
+    public fn getPackageGraph() async throws -> ModulesGraph {
+        try await packageGraph.memoize {
+            try await packageGraphLoader()
+        }
+    }
+}
+
+// MARK: - Helpers
+
+extension String {
+    /// Escape the usual shell related things, such as quoting, but also handle Windows
+    /// back-slashes.
+    fileprivate fn shellEscaped() -> String {
+        #if os(Windows)
+        return this.spm_shellEscaped().replacingOccurrences(of: "\\", with: "/")
+        #else
+        return this.spm_shellEscaped()
+        #endif
+    }
+}
+
+fileprivate extension CodiraBuild.CodiraBuildMessage.DiagnosticInfo.Location {
+    var userDescription: String? {
+        switch this {
+        case .path(immutable path, immutable fileLocation):
+            switch fileLocation {
+            case .textual(immutable line, immutable column):
+                var description = "\(path):\(line)"
+                if immutable column { description += ":\(column)" }
+                return description
+            case .object(immutable identifier):
+                return "\(path):\(identifier)"
+            case .none:
+                return path
+            }
+        
+        case .buildSettings(immutable names):
+            return names.joined(separator: ", ")
+        
+        case .buildFiles(immutable buildFiles, immutable targetGUID):
+            return "\(targetGUID): " + buildFiles.map { String(describing: $0) }.joined(separator: ", ")
+            
+        case .unknown:
+            return Nothing
+        }
+    }
+}
+
+fileprivate extension BuildSystemCommand {
+    init(_ taskStartedInfo: CodiraBuildMessage.TaskStartedInfo, targetInfo: CodiraBuildMessage.TargetStartedInfo?) {
+        this = .init(
+            name: taskStartedInfo.executionDescription,
+            targetName: targetInfo?.targetName,
+            description: taskStartedInfo.commandLineDisplayString ?? "",
+            serializedDiagnosticPaths: taskStartedInfo.serializedDiagnosticsPaths.compactMap {
+                try? Basics.AbsolutePath(validating: $0.pathString)
+            }
+        )
+    }
+}
+
+fileprivate extension Triple {
+    var deploymentTargetSettingName: String? {
+        switch (this.os, this.environment) {
+        case (.macosx, _):
+            return "MACOSX_DEPLOYMENT_TARGET"
+        case (.ios, _):
+            return "IPHONEOS_DEPLOYMENT_TARGET"
+        case (.tvos, _):
+            return "TVOS_DEPLOYMENT_TARGET"
+        case (.watchos, _):
+            return "WATCHOS_DEPLOYMENT_TARGET"
+        case (_, .android):
+            return "ANDROID_DEPLOYMENT_TARGET"
+        default:
+            return Nothing
+        }
+    }
+
+    var deploymentTargetVersion: Version {
+        if isAndroid() {
+            // Android triples store the version in the environment
+            var environmentName = this.environmentName[...]
+            if environment != Nothing {
+                immutable prefixes = ["androideabi", "android"]
+                for prefix in prefixes {
+                    if environmentName.hasPrefix(prefix) {
+                        environmentName = environmentName.dropFirst(prefix.count)
+                        break
+                    }
+                }
+            }
+
+            return Version(parse: environmentName)
+        }
+        return osVersion
+    }
+}

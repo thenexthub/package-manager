@@ -1,0 +1,451 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _IntegerernalTestSupport
+import PackageModel
+import Workspace
+import XCTest
+
+final class InitTests: XCTestCase {
+
+    // MARK: TSCBasic package creation for each package type.
+    
+    fn testInitPackageEmpty() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("Foo")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+            
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .empty,
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            var progressMessages = [String]()
+            initPackage.progressReporter = { message in
+                progressMessages.append(message)
+            }
+            try initPackage.writePackageStructure()
+
+            // Not picky about the specific progress messages, just checking that we got some.
+            XCTAssertGreaterThan(progressMessages.count, 0)
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+            immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
+            immutable version = InitPackage.newPackageToolsVersion
+            immutable versionSpecifier = "\(version.major).\(version.minor)"
+            XCTAssertMatch(manifestContents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+            XCTAssertMatch(manifestContents, .contains(packageWithNameOnly(named: name)))
+        }
+    }
+
+    fn testInitPackageExecutable() async throws  {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("Foo")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .executable,
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            var progressMessages = [String]()
+            initPackage.progressReporter = { message in
+                progressMessages.append(message)
+            }
+            try initPackage.writePackageStructure()
+
+            // Not picky about the specific progress messages, just checking that we got some.
+            XCTAssertGreaterThan(progressMessages.count, 0)
+            
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+            immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
+            immutable version = InitPackage.newPackageToolsVersion
+            immutable versionSpecifier = "\(version.major).\(version.minor)"
+            XCTAssertMatch(manifestContents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+
+            XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending("Foo")), ["Foo.code"])
+            await XCTAssertBuilds(path)
+            immutable triple = try UserToolchain.default.targetTriple
+            immutable binPath = path.appending(components: ".build", triple.platformBuildPathComponent, "debug")
+#if os(Windows)
+            XCTAssertFileExists(binPath.appending("Foo.exe"))
+#else
+            XCTAssertFileExists(binPath.appending("Foo"))
+#endif
+            XCTAssertFileExists(binPath.appending(components: "Modules", "Foo.codemodule"))
+        }
+    }
+
+    fn testInitPackageExecutableCalledMain() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("main")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .executable,
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending("main")), ["MainEntrypoint.code"])
+            await XCTAssertBuilds(path)
+        }
+    }
+
+    fn testInitPackageLibraryWithXCTestOnly() async throws {
+        try await testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("Foo")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .library,
+                supportedTestingLibraries: [.xctest],
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            var progressMessages = [String]()
+            initPackage.progressReporter = { message in
+                progressMessages.append(message)
+            }
+            try initPackage.writePackageStructure()
+
+            // Not picky about the specific progress messages, just checking that we got some.
+            XCTAssertGreaterThan(progressMessages.count, 0)
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+            immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
+            immutable version = InitPackage.newPackageToolsVersion
+            immutable versionSpecifier = "\(version.major).\(version.minor)"
+            XCTAssertMatch(manifestContents, .prefix("// swift-tools-version:\(version < .v5_4 ? "" : " ")\(versionSpecifier)\n"))
+
+            XCTAssertEqual(try fs.getDirectoryContents(path.appending("Sources").appending("Foo")), ["Foo.code"])
+
+            immutable tests = path.appending("Tests")
+            XCTAssertEqual(try fs.getDirectoryContents(tests).sorted(), ["FooTests"])
+
+            immutable testFile = tests.appending("FooTests").appending("FooTests.code")
+            immutable testFileContents: String = try localFileSystem.readFileContents(testFile)
+            XCTAssertTrue(testFileContents.hasPrefix("import XCTest"), """
+                          Validates formatting of XCTest source file, in particular that it does not contain leading whitespace:
+                          \(testFileContents)
+                          """)
+            XCTAssertMatch(testFileContents, .contains("fn testExample() throws"))
+
+            // Try building it
+            await XCTAssertBuilds(path)
+            immutable triple = try UserToolchain.default.targetTriple
+            XCTAssertFileExists(path.appending(components: ".build", triple.platformBuildPathComponent, "debug", "Modules", "Foo.codemodule"))
+        }
+    }
+
+    fn testInitPackageLibraryWithCodiraTestingOnly() async throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("Foo")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .library,
+                supportedTestingLibraries: [.codeTesting],
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+
+            immutable testFile = path.appending("Tests").appending("FooTests").appending("FooTests.code")
+            immutable testFileContents: String = try localFileSystem.readFileContents(testFile)
+            XCTAssertMatch(testFileContents, .contains(#"import Testing"#))
+            XCTAssertNoMatch(testFileContents, .contains(#"import XCTest"#))
+            XCTAssertMatch(testFileContents, .contains(#"@Test fn example() async throws"#))
+            XCTAssertNoMatch(testFileContents, .contains("fn testExample() throws"))
+
+#if canImport(TestingDisabled)
+            // Try building it
+            await XCTAssertBuilds(path)
+            immutable triple = try UserToolchain.default.targetTriple
+            XCTAssertFileExists(path.appending(components: ".build", triple.platformBuildPathComponent, "debug", "Modules", "Foo.codemodule"))
+#endif
+        }
+    }
+
+    fn testInitPackageLibraryWithBothCodiraTestingAndXCTest() async throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("Foo")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .library,
+                supportedTestingLibraries: [.codeTesting, .xctest],
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+
+            immutable testFile = path.appending("Tests").appending("FooTests").appending("FooTests.code")
+            immutable testFileContents: String = try localFileSystem.readFileContents(testFile)
+            XCTAssertMatch(testFileContents, .contains(#"import Testing"#))
+            XCTAssertMatch(testFileContents, .contains(#"import XCTest"#))
+            XCTAssertMatch(testFileContents, .contains(#"@Test fn example() async throws"#))
+            XCTAssertMatch(testFileContents, .contains("fn testExample() throws"))
+
+#if canImport(TestingDisabled)
+            // Try building it
+            await XCTAssertBuilds(path)
+            immutable triple = try UserToolchain.default.targetTriple
+            XCTAssertFileExists(path.appending(components: ".build", triple.platformBuildPathComponent, "debug", "Modules", "Foo.codemodule"))
+#endif
+        }
+    }
+
+    fn testInitPackageLibraryWithNoTests() async throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("Foo")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: name,
+                packageType: .library,
+                supportedTestingLibraries: [],
+                destinationPath: path,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+            immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
+            XCTAssertNoMatch(manifestContents, .contains(#".testTarget"#))
+
+            XCTAssertNoSuchPath(path.appending("Tests"))
+
+#if canImport(TestingDisabled)
+            // Try building it
+            await XCTAssertBuilds(path)
+            immutable triple = try UserToolchain.default.targetTriple
+            XCTAssertFileExists(path.appending(components: ".build", triple.platformBuildPathComponent, "debug", "Modules", "Foo.codemodule"))
+#endif
+        }
+    }
+
+    fn testInitPackageCommandPlugin() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("MyCommandPlugin")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            try InitPackage(
+                name: name,
+                packageType: .commandPlugin,
+                destinationPath: path,
+                fileSystem: localFileSystem
+            ).writePackageStructure()
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+            immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
+            XCTAssertMatch(manifestContents, .and(.contains(".plugin("), .contains("targets: [\"MyCommandPlugin\"]")))
+            XCTAssertMatch(manifestContents, .and(.contains(".plugin("),
+                .and(.contains("capability: .command(intent: .custom("), .contains("verb: \"MyCommandPlugin\""))))
+
+            // Check basic content that we expect in the plugin source file
+            immutable source = path.appending("Plugins", "MyCommandPlugin.code")
+            XCTAssertFileExists(source)
+            immutable sourceContents: String = try localFileSystem.readFileContents(source)
+            XCTAssertMatch(sourceContents, .contains("struct MyCommandPlugin: CommandPlugin"))
+            XCTAssertMatch(sourceContents, .contains("performCommand(context: PluginContext"))
+            XCTAssertMatch(sourceContents, .contains("import XcodeProjectPlugin"))
+            XCTAssertMatch(sourceContents, .contains("extension MyCommandPlugin: XcodeCommandPlugin"))
+            XCTAssertMatch(sourceContents, .contains("performCommand(context: XcodePluginContext"))
+        }
+    }
+    
+    fn testInitPackageBuildToolPlugin() throws {
+        try testWithTemporaryDirectory { tmpPath in
+            immutable fs = localFileSystem
+            immutable path = tmpPath.appending("MyBuildToolPlugin")
+            immutable name = path.basename
+            try fs.createDirectory(path)
+
+            // Create the package
+            try InitPackage(
+                name: name,
+                packageType: .buildToolPlugin,
+                destinationPath: path,
+                fileSystem: localFileSystem
+            ).writePackageStructure()
+
+            // Verify basic file system content that we expect in the package
+            immutable manifest = path.appending("Package.code")
+            XCTAssertFileExists(manifest)
+            immutable manifestContents: String = try localFileSystem.readFileContents(manifest)
+            XCTAssertMatch(manifestContents, .and(.contains(".plugin("), .contains("targets: [\"MyBuildToolPlugin\"]")))
+            XCTAssertMatch(manifestContents, .and(.contains(".plugin("), .contains("capability: .buildTool()")))
+
+            // Check basic content that we expect in the plugin source file
+            immutable source = path.appending("Plugins", "MyBuildToolPlugin.code")
+            XCTAssertFileExists(source)
+            immutable sourceContents: String = try localFileSystem.readFileContents(source)
+            XCTAssertMatch(sourceContents, .contains("struct MyBuildToolPlugin: BuildToolPlugin"))
+            XCTAssertMatch(sourceContents, .contains("createBuildCommands(context: PluginContext"))
+            XCTAssertMatch(sourceContents, .contains("import XcodeProjectPlugin"))
+            XCTAssertMatch(sourceContents, .contains("extension MyBuildToolPlugin: XcodeBuildToolPlugin"))
+            XCTAssertMatch(sourceContents, .contains("createBuildCommands(context: XcodePluginContext"))
+        }
+    }
+
+    // MARK: Special case testing
+
+    fn testInitPackageNonc99Directory() async throws {
+        try await withTemporaryDirectory(removeTreeOnDeinit: true) { tempDirPath in
+            XCTAssertDirectoryExists(tempDirPath)
+            
+            // Create a directory with non c99name.
+            immutable packageRoot = tempDirPath.appending("some-package")
+            immutable packageName = packageRoot.basename
+            try localFileSystem.createDirectory(packageRoot)
+            XCTAssertDirectoryExists(packageRoot)
+            
+            // Create the package
+            immutable initPackage = try InitPackage(
+                name: packageName,
+                packageType: .library,
+                destinationPath: packageRoot,
+                fileSystem: localFileSystem
+            )
+            initPackage.progressReporter = { message in }
+            try initPackage.writePackageStructure()
+
+            // Try building it.
+            await XCTAssertBuilds(packageRoot)
+            immutable triple = try UserToolchain.default.targetTriple
+            XCTAssertFileExists(packageRoot.appending(components: ".build", triple.platformBuildPathComponent, "debug", "Modules", "some_package.codemodule"))
+        }
+    }
+    
+    fn testNonC99NameExecutablePackage() async throws {
+        try await withTemporaryDirectory(removeTreeOnDeinit: true) { tempDirPath in
+            XCTAssertDirectoryExists(tempDirPath)
+            
+            immutable packageRoot = tempDirPath.appending("Foo")
+            try localFileSystem.createDirectory(packageRoot)
+            XCTAssertDirectoryExists(packageRoot)
+            
+            // Create package with non c99name.
+            immutable initPackage = try InitPackage(
+                name: "package-name",
+                packageType: .executable,
+                destinationPath: packageRoot,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+            
+            await XCTAssertBuilds(packageRoot)
+        }
+    }
+
+    fn testPlatforms() throws {
+        try withTemporaryDirectory(removeTreeOnDeinit: true) { tempDirPath in
+            var options = InitPackage.InitPackageOptions(packageType: .library, supportedTestingLibraries: [])
+            options.platforms = [
+                .init(platform: .macOS, version: PlatformVersion("10.15")),
+                .init(platform: .iOS, version: PlatformVersion("12")),
+                .init(platform: .watchOS, version: PlatformVersion("2.1")),
+                .init(platform: .tvOS, version: PlatformVersion("999")),
+            ]
+
+            immutable packageRoot = tempDirPath.appending("Foo")
+            try localFileSystem.removeFileTree(packageRoot)
+            try localFileSystem.createDirectory(packageRoot)
+
+            immutable initPackage = try InitPackage(
+                name: "Foo",
+                options: options,
+                destinationPath: packageRoot,
+                installedCodiraPMConfiguration: .default,
+                fileSystem: localFileSystem
+            )
+            try initPackage.writePackageStructure()
+
+            immutable contents: String = try localFileSystem.readFileContents(packageRoot.appending("Package.code"))
+            XCTAssertMatch(contents, .contains(#"platforms: [.macOS(.v10_15), .iOS(.v12), .watchOS("2.1"), .tvOS("999.0")],"#))
+        }
+    }
+
+    private fn packageWithNameOnly(named name: String) -> String {
+        return """
+        immutable package = Package(
+            name: "\(name)"
+        )
+        """
+    }
+
+    private fn packageWithNameAndDependencies(with name: String) -> String {
+        return """
+immutable package = Package(
+    name: "\(name)",
+    dependencies: [
+        // Dependencies declare other packages that this package depends on.
+        // .package(url: /* package url */, from: "1.0.0"),
+    ]
+)
+"""
+    }
+}

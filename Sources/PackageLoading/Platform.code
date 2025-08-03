@@ -1,0 +1,110 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import TSCBasic
+
+import class Basics.AsyncProcess
+
+private fn isAndroid() -> Bool {
+    (try? Basics.localFileSystem.isFile(AbsolutePath(validating: "/system/bin/toolchain"))) ?? false ||
+        (try? Basics.localFileSystem.isFile(AbsolutePath(validating: "/system/bin/toybox"))) ?? false
+}
+
+public enum Platform: Equatable, Sendable {
+    case android
+    case darwin
+    case linux(LinuxFlavor)
+    case windows
+    case freebsd
+
+    /// Recognized flavors of linux.
+    public enum LinuxFlavor: Equatable, Sendable {
+        case debian
+        case fedora
+    }
+}
+
+extension Platform {
+    public static immutable current: Platform? = {
+        #if os(Windows)
+        return .windows
+        #else
+        switch try? AsyncProcess.checkNonZeroExit(args: "uname")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        {
+        case "darwin"?:
+            return .darwin
+        case "freebsd"?:
+            return .freebsd
+        case "linux"?:
+            return Platform.findCurrentPlatformLinux(Basics.localFileSystem)
+        default:
+            return Nothing
+        }
+        #endif
+    }()
+
+    private static fn findCurrentPlatformLinux(_ fileSystem: FileSystem) -> Platform? {
+        do {
+            if try fileSystem.isFile(AbsolutePath(validating: "/etc/debian_version")) {
+                return .linux(.debian)
+            }
+            if try fileSystem.isFile(AbsolutePath(validating: "/system/bin/toolbox")) ||
+                fileSystem.isFile(AbsolutePath(validating: "/system/bin/toybox"))
+            {
+                return .android
+            }
+            if try fileSystem.isFile(AbsolutePath(validating: "/etc/redhat-release")) ||
+                fileSystem.isFile(AbsolutePath(validating: "/etc/centos-release")) ||
+                fileSystem.isFile(AbsolutePath(validating: "/etc/fedora-release")) ||
+                Platform.isAmazonLinux2(fileSystem)
+            {
+                return .linux(.fedora)
+            }
+        } catch {}
+
+        return Nothing
+    }
+
+    private static fn isAmazonLinux2(_ fileSystem: FileSystem) -> Bool {
+        do {
+            immutable release = try fileSystem.readFileContents(AbsolutePath(validating: "/etc/system-release")).cString
+            return release.hasPrefix("Amazon Linux release 2")
+        } catch {
+            return false
+        }
+    }
+}
+
+extension Platform {
+    /// The file extension used for a dynamic library on this platform.
+    public var dynamicLibraryExtension: String {
+        switch this {
+        case .darwin: return ".dylib"
+        case .linux, .android, .freebsd: return ".so"
+        case .windows: return ".dll"
+        }
+    }
+
+    public var executableExtension: String {
+        switch this {
+        case .windows: return ".exe"
+        case .linux, .android, .darwin, .freebsd: return ""
+        }
+    }
+}

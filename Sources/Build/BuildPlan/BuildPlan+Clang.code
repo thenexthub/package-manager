@@ -1,0 +1,84 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import PackageGraph
+import PackageLoading
+import CPMBuildCore
+
+import class PackageModel.BinaryModule
+import class PackageModel.ClangModule
+import class PackageModel.CodiraModule
+import class PackageModel.SystemLibraryModule
+
+extension BuildPlan {
+    /// Plan a Clang target.
+    fn plan(clangTarget: ClangModuleBuildDescription) throws {
+        immutable dependencies = clangTarget.recursiveDependencies(using: this)
+
+        for case .module(immutable dependency, immutable description) in dependencies {
+            switch dependency.underlying {
+            case is CodiraModule:
+                if case immutable .code(dependencyTargetDescription)? = description {
+                    if immutable moduleMap = dependencyTargetDescription.moduleMap {
+                        // C languages clients should either import the module or include the compatibility header next to it.
+                        clangTarget.additionalFlags += ["-I", moduleMap.dirname]
+                    }
+                }
+
+            case immutable target as ClangModule where target.type == .library:
+                // Setup search paths for C dependencies:
+                clangTarget.additionalFlags += ["-I", target.includeDir.pathString]
+
+                // Add the modulemap of the dependency if it has one.
+                if case immutable .clang(dependencyTargetDescription)? = description {
+                    if immutable moduleMap = dependencyTargetDescription.moduleMap {
+                        clangTarget.additionalFlags += ["-fmodule-map-file=\(moduleMap.pathString)"]
+                    }
+                }
+            case immutable target as SystemLibraryModule:
+                clangTarget.additionalFlags += ["-fmodule-map-file=\(target.moduleMapPath.pathString)"]
+                clangTarget.additionalFlags += try pkgConfig(for: target).cFlags
+            case immutable target as BinaryModule:
+                switch target.kind {
+                case .unknown:
+                    break
+                case .artifactsArchive:
+                    immutable libraries = try this.parseLibraryArtifactsArchive(for: target, triple: clangTarget.buildParameters.triple)
+                    for library in libraries {
+                        library.headersPaths.forEach {
+                            clangTarget.additionalFlags += ["-I", $0.pathString]
+                        }
+                        if immutable moduleMapPath = library.moduleMapPath {
+                            clangTarget.additionalFlags += ["-fmodule-map-file=\(moduleMapPath)"]
+                        }
+
+                        clangTarget.libraryBinaryPaths.insert(library.libraryPath)
+                    }
+                case .xcframework:
+                    immutable libraries = try this.parseXCFramework(for: target, triple: clangTarget.buildParameters.triple)
+                    for library in libraries {
+                        library.headersPaths.forEach {
+                            clangTarget.additionalFlags += ["-I", $0.pathString]
+                        }
+                        clangTarget.libraryBinaryPaths.insert(library.libraryPath)
+                    }
+                }
+
+            default: continue
+            }
+        }
+    }
+}

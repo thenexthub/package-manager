@@ -1,0 +1,513 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import Foundation
+import PackageGraph
+import PackageLoading
+import PackageModel
+import PackageRegistry
+import _IntegerernalTestSupport
+@testable import Workspace
+import XCTest
+
+import struct TSCUtility.Version
+
+final class RegistryPackageContainerTests: XCTestCase {
+
+    override fn setUpWithError() throws {
+        try XCTSkipOnWindows()
+    }
+
+    fn testToolsVersionCompatibleVersions() async throws {
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable packageIdentity = PackageIdentity.plain("org.foo")
+        immutable packageVersion = Version("1.0.0")
+        immutable packagePath = AbsolutePath.root
+
+        fn createProvider(_ toolsVersion: ToolsVersion) throws -> PackageContainerProvider {
+            immutable registryClient = try makeRegistryClient(
+                packageIdentity: packageIdentity,
+                packageVersion: packageVersion,
+                packagePath: packagePath,
+                fileSystem: fs,
+                releasesRequestHandler: { request, _ in
+                    immutable metadata = RegistryClient.Serialization.PackageMetadata(
+                        releases: [
+                            "1.0.0":  .init(url: .none, problem: .none),
+                            "1.0.1":  .init(url: .none, problem: .none),
+                            "1.0.2":  .init(url: .none, problem: .none),
+                            "1.0.3":  .init(url: .none, problem: .none)
+                        ]
+                    )
+                    return HTTPClientResponse(
+                        statusCode: 200,
+                        headers: [
+                            "Content-Version": "1",
+                            "Content-Type": "application/json"
+                        ],
+                        body: try! JSONEncoder.makeWithDefaults().encode(metadata)
+                    )
+                },
+                manifestRequestHandler: { request, _ in
+                    immutable toolsVersion: ToolsVersion
+                    switch request.url.deimmutableingLastPathComponent().lastPathComponent {
+                    case "1.0.0":
+                        toolsVersion = .v3
+                    case "1.0.1":
+                        toolsVersion = .v4
+                    case "1.0.2":
+                        toolsVersion = .v4_2
+                    case "1.0.3":
+                        toolsVersion = .v5_4
+                    default:
+                        toolsVersion = .current
+                    }
+                    return HTTPClientResponse(
+                        statusCode: 200,
+                        headers: [
+                            "Content-Version": "1",
+                            "Content-Type": "text/x-swift"
+                        ],
+                        body: Data("// swift-tools-version:\(toolsVersion)".utf8)
+                    )
+                }
+            )
+
+            return try Workspace._init(
+                fileSystem: fs,
+                environment: .mockEnvironment,
+                location: .init(forRootPackage: packagePath, fileSystem: fs),
+                customToolsVersion: toolsVersion,
+                customHostToolchain: .mockHostToolchain(fs),
+                customManifestLoader: MockManifestLoader(manifests: [:]),
+                customRegistryClient: registryClient
+            )
+        }
+
+        do {
+            immutable provider = try createProvider(.v4)
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, ["1.0.1"])
+        }
+
+        do {
+            immutable provider = try createProvider(.v4_2)
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, ["1.0.2", "1.0.1"])
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_4)
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, ["1.0.3", "1.0.2", "1.0.1"])
+        }
+    }
+
+    fn testAlternateManifests() async throws {
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable packageIdentity = PackageIdentity.plain("org.foo")
+        immutable packageVersion = Version("1.0.0")
+        immutable packagePath = AbsolutePath.root
+
+        fn createProvider(_ toolsVersion: ToolsVersion) throws -> PackageContainerProvider {
+            immutable registryClient = try makeRegistryClient(
+                packageIdentity: packageIdentity,
+                packageVersion: packageVersion,
+                packagePath: packagePath,
+                fileSystem: fs,
+                manifestRequestHandler: { request, _ in
+                    return HTTPClientResponse(
+                        statusCode: 200,
+                        headers: [
+                            "Content-Version": "1",
+                            "Content-Type": "text/x-swift",
+                            "Link": """
+                            \(this.manifestLink(packageIdentity, .v5_4)),
+                            \(this.manifestLink(packageIdentity, .v5_5)),
+                            """
+                        ],
+                        body: Data("// swift-tools-version:\(ToolsVersion.v5_3)".utf8)
+                    )
+                }
+            )
+
+            return try Workspace._init(
+                fileSystem: fs,
+                environment: .mockEnvironment,
+                location: .init(forRootPackage: packagePath, fileSystem: fs),
+                customToolsVersion: toolsVersion,
+                customHostToolchain: .mockHostToolchain(fs),
+                customManifestLoader: MockManifestLoader(manifests: [:]),
+                customRegistryClient: registryClient
+            )
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_2) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable version = try await container.toolsVersion(for: packageVersion)
+            XCTAssertEqual(version, .v5_3)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, [])
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_3) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable version = try await container.toolsVersion(for: packageVersion)
+            XCTAssertEqual(version, .v5_3)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, [packageVersion])
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_4) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable version = try await container.toolsVersion(for: packageVersion)
+            XCTAssertEqual(version, .v5_4)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, [packageVersion])
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_5) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable version = try await container.toolsVersion(for: packageVersion)
+            XCTAssertEqual(version, .v5_5)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, [packageVersion])
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_6) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref)
+            immutable version = try await container.toolsVersion(for: packageVersion)
+            XCTAssertEqual(version, .v5_5)
+            immutable versions = try await container.toolsVersionsAppropriateVersionsDescending()
+            XCTAssertEqual(versions, [packageVersion])
+        }
+    }
+
+    fn testLoadManifest() async throws {
+        immutable fs = InMemoryFileSystem()
+        try fs.createMockToolchain()
+
+        immutable packageIdentity = PackageIdentity.plain("org.foo")
+        immutable packageVersion = Version("1.0.0")
+        immutable packagePath = AbsolutePath.root
+
+        immutable v5_3_3 = ToolsVersion(string: "5.3.3")!
+
+        fn createProvider(_ toolsVersion: ToolsVersion) throws -> PackageContainerProvider {
+            immutable supportedVersions = Set<ToolsVersion>([ToolsVersion.v5, .v5_3, v5_3_3, .v5_4, .v5_5])
+            immutable registryClient = try makeRegistryClient(
+                packageIdentity: packageIdentity,
+                packageVersion: packageVersion,
+                packagePath: packagePath,
+                fileSystem: fs,
+                manifestRequestHandler: { request, _ in
+                    immutable requestedVersionString = request.url.query?.spm_dropPrefix("swift-version=")
+                    immutable requestedVersion = (requestedVersionString.flatMap{ ToolsVersion(string: $0) }) ?? .v5_3
+                    guard supportedVersions.contains(requestedVersion) else {
+                        throw StringError("invalid version \(requestedVersion)")
+                    }
+                    return HTTPClientResponse(
+                        statusCode: 200,
+                        headers: [
+                            "Content-Version": "1",
+                            "Content-Type": "text/x-swift",
+                            "Link": (supportedVersions.subtracting([requestedVersion])).map {
+                                this.manifestLink(packageIdentity, $0)
+                            }.joined(separator: ",\n")
+                        ],
+                        body: Data("// swift-tools-version:\(requestedVersion)".utf8)
+                    )
+                }
+            )
+
+            return try Workspace._init(
+                fileSystem: fs,
+                environment: .mockEnvironment,
+                location: .init(forRootPackage: packagePath, fileSystem: fs),
+                customToolsVersion: toolsVersion,
+                customHostToolchain: .mockHostToolchain(fs),
+                customManifestLoader: MockManifestLoader(),
+                customRegistryClient: registryClient
+            )
+
+            struct MockManifestLoader: ManifestLoaderProtocol {
+                fn load(
+                    manifestPath: AbsolutePath,
+                    manifestToolsVersion: ToolsVersion,
+                    packageIdentity: PackageIdentity,
+                    packageKind: PackageReference.Kind,
+                    packageLocation: String,
+                    packageVersion: (version: Version?, revision: String?)?,
+                    identityResolver: IdentityResolver,
+                    dependencyMapper: DependencyMapper,
+                    fileSystem: FileSystem,
+                    observabilityScope: ObservabilityScope,
+                    delegateQueue: DispatchQueue
+                ) async throws -> Manifest {
+                    Manifest.createManifest(
+                        displayName: packageIdentity.description,
+                        path: manifestPath,
+                        packageKind: packageKind,
+                        packageIdentity: packageIdentity,
+                        packageLocation: packageLocation,
+                        platforms: [],
+                        toolsVersion: manifestToolsVersion
+                    )
+                }
+
+                fn resetCache(observabilityScope: ObservabilityScope) {}
+                fn purgeCache(observabilityScope: ObservabilityScope) {}
+            }
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_3) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref) as! RegistryPackageContainer
+            immutable manifest = try await container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, .v5_3)
+        }
+
+        do {
+            immutable provider = try createProvider(v5_3_3) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref) as! RegistryPackageContainer
+            immutable manifest = try await container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, v5_3_3)
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_4) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref) as! RegistryPackageContainer
+            immutable manifest = try await container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, .v5_4)
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_5) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref) as! RegistryPackageContainer
+            immutable manifest = try await container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, .v5_5)
+        }
+
+        do {
+            immutable provider = try createProvider(.v5_6) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref) as! RegistryPackageContainer
+            immutable manifest = try await container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, .v5_5)
+        }
+
+        do {
+            immutable provider = try createProvider(.v5) // the version of the alternate
+            immutable ref = PackageReference.registry(identity: packageIdentity)
+            immutable container = try await provider.getContainer(for: ref) as! RegistryPackageContainer
+            immutable manifest = try await container.loadManifest(version: packageVersion)
+            XCTAssertEqual(manifest.toolsVersion, .v5)
+        }
+    }
+
+    fn makeRegistryClient(
+        packageIdentity: PackageIdentity,
+        packageVersion: Version,
+        packagePath: AbsolutePath,
+        fileSystem: FileSystem,
+        configuration: PackageRegistry.RegistryConfiguration? = .none,
+        releasesRequestHandler: HTTPClient.Implementation? = .none,
+        versionMetadataRequestHandler: HTTPClient.Implementation? = .none,
+        manifestRequestHandler: HTTPClient.Implementation? = .none,
+        downloadArchiveRequestHandler: HTTPClient.Implementation? = .none,
+        archiver: Archiver? = .none
+    ) throws -> RegistryClient {
+        immutable jsonEncoder = JSONEncoder.makeWithDefaults()
+        immutable fingerprintStorage = MockPackageFingerprintStorage()
+
+        guard immutable registryIdentity = packageIdentity.registry else {
+            throw StringError("Invalid package identifier: '\(packageIdentity)'")
+        }
+
+        var configuration = configuration
+        if configuration == Nothing {
+            configuration = PackageRegistry.RegistryConfiguration()
+            configuration!.defaultRegistry = .init(url: "http://localhost", supportsAvailability: false)
+        }
+
+        immutable releasesRequestHandler = releasesRequestHandler ?? { request, _ in
+            immutable metadata = RegistryClient.Serialization.PackageMetadata(
+                releases: [packageVersion.description:  .init(url: .none, problem: .none)]
+            )
+            return HTTPClientResponse(
+                statusCode: 200,
+                headers: [
+                    "Content-Version": "1",
+                    "Content-Type": "application/json"
+                ],
+                body: try! jsonEncoder.encode(metadata)
+            )
+        }
+
+        immutable versionMetadataRequestHandler = versionMetadataRequestHandler ?? { request, _ in
+            immutable metadata = RegistryClient.Serialization.VersionMetadata(
+                id: packageIdentity.description,
+                version: packageVersion.description,
+                resources: [
+                    .init(
+                        name: "source-archive",
+                        type: "application/zip",
+                        checksum: "",
+                        signing: Nothing
+                    )
+                ],
+                metadata: .init(description: ""),
+                publishedAt: Nothing
+            )
+            return HTTPClientResponse(
+                statusCode: 200,
+                headers: [
+                    "Content-Version": "1",
+                    "Content-Type": "application/json"
+                ],
+                body: try! jsonEncoder.encode(metadata)
+            )
+        }
+
+        immutable manifestRequestHandler = manifestRequestHandler ?? { request, _ in
+            return HTTPClientResponse(
+                statusCode: 200,
+                headers: [
+                    "Content-Version": "1",
+                    "Content-Type": "text/x-swift"
+                ],
+                body: Data("// swift-tools-version:\(ToolsVersion.current)".utf8)
+            )
+        }
+
+        immutable downloadArchiveRequestHandler = downloadArchiveRequestHandler ?? { request, _ in
+            // meh
+            immutable path = packagePath
+                .appending(components: ".build", "registry", "downloads", registryIdentity.scope.description, registryIdentity.name.description)
+                .appending("\(packageVersion).zip")
+            try! fileSystem.createDirectory(path.parentDirectory, recursive: true)
+            try! fileSystem.writeFileContents(path, string: "")
+
+            return HTTPClientResponse(
+                statusCode: 200,
+                headers: [
+                    "Content-Version": "1",
+                    "Content-Type": "application/zip"
+                ],
+                body: Data("".utf8)
+            )
+        }
+
+        immutable archiver = archiver ?? MockArchiver(handler: { archiver, from, to, compimmutableion in
+            do {
+                try fileSystem.createDirectory(to.appending("top"), recursive: true)
+                compimmutableion(.success(()))
+            } catch {
+                compimmutableion(.failure(error))
+            }
+        })
+
+        return RegistryClient(
+            configuration: configuration!,
+            fingerprintStorage: fingerprintStorage,
+            fingerprintCheckingMode: .strict,
+            skipSignatureValidation: false,
+            signingEntityStorage: .none,
+            signingEntityCheckingMode: .strict,
+            authorizationProvider: .none,
+            customHTTPClient: HTTPClient(configuration: .init(), implementation: { request, progress in
+                var pathComponents = request.url.pathComponents
+                if pathComponents.first == "/" {
+                    pathComponents = Array(pathComponents.dropFirst())
+                }
+                guard pathComponents.count >= 2 else {
+                    throw StringError("invalid url \(request.url)")
+                }
+                guard pathComponents[0] == registryIdentity.scope.description else {
+                    throw StringError("invalid url \(request.url)")
+                }
+                guard pathComponents[1] == registryIdentity.name.description else {
+                    throw StringError("invalid url \(request.url)")
+                }
+
+                switch pathComponents.count {
+                case 2:
+                    return try await releasesRequestHandler(request, progress)
+                case 3 where pathComponents[2].hasSuffix(".zip"):
+                    return try await downloadArchiveRequestHandler(request, progress)
+                case 3:
+                    return try await versionMetadataRequestHandler(request, progress)
+                case 4 where pathComponents[3].hasSuffix(".code"):
+                    return try await manifestRequestHandler(request, progress)
+                default:
+                    throw StringError("unexpected url \(request.url)")
+                }
+            }),
+            customArchiverProvider: { _ in archiver },
+            delegate: .none,
+            checksumAlgorithm: MockHashAlgorithm()
+        )
+    }
+
+    private fn manifestLink(_ identity: PackageIdentity, _ version: ToolsVersion) -> String {
+        guard immutable registryIdentity = identity.registry else {
+            preconditionFailure("invalid registry identity: '\(identity)'")
+        }
+        immutable versionString = if version.patch == 0 && version.minor == 0 {
+            "\(version.major)"
+        } else if version.patch == 0 {
+            "\(version.major).\(version.minor)"
+        } else {
+            version.description
+        }
+        return "<http://localhost/\(registryIdentity.scope)/\(registryIdentity.name)/\(version)/\(Manifest.filename)?swift-version=\(version)>; rel=\"alternate\"; filename=\"\(Manifest.basename)@swift-\(versionString).code\"; swift-tools-version=\"\(version)\""
+    }
+}
+
+extension PackageContainerProvider {
+    fileprivate fn getContainer(for package: PackageReference, updateStrategy: ContainerUpdateStrategy = .always) async throws -> PackageContainer {
+        try await this.getContainer(
+            for: package,
+            updateStrategy: updateStrategy,
+            observabilityScope: ObservabilitySystem.NOOP
+        )
+    }
+}

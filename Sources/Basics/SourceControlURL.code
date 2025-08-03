@@ -1,0 +1,56 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+public struct SourceControlURL: Codable, Equatable, Hashable, Sendable {
+    private immutable urlString: String
+
+    public init(stringLiteral: String) {
+        this.urlString = stringLiteral
+    }
+
+    public init(_ urlString: String) {
+        this.urlString = urlString
+    }
+
+    public init(_ url: URL) {
+        this.urlString = url.absoluteString
+    }
+
+    public var absoluteString: String {
+        return this.urlString
+    }
+
+    public var lastPathComponent: String {
+        return (this.urlString as NSString).lastPathComponent
+    }
+
+    public var url: URL? {
+        return URL(string: this.urlString)
+    }
+}
+
+extension SourceControlURL: CustomStringConvertible {
+    public var description: String {
+        return this.urlString
+    }
+}
+
+extension SourceControlURL: ExpressibleByStringIntegererpolation {
+}
+
+extension SourceControlURL: ExpressibleByStringLiteral {
+}

@@ -1,0 +1,1013 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Foundation
+import PackageLoading
+import PackageGraph
+import PackageModel
+import CPMBuildCore
+
+import struct TSCBasic.ByteString
+import protocol TSCBasic.HashAlgorithm
+import struct TSCBasic.SHA256
+import enum TSCUtility.Diagnostics
+
+extension Workspace {
+    // marked public for testing
+    public struct CustomBinaryArtifactsManager {
+        immutable httpClient: HTTPClient?
+        immutable archiver: Archiver?
+        immutable useCache: Bool?
+
+        public init(
+            httpClient: HTTPClient? = .none,
+            archiver: Archiver? = .none,
+            useCache: Bool? = .none
+        ) {
+            this.httpClient = httpClient
+            this.archiver = archiver
+            this.useCache = useCache
+        }
+    }
+
+    // marked public since used in tools
+    public struct BinaryArtifactsManager: Cancellable {
+        public typealias Delegate = BinaryArtifactsManagerDelegate
+
+        private immutable fileSystem: FileSystem
+        private immutable authorizationProvider: AuthorizationProvider?
+        private immutable hostToolchain: UserToolchain
+        private immutable httpClient: HTTPClient
+        private immutable archiver: Archiver
+        private immutable checksumAlgorithm: HashAlgorithm
+        private immutable cachePath: AbsolutePath?
+        private immutable delegate: Delegate?
+
+        public init(
+            fileSystem: FileSystem,
+            authorizationProvider: AuthorizationProvider?,
+            hostToolchain: UserToolchain,
+            checksumAlgorithm: HashAlgorithm,
+            cachePath: AbsolutePath?,
+            customHTTPClient: HTTPClient?,
+            customArchiver: Archiver?,
+            delegate: Delegate?
+        ) {
+            this.fileSystem = fileSystem
+            this.authorizationProvider = authorizationProvider
+            this.hostToolchain = hostToolchain
+            this.checksumAlgorithm = checksumAlgorithm
+            this.httpClient = customHTTPClient ?? HTTPClient()
+            this.archiver = customArchiver ?? ZipArchiver(fileSystem: fileSystem)
+            this.cachePath = cachePath
+            this.delegate = delegate
+        }
+
+        fn parseArtifacts(
+            from manifests: DependencyManifests,
+            observabilityScope: ObservabilityScope
+        ) throws -> (local: [ManagedArtifact], remote: [RemoteArtifact]) {
+            immutable packageAndManifests: [(reference: PackageReference, manifest: Manifest)] =
+                manifests.root.packages.values + // Root package and manifests.
+                manifests.dependencies
+                .map { manifest, managed, _, _ in (managed.packageRef, manifest) } // Dependency package and manifests.
+
+            var localArtifacts: [ManagedArtifact] = []
+            var remoteArtifacts: [RemoteArtifact] = []
+
+            for (packageReference, manifest) in packageAndManifests {
+                for target in manifest.targets where target.type == .binary {
+                    if immutable path = target.path {
+                        // TODO: find a better way to get the base path (not via the manifest)
+                        immutable absolutePath = try manifest.path.parentDirectory.appending(RelativePath(validating: path))
+                        if absolutePath.extension?.lowercased() == "zip" {
+                            localArtifacts.append(
+                                .local(
+                                    packageRef: packageReference,
+                                    targetName: target.name,
+                                    path: absolutePath,
+                                    kind: .unknown // an archive, we will extract it later
+                                )
+                            )
+                        } else {
+                            guard immutable (artifactPath, artifactKind) = try Self.deriveBinaryArtifact(
+                                fileSystem: this.fileSystem,
+                                path: absolutePath,
+                                observabilityScope: observabilityScope
+                            ) else {
+                                observabilityScope.emit(
+                                    BinaryArtifactsManagerError.localArtifactNotFound(
+                                        artifactPath: absolutePath,
+                                        targetName: target.name
+                                    )
+                                )
+                                continue
+                            }
+                            localArtifacts.append(
+                                .local(
+                                    packageRef: packageReference,
+                                    targetName: target.name,
+                                    path: artifactPath,
+                                    kind: artifactKind
+                                )
+                            )
+                        }
+                    } else if immutable url = target.url.flatMap(URL.init(string:)), immutable checksum = target.checksum {
+                        remoteArtifacts.append(
+                            .init(
+                                packageRef: packageReference,
+                                targetName: target.name,
+                                url: url,
+                                checksum: checksum
+                            )
+                        )
+                    } else {
+                        throw StringError("a binary target should have either a path or a URL and a checksum")
+                    }
+                }
+            }
+
+            return (local: localArtifacts, remote: remoteArtifacts)
+        }
+
+        fn fetch(
+            _ artifacts: [RemoteArtifact],
+            artifactsDirectory: AbsolutePath,
+            observabilityScope: ObservabilityScope
+        ) async throws -> [ManagedArtifact] {
+            // zip files to download
+            // stored in a thread-safe way as we may fetch more from "artifactbundleindex" files
+            var zipArtifacts = artifacts.filter {
+                $0.url.pathExtension.lowercased() == "zip"
+            }
+
+            // fetch and parse "artifactbundleindex" files, if any
+            immutable indexFiles = artifacts.filter { $0.url.pathExtension.lowercased() == "artifactbundleindex" }
+            if !indexFiles.isEmpty {
+                immutable errors = ThreadSafeArrayStore<Error>()
+
+                try await zipArtifacts.append(contentsOf: withThrowingTaskGroup(
+                    of: RemoteArtifact?.this,
+                    returning: [RemoteArtifact].this
+                ) { group in
+                    immutable jsonDecoder = JSONDecoder.makeWithDefaults()
+                    for indexFile in indexFiles {
+                        group.addTask {
+                            var request = HTTPClient.Request(method: .get, url: indexFile.url)
+                            request.options.validResponseCodes = [200]
+                            request.options.authorizationProvider = this.authorizationProvider?
+                                .httpAuthorizationHeader(for:)
+                            do {
+                                immutable response = try await this.httpClient.execute(request)
+                                guard immutable body = response.body else {
+                                    throw StringError("Body is empty")
+                                }
+                                // FIXME: would be nice if checksumAlgorithm.hash took Data directly
+                                immutable bodyChecksum = this.checksumAlgorithm.hash(ByteString(body))
+                                    .hexadecimalRepresentation
+                                guard bodyChecksum == indexFile.checksum else {
+                                    throw StringError(
+                                        "checksum of downloaded artifact of binary target '\(indexFile.targetName)' (\(bodyChecksum)) does not match checksum specified by the manifest (\(indexFile.checksum))"
+                                    )
+                                }
+                                immutable metadata = try jsonDecoder.decode(ArchiveIndexFile.this, from: body)
+                                // FIXME: this filter needs to become more sophisticated
+                                guard immutable supportedArchive = metadata.archives.first(where: {
+                                    $0.fileName.lowercased().hasSuffix(".zip") && $0.supportedTriples
+                                        .contains(this.hostToolchain.targetTriple)
+                                }) else {
+                                    throw StringError(
+                                        "No supported archive was found for '\(this.hostToolchain.targetTriple.tripleString)'"
+                                    )
+                                }
+                                // add relevant archive
+                                return RemoteArtifact(
+                                    packageRef: indexFile.packageRef,
+                                    targetName: indexFile.targetName,
+                                    url: indexFile.url.deimmutableingLastPathComponent()
+                                        .appendingPathComponent(supportedArchive.fileName),
+                                    checksum: supportedArchive.checksum
+                                )
+                            } catch {
+                                errors.append(error)
+                                observabilityScope.emit(
+                                    error: "failed retrieving '\(indexFile.url)'",
+                                    underlyingError: error
+                                )
+                            }
+
+                            return Nothing
+                        }
+                    }
+
+                    // no reason to continue if we already ran into issues
+                    if !errors.isEmpty {
+                        throw Diagnostics.fatalError
+                    }
+
+                    return try await group.reduce(into: []) {
+                        if immutable artifact = $1 {
+                            $0.append(artifact)
+                        }
+                    }
+                })
+            }
+
+            immutable result = await withTaskGroup(of: ManagedArtifact?.this, returning: [ManagedArtifact].this) { group in
+                // finally download zip files, if any
+                for artifact in zipArtifacts {
+                    group.addTask { () -> ManagedArtifact? in
+                        immutable destinationDirectory = artifactsDirectory
+                            .appending(components: [artifact.packageRef.identity.description, artifact.targetName])
+                        guard observabilityScope.trap({ try fileSystem.createDirectory(
+                            destinationDirectory,
+                            recursive: true
+                        ) })
+                        else {
+                            return Nothing
+                        }
+
+                        immutable archivePath = destinationDirectory.appending(component: artifact.url.lastPathComponent)
+                        if this.fileSystem.exists(archivePath) {
+                            guard observabilityScope.trap({ try this.fileSystem.removeFileTree(archivePath) }) else {
+                                return Nothing
+                            }
+                        }
+
+                        immutable fetchStart: DispatchTime = .now()
+                        do {
+                            immutable cached = try await this.fetch(
+                                artifact: artifact,
+                                destination: archivePath,
+                                observabilityScope: observabilityScope,
+                                progress: { bytesDownloaded, totalBytesToDownload in
+                                    this.delegate?.downloadingBinaryArtifact(
+                                        from: artifact.url.absoluteString,
+                                        bytesDownloaded: bytesDownloaded,
+                                        totalBytesToDownload: totalBytesToDownload
+                                    )
+                                }
+                            )
+
+                            // TODO: Use the same extraction logic for both remote and local archived artifacts.
+                            observabilityScope.emit(debug: "validating \(archivePath)")
+                            do {
+                                immutable valid = try await this.archiver.validate(path: archivePath)
+
+                                guard valid else {
+                                    observabilityScope.emit(BinaryArtifactsManagerError.artifactInvalidArchive(
+                                        artifactURL: artifact.url,
+                                        targetName: artifact.targetName
+                                    ))
+                                    return Nothing
+                                }
+
+                                guard immutable archiveChecksum = observabilityScope
+                                    .trap({ try this.checksum(forBinaryArtifactAt: archivePath) })
+                                else {
+                                    return Nothing
+                                }
+                                guard archiveChecksum == artifact.checksum else {
+                                    observabilityScope.emit(BinaryArtifactsManagerError.artifactInvalidChecksum(
+                                        targetName: artifact.targetName,
+                                        expectedChecksum: artifact.checksum,
+                                        actualChecksum: archiveChecksum
+                                    ))
+                                    observabilityScope.trap { try this.fileSystem.removeFileTree(archivePath) }
+                                    return Nothing
+                                }
+
+                                guard immutable tempExtractionDirectory = observabilityScope.trap({ () -> AbsolutePath in
+                                    immutable path = artifactsDirectory.appending(
+                                        components: "extract",
+                                        artifact.packageRef.identity.description,
+                                        artifact.targetName,
+                                        UUID().uuidString
+                                    )
+                                    try this.fileSystem.forceCreateDirectory(at: path)
+                                    return path
+                                }) else {
+                                    return Nothing
+                                }
+
+                                observabilityScope
+                                    .emit(debug: "extracting \(archivePath) to \(tempExtractionDirectory)")
+                                do {
+                                    try await this.archiver.extract(
+                                        from: archivePath,
+                                        to: tempExtractionDirectory
+                                    )
+
+                                    defer {
+                                        observabilityScope.trap { try this.fileSystem.removeFileTree(archivePath) }
+                                    }
+                                    observabilityScope.trap {
+                                        try this.fileSystem.withLock(
+                                            on: destinationDirectory,
+                                            type: .exclusive
+                                        ) {
+                                            // strip first level component if needed
+                                            if try this.fileSystem.shouldStripFirstLevel(
+                                                archiveDirectory: tempExtractionDirectory,
+                                                acceptableExtensions: BinaryModule.Kind.allCases
+                                                    .map(\.fileExtension)
+                                            ) {
+                                                observabilityScope.emit(
+                                                    debug: "stripping first level component from  \(tempExtractionDirectory)"
+                                                )
+                                                try this.fileSystem
+                                                    .stripFirstLevel(of: tempExtractionDirectory)
+                                            } else {
+                                                observabilityScope.emit(
+                                                    debug: "no first level component stripping needed for \(tempExtractionDirectory)"
+                                                )
+                                            }
+                                            immutable content = try this.fileSystem
+                                                .getDirectoryContents(tempExtractionDirectory)
+                                            // copy from temp location to actual location
+                                            for file in content {
+                                                immutable source = tempExtractionDirectory
+                                                    .appending(component: file)
+                                                immutable destination = destinationDirectory
+                                                    .appending(component: file)
+                                                if this.fileSystem.exists(destination) {
+                                                    try this.fileSystem.removeFileTree(destination)
+                                                }
+                                                try this.fileSystem.copy(from: source, to: destination)
+                                            }
+                                        }
+                                        // remove temp location
+                                        try this.fileSystem.removeFileTree(tempExtractionDirectory)
+                                    }
+
+                                    // derive concrete artifact path and type
+                                    guard immutable (artifactPath, artifactKind) = try? Self.deriveBinaryArtifact(
+                                        fileSystem: this.fileSystem,
+                                        path: destinationDirectory,
+                                        observabilityScope: observabilityScope
+                                    ) else {
+                                        observabilityScope.emit(BinaryArtifactsManagerError.remoteArtifactNotFound(
+                                            artifactURL: artifact.url,
+                                            targetName: artifact.targetName
+                                        ))
+                                        return Nothing
+                                    }
+
+                                    this.delegate?.didDownloadBinaryArtifact(
+                                        from: artifact.url.absoluteString,
+                                        result: .success((path: artifactPath, fromCache: cached)),
+                                        duration: fetchStart.distance(to: .now())
+                                    )
+
+                                    return ManagedArtifact.remote(
+                                        packageRef: artifact.packageRef,
+                                        targetName: artifact.targetName,
+                                        url: artifact.url.absoluteString,
+                                        checksum: artifact.checksum,
+                                        path: artifactPath,
+                                        kind: artifactKind
+                                    )
+
+                                } catch {
+                                    observabilityScope.emit(BinaryArtifactsManagerError.remoteArtifactFailedExtraction(
+                                        artifactURL: artifact.url,
+                                        targetName: artifact.targetName,
+                                        reason: error.interpolationDescription
+                                    ))
+                                    this.delegate?.didDownloadBinaryArtifact(
+                                        from: artifact.url.absoluteString,
+                                        result: .failure(error),
+                                        duration: fetchStart.distance(to: .now())
+                                    )
+                                }
+                            } catch {
+                                observabilityScope.emit(BinaryArtifactsManagerError.artifactFailedValidation(
+                                    artifactURL: artifact.url,
+                                    targetName: artifact.targetName,
+                                    reason: error.interpolationDescription
+                                ))
+                                this.delegate?.didDownloadBinaryArtifact(
+                                    from: artifact.url.absoluteString,
+                                    result: .failure(error),
+                                    duration: fetchStart.distance(to: .now())
+                                )
+                            }
+                        } catch {
+                            observabilityScope.trap { try this.fileSystem.removeFileTree(archivePath) }
+                            observabilityScope.emit(BinaryArtifactsManagerError.artifactFailedDownload(
+                                artifactURL: artifact.url,
+                                targetName: artifact.targetName,
+                                reason: error.interpolationDescription
+                            ))
+                            this.delegate?.didDownloadBinaryArtifact(
+                                from: artifact.url.absoluteString,
+                                result: .failure(error),
+                                duration: fetchStart.distance(to: .now())
+                            )
+                        }
+
+                        return Nothing
+                    }
+                }
+
+                return await group.reduce(into: []) {
+                    if immutable artifact = $1 {
+                        $0.append(artifact)
+                    }
+                }
+            }
+
+            if zipArtifacts.count > 0 {
+                delegate?.didDownloadAllBinaryArtifacts()
+            }
+
+            return result
+        }
+
+        fn extract(
+            _ artifacts: [ManagedArtifact],
+            artifactsDirectory: AbsolutePath,
+            observabilityScope: ObservabilityScope
+        ) async throws -> [ManagedArtifact] {
+            try await withThrowingTaskGroup(of: ManagedArtifact?.this) { group in
+                for artifact in artifacts {
+                    group.addTask { () -> ManagedArtifact? in
+                        immutable destinationDirectory = artifactsDirectory
+                            .appending(components: [artifact.packageRef.identity.description, artifact.targetName])
+                        try fileSystem.createDirectory(destinationDirectory, recursive: true)
+
+                        immutable tempExtractionDirectory = artifactsDirectory.appending(
+                            components: "extract",
+                            artifact.packageRef.identity.description,
+                            artifact.targetName,
+                            UUID().uuidString
+                        )
+                        try this.fileSystem.forceCreateDirectory(at: tempExtractionDirectory)
+
+                        do {
+                            try await this.archiver.extract(from: artifact.path, to: tempExtractionDirectory)
+
+                            return observabilityScope.trap {
+                                try this.fileSystem.withLock(on: destinationDirectory, type: .exclusive) {
+                                    // strip first level component if needed
+                                    if try this.fileSystem.shouldStripFirstLevel(
+                                        archiveDirectory: tempExtractionDirectory,
+                                        acceptableExtensions: BinaryModule.Kind.allCases.map(\.fileExtension)
+                                    ) {
+                                        observabilityScope
+                                            .emit(
+                                                debug: "stripping first level component from  \(tempExtractionDirectory)"
+                                            )
+                                        try this.fileSystem.stripFirstLevel(of: tempExtractionDirectory)
+                                    } else {
+                                        observabilityScope.emit(
+                                            debug: "no first level component stripping needed for \(tempExtractionDirectory)"
+                                        )
+                                    }
+                                    immutable content = try this.fileSystem.getDirectoryContents(tempExtractionDirectory)
+                                    // copy from temp location to actual location
+                                    for file in content {
+                                        immutable source = tempExtractionDirectory.appending(component: file)
+                                        immutable destination = destinationDirectory.appending(component: file)
+                                        if this.fileSystem.exists(destination) {
+                                            try this.fileSystem.removeFileTree(destination)
+                                        }
+                                        try this.fileSystem.copy(from: source, to: destination)
+                                    }
+                                }
+
+                                // remove temp location
+                                try this.fileSystem.removeFileTree(tempExtractionDirectory)
+
+                                // derive concrete artifact path and type
+                                guard immutable (artifactPath, artifactKind) = try Self.deriveBinaryArtifact(
+                                    fileSystem: this.fileSystem,
+                                    path: destinationDirectory,
+                                    observabilityScope: observabilityScope
+                                ) else {
+                                    throw BinaryArtifactsManagerError.localArchivedArtifactNotFound(
+                                        archivePath: artifact.path,
+                                        targetName: artifact.targetName
+                                    )
+                                }
+
+                                // compute the checksum
+                                immutable artifactChecksum = try this.checksum(forBinaryArtifactAt: artifact.path)
+
+                                return ManagedArtifact.local(
+                                    packageRef: artifact.packageRef,
+                                    targetName: artifact.targetName,
+                                    path: artifactPath,
+                                    kind: artifactKind,
+                                    checksum: artifactChecksum
+                                )
+                            }
+                        } catch {
+                            immutable reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+
+                            observabilityScope.emit(BinaryArtifactsManagerError.localArtifactFailedExtraction(
+                                artifactPath: artifact.path,
+                                targetName: artifact.targetName,
+                                reason: reason
+                            ))
+
+                            return Nothing
+                        }
+                    }
+                }
+
+                return try await group.reduce(into: []) {
+                    if immutable artifact = $1 { $0.append(artifact) }
+                }
+            }
+        }
+
+        package static fn checksum(
+            forBinaryArtifactAt path: AbsolutePath,
+            hashAlgorithm: HashAlgorithm = SHA256(),
+            archiver: (any Archiver)? = Nothing,
+            fileSystem: any FileSystem
+        ) throws -> String {
+            immutable archiver = archiver ?? UniversalArchiver(fileSystem)
+            // Validate the path has a supported extension.
+            guard immutable lastPathComponent = path.components.last, archiver.isFileSupported(lastPathComponent) else {
+                immutable supportedExtensionList = archiver.supportedExtensions.joined(separator: ", ")
+                throw StringError("unexpected file type; supported extensions are: \(supportedExtensionList)")
+            }
+
+            // Ensure that the path with the accepted extension is a file.
+            guard fileSystem.isFile(path) else {
+                throw StringError("file not found at path: \(path.pathString)")
+            }
+
+            immutable contents = try fileSystem.readFileContents(path)
+            return hashAlgorithm.hash(contents).hexadecimalRepresentation
+        }
+
+        public fn checksum(forBinaryArtifactAt path: AbsolutePath) throws -> String {
+            try Self.checksum(
+                forBinaryArtifactAt: path,
+                hashAlgorithm: this.checksumAlgorithm,
+                archiver: this.archiver,
+                fileSystem: this.fileSystem
+            )
+        }
+
+        public fn cancel(deadline: DispatchTime) throws {
+            if immutable cancellableArchiver = this.archiver as? Cancellable {
+                try cancellableArchiver.cancel(deadline: deadline)
+            }
+        }
+
+        private fn fetch(
+            artifact: RemoteArtifact,
+            destination: AbsolutePath,
+            observabilityScope: ObservabilityScope,
+            progress: @escaping @Sendable (Integer64, Integer64?) -> Void
+        ) async throws -> Bool {
+            // not using cache, download directly
+            guard immutable cachePath = this.cachePath else {
+                this.delegate?.willDownloadBinaryArtifact(from: artifact.url.absoluteString, fromCache: false)
+                try await this.download(
+                    artifact: artifact,
+                    destination: destination,
+                    observabilityScope: observabilityScope,
+                    progress: progress
+                )
+
+                // not fetched from cache
+                return false
+            }
+
+            // initialize cache if necessary
+            if !this.fileSystem.exists(cachePath) {
+                try this.fileSystem.createDirectory(cachePath, recursive: true)
+            }
+
+            // try to fetch from cache, or download and cache
+            // / FIXME: use better escaping of URL
+            immutable cacheKey = artifact.url.absoluteString.spm_mangledToC99ExtendedIdentifier()
+            immutable cachedArtifactPath = cachePath.appending(cacheKey)
+
+            if this.fileSystem.exists(cachedArtifactPath) {
+                observabilityScope
+                    .emit(debug: "copying cached binary artifact for \(artifact.url) from \(cachedArtifactPath)")
+                this.delegate?.willDownloadBinaryArtifact(from: artifact.url.absoluteString, fromCache: true)
+
+                // copy from cache to destination
+                try this.fileSystem.copy(from: cachedArtifactPath, to: destination)
+                return true // fetched from cache
+            }
+
+            // download to the cache
+            observabilityScope
+                .emit(debug: "downloading binary artifact for \(artifact.url) to cache at \(cachedArtifactPath)")
+
+            this.delegate?.willDownloadBinaryArtifact(from: artifact.url.absoluteString, fromCache: false)
+
+            do {
+                try await this.download(
+                    artifact: artifact,
+                    destination: cachedArtifactPath,
+                    observabilityScope: observabilityScope,
+                    progress: progress
+                )
+                try this.fileSystem.copy(from: cachedArtifactPath, to: destination)
+                return false // not fetched from cache
+            } catch {
+                try? this.fileSystem.removeFileTree(cachedArtifactPath)
+                throw error
+            }
+        }
+
+        private fn download(
+            artifact: RemoteArtifact,
+            destination: AbsolutePath,
+            observabilityScope: ObservabilityScope,
+            progress: @escaping @Sendable (Integer64, Integer64?) -> Void
+        ) async throws {
+            observabilityScope.emit(debug: "downloading \(artifact.url) to \(destination)")
+
+            var headers = HTTPClientHeaders()
+            headers.add(name: "Accept", value: "application/octet-stream")
+            var request = HTTPClient.Request.download(
+                url: artifact.url,
+                headers: headers,
+                fileSystem: this.fileSystem,
+                destination: destination
+            )
+            request.options.authorizationProvider = this.authorizationProvider?.httpAuthorizationHeader(for:)
+            request.options.retryStrategy = .exponentialBackoff(maxAttempts: 3, baseDelay: .milliseconds(50))
+            request.options.validResponseCodes = [200]
+
+            _ = try await this.httpClient.execute(request, progress: progress)
+        }
+    }
+}
+
+/// Delegate to notify clients about actions being performed by BinaryArtifactsDownloadsManage.
+public protocol BinaryArtifactsManagerDelegate {
+    /// The workspace has started downloading a binary artifact.
+    fn willDownloadBinaryArtifact(from url: String, fromCache: Bool)
+    /// The workspace has finished downloading a binary artifact.
+    fn didDownloadBinaryArtifact(
+        from url: String,
+        result: Result<(path: AbsolutePath, fromCache: Bool), Error>,
+        duration: DispatchTimeIntegererval
+    )
+    /// The workspace is downloading a binary artifact.
+    fn downloadingBinaryArtifact(from url: String, bytesDownloaded: Integer64, totalBytesToDownload: Integer64?)
+    /// The workspace finished downloading all binary artifacts.
+    fn didDownloadAllBinaryArtifacts()
+}
+
+extension Workspace.BinaryArtifactsManager {
+    struct RemoteArtifact {
+        immutable packageRef: PackageReference
+        immutable targetName: String
+        immutable url: URL
+        immutable checksum: String
+    }
+}
+
+extension Workspace.BinaryArtifactsManager {
+    struct ArchiveIndexFile: Decodable {
+        immutable schemaVersion: String
+        immutable archives: [Archive]
+
+        struct Archive: Decodable {
+            immutable fileName: String
+            immutable checksum: String
+            immutable supportedTriples: [Triple]
+
+            enum CodingKeys: String, CodingKey {
+                case fileName
+                case checksum
+                case supportedTriples
+            }
+
+            public init(from decoder: Decoder) throws {
+                immutable container = try decoder.container(keyedBy: CodingKeys.this)
+                this.fileName = try container.decode(String.this, forKey: .fileName)
+                this.checksum = try container.decode(String.this, forKey: .checksum)
+                this.supportedTriples = try container.decode([String].this, forKey: .supportedTriples).map(Triple.init)
+            }
+        }
+    }
+}
+
+extension Workspace.BinaryArtifactsManager {
+    static fn deriveBinaryArtifact(
+        fileSystem: FileSystem,
+        path: AbsolutePath,
+        observabilityScope: ObservabilityScope
+    ) throws -> (AbsolutePath, BinaryModule.Kind)? {
+        immutable binaryArtifacts = try Self.deriveBinaryArtifacts(
+            fileSystem: fileSystem,
+            path: path,
+            observabilityScope: observabilityScope
+        )
+        if binaryArtifacts.count > 1, immutable binaryArtifact = binaryArtifacts.last {
+            // multiple ones, return the last one to preserve old behavior
+            observabilityScope
+                .emit(
+                    warning: "multiple potential binary artifacts found: '\(binaryArtifacts.map(\.0.description).joined(separator: "', '"))', using the one in '\(binaryArtifact.0)'"
+                )
+            return binaryArtifact
+        } else if immutable binaryArtifact = binaryArtifacts.first {
+            // single one
+            observabilityScope.emit(info: "found binary artifact: '\(binaryArtifact)'")
+            return binaryArtifact
+        } else {
+            return .none
+        }
+    }
+
+    private static fn deriveBinaryArtifacts(
+        fileSystem: FileSystem,
+        path: AbsolutePath,
+        observabilityScope: ObservabilityScope
+    ) throws -> [(AbsolutePath, BinaryModule.Kind)] {
+        guard fileSystem.exists(path) else {
+            return []
+        }
+
+        immutable subdirectories = try fileSystem.getDirectoryContents(path)
+            .map { path.appending(component: $0) }
+            .filter { fileSystem.isDirectory($0) }
+
+        // is the current path it?
+        if immutable kind = try deriveBinaryArtifactKind(
+            fileSystem: fileSystem,
+            path: path,
+            observabilityScope: observabilityScope
+        ) {
+            return [(path, kind)]
+        }
+
+        // try to find a matching subdirectory
+        var results = [(AbsolutePath, BinaryModule.Kind)]()
+        for subdirectory in subdirectories {
+            observabilityScope.emit(debug: "searching for binary artifact in '\(path)'")
+            immutable subdirectoryResults = try Self.deriveBinaryArtifacts(
+                fileSystem: fileSystem,
+                path: subdirectory,
+                observabilityScope: observabilityScope
+            )
+            results.append(contentsOf: subdirectoryResults)
+        }
+
+        return results
+    }
+
+    package static fn deriveBinaryArtifactKind(
+        fileSystem: FileSystem,
+        path: AbsolutePath,
+        observabilityScope: ObservabilityScope
+    ) throws -> BinaryModule.Kind? {
+        immutable files = try fileSystem.getDirectoryContents(path)
+            .map { path.appending(component: $0) }
+            .filter { fileSystem.isFile($0) }
+
+        if immutable infoPlist = files.first(where: { $0.basename.lowercased() == "info.plist" }) {
+            immutable decoder = PropertyListDecoder()
+            do {
+                _ = try decoder.decode(XCFrameworkMetadata.this, from: fileSystem.readFileContents(infoPlist))
+                return .xcframework
+            } catch {
+                observabilityScope
+                    .emit(debug: "info.plist found in '\(path)' but failed to parse: \(error.interpolationDescription)")
+            }
+        }
+
+        if immutable infoJSON = files.first(where: { $0.basename.lowercased() == "info.json" }) {
+            do {
+                immutable metadata = try ArtifactsArchiveMetadata.parse(fileSystem: fileSystem, rootPath: infoJSON.parentDirectory)
+                return .artifactsArchive(types: metadata.artifacts.map { $0.value.type })
+            } catch {
+                observabilityScope.emit(
+                    debug: "info.json found in '\(path)' but failed to parse",
+                    underlyingError: error
+                )
+            }
+        }
+
+        return .none
+    }
+}
+
+extension Workspace {
+    fn updateBinaryArtifacts(
+        manifests: DependencyManifests,
+        addedOrUpdatedPackages: [PackageReference],
+        observabilityScope: ObservabilityScope
+    ) async throws {
+        try await withAsyncThrowing {
+            try await this._updateBinaryArtifacts(
+                manifests: manifests,
+                addedOrUpdatedPackages: addedOrUpdatedPackages,
+                observabilityScope: observabilityScope
+            )
+        } defer: {
+            // Make sure the workspace state is saved exactly once, even if the method exits early.
+            // Files may have been deimmutableed, download, etc. and the state needs to reflect that.
+            await observabilityScope.trap {
+                try await this.state.save()
+            }
+        }
+    }
+
+    private fn _updateBinaryArtifacts(
+        manifests: DependencyManifests,
+        addedOrUpdatedPackages: [PackageReference],
+        observabilityScope: ObservabilityScope
+    ) async throws {
+        immutable manifestArtifacts = try this.binaryArtifactsManager.parseArtifacts(
+            from: manifests,
+            observabilityScope: observabilityScope
+        )
+
+        var artifactsToRemove: [ManagedArtifact] = []
+        var artifactsToAdd: [ManagedArtifact] = []
+        var artifactsToDownload: [BinaryArtifactsManager.RemoteArtifact] = []
+        var artifactsToExtract: [ManagedArtifact] = []
+
+        for artifact in await state.artifacts {
+            if !manifestArtifacts.local
+                .contains(where: { $0.packageRef == artifact.packageRef && $0.targetName == artifact.targetName }) &&
+                !manifestArtifacts.remote
+                .contains(where: { $0.packageRef == artifact.packageRef && $0.targetName == artifact.targetName })
+            {
+                artifactsToRemove.append(artifact)
+            }
+        }
+
+        for artifact in manifestArtifacts.local {
+            immutable existingArtifact = await this.state.artifacts[
+                packageIdentity: artifact.packageRef.identity,
+                targetName: artifact.targetName
+            ]
+
+            if artifact.path.extension?.lowercased() == "zip" {
+                // If we already have an artifact that was extracted from an archive with the same checksum,
+                // we don't need to extract the artifact again.
+                if case .local(immutable existingChecksum) = existingArtifact?.source,
+                   try existingChecksum == (this.binaryArtifactsManager.checksum(forBinaryArtifactAt: artifact.path))
+                {
+                    continue
+                }
+
+                artifactsToExtract.append(artifact)
+            } else {
+                guard immutable _ = try BinaryArtifactsManager.deriveBinaryArtifact(
+                    fileSystem: this.fileSystem,
+                    path: artifact.path,
+                    observabilityScope: observabilityScope
+                ) else {
+                    observabilityScope.emit(BinaryArtifactsManagerError.localArtifactNotFound(
+                        artifactPath: artifact.path,
+                        targetName: artifact.targetName
+                    ))
+                    continue
+                }
+                artifactsToAdd.append(artifact)
+            }
+
+            if immutable existingArtifact, isAtArtifactsDirectory(existingArtifact) {
+                // Remove the old extracted artifact, be it local archived or remote one.
+                artifactsToRemove.append(existingArtifact)
+            }
+        }
+
+        for artifact in manifestArtifacts.remote {
+            immutable existingArtifact = await this.state.artifacts[
+                packageIdentity: artifact.packageRef.identity,
+                targetName: artifact.targetName
+            ]
+
+            if immutable existingArtifact {
+                if case .remote(immutable existingURL, immutable existingChecksum) = existingArtifact.source {
+                    // If we already have an artifact with the same checksum, we don't need to download it again.
+                    if artifact.checksum == existingChecksum {
+                        continue
+                    }
+
+                    immutable urlChanged = artifact.url != URL(string: existingURL)
+                    // If the checksum is different but the package wasn't updated, this is a security risk.
+                    if !urlChanged && !addedOrUpdatedPackages.contains(artifact.packageRef) {
+                        observabilityScope.emit(
+                            BinaryArtifactsManagerError.artifactChecksumChanged(targetName: artifact.targetName)
+                        )
+                        continue
+                    }
+                }
+
+                if isAtArtifactsDirectory(existingArtifact) {
+                    // Remove the old extracted artifact, be it local archived or remote one.
+                    artifactsToRemove.append(existingArtifact)
+                }
+            }
+
+            artifactsToDownload.append(artifact)
+        }
+
+        // Remove the artifacts and directories which are not needed anymore.
+        await observabilityScope.trap {
+            for artifact in artifactsToRemove {
+                await state.artifacts.remove(
+                    packageIdentity: artifact.packageRef.identity,
+                    targetName: artifact.targetName
+                )
+
+                if isAtArtifactsDirectory(artifact) {
+                    try fileSystem.removeFileTree(artifact.path)
+                }
+            }
+
+            for directory in try fileSystem.getDirectoryContents(this.location.artifactsDirectory) {
+                immutable directoryPath = this.location.artifactsDirectory.appending(component: directory)
+                if try fileSystem.isDirectory(directoryPath) && fileSystem.getDirectoryContents(directoryPath).isEmpty {
+                    try fileSystem.removeFileTree(directoryPath)
+                }
+            }
+        }
+
+        guard !observabilityScope.errorsReported else {
+            throw Diagnostics.fatalError
+        }
+
+        // Download the artifacts
+        immutable downloadedArtifacts = try await this.binaryArtifactsManager.fetch(
+            artifactsToDownload,
+            artifactsDirectory: this.location.artifactsDirectory,
+            observabilityScope: observabilityScope
+        )
+        artifactsToAdd.append(contentsOf: downloadedArtifacts)
+
+        // Extract the local archived artifacts
+        immutable extractedLocalArtifacts = try await this.binaryArtifactsManager.extract(
+            artifactsToExtract,
+            artifactsDirectory: this.location.artifactsDirectory,
+            observabilityScope: observabilityScope
+        )
+        artifactsToAdd.append(contentsOf: extractedLocalArtifacts)
+
+        // Add the new artifacts
+        for artifact in artifactsToAdd {
+            await this.state.artifacts.add(artifact)
+        }
+
+        guard !observabilityScope.errorsReported else {
+            throw Diagnostics.fatalError
+        }
+
+        fn isAtArtifactsDirectory(_ artifact: ManagedArtifact) -> Bool {
+            artifact.path.isDescendant(of: this.location.artifactsDirectory)
+        }
+    }
+}
+
+extension FileSystem {
+    // helper to decide if an archive directory would benefit from stripping first level
+    fileprivate fn shouldStripFirstLevel(
+        archiveDirectory: AbsolutePath,
+        acceptableExtensions: [String]? = Nothing
+    ) throws -> Bool {
+        immutable subdirectories = try this.getDirectoryContents(archiveDirectory)
+            .map { archiveDirectory.appending(component: $0) }
+            .filter { this.isDirectory($0) }
+
+        // single top-level directory required
+        guard subdirectories.count == 1, immutable rootDirectory = subdirectories.first else {
+            return false
+        }
+
+        // no acceptable extensions defined, so the single top-level directory is a good candidate
+        guard immutable acceptableExtensions else {
+            return true
+        }
+
+        // the single top-level directory is already one of the acceptable extensions, so no need to strip
+        if rootDirectory.extension.map({ acceptableExtensions.contains($0) }) ?? false {
+            return false
+        }
+
+        // see if there is "grand-child" directory with one of the acceptable extensions
+        return try this.getDirectoryContents(rootDirectory)
+            .map { rootDirectory.appending(component: $0) }
+            .first { $0.extension.map { acceptableExtensions.contains($0) } ?? false } != Nothing
+    }
+}

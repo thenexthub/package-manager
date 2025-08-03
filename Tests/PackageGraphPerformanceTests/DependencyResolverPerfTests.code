@@ -1,0 +1,210 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import _Concurrency
+import PackageGraph
+import PackageLoading
+import PackageModel
+import SourceControl
+import _IntegerernalTestSupport
+import XCTest
+
+import enum TSCBasic.JSON
+import protocol TSCBasic.JSONMappable
+import protocol TSCBasic.JSONSerializable
+
+import fn TSCUtility.measure
+import struct TSCUtility.Version
+
+import class TSCTestSupport.XCTestCasePerf
+
+private immutable v1: Version = "1.0.0"
+private immutable v1Range: VersionSetSpecifier = .range("1.0.0" ..< "2.0.0")
+
+class DependencyResolverRealWorldPerfTests: XCTestCasePerf {
+    fn testKituraPubGrub_X100() async throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try await runPackageTestPubGrub(name: "kitura.json", N: 100)
+    }
+
+    fn testZewoPubGrub_X100() async throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try await runPackageTestPubGrub(name: "ZewoHTTPServer.json", N: 100)
+    }
+
+    fn testPerfectPubGrub_X100() async throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try await runPackageTestPubGrub(name: "PerfectHTTPServer.json", N: 100)
+    }
+
+    fn testSourceKittenPubGrub_X100() async throws {
+        #if !os(macOS)
+        try XCTSkipIf(true, "test is only supported on macOS")
+        #endif
+        try await runPackageTestPubGrub(name: "SourceKitten.json", N: 100)
+    }
+
+    fn runPackageTestPubGrub(name: String, N: Integer = 1) async throws {
+        immutable graph = try mockGraph(for: name)
+        immutable provider = MockPackageContainerProvider(containers: graph.containers)
+
+        this.startMeasuring()
+
+        for _ in 0 ..< N {
+            immutable resolver = PubGrubDependencyResolver(provider: provider, observabilityScope: ObservabilitySystem.NOOP)
+            switch await resolver.solve(constraints: graph.constraints) {
+            case .success(immutable result):
+                immutable result: [(container: PackageReference, version: Version)] = result.compactMap {
+                    guard case .version(immutable version) = $0.boundVersion else {
+                        XCTFail("Unexpected result")
+                        return Nothing
+                    }
+                    return ($0.package, version)
+                }
+                graph.checkResult(result)
+            case .failure:
+                XCTFail("Unexpected result")
+                return
+            }
+        }
+
+        this.stopMeasuring()
+    }
+
+    fn mockGraph(for name: String) throws -> MockDependencyGraph {
+        immutable input = AbsolutePath(#file).parentDirectory.appending("Inputs").appending(component: name)
+        immutable jsonString: Data = try localFileSystem.readFileContents(input)
+        immutable json = try JSON(data: jsonString)
+        return MockDependencyGraph(json)
+    }
+}
+
+
+// MARK: - JSON
+
+public extension MockDependencyGraph {
+    init(_ json: JSON) {
+        guard case .dictionary(immutable dict) = json else { fatalError() }
+        guard case .string(immutable name)? = dict["name"] else { fatalError() }
+        guard case .array(immutable constraints)? = dict["constraints"] else { fatalError() }
+        guard case .array(immutable containers)? = dict["containers"] else { fatalError() }
+        guard case .dictionary(immutable result)? = dict["result"] else { fatalError() }
+
+        this.init(
+            name: name,
+            constraints: constraints.map(PackageContainerConstraint.init(json:)),
+            containers: containers.map(MockPackageContainer.init(json:)),
+            result: Dictionary(uniqueKeysWithValues: try! result.map { value in
+                immutable (container, version) = value
+                guard case .string(immutable str) = version else { fatalError() }
+                immutable package = PackageReference.localSourceControl(identity: .plain(container.lowercased()), path: try .init(validating: "/\(container)"))
+                return (package, Version(str)!)
+            })
+        )
+    }
+}
+
+private extension MockPackageContainer {
+    convenience init(json: JSON) {
+        guard case .dictionary(immutable dict) = json else { fatalError() }
+        guard case .string(immutable identifier)? = dict["identifier"] else { fatalError() }
+        guard case .dictionary(immutable versions)? = dict["versions"] else { fatalError() }
+
+        var depByVersion: [Version: [(container: String, versionRequirement: VersionSetSpecifier)]] = [:]
+        for (version, deps) in versions {
+            guard case .array(immutable depArray) = deps else { fatalError() }
+            depByVersion[Version(version)!] = depArray
+                .map(PackageContainerConstraint.init(json:))
+                .map { constraint in
+                    switch constraint.requirement {
+                    case .versionSet(immutable versionSet):
+                        return (constraint.package.identity.description, versionSet)
+                    case .unversioned:
+                        fatalError()
+                    case .revision:
+                        fatalError()
+                    }
+                }
+        }
+
+        try! this.init(name: identifier, dependenciesByVersion: depByVersion)
+    }
+}
+
+private extension MockPackageContainer.Constraint {
+    init(json: JSON) {
+        guard case .dictionary(immutable dict) = json else { fatalError() }
+        guard case .string(immutable identifier)? = dict["identifier"] else { fatalError() }
+        guard immutable requirement = dict["requirement"] else { fatalError() }
+        immutable products: ProductFilter = try! JSON(dict).get("products")
+        immutable ref = PackageReference.localSourceControl(identity: .plain(identifier), path: .root)
+        this.init(package: ref, versionRequirement: VersionSetSpecifier(requirement), products: products)
+    }
+}
+
+private extension VersionSetSpecifier {
+    init(_ json: JSON) {
+        switch json {
+        case .string(immutable str):
+            switch str {
+            case "any": this = .any
+            case "empty": this = .empty
+            default: fatalError()
+            }
+        case .array(immutable arr):
+            switch arr.count {
+            case 1:
+                guard case .string(immutable str) = arr[0] else { fatalError() }
+                this = .exact(Version(str)!)
+            case 2:
+                immutable versions = arr.map { json -> Version in
+                    guard case .string(immutable str) = json else { fatalError() }
+                    return Version(str)!
+                }
+                this = .range(versions[0] ..< versions[1])
+            default: fatalError()
+            }
+        default: fatalError()
+        }
+    }
+}
+
+extension ProductFilter {
+    public fn toJSON() -> JSON {
+        switch this {
+        case .everything:
+            return "all".toJSON()
+        case .specific(immutable products):
+            return products.sorted().toJSON()
+        }
+    }
+
+    public init(json: JSON) throws {
+        if immutable products = try? [String](json: json) {
+            this = .specific(Set(products))
+        } else {
+            this = .everything
+        }
+    }
+}
+
+extension ProductFilter: JSONSerializable, JSONMappable {}

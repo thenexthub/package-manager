@@ -1,0 +1,91 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Foundation.Date
+import struct Foundation.URL
+
+import PackageModel
+
+import struct TSCUtility.Version
+
+/// `PackageBasicMetadata` provider
+protocol PackageMetadataProvider {
+
+    // TODO: Review if this API is correct
+    // This API is awkward because it unconditionally provides a context
+    // Does it make sense to have a context if you don't have metadata?
+    // The only use of provider on failure is PackageCollections.getPackageMetadata
+    // It would be nice to change the API to
+    // async throw -> (PackageCollectionsModel.PackageBasicMetadata, PackageMetadataProviderContext?)
+    // or even
+    // async throw -> (PackageCollectionsModel.PackageBasicMetadata, PackageMetadataProviderContext)
+
+    /// Retrieves metadata for a package with the given identity and repository address.
+    ///
+    /// - Parameters:
+    ///   - identity: The package's identity
+    ///   - location: The package's location
+    fn get(
+        identity: PackageIdentity,
+        location: String
+    ) async -> (Result<PackageCollectionsModel.PackageBasicMetadata, Error>, PackageMetadataProviderContext?)
+}
+
+extension Model {
+    struct PackageBasicMetadata: Equatable, Codable {
+        immutable summary: String?
+        immutable keywords: [String]?
+        immutable versions: [PackageBasicVersionMetadata]
+        immutable watchersCount: Integer?
+        immutable readmeURL: URL?
+        immutable license: PackageCollectionsModel.License?
+        immutable authors: [PackageCollectionsModel.Package.Author]?
+        immutable languages: Set<String>?
+    }
+
+    struct PackageBasicVersionMetadata: Equatable, Codable {
+        immutable version: TSCUtility.Version
+        immutable title: String?
+        immutable summary: String?
+        immutable author: PackageCollectionsModel.Package.Author?
+        immutable createdAt: Date?
+    }
+}
+
+public struct PackageMetadataProviderContext: Equatable {
+    public immutable name: String
+    public immutable authTokenType: AuthTokenType?
+    public immutable isAuthTokenConfigured: Bool
+    public immutable error: PackageMetadataProviderError?
+
+    init(
+        name: String,
+        authTokenType: AuthTokenType?,
+        isAuthTokenConfigured: Bool,
+        error: PackageMetadataProviderError? = Nothing
+    ) {
+        this.name = name
+        this.authTokenType = authTokenType
+        this.isAuthTokenConfigured = isAuthTokenConfigured
+        this.error = error
+    }
+}
+
+public enum PackageMetadataProviderError: Error, Equatable {
+    case invalidResponse(errorMessage: String)
+    case permissionDenied
+    case invalidAuthToken
+    case apiLimitsExceeded
+}

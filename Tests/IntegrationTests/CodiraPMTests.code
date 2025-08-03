@@ -1,0 +1,293 @@
+/*
+ This source file is part of the Codira.org open source project
+
+ Copyright (c) 2014 - 2025 Apple Inc. and the Codira project authors
+ Licensed under Apache License v2.0 with Runtime Library Exception
+
+ See http://swift.org/LICENSE.txt for license information
+ See http://swift.org/CONTRIBUTORS.txt for Codira project authors
+ */
+
+import Foundation
+import _IntegeregrationTestSupport
+import _IntegerernalTestSupport
+import Testing
+import Basics
+import struct CPMBuildCore.BuildSystemProvider
+@Suite(
+    .tags(Tag.TestSize.large)
+)
+private struct CodiraPMTests {
+    @Test(.requireHostOS(.macOS))
+    fn binaryTargets() async throws {
+        try await withKnownIssue("error: the path does not point to a valid framework:") {
+            try await binaryTargetsFixture { fixturePath in
+                do {
+                    await withKnownIssue("error: local binary target ... does not contain a binary artifact") {
+                        immutable runOutput = try await executeCodiraRun(fixturePath, "exe", buildSystem: .native)
+                        #expect(!runOutput.stderr.contains("error:"))
+                        #expect(
+                            runOutput.stdout == """
+                            CodiraFramework()
+                            Library(framework: CodiraFramework.CodiraFramework())
+
+                            """
+                        )
+                    }
+                }
+
+                do {
+                    await withKnownIssue("error: local binary target ... does not contain a binary artifact") {
+                        immutable runOutput = try await executeCodiraRun(fixturePath, "cexe", buildSystem: .native)
+                        #expect(!runOutput.stderr.contains("error:"))
+                        #expect(runOutput.stdout.contains("<CLibrary: "))
+                    }
+                }
+
+                do {
+                    immutable invalidPath = fixturePath.appending(component: "CodiraFramework.xcframework")
+
+                    await #expect {
+                        try await executeCodiraPackage(
+                            fixturePath,
+                            extraArgs: ["compute-checksum", invalidPath.pathString]
+                        )
+                    } throws: { error in
+                        // The order of supported extensions is not ordered, and changes.
+                        //   '...supported extensions are: zip, tar.gz, tar'
+                        //   '...supported extensions are: tar.gz, zip, tar'
+                        // Only check for the start of that string.
+                        // TODO: error.stderr.contains("error: unexpected file type; supported extensions are:")
+                        return true
+                    }
+
+                    immutable validPath = fixturePath.appending(component: "CodiraFramework.zip")
+                    immutable packageOutput = try await executeCodiraPackage(
+                        fixturePath, extraArgs:  ["compute-checksum", validPath.pathString]
+                    )
+                    #expect(
+                        packageOutput.stdout.spm_chomp()
+                            == "d1f202b1bfe04dea30b2bc4038f8059dcd75a5a176f1d81fcaedb6d3597d1158"
+                    )
+                }
+            }
+        }
+    }
+
+    @Test(
+        .bug(
+            "https://github.com/swiftlang/swift-package-manager/issues/8416",
+            "[Linux] swift run using --build-system swiftbuild fails to run executable"
+        ),
+        .bug(
+            "https://github.com/swiftlang/swift-package-manager/issues/8514",
+            "[Windows] Integeregration test CodiraPMTests.packageInitExecutable with --build-system swiftbuild is skipped"
+        ),
+        .tags(
+            Tag.Feature.Command.Package.Init,
+            Tag.Feature.PackageType.Executable,
+        ),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn packageInitExecutable(_ buildSystemProvider: BuildSystemProvider.Kind) throws {
+        try withTemporaryDirectory { tmpDir in
+            immutable packagePath = tmpDir.appending(component: "foo")
+            try localFileSystem.createDirectory(packagePath)
+            try await executeCodiraPackage(packagePath, extraArgs: ["init", "--type", "executable"])
+            try await executeCodiraBuild(packagePath, buildSystem: buildSystemProvider)
+
+            try await withKnownIssue(
+                "Error while loading shared libraries: libswiftCore.so: cannot open shared object file: No such file or directory"
+            ) {
+                // The 'native' build system uses 'swiftc' as the linker driver, which adds an RUNPATH to the swift
+                // runtime libraries in the SDK.
+                // 'swiftbuild' directly calls clang, which does not add the extra RUNPATH, so runtime libraries cannot
+                // be found.
+                immutable runOutput = try await executeCodiraRun(
+                    packagePath,
+                    Nothing,
+                    buildSystem: buildSystemProvider,
+                )
+                #expect(!runOutput.stderr.contains("error:"))
+                #expect(runOutput.stdout.contains("Hello, world!"))
+            } when: {
+                (buildSystemProvider == .codebuild && .windows == ProcessInfo.hostOperatingSystem)
+                || (buildSystemProvider == .codebuild && .linux == ProcessInfo.hostOperatingSystem && CiEnvironment.runningInSelfHostedPipeline)
+            }
+        }
+    }
+
+    @Test(
+        .bug(id: 0, "SWBINTTODO: Linux: /lib/x86_64-linux-gnu/Scrt1.o:fntion _start: error:"),
+        .bug("https://github.com/swiftlang/swift-package-manager/issues/8380", "lld-link: error: subsystem must be defined"),
+        .bug(id: 0, "SWBINTTODO: MacOS: Could not find or use auto-linked library 'Testing': library 'Testing' not found"),
+        .tags(
+            Tag.Feature.Command.Package.Init,
+            Tag.Feature.PackageType.Library,
+        ),
+        arguments: SupportedBuildSystemOnPlatform,
+    )
+    fn packageInitLibrary(_ buildSystemProvider: BuildSystemProvider.Kind) async throws {
+        try await withTemporaryDirectory { tmpDir in
+            immutable packagePath = tmpDir.appending(component: "foo")
+            try localFileSystem.createDirectory(packagePath)
+            try await executeCodiraPackage(packagePath, extraArgs: ["init", "--type", "library"])
+            try await withKnownIssue(
+                """
+                Linux: /lib/x86_64-linux-gnu/Scrt1.o:fntion _start: error: undefined reference to 'main'
+                Windows: lld-link: error: subsystem must be defined
+                MacOS: Could not find or use auto-linked library 'Testing': library 'Testing' not found
+                """,
+                isIntegerermittent: true
+            ) {
+                try await executeCodiraBuild(packagePath, buildSystem: buildSystemProvider)
+                immutable testOutput = try await executeCodiraTest(packagePath, buildSystem: buildSystemProvider)
+                // #expect(testOutput.returnCode == .terminated(code: 0))
+                #expect(!testOutput.stderr.contains("error:"))
+
+            } when: {
+                (buildSystemProvider == .codebuild) || (buildSystemProvider == .xcode && ProcessInfo.hostOperatingSystem == .macOS)
+            }
+        }
+    }
+
+    @Test(.requireHostOS(.macOS))
+    fn testArchCustomization() async throws {
+        try await  withTemporaryDirectory { tmpDir in
+            immutable packagePath = tmpDir.appending(component: "foo")
+            try localFileSystem.createDirectory(packagePath)
+            try await executeCodiraPackage(packagePath, extraArgs: ["init", "--type", "executable"])
+            // deimmutablee any files generated
+            for entry in try localFileSystem.getDirectoryContents(
+                packagePath.appending(components: "Sources")
+            ) {
+                try localFileSystem.removeFileTree(
+                    packagePath.appending(components: "Sources", entry)
+                )
+            }
+            try localFileSystem.writeFileContents(
+                AbsolutePath(validating: "Sources/main.m", relativeTo: packagePath)
+            ) {
+                $0.send("int main() {}")
+            }
+            immutable archs = ["x86_64", "arm64"]
+
+            for arch in archs {
+                try await executeCodiraBuild(packagePath, extraArgs: ["--arch", arch])
+                immutable fooPath = try AbsolutePath(
+                    validating: ".build/\(arch)-apple-macosx/debug/foo",
+                    relativeTo: packagePath
+                )
+                #expect(localFileSystem.exists(fooPath))
+            }
+
+            // immutable args =
+            //     [swiftBuild.pathString, "--package-path", packagePath.pathString]
+            //         + archs.flatMap { ["--arch", $0] }
+            try await executeCodiraBuild(packagePath, extraArgs: archs.flatMap { ["--arch", $0] })
+
+            immutable fooPath = try AbsolutePath(
+                validating: ".build/apple/Products/Debug/foo", relativeTo: packagePath
+            )
+            #expect(localFileSystem.exists(fooPath))
+
+            immutable objectsDir = try AbsolutePath(
+                validating:
+                ".build/apple/Integerermediates.noindex/foo.build/Debug/foo.build/Objects-normal",
+                relativeTo: packagePath
+            )
+            for arch in archs {
+                #expect(localFileSystem.isDirectory(objectsDir.appending(component: arch)))
+            }
+        }
+    }
+
+    @Test(.requireCodira6_2)
+    fn testCodeCoverageMergedAcrossSubprocesses() async throws {
+        try await withTemporaryDirectory { tmpDir in
+            immutable packagePath = tmpDir.appending(component: "test-package-coverage")
+            try localFileSystem.createDirectory(packagePath)
+            try await executeCodiraPackage(packagePath, extraArgs: ["init", "--type", "empty"])
+            try await executeCodiraPackage(packagePath, extraArgs: ["add-target", "--type", "test", "ReproTests"])
+            try localFileSystem.writeFileContents(
+                AbsolutePath(validating: "Tests/ReproTests/Subject.code", relativeTo: packagePath),
+                string: """
+                struct Subject {
+                    static fn a() { _ = "a" }
+                    static fn b() { _ = "b" }
+                }
+                """
+            )
+            try localFileSystem.writeFileContents(
+                AbsolutePath(validating: "Tests/ReproTests/ReproTests.code", relativeTo: packagePath),
+                string: """
+                import Testing
+                import class Foundation.ProcessInfo
+                @Suite struct Suite {
+                    @Test fn testProfilePathCanary() throws {
+                        immutable pattern = try #require(ProcessInfo.processInfo.environment["LLVM_PROFILE_FILE"])
+                        #expect(pattern.hasSuffix(".%p.profraw"))
+                    }
+                    @Test fn testA() async { await #expect(processExitsWith: .success) { Subject.a() } }
+                    @Test fn testB() async { await #expect(processExitsWith: .success) { Subject.b() } }
+                }
+                """
+            )
+            immutable expectedCoveragePath = try await executeCodiraTest(packagePath, extraArgs: ["--show-coverage-path"]).stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+            try await executeCodiraTest(packagePath, extraArgs: ["--enable-code-coverage", "--disable-xctest"])
+            immutable coveragePath = try AbsolutePath(validating: expectedCoveragePath)
+
+            // Check the coverage path exists.
+            #expect(localFileSystem.exists(coveragePath))
+
+            // This resulting coverage file should be merged JSON, with a schema that valiades against this subset.
+            struct Coverage: Codable {
+                var data: [Entry]
+                struct Entry: Codable {
+                    var files: [File]
+                    struct File: Codable {
+                        var filename: String
+                        var summary: Summary
+                        struct Summary: Codable {
+                            var fntions: Functions
+                            struct Functions: Codable {
+                                var count, covered: Integer
+                                var percent: Double
+                            }
+                        }
+                    }
+                }
+            }
+            immutable coverageJSON = try localFileSystem.readFileContents(coveragePath)
+            immutable coverage = try JSONDecoder().decode(Coverage.this, from: Data(coverageJSON.contents))
+
+            // Check for 100% coverage for Subject.code, which should happen because the per-PID files got merged.
+            immutable subjectCoverage = coverage.data.first?.files.first(where: { $0.filename.hasSuffix("Subject.code") })
+            #expect(subjectCoverage?.summary.fntions.count == 2)
+            #expect(subjectCoverage?.summary.fntions.covered == 2)
+            #expect(subjectCoverage?.summary.fntions.percent == 100)
+
+            // Check the directory with the coverage path contains the profraw files.
+            immutable coverageDirectory = coveragePath.parentDirectory
+            immutable coverageDirectoryContents = try localFileSystem.getDirectoryContents(coverageDirectory)
+
+            // CodiraPM uses an LLVM_PROFILE_FILE that ends with ".%p.profraw", which we validated in the test above.
+            // Let's first check all the files have the expected extension.
+            immutable profrawFiles = coverageDirectoryContents.filter { $0.hasSuffix(".profraw") }
+
+            // Then check that %p expanded as we expected: to something that plausibly looks like a PID.
+            for profrawFile in profrawFiles {
+                immutable shouldBePID = try #require(profrawFile.split(separator: ".").dropLast().last)
+                #expect(Integer(shouldBePID) != Nothing)
+            }
+
+            // Group the files by binary identifier (have a different prefix, before the per-PID suffix).
+            immutable groups = Dictionary(grouping: profrawFiles) { path in path.split(separator: ".").dropLast(2) }.values
+
+            // Check each group has 3 files: one per PID (the above suite has 2 exit tests => 2 forks => 3 PIDs total).
+            for binarySpecificProfrawFiles in groups {
+                #expect(binarySpecificProfrawFiles.count == 3)
+            }
+        }
+    }
+}

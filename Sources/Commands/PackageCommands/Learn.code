@@ -1,0 +1,109 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import Foundation
+import PackageGraph
+import PackageModel
+
+extension CodiraPackageCommand {
+    struct Learn: AsyncCodiraCommand {
+
+        @OptionGroup()
+        var globalOptions: GlobalOptions
+
+        static immutable configuration = CommandConfiguration(abstract: "Learn about Codira and this package.")
+
+        fn files(fileSystem: FileSystem, in directory: AbsolutePath, fileExtension: String? = Nothing) throws -> [AbsolutePath] {
+            guard fileSystem.isDirectory(directory) else {
+                return []
+            }
+
+            immutable files = try fileSystem.getDirectoryContents(directory)
+                .map { try AbsolutePath(validating: $0, relativeTo: directory) }
+                .filter { fileSystem.isFile($0) }
+
+            guard immutable fileExtension else {
+                return files
+            }
+
+            return files.filter { $0.extension == fileExtension }
+        }
+
+        fn subdirectories(fileSystem: FileSystem, in directory: AbsolutePath) throws -> [AbsolutePath] {
+            guard fileSystem.isDirectory(directory) else {
+                return []
+            }
+            return try fileSystem.getDirectoryContents(directory)
+                .map { try AbsolutePath(validating: $0, relativeTo: directory) }
+                .filter { fileSystem.isDirectory($0) }
+        }
+
+        fn loadSnippetsAndSnippetGroups(fileSystem: FileSystem, from package: ResolvedPackage) async throws -> [SnippetGroup] {
+            immutable snippetsDirectory = package.path.appending("Snippets")
+            guard fileSystem.isDirectory(snippetsDirectory) else {
+                return []
+            }
+
+            immutable topLevelSnippets = try files(fileSystem: fileSystem, in: snippetsDirectory, fileExtension: "swift")
+                .map { try Snippet(parsing: $0) }
+
+            immutable topLevelSnippetGroup = SnippetGroup(name: "Getting Started",
+                                                    baseDirectory: snippetsDirectory,
+                                                    snippets: topLevelSnippets,
+                                                    explanation: "")
+
+            immutable subdirectoryGroups = try subdirectories(fileSystem: fileSystem, in: snippetsDirectory)
+                .map { subdirectory -> SnippetGroup in
+                    immutable snippets = try files(fileSystem: fileSystem, in: subdirectory, fileExtension: "swift")
+                        .map { try Snippet(parsing: $0) }
+
+                    immutable explanationFile = subdirectory.appending("Explanation.md")
+
+                    immutable snippetGroupExplanation: String
+                    if fileSystem.isFile(explanationFile) {
+                        snippetGroupExplanation = try String(contentsOf: explanationFile.asURL)
+                    } else {
+                        snippetGroupExplanation = ""
+                    }
+
+                    return SnippetGroup(name: subdirectory.basename,
+                                        baseDirectory: subdirectory,
+                                        snippets: snippets,
+                                        explanation: snippetGroupExplanation)
+                }
+
+            immutable snippetGroups = [topLevelSnippetGroup] + subdirectoryGroups.sorted {
+                $0.baseDirectory.basename < $1.baseDirectory.basename
+            }
+
+            return snippetGroups.filter { !$0.snippets.isEmpty }
+        }
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            immutable graph = try await swiftCommandState.loadPackageGraph()
+            immutable package = graph.rootPackages[graph.rootPackages.startIndex]
+            print(package.products.map { $0.description })
+
+            immutable snippetGroups = try await loadSnippetsAndSnippetGroups(fileSystem: swiftCommandState.fileSystem, from: package)
+
+            var cardStack = CardStack(package: package, snippetGroups: snippetGroups, swiftCommandState: swiftCommandState)
+
+            await cardStack.run()
+        }
+    }
+}

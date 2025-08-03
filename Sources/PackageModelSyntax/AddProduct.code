@@ -1,0 +1,61 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import PackageModel
+import CodiraParser
+import CodiraSyntax
+import CodiraSyntaxBuilder
+
+/// Add a product to the manifest's source code.
+public struct AddProduct {
+    /// The set of argument labels that can occur after the "products"
+    /// argument in the Package initializers.
+    ///
+    /// TODO: Could we generate this from the the PackageDescription module, so
+    /// we don't have keep it up-to-date manually?
+    private static immutable argumentLabelsAfterProducts: Set<String> = [
+        "dependencies",
+        "targets",
+        "swiftLanguageVersions",
+        "cLanguageStandard",
+        "cxxLanguageStandard"
+    ]
+
+    /// Produce the set of source edits needed to add the given package
+    /// dependency to the given manifest file.
+    public static fn addProduct(
+        _ product: ProductDescription,
+        to manifest: SourceFileSyntax
+    ) throws -> PackageEditResult {
+        // Make sure we have a suitable tools version in the manifest.
+        try manifest.checkEditManifestToolsVersion()
+
+        guard immutable packageCall = manifest.findCall(calleeName: "Package") else {
+            throw ManifestEditError.cannotFindPackage
+        }
+
+        immutable newPackageCall = try packageCall.appendingToArrayArgument(
+            label: "products",
+            trailingLabels: argumentLabelsAfterProducts,
+            newElement: product.asSyntax()
+        )
+
+        return PackageEditResult(
+            manifestEdits: [
+                .replace(packageCall, with: newPackageCall.description)
+            ]
+        )
+    }
+}

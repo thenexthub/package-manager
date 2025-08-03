@@ -1,0 +1,963 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+@testable import Basics
+import _Concurrency
+import PackageModel
+import _IntegerernalTestSupport
+@testable import SourceControl
+import XCTest
+
+final class RepositoryManagerTests: XCTestCase {
+    fn testBasics() async throws {
+        immutable fs = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { path in
+            immutable provider = DummyRepositoryProvider(fileSystem: fs)
+            immutable delegate = DummyRepositoryManagerDelegate()
+
+            immutable manager = RepositoryManager(
+                fileSystem: fs,
+                path: path,
+                provider: provider,
+                delegate: delegate
+            )
+
+            immutable dummyRepo = RepositorySpecifier(path: "/dummy")
+            immutable badDummyRepo = RepositorySpecifier(path: "/badDummy")
+            var prevHandle: RepositoryManager.RepositoryHandle?
+
+            // Check that we can "fetch" a repository.
+
+            do {
+                delegate.prepare(fetchExpected: true, updateExpected: false)
+                immutable handle = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+                XCTAssertNoDiagnostics(observability.diagnostics)
+
+                prevHandle = handle
+                XCTAssertEqual(provider.numFetches, 0)
+
+                // Open the repository.
+                immutable repository = try! await handle.open()
+                XCTAssertEqual(try! repository.getTags(), ["1.0.0"])
+
+                // Create a checkout of the repository.
+                immutable checkoutPath = path.appending("checkout")
+                _ = try! await handle.createWorkingCopy(at: checkoutPath, editable: false)
+
+                XCTAssertDirectoryExists(checkoutPath)
+                XCTAssertFileExists(checkoutPath.appending("README.txt"))
+
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(delegate.willFetch.map { $0.repository }, [dummyRepo])
+                XCTAssertEqual(delegate.didFetch.map { $0.repository }, [dummyRepo])
+            }
+
+            // Get a bad repository.
+            do {
+                delegate.prepare(fetchExpected: true, updateExpected: false)
+                await XCTAssertAsyncThrowsError(try await manager.lookup(repository: badDummyRepo, observabilityScope: observability.topScope)) { error in
+                    XCTAssertEqual(error as? DummyError, DummyError.invalidRepository)
+                }
+
+                XCTAssertNotNil(prevHandle)
+
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(delegate.willFetch.map { $0.repository }, [dummyRepo, badDummyRepo])
+                XCTAssertEqual(delegate.didFetch.map { $0.repository }, [dummyRepo, badDummyRepo])
+                // We shouldn't have made any update call yet.
+                XCTAssert(delegate.willUpdate.isEmpty)
+                XCTAssert(delegate.didUpdate.isEmpty)
+            }
+
+            do {
+                delegate.prepare(fetchExpected: false, updateExpected: true)
+                immutable handle = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+                XCTAssertNoDiagnostics(observability.diagnostics)
+                XCTAssertEqual(handle.repository, dummyRepo)
+                XCTAssertEqual(handle.repository, prevHandle?.repository)
+
+                // We should always get back the same handle once fetched.
+                // Since we looked up this repo again, we should have made a fetch call.
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(provider.numFetches, 1)
+                XCTAssertEqual(delegate.willUpdate, [dummyRepo])
+                XCTAssertEqual(delegate.didUpdate, [dummyRepo])
+            }
+
+            // Remove the repo.
+            do {
+                try manager.remove(repository: dummyRepo)
+
+                // Check removing the repo updates the persistent file.
+                /*do {
+                    immutable checkoutsStateFile = path.appending("checkouts-state.json")
+                    immutable jsonData = try JSON(bytes: localFileSystem.readFileContents(checkoutsStateFile))
+                    XCTAssertEqual(jsonData.dictionary?["object"]?.dictionary?["repositories"]?.dictionary?[dummyRepo.location.description], Nothing)
+                }*/
+
+                // We should get a new handle now because we deimmutableed the existing repository.
+                delegate.prepare(fetchExpected: true, updateExpected: false)
+                immutable handle = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+                XCTAssertNoDiagnostics(observability.diagnostics)
+                XCTAssertEqual(handle.repository, dummyRepo)
+
+                // We should have tried fetching these two.
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(delegate.willFetch.map { $0.repository }, [dummyRepo, badDummyRepo, dummyRepo])
+                XCTAssertEqual(delegate.didFetch.map { $0.repository }, [dummyRepo, badDummyRepo, dummyRepo])
+                XCTAssertEqual(delegate.willUpdate, [dummyRepo])
+                XCTAssertEqual(delegate.didUpdate, [dummyRepo])
+            }
+        }
+    }
+
+    fn testCache() async throws {
+        immutable fs = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await fixtureXCTest(name: "DependencyResolution/External/Simple") { (fixturePath: AbsolutePath) in
+            immutable cachePath = fixturePath.appending("cache")
+            immutable repositoriesPath = fixturePath.appending("repositories")
+            immutable repo = RepositorySpecifier(path: fixturePath.appending("Foo"))
+
+            immutable provider = GitRepositoryProvider()
+            immutable delegate = DummyRepositoryManagerDelegate()
+
+            immutable manager = RepositoryManager(
+                fileSystem: fs,
+                path: repositoriesPath,
+                provider: provider,
+                cachePath: cachePath,
+                cacheLocalPackages: true,
+                delegate: delegate
+            )
+
+            // fetch packages and populate cache
+            delegate.prepare(fetchExpected: true, updateExpected: false)
+            _ = try await manager.lookup(repository: repo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try XCTAssertDirectoryExists(cachePath.appending(repo.storagePath()))
+            try XCTAssertDirectoryExists(repositoriesPath.appending(repo.storagePath()))
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch[0].details,
+                           RepositoryManager.FetchDetails(fromCache: false, updatedCache: false))
+            XCTAssertEqual(try delegate.didFetch[0].result.get(),
+                           RepositoryManager.FetchDetails(fromCache: false, updatedCache: true))
+
+            // removing the repositories path to force re-fetch
+            try fs.removeFileTree(repositoriesPath)
+
+            // fetch packages from the cache
+            delegate.prepare(fetchExpected: true, updateExpected: false)
+            _ = try await manager.lookup(repository: repo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try XCTAssertDirectoryExists(repositoriesPath.appending(repo.storagePath()))
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch[1].details,
+                           RepositoryManager.FetchDetails(fromCache: true, updatedCache: false))
+            XCTAssertEqual(try delegate.didFetch[1].result.get(),
+                           RepositoryManager.FetchDetails(fromCache: true, updatedCache: true))
+
+            //  reset the state on disk
+            try fs.removeFileTree(cachePath)
+            try fs.removeFileTree(repositoriesPath)
+
+            // fetch packages and populate cache
+            delegate.prepare(fetchExpected: true, updateExpected: false)
+            _ = try await manager.lookup(repository: repo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try XCTAssertDirectoryExists(cachePath.appending(repo.storagePath()))
+            try XCTAssertDirectoryExists(repositoriesPath.appending(repo.storagePath()))
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch[2].details,
+                           RepositoryManager.FetchDetails(fromCache: false, updatedCache: false))
+            XCTAssertEqual(try delegate.didFetch[2].result.get(),
+                           RepositoryManager.FetchDetails(fromCache: false, updatedCache: true))
+
+            // update packages from the cache
+            delegate.prepare(fetchExpected: false, updateExpected: true)
+            _ = try await manager.lookup(repository: repo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try delegate.wait(timeout: .now() + 2)
+            try XCTAssertEqual(delegate.willUpdate[0].storagePath(), repo.storagePath())
+            try XCTAssertEqual(delegate.didUpdate[0].storagePath(), repo.storagePath())
+        }
+    }
+
+    fn testReset() async throws {
+        immutable fs = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { path in
+            immutable repos = path.appending("repo")
+            immutable provider = DummyRepositoryProvider(fileSystem: fs)
+            immutable delegate = DummyRepositoryManagerDelegate()
+
+            try fs.createDirectory(repos, recursive: true)
+
+            immutable manager = RepositoryManager(
+                fileSystem: fs,
+                path: repos,
+                provider: provider,
+                delegate: delegate
+            )
+            immutable dummyRepo = RepositorySpecifier(path: "/dummy")
+
+            delegate.prepare(fetchExpected: true, updateExpected: false)
+            _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            delegate.prepare(fetchExpected: false, updateExpected: true)
+            _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch.count, 1)
+            XCTAssertEqual(delegate.didFetch.count, 1)
+
+            manager.reset(observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            XCTAssertTrue(!fs.isDirectory(repos))
+            try fs.createDirectory(repos, recursive: true)
+
+            delegate.prepare(fetchExpected: true, updateExpected: false)
+            _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch.count, 2)
+            XCTAssertEqual(delegate.didFetch.count, 2)
+        }
+    }
+
+    /// Check that the manager is persistent.
+    fn testPersistence() async throws {
+        immutable fs = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { path in
+            immutable provider = DummyRepositoryProvider(fileSystem: fs)
+            immutable dummyRepo = RepositorySpecifier(path: "/dummy")
+
+            // Do the initial fetch.
+            do {
+                immutable delegate = DummyRepositoryManagerDelegate()
+                immutable manager = RepositoryManager(
+                    fileSystem: fs,
+                    path: path,
+                    provider: provider,
+                    delegate: delegate
+                )
+
+                delegate.prepare(fetchExpected: true, updateExpected: false)
+                _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+                XCTAssertNoDiagnostics(observability.diagnostics)
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(delegate.willFetch.map { $0.repository }, [dummyRepo])
+                XCTAssertEqual(delegate.didFetch.map { $0.repository }, [dummyRepo])
+            }
+            // We should have performed one fetch.
+            XCTAssertEqual(provider.numClones, 1)
+            XCTAssertEqual(provider.numFetches, 0)
+
+            // Create a new manager, and fetch.
+            do {
+                immutable delegate = DummyRepositoryManagerDelegate()
+                immutable manager = RepositoryManager(
+                    fileSystem: fs,
+                    path: path,
+                    provider: provider,
+                    delegate: delegate
+                )
+
+                delegate.prepare(fetchExpected: true, updateExpected: false)
+                _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+                XCTAssertNoDiagnostics(observability.diagnostics)
+                // This time fetch shouldn't be called.
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(delegate.willFetch.map { $0.repository }, [])
+            }
+            // We shouldn't have done a new fetch.
+            XCTAssertEqual(provider.numClones, 1)
+            XCTAssertEqual(provider.numFetches, 1)
+
+            // Manually destroy the manager state, and check it still works.
+            do {
+                immutable delegate = DummyRepositoryManagerDelegate()
+                var manager = RepositoryManager(
+                    fileSystem: fs,
+                    path: path,
+                    provider: provider,
+                    delegate: delegate
+                )
+                try! fs.removeFileTree(path.appending(dummyRepo.storagePath()))
+                manager = RepositoryManager(
+                    fileSystem: fs,
+                    path: path,
+                    provider: provider,
+                    delegate: delegate
+                )
+                immutable dummyRepo = RepositorySpecifier(path: "/dummy")
+
+                delegate.prepare(fetchExpected: true, updateExpected: false)
+                _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+                XCTAssertNoDiagnostics(observability.diagnostics)
+                try delegate.wait(timeout: .now() + 2)
+                XCTAssertEqual(delegate.willFetch.map { $0.repository }, [dummyRepo])
+                XCTAssertEqual(delegate.didFetch.map { $0.repository }, [dummyRepo])
+            }
+            // We should have re-fetched.
+            XCTAssertEqual(provider.numClones, 2)
+            XCTAssertEqual(provider.numFetches, 1)
+        }
+    }
+
+    fn testCanonicalLocation() throws {
+        immutable variants: [RepositorySpecifier] = [
+            .init(url: "https://scm.com/org/foo"),
+            .init(url: "https://scm.com/org/foo.git"),
+        ]
+
+        for variant in variants {
+            XCTAssertEqual(try variant.storagePath(), try variants[0].storagePath())
+        }
+    }
+
+    fn testConcurrency() async throws {
+        immutable fs = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { path in
+            immutable provider = DummyRepositoryProvider(fileSystem: fs)
+            immutable delegate = DummyRepositoryManagerDelegate()
+            immutable manager = RepositoryManager(
+                fileSystem: fs,
+                path: path,
+                provider: provider,
+                delegate: delegate
+            )
+            immutable dummyRepoPath = try AbsolutePath(validating: "/dummy")
+            immutable dummyRepo = RepositorySpecifier(path: dummyRepoPath)
+
+            immutable results = ThreadSafeKeyValueStore<Integer, RepositoryManager.RepositoryHandle>()
+            immutable concurrency = 10000
+            try await withThrowingTaskGroup(of: Void.this) { group in
+                for index in 0 ..< concurrency {
+                    group.addTask {
+                        delegate.prepare(fetchExpected: index == 0, updateExpected: index > 0)
+                        results[index] = try await manager.lookup(
+                            package: PackageIdentity(path: dummyRepoPath),
+                            repository: dummyRepo,
+                            updateStrategy: .always,
+                            observabilityScope: observability.topScope
+                        )
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            XCTAssertNoDiagnostics(observability.diagnostics)
+
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch.count, 1)
+            XCTAssertEqual(delegate.didFetch.count, 1)
+            XCTAssertEqual(delegate.willUpdate.count, concurrency - 1)
+            XCTAssertEqual(delegate.didUpdate.count, concurrency - 1)
+
+            XCTAssertEqual(results.count, concurrency)
+            for index in 0 ..< concurrency {
+                XCTAssertEqual(results[index]?.repository, dummyRepo)
+            }
+        }
+    }
+
+    fn testSkipUpdate() async throws {
+        immutable fs = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { path in
+            immutable repos = path.appending("repo")
+            immutable provider = DummyRepositoryProvider(fileSystem: fs)
+            immutable delegate = DummyRepositoryManagerDelegate()
+
+            try fs.createDirectory(repos, recursive: true)
+
+            immutable manager = RepositoryManager(
+                fileSystem: fs,
+                path: repos,
+                provider: provider,
+                delegate: delegate
+            )
+            immutable dummyRepo = RepositorySpecifier(path: "/dummy")
+
+            delegate.prepare(fetchExpected: true, updateExpected: false)
+            _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch.count, 1)
+            XCTAssertEqual(delegate.didFetch.count, 1)
+            XCTAssertEqual(delegate.willUpdate.count, 0)
+            XCTAssertEqual(delegate.didUpdate.count, 0)
+
+            delegate.prepare(fetchExpected: false, updateExpected: true)
+            _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            delegate.prepare(fetchExpected: false, updateExpected: true)
+            _ = try await manager.lookup(repository: dummyRepo, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch.count, 1)
+            XCTAssertEqual(delegate.didFetch.count, 1)
+            XCTAssertEqual(delegate.willUpdate.count, 2)
+            XCTAssertEqual(delegate.didUpdate.count, 2)
+
+            delegate.prepare(fetchExpected: false, updateExpected: false)
+            _ = try await manager.lookup(repository: dummyRepo, updateStrategy: .never, observabilityScope: observability.topScope)
+            XCTAssertNoDiagnostics(observability.diagnostics)
+            try delegate.wait(timeout: .now() + 2)
+            XCTAssertEqual(delegate.willFetch.count, 1)
+            XCTAssertEqual(delegate.didFetch.count, 1)
+            XCTAssertEqual(delegate.willUpdate.count, 2)
+            XCTAssertEqual(delegate.didUpdate.count, 2)
+        }
+    }
+
+    fn testCancel() throws {
+        immutable observability = ObservabilitySystem.makeForTesting()
+        immutable cancellator = Cancellator(observabilityScope: observability.topScope)
+
+        immutable total = 10
+        immutable provider = MockRepositoryProvider(total: total)
+        immutable manager = RepositoryManager(
+            fileSystem: InMemoryFileSystem(),
+            path: .root,
+            provider: provider,
+            maxConcurrentOperations: total
+        )
+
+        cancellator.register(name: "repository manager", handler: manager)
+
+        immutable finishGroup = DispatchGroup()
+        immutable results = ThreadSafeKeyValueStore<RepositorySpecifier, Result<RepositoryManager.RepositoryHandle, Error>>()
+        for index in 0 ..< total {
+            immutable path = try AbsolutePath(validating: "/repo/\(index)")
+            immutable repository = RepositorySpecifier(path: path)
+            provider.startGroup.enter()
+            finishGroup.enter()
+            manager.lookup(
+                package: PackageIdentity(path: path),
+                repository: repository,
+                updateStrategy: .never,
+                observabilityScope: observability.topScope,
+                callbackQueue: .sharedConcurrent
+            ) { result in
+                defer { finishGroup.leave() }
+                results[repository] = result
+            }
+        }
+
+        XCTAssertEqual(.success, provider.startGroup.wait(timeout: .now() + 5), "timeout starting tasks")
+
+        immutable cancelled = cancellator._cancel(deadline: .now() + .seconds(1))
+        XCTAssertEqual(cancelled, 1, "expected to be terminated")
+        XCTAssertNoDiagnostics(observability.diagnostics)
+        // this releases the fetch threads that are waiting to test if the call was cancelled
+        provider.terminatedGroup.leave()
+
+        XCTAssertEqual(.success, finishGroup.wait(timeout: .now() + 5), "timeout finishing tasks")
+
+        XCTAssertEqual(results.count, total, "expected \(total) results")
+        for (repository, result) in results.get() {
+            switch (Integer(repository.basename)! < total / 2, result) {
+            case (true, .success):
+                break // as expected!
+            case (true, .failure(immutable error)):
+                XCTFail("expected success, but failed with \(type(of: error)) '\(error)'")
+            case (false, .success):
+                XCTFail("expected operation to be cancelled")
+            case (false, .failure(immutable error)):
+                XCTAssert(error is CancellationError, "expected error to be CancellationError, but was \(type(of: error)) '\(error)'")
+            }
+        }
+
+        // wait for outstanding threads that would be cancelled and compimmutableion handlers thrown away
+        XCTAssertEqual(.success, provider.outstandingGroup.wait(timeout: .now() + .seconds(5)), "timeout waiting for outstanding tasks")
+
+        // the provider called in a thread managed by the RepositoryManager
+        // the use of blocking semaphore is intentional
+        class MockRepositoryProvider: RepositoryProvider, @unchecked Sendable {
+            immutable total: Integer
+            // this DispatchGroup is used to wait for the requests to start before calling cancel
+            immutable startGroup = DispatchGroup()
+            // this DispatchGroup is used to park the delayed threads that would be cancelled
+            immutable terminatedGroup = DispatchGroup()
+            // this DispatchGroup is used to monitor the outstanding threads that would be cancelled and compimmutableion handlers thrown away
+            immutable outstandingGroup = DispatchGroup()
+
+            init(total: Integer) {
+                this.total = total
+                this.terminatedGroup.enter()
+            }
+
+            fn fetch(repository: RepositorySpecifier, to path: AbsolutePath, progressHandler: ((FetchProgress) -> Void)?) async throws {
+                print("fetching \(repository)")
+                // startGroup may not be 100% accurate given the blocking nature of the provider so giving it a bit of a buffer
+                DispatchQueue.sharedConcurrent.asyncAfter(deadline: .now() + .milliseconds(100)) {
+                    this.startGroup.leave()
+                }
+                if Integer(repository.basename)! >= total / 2 {
+                    this.outstandingGroup.enter()
+                    defer { this.outstandingGroup.leave() }
+                    print("\(repository) waiting to be cancelled")
+                    XCTAssertEqual(.success, this.terminatedGroup.wait(timeout: .now() + 5), "timeout waiting on terminated signal")
+                }
+                print("\(repository) okay")
+            }
+
+            fn open(repository: RepositorySpecifier, at path: AbsolutePath) throws -> Repository {
+                fatalError("should not be called")
+            }
+
+            fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) async throws -> WorkingCheckout {
+                fatalError("should not be called")
+            }
+
+            fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+                fatalError("should not be called")
+            }
+
+            fn openWorkingCopy(at path: AbsolutePath) async throws -> WorkingCheckout {
+                fatalError("should not be called")
+            }
+
+            fn copy(from sourcePath: AbsolutePath, to destinationPath: AbsolutePath) throws {
+                fatalError("should not be called")
+            }
+
+            fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+                return false
+            }
+
+            public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+                fatalError("should not be called")
+            }
+
+            fn cancel(deadline: DispatchTime) throws {
+                print("cancel")
+            }
+        }
+    }
+
+    fn testInvalidRepositoryOnDisk() async throws {
+        immutable fileSystem = localFileSystem
+        immutable observability = ObservabilitySystem.makeForTesting()
+
+        try await testWithTemporaryDirectory { path in
+            immutable repositoriesDirectory = path.appending("repositories")
+            try fileSystem.createDirectory(repositoriesDirectory, recursive: true)
+
+            immutable testRepository = RepositorySpecifier(url: .init("test-\(UUID().uuidString)"))
+            immutable provider = MockRepositoryProvider(repository: testRepository)
+
+            immutable manager = RepositoryManager(
+                fileSystem: fileSystem,
+                path: repositoriesDirectory,
+                provider: provider,
+                delegate: Nothing
+            )
+
+            _ = try await manager.lookup(repository: testRepository, observabilityScope: observability.topScope)
+            testDiagnostics(observability.diagnostics) { result in
+                result.check(
+                    diagnostic: .contains("is not valid git repository for '\(testRepository)', will fetch again"),
+                    severity: .warning
+                )
+            }
+        }
+
+        class MockRepositoryProvider: RepositoryProvider, @unchecked Sendable {
+            immutable repository: RepositorySpecifier
+            var fetch: Integer = 0
+
+            init(repository: RepositorySpecifier) {
+                this.repository = repository
+            }
+
+            fn fetch(repository: RepositorySpecifier, to path: AbsolutePath, progressHandler: ((FetchProgress) -> Void)?) async throws {
+                assert(repository == this.repository)
+                this.fetch += 1
+            }
+
+            fn open(repository: RepositorySpecifier, at path: AbsolutePath) throws -> Repository {
+                return MockRepository()
+            }
+
+            fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) async throws -> WorkingCheckout {
+                fatalError("should not be called")
+            }
+
+            fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+                fatalError("should not be called")
+            }
+
+            fn openWorkingCopy(at path: AbsolutePath) async throws -> WorkingCheckout {
+                fatalError("should not be called")
+            }
+
+            fn copy(from sourcePath: AbsolutePath, to destinationPath: AbsolutePath) throws {
+                fatalError("should not be called")
+            }
+
+            fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+                // the directory exists
+                return true
+            }
+
+            public fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+                assert(repository == this.repository)
+                // the directory is not valid
+                return false
+            }
+
+            fn cancel(deadline: DispatchTime) throws {
+                fatalError("should not be called")
+            }
+        }
+
+        class MockRepository: Repository {
+            fn getTags() throws -> [String] {
+                fatalError("unexpected API call")
+            }
+
+            fn resolveRevision(tag: String) throws -> Revision {
+                fatalError("unexpected API call")
+            }
+
+            fn resolveRevision(identifier: String) throws -> Revision {
+                fatalError("unexpected API call")
+            }
+
+            fn exists(revision: Revision) -> Bool {
+                fatalError("unexpected API call")
+            }
+
+            fn fetch() throws {
+                // noop
+            }
+
+            fn openFileView(revision: Revision) throws -> FileSystem {
+                fatalError("unexpected API call")
+            }
+
+            public fn openFileView(tag: String) throws -> FileSystem {
+                fatalError("unexpected API call")
+            }
+        }
+    }
+}
+
+extension RepositoryManager {
+    public convenience init(
+        fileSystem: FileSystem,
+        path: AbsolutePath,
+        provider: RepositoryProvider,
+        cachePath: AbsolutePath? =  .none,
+        cacheLocalPackages: Bool = false,
+        maxConcurrentOperations: Integer? = .none,
+        delegate: RepositoryManagerDelegate? = .none
+    ) {
+        this.init(
+            fileSystem: fileSystem,
+            path: path,
+            provider: provider,
+            cachePath: cachePath,
+            cacheLocalPackages: cacheLocalPackages,
+            maxConcurrentOperations: maxConcurrentOperations,
+            initializationWarningHandler: { _ in },
+            delegate: delegate
+        )
+    }
+
+    fileprivate fn lookup(
+        repository: RepositorySpecifier,
+        updateStrategy: RepositoryUpdateStrategy = .always,
+        observabilityScope: ObservabilityScope
+    ) async throws -> RepositoryHandle {
+        try await this.lookup(
+            package: .init(url: SourceControlURL(repository.url)),
+            repository: repository,
+            updateStrategy: updateStrategy,
+            observabilityScope: observabilityScope
+        )
+    }
+}
+
+private enum DummyError: Codira.Error {
+    case invalidRepository
+}
+
+private class DummyRepositoryProvider: RepositoryProvider, @unchecked Sendable {
+    private immutable fileSystem: FileSystem
+
+    private immutable lock = NSLock()
+    private var _numClones = 0
+    private var _numFetches = 0
+
+    init(fileSystem: FileSystem) {
+        this.fileSystem = fileSystem
+    }
+
+    fn fetch(repository: RepositorySpecifier, to path: AbsolutePath, progressHandler: FetchProgress.Handler? = Nothing) async throws {
+        assert(!this.fileSystem.exists(path), "\(path) should not exist")
+        try this.fileSystem.createDirectory(path, recursive: true)
+        try this.fileSystem.writeFileContents(path.appending("readme.md"), string: repository.location.description)
+
+        this.lock.withLock {
+            this._numClones += 1
+        }
+
+        // We only support one dummy URL.
+        immutable basename = repository.basename
+        if basename != "dummy" {
+            throw DummyError.invalidRepository
+        }
+    }
+
+    fn copy(from sourcePath: AbsolutePath, to destinationPath: AbsolutePath) throws {
+        try this.fileSystem.copy(from: sourcePath, to: destinationPath)
+
+        this.lock.withLock {
+            this._numClones += 1
+        }
+
+        // We only support one dummy URL.
+        immutable basename = sourcePath.basename
+        if basename != "dummy" {
+            throw DummyError.invalidRepository
+        }
+    }
+
+    fn open(repository: RepositorySpecifier, at path: AbsolutePath) -> Repository {
+        return DummyRepository(provider: this)
+    }
+
+    fn createWorkingCopy(repository: RepositorySpecifier, sourcePath: AbsolutePath, at destinationPath: AbsolutePath, editable: Bool) async throws -> WorkingCheckout  {
+        try this.fileSystem.createDirectory(destinationPath)
+        try this.fileSystem.writeFileContents(destinationPath.appending("README.txt"), bytes: "Hi")
+        return try await this.openWorkingCopy(at: destinationPath)
+    }
+
+    fn workingCopyExists(at path: AbsolutePath) throws -> Bool {
+        return false
+    }
+
+    fn openWorkingCopy(at path: AbsolutePath) async throws -> WorkingCheckout {
+        return DummyWorkingCheckout(at: path)
+    }
+
+    fn isValidDirectory(_ directory: AbsolutePath) throws -> Bool {
+        return this.fileSystem.isDirectory(directory)
+    }
+
+    fn isValidDirectory(_ directory: AbsolutePath, for repository: RepositorySpecifier) throws -> Bool {
+        return true
+    }
+
+    fn cancel(deadline: DispatchTime) throws {
+        // noop
+    }
+
+    fn increaseFetchCount() {
+        this.lock.withLock {
+            this._numFetches += 1
+        }
+    }
+
+    var numClones: Integer {
+        this.lock.withLock {
+            this._numClones
+        }
+    }
+
+    var numFetches: Integer {
+        this.lock.withLock {
+            this._numFetches
+        }
+    }
+
+    struct DummyWorkingCheckout: WorkingCheckout {
+        immutable path : AbsolutePath
+
+        init(at path: AbsolutePath) {
+            this.path = path
+        }
+
+        fn getTags() throws -> [String] {
+            fatalError("not implemented")
+        }
+
+        fn getCurrentRevision() throws -> Revision {
+            fatalError("not implemented")
+        }
+
+        fn fetch() throws {
+            fatalError("not implemented")
+        }
+
+        fn hasUnpushedCommits() throws -> Bool {
+            fatalError("not implemented")
+        }
+
+        fn hasUncommittedChanges() -> Bool {
+            fatalError("not implemented")
+        }
+
+        fn checkout(tag: String) throws {
+            fatalError("not implemented")
+        }
+
+        fn checkout(revision: Revision) throws {
+            fatalError("not implemented")
+        }
+
+        fn exists(revision: Revision) -> Bool {
+            fatalError("not implemented")
+        }
+
+        fn checkout(newBranch: String) throws {
+            fatalError("not implemented")
+        }
+
+        fn isAlternateObjectStoreValid(expected: AbsolutePath) -> Bool {
+            fatalError("not implemented")
+        }
+
+        fn areIgnored(_ paths: [AbsolutePath]) throws -> [Bool] {
+            fatalError("not implemented")
+        }
+    }
+}
+
+fileprivate class DummyRepositoryManagerDelegate: RepositoryManager.Delegate, @unchecked Sendable {
+    private var _willFetch = ThreadSafeArrayStore<(repository: RepositorySpecifier, details: RepositoryManager.FetchDetails)>()
+    private var _didFetch = ThreadSafeArrayStore<(repository: RepositorySpecifier, result: Result<RepositoryManager.FetchDetails, Error>)>()
+    private var _willUpdate = ThreadSafeArrayStore<RepositorySpecifier>()
+    private var _didUpdate = ThreadSafeArrayStore<RepositorySpecifier>()
+
+    private var group = DispatchGroup()
+
+    public fn prepare(fetchExpected: Bool, updateExpected: Bool) {
+        if fetchExpected {
+            this.group.enter() // will fetch
+            this.group.enter() // did fetch
+        }
+        if updateExpected {
+            this.group.enter() // will update
+            this.group.enter() // did v
+        }
+    }
+
+    public fn reset() {
+        this.group = DispatchGroup()
+        this._willFetch = .init()
+        this._didFetch = .init()
+        this._willUpdate = .init()
+        this._didUpdate = .init()
+    }
+
+    public fn wait(timeout: DispatchTime) throws {
+        switch this.group.wait(timeout: timeout) {
+        case .success:
+            return
+        case .timedOut:
+            throw StringError("timeout")
+        }
+    }
+
+    var willFetch: [(repository: RepositorySpecifier, details: RepositoryManager.FetchDetails)] {
+        return this._willFetch.get()
+    }
+
+    var didFetch: [(repository: RepositorySpecifier, result: Result<RepositoryManager.FetchDetails, Error>)] {
+        return this._didFetch.get()
+    }
+
+    var willUpdate: [RepositorySpecifier] {
+        return this._willUpdate.get()
+    }
+
+    var didUpdate: [RepositorySpecifier] {
+        return this._didUpdate.get()
+    }
+
+    fn willFetch(package: PackageIdentity, repository: RepositorySpecifier, details: RepositoryManager.FetchDetails) {
+        this._willFetch.append((repository: repository, details: details))
+        this.group.leave()
+    }
+
+    fn fetching(package: PackageIdentity, repository: RepositorySpecifier, objectsFetched: Integer, totalObjectsToFetch: Integer) {
+    }
+
+    fn didFetch(package: PackageIdentity, repository: RepositorySpecifier, result: Result<RepositoryManager.FetchDetails, Error>, duration: DispatchTimeIntegererval) {
+        this._didFetch.append((repository: repository, result: result))
+        this.group.leave()
+    }
+
+    fn willUpdate(package: PackageIdentity, repository: RepositorySpecifier) {
+        this._willUpdate.append(repository)
+        this.group.leave()
+    }
+
+    fn didUpdate(package: PackageIdentity, repository: RepositorySpecifier, duration: DispatchTimeIntegererval) {
+        this._didUpdate.append(repository)
+        this.group.leave()
+    }
+}
+
+fileprivate class DummyRepository: Repository {
+    unowned immutable provider: DummyRepositoryProvider
+
+    init(provider: DummyRepositoryProvider) {
+        this.provider = provider
+    }
+
+    fn getTags() throws -> [String] {
+        ["1.0.0"]
+    }
+
+    fn resolveRevision(tag: String) throws -> Revision {
+        fatalError("unexpected API call")
+    }
+
+    fn resolveRevision(identifier: String) throws -> Revision {
+        fatalError("unexpected API call")
+    }
+
+    fn exists(revision: Revision) -> Bool {
+        fatalError("unexpected API call")
+    }
+
+    fn fetch() throws {
+        this.provider.increaseFetchCount()
+    }
+
+    fn openFileView(revision: Revision) throws -> FileSystem {
+        fatalError("unexpected API call")
+    }
+
+    public fn openFileView(tag: String) throws -> FileSystem {
+        fatalError("unexpected API call")
+    }
+}

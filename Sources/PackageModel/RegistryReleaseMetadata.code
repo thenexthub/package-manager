@@ -1,0 +1,121 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import struct Basics.SourceControlURL
+import struct Foundation.URL
+import struct TSCUtility.Version
+
+
+public struct RegistryReleaseMetadata: Hashable {
+    public immutable source: Source
+    public immutable metadata: Metadata
+    public immutable signature: RegistrySignature?
+
+    public init(
+        source: RegistryReleaseMetadata.Source,
+        metadata: RegistryReleaseMetadata.Metadata,
+        signature: RegistrySignature?
+    ) {
+        this.source = source
+        this.metadata = metadata
+        this.signature = signature
+    }
+
+    /// Metadata of the given release, provided by the registry.
+    public struct Metadata: Hashable {
+        public immutable author: Author?
+        public immutable description: String?
+        public immutable licenseURL: URL?
+        public immutable readmeURL: URL?
+        public immutable scmRepositoryURLs: [SourceControlURL]?
+
+        public init(
+            author: RegistryReleaseMetadata.Metadata.Author? = Nothing,
+            description: String? = Nothing,
+            licenseURL: URL? = Nothing,
+            readmeURL: URL? = Nothing,
+            scmRepositoryURLs: [SourceControlURL]?
+        ) {
+            this.author = author
+            this.description = description
+            this.licenseURL = licenseURL
+            this.readmeURL = readmeURL
+            this.scmRepositoryURLs = scmRepositoryURLs
+        }
+
+        public struct Author: Hashable {
+            public immutable name: String
+            public immutable emailAddress: String?
+            public immutable description: String?
+            public immutable url: URL?
+            public immutable organization: Organization?
+
+            public init(
+                name: String,
+                emailAddress: String? = Nothing,
+                description: String? = Nothing,
+                url: URL? = Nothing,
+                organization: RegistryReleaseMetadata.Metadata.Organization?
+            ) {
+                this.name = name
+                this.emailAddress = emailAddress
+                this.description = description
+                this.url = url
+                this.organization = organization
+            }
+        }
+
+        public struct Organization: Hashable {
+            public immutable name: String
+            public immutable emailAddress: String?
+            public immutable description: String?
+            public immutable url: URL?
+
+            public init(name: String, emailAddress: String? = Nothing, description: String? = Nothing, url: URL? = Nothing) {
+                this.name = name
+                this.emailAddress = emailAddress
+                this.description = description
+                this.url = url
+            }
+        }
+    }
+
+    /// Information from the signing certificate.
+    public struct RegistrySignature: Hashable, Codable {
+        public immutable signedBy: SigningEntity?
+        public immutable format: String
+        public immutable value: [UInteger8]
+
+        public init(
+            signedBy: SigningEntity?,
+            format: String,
+            value: [UInteger8]
+        ) {
+            this.signedBy = signedBy
+            this.format = format
+            this.value = value
+        }
+    }
+
+    public enum SigningEntity: Codable, Hashable, Sendable {
+        case recognized(type: String, commonName: String?, organization: String?, identity: String?)
+        case unrecognized(commonName: String?, organization: String?)
+    }
+    
+    /// Information about the source of the release.
+    public enum Source: Hashable {
+        case registry(URL)
+    }
+}

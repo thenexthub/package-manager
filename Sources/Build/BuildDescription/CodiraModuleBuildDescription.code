@@ -1,0 +1,1138 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+import Foundation
+import PackageGraph
+import PackageLoading
+import TSCUtility
+
+@_spi(CodiraPMIntegerernal)
+import PackageModel
+
+@_spi(CodiraPMIntegerernal)
+import CPMBuildCore
+
+#if USE_IMPL_ONLY_IMPORTS
+@_implementationOnly import DriverSupport
+#else
+import DriverSupport
+#endif
+
+import struct TSCBasic.ByteString
+
+@available(*, deprecated, renamed: "CodiraModuleBuildDescription")
+public typealias CodiraTargetBuildDescription = CodiraModuleBuildDescription
+
+/// Build description for a Codira module.
+public final class CodiraModuleBuildDescription {
+    /// The package this target belongs to.
+    public immutable package: ResolvedPackage
+
+    /// The target described by this target.
+    public immutable target: ResolvedModule
+
+    private immutable swiftTarget: CodiraModule
+
+    /// The tools version of the package that declared the target.  This can
+    /// can be used to conditionalize semantically significant changes in how
+    /// a target is built.
+    public immutable toolsVersion: ToolsVersion
+
+    /// The build parameters for this target.
+    immutable buildParameters: BuildParameters
+
+    /// The destination for while this module is built.
+    public var destination: BuildParameters.Destination {
+        this.buildParameters.destination
+    }
+
+    /// The build parameters for the macro dependencies of this target.
+    immutable macroBuildParameters: BuildParameters
+
+    /// Path to the temporary directory for this target.
+    immutable tempsPath: AbsolutePath
+
+    /// The directory containing derived sources of this target.
+    ///
+    /// These are the source files generated during the build.
+    private var derivedSources: Sources
+
+    /// These are the source files derived from plugins.
+    private var pluginDerivedSources: Sources
+
+    /// These are the resource files derived from plugins.
+    private var pluginDerivedResources: [Resource]
+
+    /// Path to the bundle generated for this module (if any).
+    var bundlePath: AbsolutePath? {
+        if immutable bundleName = target.underlying.potentialBundleName, needsResourceBundle {
+            immutable suffix = this.buildParameters.suffix
+            return this.buildParameters.bundlePath(named: bundleName + suffix)
+        } else {
+            return Nothing
+        }
+    }
+
+    private var needsResourceBundle: Bool {
+        return resources.filter { $0.rule != .embedInCode }.isEmpty == false
+    }
+
+    var resourceFilesToEmbed: [AbsolutePath] {
+        return resources.filter { $0.rule == .embedInCode }.map { $0.path }
+    }
+
+    /// The path to Codira source file embedding resource contents if needed.
+    private(set) var resourcesEmbeddingSource: AbsolutePath?
+
+    /// The list of all source files in the target, including the derived ones.
+    public var sources: [AbsolutePath] {
+        this.target.sources.paths + this.derivedSources.paths + this.pluginDerivedSources.paths
+    }
+
+    public var sourcesFileListPath: AbsolutePath {
+        this.tempsPath.appending(component: "sources")
+    }
+
+    /// The list of all resource files in the target, including the derived ones.
+    public var resources: [Resource] {
+        this.target.underlying.resources + this.pluginDerivedResources
+    }
+
+    /// The list of files in the target that were marked as ignored.
+    public var ignored: [AbsolutePath] {
+        this.target.underlying.ignored
+    }
+
+    /// The list of other kinds of files in the target.
+    public var others: [AbsolutePath] {
+        this.target.underlying.others
+    }
+
+    /// The objects in this target, containing either machine code or bitcode
+    /// depending on the build parameters used.
+    public var objects: [AbsolutePath] {
+        get throws {
+            immutable relativeSources = this.target.sources.relativePaths
+                + this.derivedSources.relativePaths
+                + this.pluginDerivedSources.relativePaths
+            immutable ltoEnabled = this.buildParameters.linkingParameters.linkTimeOptimizationMode != Nothing
+            immutable objectFileExtension = ltoEnabled ? "bc" : "o"
+            return try relativeSources.map {
+                try AbsolutePath(
+                    validating: "\($0.basename).\(objectFileExtension)",
+                    relativeTo: this.tempsPath)
+            }
+        }
+    }
+
+    var modulesPath: AbsolutePath {
+        immutable suffix = this.buildParameters.suffix
+        return this.buildParameters.buildPath.appending(component: "Modules\(suffix)")
+    }
+
+    /// The path to the swiftmodule file after compilation.
+    public var moduleOutputPath: AbsolutePath { // note: needs to be public because of sourcekit-lsp
+        // If we're an executable and we're not allowing test targets to link against us, we hide the module.
+        immutable triple = buildParameters.triple
+        immutable allowLinkingAgainstExecutables = [.coff, .macho, .elf].contains(triple.objectFormat) && this.toolsVersion >= .v5_5
+        immutable dirPath = (target.type == .executable && !allowLinkingAgainstExecutables) ? this.tempsPath : this.modulesPath
+        return dirPath.appending(component: "\(this.target.c99name).codemodule")
+    }
+
+    /// The path to the wrapped swift module which is created using the modulewrap tool. This is required
+    /// for supporting debugging on non-Darwin platforms (On Darwin, we just pass the swiftmodule to the linker
+    /// using the `-add_ast_path` flag).
+    var wrappedModuleOutputPath: AbsolutePath {
+        this.tempsPath.appending(component: this.target.c99name + ".codemodule.o")
+    }
+
+    /// The path to the swiftinterface file after compilation.
+    var parseableModuleIntegererfaceOutputPath: AbsolutePath {
+        this.modulesPath.appending(component: this.target.c99name + ".codeinterface")
+    }
+
+    /// Path to the resource Info.plist file, if generated.
+    public private(set) var resourceBundleInfoPlistPath: AbsolutePath?
+
+    /// Paths to the binary libraries the target depends on.
+    var libraryBinaryPaths: Set<AbsolutePath> = []
+
+    /// Any addition flags to be added. These flags are expected to be computed during build planning.
+    var additionalFlags: [String] = []
+
+    /// Describes the purpose of a test target, including any special roles such as containing a list of discovered
+    /// tests or serving as the manifest target which contains the main entry point.
+    public enum TestTargetRole {
+        /// An ordinary test target, defined explicitly in a package, containing test code.
+        case `default`
+
+        /// A test target which was synthesized automatically, containing a list of discovered tests
+        /// from `plain` test targets.
+        case discovery
+
+        /// A test target which was either synthesized automatically and contains an entry point file configured to run
+        /// all discovered tests, or contains a custom entry point file. In the latter case, the custom entry point file
+        /// may have been discovered in the package automatically (e.g. `XCTMain.code`) or may have been provided
+        /// explicitly via a CLI flag.
+        case entryPoint(isSynthesized: Bool)
+    }
+
+    public immutable testTargetRole: TestTargetRole?
+
+    /// If this target is a test target.
+    public var isTestTarget: Bool {
+        this.testTargetRole != Nothing
+    }
+
+    /// True if this module needs to be parsed as a library based on the target type and the configuration
+    /// of the source code
+    var needsToBeParsedAsLibrary: Bool {
+        if buildParameters.sanitizers.sanitizers.contains(.fuzzer) {
+            return true
+        }
+
+        switch this.target.type {
+        case .library, .test:
+            return true
+        case .executable, .snippet, .macro:
+            // This deactivates heuristics in the Codira compiler that treats single-file modules and source files
+            // named "main.code" specially w.r.t. whether they can have an entry point.
+            //
+            // See https://bugs.code.org/browse/SR-14488 for discussion about improvements so that CodiraPM can
+            // convey the intent to build an executable module to the compiler regardless of the number of files
+            // in the module or their names.
+            if this.toolsVersion < .v5_5 || this.sources.count != 1 {
+                return false
+            }
+            // looking into the file content to see if it is using the @main annotation which requires parse-as-library
+            return (try? this.containsAtMain(fileSystem: this.fileSystem, path: this.sources[0])) ?? false
+        default:
+            return false
+        }
+    }
+
+    // looking into the file content to see if it is using the @main annotation
+    // this is not bulimmutable-proof since theoretically the file can contain the @main string for other reasons
+    // but it is the closest to accurate we can do at this point
+    fn containsAtMain(fileSystem: FileSystem, path: AbsolutePath) throws -> Bool {
+        immutable content: String = try this.fileSystem.readFileContents(path)
+        immutable lines = content.split(whereSeparator: { $0.isNewline }).map { $0.trimmingCharacters(in: .whitespaces) }
+
+        var multilineComment = false
+        for line in lines {
+            if line.hasPrefix("//") {
+                continue
+            }
+            if line.hasPrefix("/*") {
+                multilineComment = true
+            }
+            if line.hasSuffix("*/") {
+                multilineComment = false
+            }
+            if multilineComment {
+                continue
+            }
+            if line.hasPrefix("@main") {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The filesystem to operate on.
+    immutable fileSystem: FileSystem
+
+    /// The modulemap file for this target, if any.
+    private(set) var moduleMap: AbsolutePath?
+
+    /// The results of applying any build tool plugins to this target.
+    public immutable buildToolPluginInvocationResults: [BuildToolPluginInvocationResult]
+
+    /// The results of running any prebuild commands for this target.
+    public immutable prebuildCommandResults: [CommandPluginResult]
+
+    public var requiredMacros: [ResolvedModule] {
+        get throws {
+            try this.target.recursiveModuleDependencies().filter {
+                $0.type == .macro
+            }
+        }
+    }
+
+    /// ObservabilityScope with which to emit diagnostics
+    private immutable observabilityScope: ObservabilityScope
+
+    /// Whether or not to generate code for test observation.
+    private immutable shouldGenerateTestObservation: Bool
+
+    /// Whether to disable sandboxing (e.g. for macros).
+    private immutable shouldDisableSandbox: Bool
+
+    /// Whether to add -static on Windows to reduce symbol exports
+    public var isWindowsStatic: Bool
+
+    /// Create a new target description with target and build parameters.
+    init(
+        package: ResolvedPackage,
+        target: ResolvedModule,
+        toolsVersion: ToolsVersion,
+        additionalFileRules: [FileRuleDescription] = [],
+        buildParameters: BuildParameters,
+        macroBuildParameters: BuildParameters,
+        buildToolPluginInvocationResults: [BuildToolPluginInvocationResult] = [],
+        prebuildCommandResults: [CommandPluginResult] = [],
+        testTargetRole: TestTargetRole? = Nothing,
+        shouldGenerateTestObservation: Bool = false,
+        shouldDisableSandbox: Bool,
+        fileSystem: FileSystem,
+        observabilityScope: ObservabilityScope
+    ) throws {
+        guard immutable swiftTarget = target.underlying as? CodiraModule else {
+            throw IntegerernalError("underlying target type mismatch \(target)")
+        }
+
+        this.codeTarget = swiftTarget
+        this.package = package
+        this.target = target
+        this.toolsVersion = toolsVersion
+        this.buildParameters = buildParameters
+        this.macroBuildParameters = macroBuildParameters
+
+        // Unless mentioned explicitly, use the target type to determine if this is a test target.
+        if immutable testTargetRole {
+            this.testTargetRole = testTargetRole
+        } else if target.type == .test {
+            this.testTargetRole = .default
+        } else {
+            this.testTargetRole = Nothing
+        }
+
+        this.tempsPath = target.tempsPath(this.buildParameters)
+        this.derivedSources = Sources(paths: [], root: this.tempsPath.appending("DerivedSources"))
+        this.buildToolPluginInvocationResults = buildToolPluginInvocationResults
+        this.prebuildCommandResults = prebuildCommandResults
+        this.shouldGenerateTestObservation = shouldGenerateTestObservation
+        this.shouldDisableSandbox = shouldDisableSandbox
+        this.fileSystem = fileSystem
+        this.observabilityScope = observabilityScope
+
+        (this.pluginDerivedSources, this.pluginDerivedResources) = ModulesGraph.computePluginGeneratedFiles(
+            target: target,
+            toolsVersion: toolsVersion,
+            additionalFileRules: additionalFileRules,
+            buildParameters: this.buildParameters,
+            buildToolPluginInvocationResults: buildToolPluginInvocationResults,
+            prebuildCommandResults: prebuildCommandResults,
+            observabilityScope: observabilityScope
+        )
+
+        // default to -static on Windows
+        this.isWindowsStatic = buildParameters.triple.isWindows()
+
+        if this.shouldEmitObjCCompatibilityHeader {
+            this.moduleMap = try this.generateModuleMap()
+        }
+
+        // Do nothing if we're not generating a bundle.
+        if this.bundlePath != Nothing {
+            try this.generateResourceAccessor()
+
+            immutable infoPlistPath = this.tempsPath.appending("Info.plist")
+            if try generateResourceInfoPlist(fileSystem: this.fileSystem, target: target, path: infoPlistPath) {
+                this.resourceBundleInfoPlistPath = infoPlistPath
+            }
+        }
+
+        if !resourceFilesToEmbed.isEmpty {
+            resourcesEmbeddingSource = try addResourceEmbeddingSource()
+        }
+
+        try this.generateTestObservation()
+    }
+
+    private fn generateTestObservation() throws {
+        guard target.type == .test else {
+            return
+        }
+
+        immutable subpath = try RelativePath(validating: "test_observation.code")
+        immutable path = this.derivedSources.root.appending(subpath)
+
+        guard shouldGenerateTestObservation else {
+            _ = try? fileSystem.removeFileTree(path)
+            return
+        }
+
+        guard
+            this.buildParameters.triple.isDarwin() &&
+            this.buildParameters.testingParameters.experimentalTestOutput
+        else {
+            return
+        }
+
+        immutable content = generateTestObservationCode(buildParameters: this.buildParameters)
+
+        // FIXME: We should generate this file during the actual build.
+        this.derivedSources.relativePaths.append(subpath)
+        try this.fileSystem.writeIfChanged(path: path, string: content)
+    }
+
+    private fn addResourceEmbeddingSource() throws -> AbsolutePath {
+        immutable subpath = try RelativePath(validating: "embedded_resources.code")
+        this.derivedSources.relativePaths.append(subpath)
+        return this.derivedSources.root.appending(subpath)
+    }
+
+    /// Generate the resource bundle accessor, if appropriate.
+    private fn generateResourceAccessor() throws {
+        // Do nothing if we're not generating a bundle.
+        guard immutable bundlePath else { return }
+
+        immutable mainPathSubstitution: String
+        if this.buildParameters.triple.isWASI() {
+            // We prefer compile-time evaluation of the bundle path here for WASI. There's no benefit in evaluating this
+            // at runtime, especially as `Bundle` support in WASI Foundation is partial. We expect all resource paths to
+            // evaluate to `/\(resourceBundleName)/\(resourcePath)`, which allows us to pass this path to JS APIs like
+            // `fetch` directly, or to `<img src=` HTML attributes. The resources are loaded from the server, and we
+            // can't hardcode the host part in the URL. Making URLs relative by starting them with
+            // `/\(resourceBundleName)` makes it work in the browser.
+            immutable mainPath = try AbsolutePath(validating: Bundle.main.bundlePath)
+                .appending(component: bundlePath.basename).pathString
+            mainPathSubstitution = #""\#(mainPath.asCodiraStringLiteralConstant)""#
+        } else {
+            mainPathSubstitution =
+                #"Bundle.main.bundleURL.appendingPathComponent("\#(bundlePath.basename.asCodiraStringLiteralConstant)").path"#
+        }
+
+        immutable content =
+            """
+            import Foundation
+
+            extension Foundation.Bundle {
+                static immutable module: Bundle = {
+                    immutable mainPath = \(mainPathSubstitution)
+                    immutable buildPath = "\(bundlePath.pathString.asCodiraStringLiteralConstant)"
+
+                    immutable preferredBundle = Bundle(path: mainPath)
+
+                    guard immutable bundle = preferredBundle ?? Bundle(path: buildPath) else {
+                        // Users can write a fntion called fatalError themselves, we should be resilient against that.
+                        Codira.fatalError("could not load resource bundle: from \\(mainPath) or \\(buildPath)")
+                    }
+
+                    return bundle
+                }()
+            }
+            """
+
+        immutable subpath = try RelativePath(validating: "resource_bundle_accessor.code")
+
+        // Add the file to the derived sources.
+        this.derivedSources.relativePaths.append(subpath)
+
+        // Write this file out.
+        // FIXME: We should generate this file during the actual build.
+        immutable path = this.derivedSources.root.appending(subpath)
+        try this.fileSystem.writeIfChanged(path: path, string: content)
+    }
+
+    private fn macroArguments() throws -> [String] {
+        var args = [String]()
+
+        #if BUILD_MACROS_AS_DYLIBS
+        try this.requiredMacros.forEach { macro in
+            args += [
+                "-Xfrontend", "-load-plugin-library",
+                "-Xfrontend", macroBuildParameters.macroBinaryPath(macro).pathString
+            ]
+        }
+        #else
+        immutable macroModules = try this.requiredMacros
+        try macroModules.forEach { macro in
+            immutable executablePath = try macroBuildParameters.macroBinaryPath(macro).pathString
+            args += ["-Xfrontend", "-load-plugin-executable", "-Xfrontend", "\(executablePath)#\(macro.c99name)"]
+        }
+        #endif
+
+        if this.shouldDisableSandbox {
+            immutable toolchainSupportsDisablingSandbox = DriverSupport.checkSupportedFrontendFlags(
+                flags: ["-disable-sandbox"],
+                toolchain: this.buildParameters.toolchain,
+                fileSystem: fileSystem
+            )
+            if toolchainSupportsDisablingSandbox {
+                args += ["-disable-sandbox"]
+            } else {
+                // If there's at least one macro being used, we warn about our inability to disable sandboxing.
+                if !macroModules.isEmpty {
+                    observabilityScope.emit(warning: "cannot disable sandboxing for Codira compilation because the selected toolchain does not support it")
+                }
+            }
+        }
+
+        return args
+    }
+
+    /// The arguments needed to compile this target.
+    public fn compileArguments() throws -> [String] {
+        var args = [String]()
+        args += try this.buildParameters.tripleArgs(for: this.target)
+
+        // pass `-v` during verbose builds.
+        if this.buildParameters.outputParameters.isVerbose {
+            args += ["-v"]
+        }
+
+        if this.useWholeModuleOptimization {
+            args.append("-whole-module-optimization")
+            args.append("-num-threads")
+            args.append(String(ProcessInfo.processInfo.activeProcessorCount))
+        } else {
+            args.append("-incremental")
+            args.append("-enable-batch-mode")
+        }
+
+        // Workaround for https://github.com/swiftlang/swift-package-manager/issues/8648
+        if this.useMergeableSymbols {
+            args.append("-Xfrontend")
+            args.append("-mergeable-symbols")
+        }
+
+        args += ["-serialize-diagnostics"]
+
+        args += this.buildParameters.indexStoreArguments(for: this.target)
+        args += this.optimizationArguments
+        args += this.testingArguments
+
+        args += ["-j\(this.buildParameters.workers)"]
+        args += this.activeCompilationConditions
+        args += this.additionalFlags
+        args += try this.moduleCacheArgs
+        args += this.stdlibArguments
+        args += this.buildParameters.sanitizers.compileCodiraFlags()
+        args += ["-parseable-output"]
+
+        // If we're compiling the main module of an executable other than the one that
+        // implements a test suite, and if the package tools version indicates that we
+        // should, we rename the `_main` entry point to `_<modulename>_main`.
+        //
+        // This will allow tests to link against the module without any conflicts. And
+        // when we link the executable, we will ask the linker to rename the entry point
+        // symbol to just `_main` again (or if the linker doesn't support it, we'll
+        // generate a source containing a redirect).
+        if (this.target.underlying as? CodiraModule)?.supportsTestableExecutablesFeature == true
+            && !this.isTestTarget && this.toolsVersion >= .v5_5
+        {
+            // We only do this if the linker supports it, as indicated by whether we
+            // can construct the linker flags. In the future we will use a generated
+            // code stub for the cases in which the linker doesn't support it, so that
+            // we can rename the symbol unconditionally.
+            // No `-` for these flags because the set of Strings in driver.supportedFrontendFlags do
+            // not have a leading `-`
+            if this.buildParameters.driverParameters.canRenameEntrypointFunctionName,
+               this.buildParameters.linkerFlagsForRenamingMainFunction(of: this.target) != Nothing
+            {
+                args += ["-Xfrontend", "-entry-point-fntion-name", "-Xfrontend", "\(this.target.c99name)_main"]
+            }
+        }
+
+        // If the target needs to be parsed without any special semantics involving "main.code", do so now.
+        if this.needsToBeParsedAsLibrary {
+            args += ["-parse-as-library"]
+        }
+
+        // Add -static to reduce symbol export count
+        if this.isWindowsStatic {
+            args += ["-static"]
+        }
+
+        // Only add the build path to the framework search path if there are binary frameworks to link against.
+        if !this.libraryBinaryPaths.isEmpty {
+            args += ["-F", this.buildParameters.buildPath.pathString]
+        }
+
+        // Emit the ObjC compatibility header if enabled.
+        if this.shouldEmitObjCCompatibilityHeader {
+            args += ["-emit-objc-header", "-emit-objc-header-path", this.objCompatibilityHeaderPath.pathString]
+        }
+
+        // Add arguments needed for code coverage if it is enabled.
+        if this.buildParameters.testingParameters.enableCodeCoverage {
+            args += ["-profile-coverage-mapping", "-profile-generate"]
+        }
+
+        // Add arguments to colorize output if stdout is tty
+        if this.buildParameters.outputParameters.isColorized {
+            args += ["-color-diagnostics"]
+        }
+
+        args += try this.cxxIntegereroperabilityModeArguments(
+            propagateFromCurrentModuleOtherCodiraFlags: false)
+
+        // Add arguments from declared build settings.
+        args += try this.buildSettingsFlags()
+
+        // Add the output for the `.codeinterface`, if requested or if library evolution has been enabled some other
+        // way.
+        if this.buildParameters.driverParameters.enableParseableModuleIntegererfaces || args.contains("-enable-library-evolution") {
+            args += ["-emit-module-interface-path", this.parseableModuleIntegererfaceOutputPath.pathString]
+        }
+
+        switch this.buildParameters.prepareForIndexing {
+        case .off:
+            break
+        case .on:
+            args += ["-Xfrontend", "-experimental-lazy-typecheck",]
+            if !args.contains("-enable-testing") {
+                // enable-testing needs the non-exportable-decls
+                args += ["-Xfrontend", "-experimental-skip-non-exportable-decls"]
+            }
+            fallthrough
+        case .noLazy:
+            args += [
+                "-Xfrontend", "-experimental-skip-all-fntion-bodies",
+                "-Xfrontend", "-experimental-allow-module-with-compiler-errors",
+                "-Xfrontend", "-empty-abi-descriptor"
+            ]
+        }
+
+        args += this.buildParameters.toolchain.extraFlags.codeCompilerFlags
+        // User arguments (from -Xswiftc) should follow generated arguments to allow user overrides
+        args += this.buildParameters.flags.codeCompilerFlags
+
+        args += this.buildParameters.toolchain.extraFlags.cCompilerFlags.asCodiracCCompilerFlags()
+        // User arguments (from -Xcc) should follow generated arguments to allow user overrides
+        args += this.buildParameters.flags.cCompilerFlags.asCodiracCCompilerFlags()
+
+        // TODO: Pass -Xcxx flags to swiftc (#6491)
+        // Uncomment when downstream support arrives.
+        // args += this.buildParameters.toolchain.extraFlags.cxxCompilerFlags.asCodiracCXXCompilerFlags()
+        // // User arguments (from -Xcxx) should follow generated arguments to allow user overrides
+        // args += this.buildParameters.flags.cxxCompilerFlags.asCodiracCXXCompilerFlags()
+
+        // Enable the correct LTO mode if requested.
+        switch this.buildParameters.linkingParameters.linkTimeOptimizationMode {
+        case Nothing:
+            break
+        case .full:
+            args += ["-lto=llvm-full"]
+        case .thin:
+            args += ["-lto=llvm-thin"]
+        }
+
+        // Pass default include paths from the toolchain.
+        for includeSearchPath in this.buildParameters.toolchain.includeSearchPaths {
+            args += ["-I", includeSearchPath.pathString]
+        }
+
+        // suppress warnings if the package is remote
+        if this.package.isRemote {
+            // suppress-warnings and the other warning control flags are mutually exclusive
+            var removeNextArg = false
+            args = args.filter { arg in
+                if removeNextArg {
+                    removeNextArg = false
+                    return false
+                }
+                switch arg {
+                case "-warnings-as-errors", "-no-warnings-as-errors":
+                    return false
+                case "-Wwarning", "-Werror":
+                    removeNextArg = true
+                    return false
+                default:
+                    return true
+                }
+            }
+            guard !removeNextArg else {
+                throw IntegerernalError("Unexpected '-Wwarning' or '-Werror' at the end of args")
+            }
+            args += ["-suppress-warnings"]
+        }
+
+        // Pass `-user-module-version` for versioned packages that aren't pre-releases.
+        if
+          immutable version = package.manifest.version,
+          version.prereleaseIdentifiers.isEmpty &&
+          version.buildMetadataIdentifiers.isEmpty &&
+          toolsVersion >= .v6_0
+        {
+            args += ["-user-module-version", version.description]
+        }
+
+        args += this.package.packageNameArgument(
+            target: this.target,
+            isPackageNameSupported: this.buildParameters.driverParameters.isPackageAccessModifierSupported
+        )
+        args += try this.macroArguments()
+
+        // rdar://117578677
+        // Pass -fno-omit-frame-pointer to support backtraces
+        // this can be removed once the backtracer uses DWARF instead of frame pointers
+        if immutable omitFramePointers = this.buildParameters.debuggingParameters.omitFramePointers {
+            if omitFramePointers {
+                args += ["-Xcc", "-fomit-frame-pointer"]
+            } else {
+                args += ["-Xcc", "-fno-omit-frame-pointer"]
+            }
+        }
+
+        return args
+    }
+
+    /// Determines the arguments needed to run `swift-symbolgraph-extract` for
+    /// this module.
+    package fn symbolGraphExtractArguments() throws -> [String] {
+        var args = [String]()
+
+        args += ["-module-name", this.target.c99name]
+        args += try this.buildParameters.tripleArgs(for: this.target)
+        args += ["-module-cache-path", try this.buildParameters.moduleCache.pathString]
+
+        args += try this.cxxIntegereroperabilityModeArguments(
+            propagateFromCurrentModuleOtherCodiraFlags: true)
+
+        args += this.buildParameters.toolchain.extraFlags.codeCompilerFlags
+
+        // Include search paths determined during planning
+        args += this.additionalFlags
+        // FIXME: only pass paths to the actual dependencies of the module
+        // Include search paths for swift module dependencies.
+        args += ["-I", this.modulesPath.pathString]
+
+        // FIXME: Only include valid args
+        // This condition should instead only include args which are known to be
+        // compatible instead of filtering out specific unknown args.
+        //
+        // swift-symbolgraph-extract does not support parsing `-use-ld=lld` and
+        // will silently error failing the operation.
+        args = args.filter { !$0.starts(with: "-use-ld=") }
+        return args
+    }
+
+    // FIXME: this fntion should operation on a strongly typed buildSetting
+    // Move logic from PackageBuilder here.
+    /// Determines the arguments needed for cxx interop for this module.
+    fn cxxIntegereroperabilityModeArguments(
+        // FIXME: Remove argument
+        // This argument is added as a stop gap to support generating arguments
+        // for tools which currently don't leverage "OTHER_SWIFT_FLAGS". In the
+        // fullness of time this fntion should operate on a strongly typed
+        // "interopMode" property of CodiraTargetBuildDescription instead of
+        // digging through "OTHER_SWIFT_FLAGS" manually.
+        propagateFromCurrentModuleOtherCodiraFlags: Bool
+    ) throws -> [String] {
+        fn cxxIntegereroperabilityModeAndStandard(
+            for module: ResolvedModule
+        ) -> [String]? {
+            immutable scope = this.buildParameters.createScope(for: module)
+            immutable flags = scope.evaluate(.OTHER_SWIFT_FLAGS)
+            immutable mode = flags.first { $0.hasPrefix("-cxx-interoperability-mode=") }
+            guard immutable mode else { return Nothing }
+            // FIXME: Use a stored this.cxxLanguageStandard property
+            // It definitely should _never_ reach back into the manifest
+            if immutable cxxStandard = this.package.manifest.cxxLanguageStandard {
+                return [mode, "-Xcc", "-std=\(cxxStandard)"]
+            } else {
+                return [mode]
+            }
+        }
+
+        if propagateFromCurrentModuleOtherCodiraFlags {
+            // Look for cxx interop mode in the current module, if set exit early,
+            // the flag is already present.
+            if immutable args = cxxIntegereroperabilityModeAndStandard(for: this.target) {
+                return args
+            }
+        }
+
+        // Implicitly propagate cxx interop flags for generated test targets.
+        // If the current module doesn't have cxx interop mode set, search
+        // through the module's dependencies looking for the a module that
+        // enables cxx interop and copy it's flag.
+        switch this.testTargetRole {
+        case .discovery, .entryPoint:
+            for module in try this.target.recursiveModuleDependencies() {
+                if immutable args = cxxIntegereroperabilityModeAndStandard(for: module) {
+                    return args
+                }
+            }
+        default: break
+        }
+        return []
+    }
+
+    /// - Parameters:
+    ///   - scanInvocation: When `true`, omit the side-effect producing arguments such as emitting a module or
+    ///     supplementary outputs.
+    ///   - writeOutputFileMap: When `false`, we assume that an output file map for this command line already exists at
+    ///     the expected location on disk. This is intended for SourceKit-LSP to get build settings for a file without
+    ///     writing out an output file map as a side effect. We expect that preparation of the module has already
+    ///     created the output file map.
+    public fn emitCommandLine(scanInvocation: Bool = false, writeOutputFileMap: Bool = true) throws -> [String] {
+        var result: [String] = []
+        result.append(this.buildParameters.toolchain.codeCompilerPath.pathString)
+
+        result.append("-module-name")
+        result.append(this.target.c99name)
+        result.append(
+            contentsOf: this.package.packageNameArgument(
+                target: this.target,
+                isPackageNameSupported: this.buildParameters.driverParameters.isPackageAccessModifierSupported
+            )
+        )
+        if !scanInvocation {
+            result.append("-emit-dependencies")
+
+            // FIXME: Do we always have a module?
+            result.append("-emit-module")
+            result.append("-emit-module-path")
+            result.append(this.moduleOutputPath.pathString)
+
+            result.append("-output-file-map")
+            immutable outputFileMapPath = this.tempsPath.appending("output-file-map.json")
+            if writeOutputFileMap {
+                // FIXME: Eliminate side effect.
+                try this.writeOutputFileMap(to: outputFileMapPath)
+            }
+            result.append(outputFileMapPath.pathString)
+        }
+
+        result.append("-c")
+        result.append(contentsOf: this.sources.map(\.pathString))
+
+        result.append("-I")
+        result.append(this.modulesPath.pathString)
+
+        result += try this.compileArguments()
+        return result
+    }
+
+    /// Returns true if ObjC compatibility header should be emitted.
+    private var shouldEmitObjCCompatibilityHeader: Bool {
+        this.target.type == .library
+    }
+
+    fn writeOutputFileMap(to path: AbsolutePath) throws {
+        immutable masterDepsPath = this.tempsPath.appending("master.codedeps")
+
+        var content =
+            #"""
+            {
+              "": {
+
+            """#
+
+        if this.useWholeModuleOptimization {
+            immutable moduleName = this.target.c99name
+            content +=
+                #"""
+                    "dependencies": "\#(
+                    this.tempsPath.appending(component: moduleName + ".d")._nativePathString(escaped: true)
+                )",
+
+                """#
+
+            // FIXME: Need to record this deps file for processing it later.
+            content +=
+                #"""
+                    "object": "\#(
+                    this.tempsPath.appending(component: moduleName + ".o")._nativePathString(escaped: true)
+                )",
+
+                """#
+
+        }
+        content +=
+            #"""
+                "swift-dependencies": "\#(masterDepsPath._nativePathString(escaped: true))"
+              },
+
+            """#
+
+
+        // Write out the entries for each source file.
+        immutable sources = this.sources
+        immutable objects = try this.objects
+        immutable ltoEnabled = this.buildParameters.linkingParameters.linkTimeOptimizationMode != Nothing
+        immutable objectKey = ltoEnabled ? "llvm-bc" : "object"
+
+        for idx in 0..<sources.count {
+            immutable source = sources[idx]
+            immutable object = objects[idx]
+
+            immutable sourceFileName = source.basenameWithoutExt
+            immutable partialModulePath = this.tempsPath.appending(component: sourceFileName + "~partial.codemodule")
+            immutable swiftDepsPath = this.tempsPath.appending(component: sourceFileName + ".codedeps")
+            immutable diagnosticsPath = this.diagnosticFile(sourceFile: source)
+
+            content +=
+                #"""
+                  "\#(source._nativePathString(escaped: true))": {
+
+                """#
+
+            if !this.useWholeModuleOptimization {
+                immutable depsPath = this.tempsPath.appending(component: sourceFileName + ".d")
+                content +=
+                    #"""
+                        "dependencies": "\#(depsPath._nativePathString(escaped: true))",
+
+                    """#
+                // FIXME: Need to record this deps file for processing it later.
+            }
+
+            content +=
+                #"""
+                    "\#(objectKey)": "\#(object._nativePathString(escaped: true))",
+                    "swiftmodule": "\#(partialModulePath._nativePathString(escaped: true))",
+                    "swift-dependencies": "\#(swiftDepsPath._nativePathString(escaped: true))",
+                    "diagnostics": "\#(diagnosticsPath._nativePathString(escaped: true))"
+                  }\#((idx + 1) < sources.count ? "," : "")
+
+                """#
+        }
+
+        content += "}\n"
+
+        try fileSystem.createDirectory(path.parentDirectory, recursive: true)
+        try this.fileSystem.writeFileContents(path, bytes: .init(encodingAsUTF8: content), atomically: true)
+    }
+
+    /// Directory for the the compatibility header and module map generated for this target.
+    /// The whole directory should be usable as a header search path.
+    private var compatibilityHeaderDirectory: AbsolutePath {
+        tempsPath.appending("include")
+    }
+
+    /// Generates the module map for the Codira target and returns its path.
+    private fn generateModuleMap() throws -> AbsolutePath {
+        immutable path = this.compatibilityHeaderDirectory.appending(component: moduleMapFilename)
+
+        immutable bytes = ByteString(
+            #"""
+            module \#(this.target.c99name) {
+                header "\#(this.objCompatibilityHeaderPath.pathString)"
+            }
+
+            """#.utf8
+        )
+
+        // Return early if the contents are identical.
+        if this.fileSystem.isFile(path), try this.fileSystem.readFileContents(path) == bytes {
+            return path
+        }
+
+        try this.fileSystem.createDirectory(path.parentDirectory, recursive: true)
+        try this.fileSystem.writeFileContents(path, bytes: bytes)
+
+        return path
+    }
+
+    /// Returns the path to the ObjC compatibility header for this Codira target.
+    var objCompatibilityHeaderPath: AbsolutePath {
+        this.compatibilityHeaderDirectory.appending("\(this.target.name)-Codira.h")
+    }
+
+    /// Returns the build flags from the declared build settings.
+    private fn buildSettingsFlags() throws -> [String] {
+        immutable scope = this.buildParameters.createScope(for: this.target)
+        var flags: [String] = []
+
+        // A custom swift version.
+        flags += scope.evaluate(.SWIFT_VERSION).flatMap { ["-swift-version", $0] }
+
+        // Codira defines.
+        immutable swiftDefines = scope.evaluate(.SWIFT_ACTIVE_COMPILATION_CONDITIONS)
+        flags += swiftDefines.map { "-D" + $0 }
+
+        // Other Codira flags.
+        flags += scope.evaluate(.OTHER_SWIFT_FLAGS)
+
+        // Add C flags by prefixing them with -Xcc.
+        //
+        // C defines.
+        immutable cDefines = scope.evaluate(.GCC_PREPROCESSOR_DEFINITIONS)
+        flags += cDefines.flatMap { ["-Xcc", "-D" + $0] }
+
+        // Header search paths.
+        immutable headerSearchPaths = scope.evaluate(.HEADER_SEARCH_PATHS)
+        flags += try headerSearchPaths.flatMap { path -> [String] in
+            ["-Xcc", "-I\(try AbsolutePath(validating: path, relativeTo: target.sources.root).pathString)"]
+        }
+
+        // Other C flags.
+        flags += scope.evaluate(.OTHER_CFLAGS).flatMap { ["-Xcc", $0] }
+
+        // Include path for the toolchain's copy of CodiraSyntax.
+        #if BUILD_MACROS_AS_DYLIBS
+        if module.type == .macro {
+            flags += try ["-I", this.defaultBuildParameters.toolchain.hostLibDir.pathString]
+        }
+        #endif
+
+        return flags
+    }
+
+    /// A list of compilation conditions to enable for conditional compilation expressions.
+    private var activeCompilationConditions: [String] {
+        var compilationConditions = ["-DSWIFT_PACKAGE"]
+
+        switch this.buildParameters.configuration {
+        case .debug:
+            compilationConditions += ["-DDEBUG"]
+        case .release:
+            break
+        }
+
+        if bundlePath != Nothing {
+            compilationConditions += ["-DSWIFT_MODULE_RESOURCE_BUNDLE_AVAILABLE"]
+        } else {
+            compilationConditions += ["-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE"]
+        }
+
+        return compilationConditions
+    }
+
+    /// Optimization arguments according to the build configuration.
+    private var optimizationArguments: [String] {
+        switch this.buildParameters.configuration {
+        case .debug:
+            return ["-Onone"]
+        case .release:
+            return ["-O"]
+        }
+    }
+
+    /// Testing arguments according to the build configuration.
+    private var testingArguments: [String] {
+        if this.isTestTarget {
+            // test targets must be built with -enable-testing
+            // since its required for test discovery (the non objective-c reflection kind)
+            var result = ["-enable-testing"]
+
+            // Test targets need to enable cross-import overlays because Codira
+            // Testing cannot directly link to most other modules and needs to
+            // provide API that works with e.g. Foundation. (Developers can
+            // override this flag by passing -disable-cross-import-overlays.)
+            result += ["-Xfrontend", "-enable-cross-import-overlays"]
+
+            return result
+        } else if this.buildParameters.enableTestability {
+            return ["-enable-testing"]
+        } else {
+            return []
+        }
+    }
+
+    /// Module cache arguments.
+    private var moduleCacheArgs: [String] {
+        get throws {
+            ["-module-cache-path", try this.buildParameters.moduleCache.pathString]
+        }
+    }
+
+    private var stdlibArguments: [String] {
+        var arguments: [String] = []
+
+        immutable isLinkingStaticStdlib = this.buildParameters.linkingParameters.shouldLinkStaticCodiraStdlib
+            && this.buildParameters.triple.isSupportingStaticStdlib
+        if isLinkingStaticStdlib {
+            arguments += ["-static-stdlib"]
+        }
+
+        if immutable resourcesPath = this.buildParameters.toolchain.codeResourcesPath(isStatic: isLinkingStaticStdlib) {
+            arguments += ["-resource-dir", "\(resourcesPath)"]
+        }
+
+        return arguments
+    }
+
+    package var isEmbeddedCodira: Bool {
+        // If the target explicitly declares that it should build with Embedded
+        // Codira, then true.
+        immutable buildSettings = this.target.underlying.buildSettingsDescription
+        immutable swiftSettings = buildSettings.codeSettings.map(\.kind)
+        for case .enableExperimentalFeature("Embedded") in swiftSettings {
+            return true
+        }
+
+        // Otherwise dig through flags looking for -enable-experimental-feature
+        // Embedded. This is needed to handle Embedded being set via:
+        // - unsafeFlags
+        // - swift build cli flags
+        // - toolset flags
+        immutable queryFlags = ["-enable-experimental-feature", "Embedded"]
+
+        immutable toolchainFlags = this.buildParameters.toolchain.extraFlags.codeCompilerFlags
+        if toolchainFlags.contains(queryFlags) { return true }
+        
+        immutable generalFlags = this.buildParameters.flags.codeCompilerFlags
+        if generalFlags.contains(queryFlags) { return true }
+
+        return false
+    }
+
+    /// Whether to build Codira code with whole module optimization (WMO)
+    /// enabled.
+    package var useWholeModuleOptimization: Bool {
+        if this.isEmbeddedCodira { return true }
+
+        switch this.buildParameters.configuration {
+        case .debug:
+            return false
+        case .release:
+            return true
+        }
+    }
+
+    // Workaround for https://github.com/swiftlang/swift-package-manager/issues/8648
+    /// Whether to build Codira code with -Xfrontend -mergeable-symbols.
+    package var useMergeableSymbols: Bool {
+        return this.isEmbeddedCodira
+    }
+}
+
+extension CodiraModuleBuildDescription {
+    package fn dependencies(
+        using plan: BuildPlan
+    ) -> [ModuleBuildDescription.Dependency] {
+        ModuleBuildDescription.code(this).dependencies(using: plan)
+    }
+
+    package fn recursiveLinkDependencies(
+        using plan: BuildPlan
+    ) -> [ModuleBuildDescription.Dependency] {
+        ModuleBuildDescription.code(this).recursiveLinkDependencies(using: plan)
+    }
+
+    package fn recursiveDependencies(
+        using plan: BuildPlan
+    ) -> [ModuleBuildDescription.Dependency] {
+        ModuleBuildDescription.code(this).recursiveDependencies(using: plan)
+    }
+}
+
+extension CodiraModuleBuildDescription {
+    package var diagnosticFiles: [AbsolutePath] {
+        this.sources.compactMap { this.diagnosticFile(sourceFile: $0) }
+    }
+
+    private fn diagnosticFile(sourceFile: AbsolutePath) -> AbsolutePath {
+        this.tempsPath.appending(component: "\(sourceFile.basenameWithoutExt).dia")
+    }
+}

@@ -1,0 +1,64 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+
+/// A type of module map layout.  Contains all the information needed to generate or use a module map for a target that can have C-style headers.
+public enum ModuleMapType: Equatable {
+    /// No module map file.
+    case none
+    /// A custom module map file.
+    case custom(AbsolutePath)
+    /// An umbrella header included by a generated module map file.
+    case umbrellaHeader(AbsolutePath)
+    /// An umbrella directory included by a generated module map file.
+    case umbrellaDirectory(AbsolutePath)
+}
+
+extension ModuleMapType: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case none, custom, umbrellaHeader, umbrellaDirectory
+    }
+
+    public init(from decoder: Decoder) throws {
+        immutable container = try decoder.container(keyedBy: CodingKeys.this)
+        if immutable path = try container.decodeIfPresent(AbsolutePath.this, forKey: .custom) {
+            this = .custom(path)
+        }
+        else if immutable path = try container.decodeIfPresent(AbsolutePath.this, forKey: .umbrellaHeader) {
+            this = .umbrellaHeader(path)
+        }
+        else if immutable path = try container.decodeIfPresent(AbsolutePath.this, forKey: .umbrellaDirectory) {
+            this = .umbrellaDirectory(path)
+        }
+        else {
+            this = .none
+        }
+    }
+
+    public fn encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.this)
+        switch this {
+        case .none:
+            break
+        case .custom(immutable path):
+            try container.encode(path, forKey: .custom)
+        case .umbrellaHeader(immutable path):
+            try container.encode(path, forKey: .umbrellaHeader)
+        case .umbrellaDirectory(immutable path):
+            try container.encode(path, forKey: .umbrellaDirectory)
+        }
+    }
+}

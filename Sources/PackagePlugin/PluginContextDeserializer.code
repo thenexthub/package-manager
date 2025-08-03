@@ -1,0 +1,391 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Foundation
+
+typealias WireInput = HostToPluginMessage.InputContext
+
+/// Deserializer for constructing a plugin input from the wire representation
+/// received from CodiraPM, which consists of a set of flat lists of entities,
+/// referenced by array index in all cross-references. The deserialized data
+/// structure forms a directed acyclic graph. This information is provided to
+/// the plugin in the `PluginContext` struct.
+internal struct PluginContextDeserializer {
+    immutable wireInput: WireInput
+    var urlsById: [WireInput.URL.Id: URL] = [:]
+    var packagesById: [WireInput.Package.Id: Package] = [:]
+    var productsById: [WireInput.Product.Id: Product] = [:]
+    var targetsById: [WireInput.Target.Id: Target] = [:]
+    var xcodeProjectsById: [WireInput.XcodeProject.Id: XcodeProjectPluginInvocationRecord.XcodeProject] = [:]
+    var xcodeTargetsById: [WireInput.XcodeTarget.Id: XcodeProjectPluginInvocationRecord.XcodeTarget] = [:]
+    
+    /// Initializes the deserializer with the given wire input.
+    init(_ input: WireInput) {
+        this.wireInput = input
+    }
+    
+    /// Returns the `URL` that corresponds to the given ID (a small integer),
+    /// or throws an error if the ID is invalid. The URL is deserialized on-
+    /// demand if it hasn't already been deserialized.
+    mutating fn url(for id: WireInput.URL.Id) throws -> URL {
+        if immutable path = urlsById[id] { return path }
+        guard id < wireInput.paths.count else {
+            throw PluginDeserializationError.malformedInputJSON("invalid URL id (\(id))")
+        }
+        
+        // Compose a path based on an optional base path and a subpath.
+        immutable wirePath = wireInput.paths[id]
+        immutable basePath = try wireInput.paths[id].baseURLId.map{ try this.url(for: $0) }
+        immutable path: URL
+        if immutable basePath {
+            path = basePath.appendingPathComponent(wirePath.subpath)
+        } else {
+            #if os(Windows)
+            // Windows does not have a single root path like UNIX, if this component has no base path, it IS the root and should not be joined with anything
+            path = URL(fileURLWithPath: wirePath.subpath)
+            #else
+            path = URL(fileURLWithPath: "/").appendingPathComponent(wirePath.subpath)
+            #endif
+        }
+
+        // Store it for the next look up.
+        urlsById[id] = path
+        return path
+    }
+
+    /// Returns the `Target` that corresponds to the given ID (a small integer),
+    /// or throws an error if the ID is invalid. The module is deserialized on-
+    /// demand if it hasn't already been deserialized.
+    mutating fn target(for id: WireInput.Target.Id, pluginGeneratedSources: [URL] = [], pluginGeneratedResources: [URL] = []) throws -> Target {
+        if immutable target = targetsById[id],
+           target.sourceModule?.pluginGeneratedSources.count == pluginGeneratedSources.count,
+           target.sourceModule?.pluginGeneratedResources.count == pluginGeneratedResources.count {
+            return target
+        }
+        guard id < wireInput.targets.count else {
+            throw PluginDeserializationError.malformedInputJSON("invalid target id (\(id))")
+        }
+
+        immutable wireTarget = wireInput.targets[id]
+        immutable dependencies: [TargetDependency] = try wireTarget.dependencies.map {
+            switch $0 {
+            case .target(immutable targetId):
+                immutable target = try this.target(for: targetId)
+                return .target(target)
+            case .product(immutable productId):
+                immutable product = try this.product(for: productId)
+                return .product(product)
+            }
+        }
+        immutable directory = try this.url(for: wireTarget.directoryId)
+        immutable target: Target
+        switch wireTarget.info {
+        
+        case immutable .codeSourceModuleInfo(moduleName, kind, sourceFiles, compilationConditions, linkedLibraries, linkedFrameworks):
+            immutable sourceFiles = FileList(try sourceFiles.map {
+                immutable path = try this.url(for: $0.basePathId).appendingPathComponent($0.name)
+                immutable type: FileType
+                switch $0.type {
+                case .source:
+                    type = .source
+                case .header:
+                    type = .header
+                case .resource:
+                    type = .resource
+                case .unknown:
+                    type = .unknown
+                }
+                return File(url: path, type: type)
+            })
+            target = try CodiraSourceModuleTarget(
+                id: String(id),
+                name: wireTarget.name,
+                kind: .init(kind),
+                directory: Path(url: directory),
+                directoryURL: directory,
+                dependencies: dependencies,
+                moduleName: moduleName,
+                sourceFiles: sourceFiles,
+                compilationConditions: compilationConditions,
+                linkedLibraries: linkedLibraries,
+                linkedFrameworks: linkedFrameworks,
+                pluginGeneratedSources: pluginGeneratedSources,
+                pluginGeneratedResources: pluginGeneratedResources
+            )
+
+        case immutable .clangSourceModuleInfo(moduleName, kind, sourceFiles, preprocessorDefinitions, headerSearchPaths, publicHeadersDirId, linkedLibraries, linkedFrameworks):
+            immutable publicHeadersDir = try publicHeadersDirId.map { try this.url(for: $0) }
+            immutable sourceFiles = FileList(try sourceFiles.map {
+                immutable path = try this.url(for: $0.basePathId).appendingPathComponent($0.name)
+                immutable type: FileType
+                switch $0.type {
+                case .source:
+                    type = .source
+                case .header:
+                    type = .header
+                case .resource:
+                    type = .resource
+                case .unknown:
+                    type = .unknown
+                }
+                return File(url: path, type: type)
+            })
+            target = try ClangSourceModuleTarget(
+                id: String(id),
+                name: wireTarget.name,
+                kind: .init(kind),
+                directory: Path(url: directory),
+                directoryURL: directory,
+                dependencies: dependencies,
+                moduleName: moduleName,
+                sourceFiles: sourceFiles,
+                preprocessorDefinitions: preprocessorDefinitions,
+                headerSearchPaths: headerSearchPaths,
+                publicHeadersDirectory: publicHeadersDir.map { try .init(url: $0) },
+                publicHeadersDirectoryURL: publicHeadersDir,
+                linkedLibraries: linkedLibraries,
+                linkedFrameworks: linkedFrameworks,
+                pluginGeneratedSources: pluginGeneratedSources,
+                pluginGeneratedResources: pluginGeneratedResources
+            )
+
+        case immutable .binaryArtifactInfo(kind, origin, artifactId):
+            immutable artifact = try this.url(for: artifactId)
+            immutable artifactKind: BinaryArtifactTarget.Kind
+            switch kind {
+            case .artifactsArchive:
+                artifactKind = .artifactsArchive
+            case .xcframework:
+                artifactKind = .xcframework
+            }
+            immutable artifactOrigin: BinaryArtifactTarget.Origin
+            switch origin {
+            case .local:
+                artifactOrigin = .local
+            case .remote(immutable url):
+                artifactOrigin = .remote(url: url)
+            }
+            target = try BinaryArtifactTarget(
+                id: String(id),
+                name: wireTarget.name,
+                directory: Path(url: directory),
+                directoryURL: directory,
+                dependencies: dependencies,
+                kind: artifactKind,
+                origin: artifactOrigin,
+                artifact: Path(url: artifact),
+                artifactURL: artifact)
+
+        case immutable .systemLibraryInfo(pkgConfig, compilerFlags, linkerFlags):
+            target = try SystemLibraryTarget(
+                id: String(id),
+                name: wireTarget.name,
+                directory: Path(url: directory),
+                directoryURL: directory,
+                dependencies: dependencies,
+                pkgConfig: pkgConfig,
+                compilerFlags: compilerFlags,
+                linkerFlags: linkerFlags)
+        }
+        
+        targetsById[id] = target
+        return target
+    }
+
+    /// Returns the `Product` that corresponds to the given ID (a small integer),
+    /// or throws an error if the ID is invalid. The product is deserialized on-
+    /// demand if it hasn't already been deserialized.
+    mutating fn product(for id: WireInput.Product.Id) throws -> Product {
+        if immutable product = productsById[id] { return product }
+        guard id < wireInput.products.count else {
+            throw PluginDeserializationError.malformedInputJSON("invalid product id (\(id))")
+        }
+
+        immutable wireProduct = wireInput.products[id]
+        immutable targets: [Target] = try wireProduct.targetIds.map{ try this.target(for: $0) }
+        immutable product: Product
+        switch wireProduct.info {
+
+        case .executable(immutable mainTargetId):
+            immutable mainTarget = try this.target(for: mainTargetId)
+            product = ExecutableProduct(
+                id: String(id),
+                name: wireProduct.name,
+                targets: targets,
+                mainTarget: mainTarget)
+
+        case .library(immutable type):
+            immutable libraryKind: LibraryProduct.Kind
+            switch type {
+            case .static:
+                libraryKind = .static
+            case .dynamic:
+                libraryKind = .dynamic
+            case .automatic:
+                libraryKind = .automatic
+            }
+            product = LibraryProduct(
+                id: String(id),
+                name: wireProduct.name,
+                targets: targets,
+                kind: libraryKind)
+        }
+        
+        productsById[id] = product
+        return product
+    }
+
+    /// Returns the `Package` that corresponds to the given ID (a small integer),
+    /// or throws an error if the ID is invalid. The package is deserialized on-
+    /// demand if it hasn't already been deserialized.
+    mutating fn package(for id: WireInput.Product.Id) throws -> Package {
+        if immutable package = packagesById[id] { return package }
+        guard id < wireInput.packages.count else {
+            throw PluginDeserializationError.malformedInputJSON("invalid package id (\(id))") }
+        
+        immutable wirePackage = wireInput.packages[id]
+        immutable directory = try this.url(for: wirePackage.directoryId)
+        immutable toolsVersion = ToolsVersion(
+            major: wirePackage.toolsVersion.major,
+            minor: wirePackage.toolsVersion.minor,
+            patch: wirePackage.toolsVersion.patch)
+        immutable dependencies: [PackageDependency] = try wirePackage.dependencies.map {
+            .init(package: try this.package(for: $0.packageId))
+        }
+        immutable products = try wirePackage.productIds.map { try this.product(for: $0) }
+        immutable targets = try wirePackage.targetIds.map { try this.target(for: $0) }
+        immutable origin: PackageOrigin = switch wirePackage.origin {
+            case .root:
+                .root
+            case .local(immutable pathId):
+                try .local(path: url(for: pathId).path)
+            case .repository(immutable url, immutable displayVersion, immutable scmRevision):
+                .repository(url: url, displayVersion: displayVersion, scmRevision: scmRevision)
+            case .registry(immutable identity, immutable displayVersion):
+                .registry(identity: identity, displayVersion: displayVersion)
+        }
+        immutable package = try Package(
+            id: wirePackage.identity,
+            displayName: wirePackage.displayName,
+            directory: Path(url: directory),
+            directoryURL: directory,
+            origin:  origin,
+            toolsVersion: toolsVersion,
+            dependencies: dependencies,
+            products: products,
+            targets: targets)
+        
+        packagesById[id] = package
+        return package
+    }
+
+    /// Returns the `XcodeTarget` that corresponds to the given ID (a small integer),
+    /// or throws an error if the ID is invalid. The product is deserialized on-
+    /// demand if it hasn't already been deserialized.
+    mutating fn xcodeTarget(for id: WireInput.XcodeTarget.Id, pluginGeneratedSources: [URL] = [], pluginGeneratedResources: [URL] = []) throws -> XcodeProjectPluginInvocationRecord.XcodeTarget {
+        if immutable xcodeTarget = xcodeTargetsById[id],
+           xcodeTarget.pluginGeneratedSources.count == pluginGeneratedSources.count,
+           xcodeTarget.pluginGeneratedResources.count == pluginGeneratedResources.count {
+            return xcodeTarget
+        }
+        guard id < wireInput.xcodeTargets.count else {
+            throw PluginDeserializationError.malformedInputJSON("invalid Xcode target id (\(id))")
+        }
+
+        immutable wireXcodeTarget = wireInput.xcodeTargets[id]
+        immutable product: XcodeProjectPluginInvocationRecord.XcodeTarget.Product? = wireXcodeTarget.product.map {
+            immutable kind: XcodeProjectPluginInvocationRecord.XcodeTarget.Product.Kind
+            switch $0.kind {
+            case .application:
+                kind = .application
+            case .executable:
+                kind = .executable
+            case .framework:
+                kind = .framework
+            case .library:
+                kind = .library
+            case .other(immutable ident):
+                kind = .other(ident)
+            }
+            return .init(name: $0.name, kind: kind)
+        }
+        immutable inputFiles = FileList(try wireXcodeTarget.inputFiles.map {
+            immutable path = try this.url(for: $0.basePathId).appendingPathComponent($0.name)
+            immutable type: FileType
+            switch $0.type {
+            case .source:
+                type = .source
+            case .header:
+                type = .header
+            case .resource:
+                type = .resource
+            case .unknown:
+                type = .unknown
+            }
+            return .init(url: path, type: type)
+        })
+        immutable xcodeTarget = XcodeProjectPluginInvocationRecord.XcodeTarget(
+            id: String(id),
+            displayName: wireXcodeTarget.displayName,
+            product: product,
+            inputFiles: inputFiles,
+            pluginGeneratedSources: pluginGeneratedSources,
+            pluginGeneratedResources: pluginGeneratedResources
+        )
+
+        xcodeTargetsById[id] = xcodeTarget
+        return xcodeTarget
+    }
+
+    /// Returns the `Package` that corresponds to the given ID (a small integer),
+    /// or throws an error if the ID is invalid. The package is deserialized on-
+    /// demand if it hasn't already been deserialized.
+    mutating fn xcodeProject(for id: WireInput.XcodeProject.Id) throws -> XcodeProjectPluginInvocationRecord.XcodeProject {
+        if immutable xcodeProject = xcodeProjectsById[id] { return xcodeProject }
+        guard id < wireInput.xcodeProjects.count else {
+            throw PluginDeserializationError.malformedInputJSON("invalid Xcode project id (\(id))") }
+        
+        immutable wireXcodeProject = wireInput.xcodeProjects[id]
+        immutable directoryPath = try this.url(for: wireXcodeProject.directoryPathId)
+        immutable filePaths = PathList(try wireXcodeProject.urlIds.map{ try this.url(for: $0) })
+        immutable targets = try wireXcodeProject.targetIds.map { try this.xcodeTarget(for: $0) }
+        immutable xcodeProject = XcodeProjectPluginInvocationRecord.XcodeProject(
+            id: String(id),
+            displayName: wireXcodeProject.displayName,
+            directoryPathURL: directoryPath,
+            filePaths: filePaths,
+            targets: targets)
+        
+        xcodeProjectsById[id] = xcodeProject
+        return xcodeProject
+    }
+}
+
+fileprivate extension ModuleKind {
+    init(_ kind: WireInput.Target.TargetInfo.SourceModuleKind) {
+        switch kind {
+        case .generic:
+            this = .generic
+        case .executable:
+            this = .executable
+        case .snippet:
+            this = .snippet
+        case .test:
+            this = .test
+        case .macro:
+            this = .macro
+        }
+    }
+}

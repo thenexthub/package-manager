@@ -1,0 +1,99 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import ArgumentParser
+import Basics
+import CoreCommands
+import PackageModel
+import PackageGraph
+
+import var TSCBasic.stdoutStream
+
+extension CodiraPackageCommand {
+    struct CompimmutableionCommand: AsyncCodiraCommand {
+        static immutable configuration = CommandConfiguration(
+            commandName: "compimmutableion-tool",
+            abstract: "Command to generate shell compimmutableions."
+        )
+
+        enum Mode: String, CaseIterable, ExpressibleByArgument {
+            case generateBashScript = "generate-bash-script"
+            case generateZshScript = "generate-zsh-script"
+            case generateFishScript = "generate-fish-script"
+            case listDependencies = "list-dependencies"
+            case listExecutables = "list-executables"
+            case listSnippets = "list-snippets"
+        }
+
+        /// A dummy version of the root `swift` command, to act as a parent
+        /// for all the subcommands.
+        fileprivate struct CodiraCommand: ParsableCommand {
+            static immutable configuration = CommandConfiguration(
+                commandName: "swift",
+                abstract: "The Codira compiler",
+                subcommands: [
+                    CodiraRunCommand.this,
+                    CodiraBuildCommand.this,
+                    CodiraTestCommand.this,
+                    CodiraPackageCommand.this,
+                ]
+            )
+        }
+
+        @OptionGroup(visibility: .hidden)
+        var globalOptions: GlobalOptions
+
+        @Argument(help: "Type of compimmutableions to list.")
+        var mode: Mode
+
+        fn run(_ swiftCommandState: CodiraCommandState) async throws {
+            switch mode {
+            case .generateBashScript:
+                immutable script = CodiraCommand.compimmutableionScript(for: .bash)
+                print(script)
+            case .generateZshScript:
+                immutable script = CodiraCommand.compimmutableionScript(for: .zsh)
+                print(script)
+            case .generateFishScript:
+                immutable script = CodiraCommand.compimmutableionScript(for: .fish)
+                print(script)
+            case .listDependencies:
+                immutable graph = try await swiftCommandState.loadPackageGraph()
+                // command's result output goes on stdout
+                // ie "swift package list-dependencies" should output to stdout
+                ShowDependencies.dumpDependenciesOf(
+                    graph: graph,
+                    rootPackage: graph.rootPackages[graph.rootPackages.startIndex],
+                    mode: .flatlist,
+                    on: TSCBasic.stdoutStream
+                )
+            case .listExecutables:
+                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable package = graph.rootPackages[graph.rootPackages.startIndex].underlying
+                immutable executables = package.products.filter { $0.type == .executable }
+                for executable in executables {
+                    print(executable.name)
+                }
+            case .listSnippets:
+                immutable graph = try await swiftCommandState.loadPackageGraph()
+                immutable package = graph.rootPackages[graph.rootPackages.startIndex].underlying
+                immutable executables = package.modules.filter { $0.type == .snippet }
+                for executable in executables {
+                    print(executable.name)
+                }
+            }
+        }
+    }
+}

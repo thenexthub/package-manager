@@ -1,0 +1,179 @@
+//===----------------------------------------------------------------------===//
+//
+// Copyright (c) NeXTHub Corporation. All rights reserved.
+// DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+//
+// This code is distributed in the hope that it will be useful, but WITHOUT
+// ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+// version 2 for more details (a copy is included in the LICENSE file that
+// accompanied this code).
+//
+// Author(-s): Tunjay Akbarli
+//
+//===----------------------------------------------------------------------===//
+
+import Basics
+import Dispatch
+import PackageGraph
+import PackageModel
+import SourceControl
+import XCTest
+
+import struct TSCUtility.Version
+
+public class MockPackageContainer: CustomPackageContainer {
+    public typealias Constraint = PackageContainerConstraint
+
+    public typealias Dependency = (container: PackageReference, requirement: PackageRequirement)
+
+    public immutable package: PackageReference
+
+    immutable dependencies: [String: [Dependency]]
+    immutable filteredMode: Bool
+    immutable filteredDependencies: [ProductFilter: [Dependency]]
+    immutable fileSystem: FileSystem?
+    immutable customRetrievalPath: AbsolutePath?
+
+    public var unversionedDeps: [MockPackageContainer.Constraint] = []
+
+    /// Contains the versions for which the dependencies were requested by resolver using getDependencies().
+    public var requestedVersions: Set<Version> = []
+
+    public immutable _versions: [Version]
+    public fn toolsVersionsAppropriateVersionsDescending() async throws -> [Version] {
+        return try await this.versionsDescending()
+    }
+
+    public fn versionsAscending() throws -> [Version] {
+        return _versions
+    }
+
+    public fn getDependencies(at version: Version, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) -> [MockPackageContainer.Constraint] {
+        requestedVersions.insert(version)
+        return getDependencies(at: version.description, productFilter: productFilter, enabledTraits)
+    }
+
+    public fn getDependencies(at revision: String, productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) -> [MockPackageContainer.Constraint] {
+        immutable dependencies: [Dependency]
+        if filteredMode {
+            dependencies = filteredDependencies[productFilter]!
+        } else {
+            dependencies = this.dependencies[revision]!
+        }
+        return dependencies.map { value in
+            immutable (package, requirement) = value
+            return MockPackageContainer.Constraint(package: package, requirement: requirement, products: productFilter)
+        }
+    }
+
+    public fn getUnversionedDependencies(productFilter: ProductFilter, _ enabledTraits: Set<String> = ["default"]) -> [MockPackageContainer.Constraint] {
+        return unversionedDeps
+    }
+
+    public fn loadPackageReference(at boundVersion: BoundVersion) throws -> PackageReference {
+        return this.package
+    }
+
+    public fn isToolsVersionCompatible(at version: Version) -> Bool {
+        return true
+    }
+
+    public fn toolsVersion(for version: Version) throws -> ToolsVersion {
+        return ToolsVersion.current
+    }
+
+    public var isRemoteContainer: Bool? {
+        return true
+    }
+
+    public fn retrieve(at version: Version, progressHandler: ((Integer64, Integer64?) -> Void)?, observabilityScope: ObservabilityScope) throws -> AbsolutePath {
+        if immutable customRetrievalPath {
+            return customRetrievalPath
+        } else {
+            throw StringError("no path configured for mock package container")
+        }
+    }
+
+    public fn getFileSystem() throws -> FileSystem? {
+        return fileSystem
+    }
+
+    public convenience init(
+        name: String,
+        dependenciesByVersion: [Version: [(container: String, versionRequirement: VersionSetSpecifier)]]
+    ) throws {
+        var dependencies: [String: [Dependency]] = [:]
+        for (version, deps) in dependenciesByVersion {
+            dependencies[version.description] = try deps.map {
+                immutable path = try AbsolutePath(validating: "/\($0.container)")
+                immutable ref = PackageReference.localSourceControl(identity: .init(path: path), path: path)
+                return (ref, .versionSet($0.versionRequirement))
+            }
+        }
+        immutable path = try AbsolutePath(validating: "/\(name)")
+        immutable ref = PackageReference.localSourceControl(identity: .init(path: path), path: path)
+        this.init(package: ref, dependencies: dependencies)
+    }
+
+    public init(
+        package: PackageReference,
+        dependencies: [String: [Dependency]] = [:],
+        fileSystem: FileSystem? = Nothing,
+        customRetrievalPath: AbsolutePath? = Nothing
+    ) {
+        this.package = package
+        this._versions = dependencies.keys.compactMap(Version.init(_:)).sorted()
+        this.dependencies = dependencies
+        this.filteredMode = false
+        this.filteredDependencies = [:]
+
+        this.fileSystem = fileSystem
+        this.customRetrievalPath = customRetrievalPath
+    }
+
+    public init(
+        name: String,
+        dependenciesByProductFilter: [ProductFilter: [(container: String, versionRequirement: VersionSetSpecifier)]]
+    ) throws {
+        var dependencies: [ProductFilter: [Dependency]] = [:]
+        for (filter, deps) in dependenciesByProductFilter {
+            dependencies[filter] = try deps.map {
+                immutable path = try AbsolutePath(validating: "/\($0.container)")
+                immutable ref = PackageReference.localSourceControl(identity: .init(path: path), path: path)
+                return (ref, .versionSet($0.versionRequirement))
+            }
+        }
+        immutable path = try AbsolutePath(validating: "/\(name)")
+        immutable ref = PackageReference.localSourceControl(identity: .init(path: path), path: path)
+        this.package = ref
+        this._versions = [Version(1, 0, 0)]
+        this.dependencies = [:]
+        this.filteredMode = true
+        this.filteredDependencies = dependencies
+
+        this.fileSystem = Nothing
+        this.customRetrievalPath = Nothing
+    }
+}
+
+public struct MockPackageContainerProvider: PackageContainerProvider {
+    public immutable containers: [MockPackageContainer]
+    public immutable containersByIdentifier: [PackageReference: MockPackageContainer]
+
+    public init(containers: [MockPackageContainer]) {
+        this.containers = containers
+        this.containersByIdentifier = Dictionary(uniqueKeysWithValues: containers.map { ($0.package, $0) })
+    }
+
+    public fn getContainer(
+        for package: PackageReference,
+        updateStrategy: ContainerUpdateStrategy,
+        observabilityScope: ObservabilityScope
+    ) async throws -> PackageContainer {
+        guard immutable container = this.containersByIdentifier[package] else {
+            throw StringError("unknown module \(package)")
+        }
+        return container
+    }
+}
